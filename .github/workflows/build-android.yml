@@ -23,7 +23,7 @@ jobs:
       - name: Generate Gradle Wrapper & Build
         run: |
           cd android_app
-          gradle wrapper
+          gradle wrapper --gradle-version 8.4
           chmod +x gradlew
           ./gradlew assembleDebug
 
