@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="fr" dir="ltr" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VenteBot Admin Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="glow-bg">
+        <div class="glow-circle glow-circle-1"></div>
+        <div class="glow-circle glow-circle-2"></div>
+    </div>
+
+    <!-- Login Screen -->
+    <div id="login-screen" class="glass-container">
+        <div class="login-card glass-panel">
+            <div class="login-header">
+                <div class="brand-logo"><i class="fa-solid fa-server"></i></div>
+                <h1>VenteBot</h1>
+                <p data-i18n="login_subtitle">Console de Gestion Administrateur</p>
+            </div>
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="bot-url"><i class="fa-solid fa-link"></i> <span data-i18n="login_url_label">URL de l'API (optionnel)</span></label>
+                    <input type="text" id="bot-url" value="" placeholder="https://your-app.up.railway.app">
+                    <span class="field-hint" data-i18n="login_url_hint">Laissez vide pour le proxy Netlify</span>
+                </div>
+                <div class="form-group">
+                    <label for="api-key"><i class="fa-solid fa-key"></i> <span data-i18n="login_key_label">Clé d'API Administrateur</span></label>
+                    <input type="password" id="api-key" placeholder="Entrez votre clé secrète" required>
+                </div>
+                <button type="submit" class="btn-primary"><i class="fa-solid fa-plug"></i> <span data-i18n="login_btn">Se connecter</span></button>
+            </form>
+            <div id="login-error" class="alert-box error hidden">
+                <i class="fa-solid fa-circle-exclamation"></i> Connexion impossible.
+            </div>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="app-container" class="hidden">
+        <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
+        <aside class="sidebar glass-panel">
+            <div class="sidebar-brand">
+                <i class="fa-solid fa-bolt brand-icon"></i>
+                <h2>VenteBot</h2>
+            </div>
+            <nav class="sidebar-menu">
+                <a href="#" class="menu-item active" data-tab="dashboard-tab"><i class="fa-solid fa-chart-simple"></i> <span data-i18n="nav_dashboard">Dashboard</span></a>
+                <a href="#" class="menu-item" data-tab="finance-tab"><i class="fa-solid fa-sack-dollar"></i> <span data-i18n="nav_finance">Finance</span></a>
+                <a href="#" class="menu-item" data-tab="inventory-tab"><i class="fa-solid fa-box-open"></i> <span data-i18n="nav_inventory">Catalogue & Stock</span></a>
+                <a href="#" class="menu-item" data-tab="orders-tab"><i class="fa-solid fa-receipt"></i> <span data-i18n="nav_orders">Commandes</span><span id="badge-orders" class="badge hidden">0</span></a>
+                <a href="#" class="menu-item" data-tab="users-tab"><i class="fa-solid fa-users"></i> <span data-i18n="nav_users">Utilisateurs</span></a>
+                <a href="#" class="menu-item" data-tab="wallet-history-tab"><i class="fa-solid fa-wallet"></i> <span data-i18n="nav_wallet_history">Wallet History</span></a>
+                <a href="#" class="menu-item" data-tab="tickets-tab"><i class="fa-solid fa-ticket"></i> <span data-i18n="nav_tickets">Tickets</span><span id="badge-tickets" class="badge hidden">0</span></a>
+                <a href="#" class="menu-item" data-tab="binance-tab"><i class="fa-brands fa-btc"></i> <span data-i18n="nav_binance">Comptes Binance</span></a>
+                <a href="#" class="menu-item" data-tab="broadcast-tab"><i class="fa-solid fa-bullhorn"></i> <span data-i18n="nav_broadcast">Broadcast</span></a>
+                <a href="#" class="menu-item" data-tab="settings-tab"><i class="fa-solid fa-sliders"></i> <span data-i18n="nav_settings">Paramètres</span></a>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <i class="fa-solid fa-user-shield"></i>
+                    <div>
+                        <p class="user-name" data-i18n="admin_title">Administrateur</p>
+                        <p class="user-status"><span class="status-dot online"></span> <span data-i18n="status_connected">Connecté</span></p>
+                    </div>
+                </div>
+                <button id="btn-logout" class="btn-logout"><i class="fa-solid fa-power-off"></i> <span data-i18n="btn_logout">Déconnexion</span></button>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <header class="topbar glass-panel">
+                <div style="display:flex;align-items:center;gap:0.75rem;">
+                    <button id="mobile-menu-btn" class="mobile-menu-toggle" aria-label="Menu"><i class="fa-solid fa-bars"></i></button>
+                    <div class="page-title"><h1 id="current-tab-title" data-i18n="tab_dashboard">Tableau de Bord</h1></div>
+                </div>
+                <div class="topbar-actions">
+                    <div class="lang-selector">
+                        <button class="lang-btn" data-lang="fr" title="Français">🇫🇷</button>
+                        <button class="lang-btn" data-lang="en" title="English">🇬🇧</button>
+                        <button class="lang-btn" data-lang="ar" title="العربية">عر</button>
+                    </div>
+                    <button id="btn-theme" class="btn-icon" title="Toggle theme"><i class="fa-solid fa-moon"></i></button>
+                    <div class="auto-refresh-toggle">
+                        <button id="btn-auto-refresh" class="btn-icon active" title="Auto-refresh"><i class="fa-solid fa-arrows-rotate"></i></button>
+                    </div>
+                    <div id="api-status-badge" class="api-status">
+                        <span class="status-indicator online"></span><p>API</p>
+                    </div>
+                    <button id="btn-export" class="btn-icon" title="Exporter Excel"><i class="fa-solid fa-file-excel"></i></button>
+                    <button id="btn-refresh" class="btn-icon" title="Refresh"><i class="fa-solid fa-rotate"></i></button>
+                </div>
+            </header>
+
+            <div id="loading-overlay" class="hidden"><div class="spinner"></div></div>
+
+            <!-- Dashboard Tab -->
+            <section id="dashboard-tab" class="tab-content active">
+                <div class="metrics-grid">
+                    <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label"><span data-i18n="metric_revenue">Revenus (30J)</span> <i class="fa-solid fa-circle-info" style="cursor:pointer; color:var(--primary-color); margin-left:4px;" onclick="showRevenueDetails()"></i></p><h3 id="stat-revenue">$0.00</h3></div><div class="metric-icon color-green"><i class="fa-solid fa-dollar-sign"></i></div></div>
+                    <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label" data-i18n="metric_sales">Ventes (30J)</p><h3 id="stat-orders">0</h3></div><div class="metric-icon color-blue"><i class="fa-solid fa-cart-shopping"></i></div></div>
+                    <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label" data-i18n="metric_clients">Clients</p><h3 id="stat-users">0</h3></div><div class="metric-icon color-purple"><i class="fa-solid fa-users"></i></div></div>
+                    <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label" data-i18n="metric_initiated">Commandes (30J)</p><h3 id="stat-pending">0</h3></div><div class="metric-icon color-amber"><i class="fa-solid fa-hourglass-half"></i></div></div>
+                </div>
+                <!-- Charts -->
+                <div class="charts-row">
+                    <div class="chart-card glass-panel">
+                        <div class="panel-header"><h3><i class="fa-solid fa-chart-line"></i> <span data-i18n="chart_revenue">Revenus quotidiens</span></h3></div>
+                        <div class="chart-wrapper"><canvas id="chart-revenue"></canvas></div>
+                    </div>
+                    <div class="chart-card glass-panel">
+                        <div class="panel-header"><h3><i class="fa-solid fa-chart-bar"></i> <span data-i18n="chart_orders">Commandes quotidiennes</span></h3></div>
+                        <div class="chart-wrapper"><canvas id="chart-orders"></canvas></div>
+                    </div>
+                </div>
+                <!-- Stock Summary -->
+                <div class="dashboard-row">
+                    <div class="dashboard-col glass-panel flex-grow-2">
+                        <div class="panel-header"><h3><i class="fa-solid fa-warehouse"></i> <span data-i18n="stock_status">État des Stocks</span></h3></div>
+                        <div class="panel-body"><div id="stock-summary-list" class="stock-status-list"><p class="empty-state" data-i18n="no_products">Aucun produit configuré.</p></div></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Finance Tab -->
+            <section id="finance-tab" class="tab-content">
+                <div class="flex-justify mb-4">
+                    <h2><i class="fa-solid fa-sack-dollar" style="color:var(--primary-color)"></i> Gestion Financière</h2>
+                    <select id="finance-method-filter" class="form-control" style="width: auto; background-color: var(--color-bg); color: var(--color-text);">
+                        <option value="all">Toutes les méthodes</option>
+                        <option value="binance">Binance Pay (+ Topups)</option>
+                        <option value="bep20">BEP20</option>
+                        <option value="trc20">TRC20</option>
+                        <option value="wallet">Portefeuille Interne</option>
+                    </select>
+                </div>
+                
+                <!-- Revenue Metrics -->
+                <div class="metrics-grid mb-4">
+                    <div class="metric-card glass-panel">
+                        <div class="metric-info">
+                            <p class="metric-label">Revenus (Aujourd'hui)</p>
+                            <h3 id="finance-daily">$0.00</h3>
+                        </div>
+                        <div class="metric-icon color-blue"><i class="fa-solid fa-calendar-day"></i></div>
+                    </div>
+                    <div class="metric-card glass-panel">
+                        <div class="metric-info">
+                            <p class="metric-label">Revenus (7 Jours)</p>
+                            <h3 id="finance-weekly">$0.00</h3>
+                        </div>
+                        <div class="metric-icon color-green"><i class="fa-solid fa-calendar-week"></i></div>
+                    </div>
+                    <div class="metric-card glass-panel">
+                        <div class="metric-info">
+                            <p class="metric-label">Revenus (30 Jours)</p>
+                            <h3 id="finance-monthly">$0.00</h3>
+                        </div>
+                        <div class="metric-icon color-purple"><i class="fa-solid fa-calendar-days"></i></div>
+                    </div>
+                </div>
+
+                <!-- Virtual Balance Card -->
+                <div class="dashboard-row">
+                    <div class="dashboard-col glass-panel flex-grow-2" style="text-align: center; padding: 3rem 2rem;">
+                        <h3 style="color: var(--color-text-muted); margin-bottom: 1rem; font-size: 1.2rem; text-transform: uppercase; letter-spacing: 2px;">Solde du Bot (Simulation)</h3>
+                        <h1 id="finance-balance" style="font-size: 4rem; margin-bottom: 2rem; background: linear-gradient(135deg, #10b981, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0 0 20px rgba(16,185,129,0.3);">$0.00</h1>
+                        
+                        <div style="display: flex; gap: 1rem; justify-content: center;">
+                            <button id="btn-finance-withdraw" class="btn-primary" style="font-size: 1.2rem; padding: 1rem 2rem; background: linear-gradient(135deg, #f43f5e, #e11d48); border: none; box-shadow: 0 0 20px rgba(244,63,94,0.4); border-radius: 12px; transition: all 0.3s ease;">
+                                <i class="fa-solid fa-money-bill-transfer"></i> Withdraw
+                            </button>
+                            <button id="btn-finance-adjust" class="btn-secondary" style="font-size: 1.2rem; padding: 1rem 2rem; border-radius: 12px;">
+                                <i class="fa-solid fa-sliders"></i> Ajuster
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Detailed Sales Breakdown -->
+                <div class="flex-justify mb-4" style="margin-top: 2.5rem;">
+                    <h3><i class="fa-solid fa-chart-pie" style="color:var(--primary-color)"></i> Répartition des Ventes (30 Jours)</h3>
+                </div>
+                <div class="metrics-grid mb-4">
+                    <div class="metric-card glass-panel" style="border-left: 3px solid #f3ba2f;">
+                        <div class="metric-info">
+                            <p class="metric-label">Achats Binance Pay</p>
+                            <h3 id="finance-sales-binance">$0.00</h3>
+                        </div>
+                        <div class="metric-icon" style="color:#f3ba2f;"><i class="fa-brands fa-btc"></i></div>
+                    </div>
+                    <div class="metric-card glass-panel" style="border-left: 3px solid #22c55e;">
+                        <div class="metric-info">
+                            <p class="metric-label">Achats BEP20</p>
+                            <h3 id="finance-sales-bep20">$0.00</h3>
+                        </div>
+                        <div class="metric-icon" style="color:#22c55e;"><i class="fa-brands fa-ethereum"></i></div>
+                    </div>
+                    <div class="metric-card glass-panel" style="border-left: 3px solid #ef4444;">
+                        <div class="metric-info">
+                            <p class="metric-label">Achats TRC20</p>
+                            <h3 id="finance-sales-trc20">$0.00</h3>
+                        </div>
+                        <div class="metric-icon" style="color:#ef4444;"><i class="fa-solid fa-link"></i></div>
+                    </div>
+                    <div class="metric-card glass-panel" style="border-left: 3px solid #a855f7;">
+                        <div class="metric-info">
+                            <p class="metric-label">Achats par Wallet</p>
+                            <h3 id="finance-sales-wallet">$0.00</h3>
+                        </div>
+                        <div class="metric-icon" style="color:#a855f7;"><i class="fa-solid fa-wallet"></i></div>
+                    </div>
+                </div>
+
+                <div class="dashboard-row mb-4">
+                    <div class="dashboard-col glass-panel flex-grow-2">
+                        <h3 style="margin-bottom:1.5rem;"><i class="fa-solid fa-money-bill-transfer" style="color:#10b981;"></i> Rechargements Wallet (30 Jours)</h3>
+                        <div style="display:flex; justify-content:space-around; align-items:center; flex-wrap:wrap; gap:1rem;">
+                            <div style="text-align:center;">
+                                <p style="color:var(--color-text-muted); font-size:1.1rem; margin-bottom:0.5rem;">Montant Total Rechargé</p>
+                                <h2 id="finance-topup-revenue" style="color:#10b981; font-size:2.5rem; text-shadow: 0 0 15px rgba(16,185,129,0.3);">$0.00</h2>
+                            </div>
+                            <div style="text-align:center;">
+                                <p style="color:var(--color-text-muted); font-size:1.1rem; margin-bottom:0.5rem;">Nombre de Recharges</p>
+                                <h2 id="finance-topup-count" style="color:#3b82f6; font-size:2.5rem; text-shadow: 0 0 15px rgba(59,130,246,0.3);">0</h2>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Inventory Tab -->
+            <section id="inventory-tab" class="tab-content">
+                <div class="action-bar mb-4">
+                    <div class="tabs-sub">
+                        <button class="sub-tab active" data-sub="prods-sub"><i class="fa-solid fa-boxes-stacked"></i> <span data-i18n="sub_products">Produits</span></button>
+                        <button class="sub-tab" data-sub="promos-sub"><i class="fa-solid fa-ticket"></i> <span data-i18n="sub_promos">Codes Promo</span></button>
+                    </div>
+                </div>
+                <div id="prods-sub" class="sub-tab-content active">
+                    <div class="flex-justify mb-4">
+                        <h2 data-i18n="all_products">Tous les Produits</h2>
+                        <button id="btn-open-prod-modal" class="btn-primary btn-sm"><i class="fa-solid fa-plus"></i> <span data-i18n="btn_add_product">Ajouter</span></button>
+                    </div>
+                    <div class="glass-panel overflow-hidden">
+                        <table class="data-table"><thead><tr>
+                            <th data-i18n="th_product">Produit</th><th data-i18n="th_price">Prix</th><th data-i18n="th_warranty">Garantie</th><th>Stock</th><th data-i18n="th_status">Statut</th><th>Actions</th>
+                        </tr></thead><tbody id="products-table-body"><tr><td colspan="6" class="empty-state" data-i18n="no_products">Aucun produit.</td></tr></tbody></table>
+                    </div>
+                </div>
+                <div id="promos-sub" class="sub-tab-content">
+                    <div class="flex-justify mb-4">
+                        <h2 data-i18n="all_promos">Codes Promo</h2>
+                        <button id="btn-open-promo-modal" class="btn-primary btn-sm"><i class="fa-solid fa-plus"></i> <span data-i18n="btn_add_promo">Créer un Code</span></button>
+                    </div>
+                    <div class="glass-panel overflow-hidden">
+                        <table class="data-table"><thead><tr>
+                            <th>Code</th><th data-i18n="th_type">Type</th><th data-i18n="th_value">Valeur</th><th data-i18n="th_uses">Utilisations</th><th data-i18n="th_status">Statut</th><th>Action</th>
+                        </tr></thead><tbody id="promos-table-body"><tr><td colspan="6" class="empty-state" data-i18n="no_promos">Aucun code promo.</td></tr></tbody></table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Orders Tab -->
+            <section id="orders-tab" class="tab-content">
+                <div class="flex-justify mb-4"><h2 data-i18n="orders_title">Suivi des Commandes</h2></div>
+                <div class="action-bar mb-4"><div class="tabs-sub">
+                    <button class="order-filter-btn active" data-status="all"><i class="fa-solid fa-list"></i> <span data-i18n="filter_all">Toutes</span></button>
+                    <button class="order-filter-btn" data-status="PENDING"><i class="fa-solid fa-clock"></i> <span data-i18n="filter_pending">En attente</span></button>
+                    <button class="order-filter-btn" data-status="COMPLETED"><i class="fa-solid fa-check"></i> <span data-i18n="filter_completed">Complétées</span></button>
+                    <button class="order-filter-btn" data-status="CANCELLED"><i class="fa-solid fa-xmark"></i> <span data-i18n="filter_cancelled">Annulées</span></button>
+                </div></div>
+                <div class="glass-panel overflow-hidden">
+                    <table class="data-table"><thead><tr>
+                        <th>#</th><th>N° Commande</th><th data-i18n="th_binance_id">ID Binance / Tx Hash</th><th data-i18n="th_client">Client</th><th data-i18n="th_product">Produit</th><th data-i18n="th_amount">Montant</th><th data-i18n="th_qty">Qté</th><th data-i18n="th_payment_method">Méthode</th><th data-i18n="th_status">Statut</th><th>Date</th><th>Action</th>
+                    </tr></thead><tbody id="orders-table-body"><tr><td colspan="11" class="empty-state" data-i18n="no_orders">Aucune commande.</td></tr></tbody></table>
+                </div>
+                <div id="orders-pagination" class="pagination-bar hidden">
+                    <button id="orders-prev" class="btn-secondary btn-sm"><i class="fa-solid fa-chevron-left"></i></button>
+                    <span id="orders-page-info">1 / 1</span>
+                    <button id="orders-next" class="btn-secondary btn-sm"><i class="fa-solid fa-chevron-right"></i></button>
+                </div>
+            </section>
+
+            <!-- Wallet History Tab -->
+            <section id="wallet-history-tab" class="tab-content">
+                <div class="flex-justify mb-4">
+                    <h2><i class="fa-solid fa-wallet" style="color:var(--primary-color)"></i> <span data-i18n="wh_title">Historique Wallet</span></h2>
+                </div>
+                <!-- Stats row -->
+                <div class="metrics-grid" style="margin-bottom:1.5rem;">
+                    <div class="metric-card glass-panel animate-slide">
+                        <div class="metric-icon" style="background:linear-gradient(135deg,#22c55e20,#22c55e40);"><i class="fa-solid fa-arrow-trend-up" style="color:#22c55e;"></i></div>
+                        <div class="metric-info"><p data-i18n="wh_total_topups">Total Recharges</p><h3 id="wh-stat-topups">—</h3></div>
+                    </div>
+                    <div class="metric-card glass-panel animate-slide">
+                        <div class="metric-icon" style="background:linear-gradient(135deg,#ef444420,#ef444440);"><i class="fa-solid fa-arrow-trend-down" style="color:#ef4444;"></i></div>
+                        <div class="metric-info"><p data-i18n="wh_total_purchases">Total Achats Wallet</p><h3 id="wh-stat-purchases">—</h3></div>
+                    </div>
+                    <div class="metric-card glass-panel animate-slide">
+                        <div class="metric-icon" style="background:linear-gradient(135deg,#f59e0b20,#f59e0b40);"><i class="fa-solid fa-coins" style="color:#f59e0b;"></i></div>
+                        <div class="metric-info"><p data-i18n="wh_total_count">Transactions</p><h3 id="wh-stat-count">—</h3></div>
+                    </div>
+                </div>
+                <!-- USERS VIEW -->
+                <div class="action-bar mb-4"><div class="tabs-sub">
+                    <button class="wh-filter-btn active" data-type="all"><i class="fa-solid fa-list"></i> <span data-i18n="filter_all">Toutes</span></button>
+                    <button class="wh-filter-btn" data-type="topup"><i class="fa-solid fa-circle-plus"></i> <span data-i18n="wh_filter_topup">Recharges</span></button>
+                    <button class="wh-filter-btn" data-type="purchase"><i class="fa-solid fa-cart-shopping"></i> <span data-i18n="wh_filter_purchase">Achats</span></button>
+                </div></div>
+                <!-- Table -->
+                <div class="glass-panel overflow-hidden">
+                    <table class="data-table"><thead><tr>
+                        <th>#</th>
+                        <th data-i18n="th_client">Client</th>
+                        <th data-i18n="wh_th_type">Type</th>
+                        <th data-i18n="th_amount">Montant</th>
+                        <th data-i18n="wh_th_balance_after">Solde après</th>
+                        <th data-i18n="wh_th_description">Description</th>
+                        <th>Date</th>
+                    </tr></thead>
+                    <tbody id="wh-table-body"><tr><td colspan="7" class="empty-state" data-i18n="wh_no_tx">Aucune transaction.</td></tr></tbody>
+                    </table>
+                </div>
+                <div id="wh-pagination" class="pagination-bar hidden">
+                    <button id="wh-prev" class="btn-secondary btn-sm"><i class="fa-solid fa-chevron-left"></i></button>
+                    <span id="wh-page-info">1 / 1</span>
+                    <button id="wh-next" class="btn-secondary btn-sm"><i class="fa-solid fa-chevron-right"></i></button>
+                </div>
+            </section>
+                
+            <!-- Binance Accounts Tab -->
+            <section id="binance-tab" class="tab-content">
+                <div class="flex-justify mb-4">
+                    <h2><i class="fa-brands fa-btc" style="color:#f59e0b"></i> Comptes Binance Pay</h2>
+                    <button id="btn-open-binance-modal" class="btn-primary btn-sm"><i class="fa-solid fa-plus"></i> Ajouter un compte</button>
+                </div>
+                <div class="glass-panel overflow-hidden">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Label</th>
+                                <th>UID Binance</th>
+                                <th>Par défaut</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="binance-table-body">
+                            <tr><td colspan="4" class="empty-state">Aucun compte Binance.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Users Tab -->
+            <section id="users-tab" class="tab-content">
+                <div class="flex-justify mb-4"><h2 data-i18n="users_title">Gestion des Utilisateurs</h2></div>
+                <div class="action-bar mb-4" style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; justify-content: space-between; width: 100%;">
+                    <div class="search-box" style="position: relative; flex-grow: 1; max-width: 400px; display: flex; align-items: center;">
+                        <span style="position: absolute; left: 14px; color: var(--color-text-muted);"><i class="fa-solid fa-magnifying-glass"></i></span>
+                        <input type="text" id="users-search" placeholder="Rechercher par ID ou nom..." data-i18n-placeholder="users_search_placeholder" style="width: 100%; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 10px; padding: 0.65rem 1rem 0.65rem 2.5rem; color: var(--color-text-main); font-family: var(--font-body); font-size: 0.9rem; outline: none; transition: var(--transition-smooth);" onfocus="this.style.borderColor='var(--primary-color)'; this.style.boxShadow='0 0 12px var(--primary-glow)';" onblur="this.style.borderColor='var(--border-color)'; this.style.boxShadow='none';">
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <span style="font-size: 0.85rem; color: var(--color-text-muted);" data-i18n="users_show_count">Afficher :</span>
+                        <div class="tabs-sub" id="users-limit-selector">
+                            <button class="sub-tab" data-limit="10">10</button>
+                            <button class="sub-tab active" data-limit="20">20</button>
+                            <button class="sub-tab" data-limit="50">50</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="glass-panel overflow-hidden">
+                    <table class="data-table"><thead><tr>
+                        <th>Telegram ID</th><th>Username</th><th data-i18n="th_firstname">Prénom</th><th data-i18n="th_lang">Langue</th><th data-i18n="th_orders_count">Commandes</th><th data-i18n="th_spent">Dépenses</th><th>💰 Wallet</th><th data-i18n="th_referrer">Parrain</th><th data-i18n="th_referrals">Filleuls</th><th data-i18n="th_referral_earnings">Gains Parrainage</th><th data-i18n="th_joined">Inscrit</th><th>Action</th>
+                    </tr></thead><tbody id="users-table-body"><tr><td colspan="12" class="empty-state" data-i18n="no_users">Aucun utilisateur.</td></tr></tbody></table>
+                </div>
+                <div id="users-pagination" class="pagination-bar hidden">
+                    <button id="users-prev" class="btn-secondary btn-sm"><i class="fa-solid fa-chevron-left"></i></button>
+                    <span id="users-page-info">1 / 1</span>
+                    <button id="users-next" class="btn-secondary btn-sm"><i class="fa-solid fa-chevron-right"></i></button>
+                </div>
+            </section>
+
+            <!-- Tickets Tab -->
+            <section id="tickets-tab" class="tab-content">
+                <div class="flex-justify mb-4"><h2 data-i18n="tickets_title">Tickets Support</h2></div>
+                <div class="tickets-list" id="open-tickets-container"><p class="empty-state" data-i18n="no_tickets">Aucun ticket en attente. 🤝</p></div>
+            </section>
+
+            <!-- Broadcast Tab -->
+            <section id="broadcast-tab" class="tab-content">
+                <div class="glass-panel max-w-xl mx-auto" style="padding: 2rem;">
+                    <div class="panel-header mb-4">
+                        <h2><i class="fa-solid fa-bullhorn"></i> <span data-i18n="broadcast_title">Envoyer un Message Broadcast</span></h2>
+                        <p data-i18n="broadcast_desc">Ce message sera envoyé à tous les utilisateurs du bot via Telegram.</p>
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n="broadcast_label">Message (HTML supporté) :</label>
+                        <textarea id="broadcast-textarea" rows="6" placeholder="🎉 <b>Nouveau produit disponible !</b>&#10;&#10;Découvrez notre dernière offre..."></textarea>
+                    </div>
+                    <div class="form-group" style="margin-top: 1rem;">
+                        <label>URL de la Photo / Image (optionnel) :</label>
+                        <input type="url" id="broadcast-photo-url" placeholder="https://example.com/image.jpg" style="width:100%; padding:0.6rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:var(--color-text);">
+                    </div>
+                    <div class="form-group" style="margin-top: 1rem;">
+                        <label>Bouton interactif :</label>
+                        <select id="broadcast-btn-type" style="width:100%; padding:0.75rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:var(--color-text); font-family:inherit;">
+                            <option value="none">Aucun bouton</option>
+                            <option value="buy">Bouton d'achat (Produit)</option>
+                            <option value="url">Bouton de Lien Web</option>
+                        </select>
+                    </div>
+                    <div id="broadcast-buy-group" class="form-group hidden" style="margin-top: 1rem;">
+                        <label>Sélectionner le produit :</label>
+                        <select id="broadcast-btn-product-id" style="width:100%; padding:0.75rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:var(--color-text); font-family:inherit;">
+                            <!-- Dynamically populated in app.js -->
+                        </select>
+                    </div>
+                    <div id="broadcast-url-group" class="hidden" style="margin-top: 1rem; display:flex; gap:0.5rem; flex-direction:column;">
+                        <div class="form-group" style="margin-bottom: 0.5rem;">
+                            <label>Texte du bouton :</label>
+                            <input type="text" id="broadcast-btn-text" placeholder="Rejoindre le canal" style="width:100%; padding:0.6rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:var(--color-text);">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0.5rem;">
+                            <label>URL du bouton :</label>
+                            <input type="url" id="broadcast-btn-url" placeholder="https://t.me/mychannel" style="width:100%; padding:0.6rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:var(--color-text);">
+                        </div>
+                    </div>
+                    <div class="flex-justify">
+                        <span id="broadcast-result" class="stock-line-hint"></span>
+                        <button id="btn-send-broadcast" class="btn-primary btn-sm"><i class="fa-solid fa-paper-plane"></i> <span data-i18n="btn_send_broadcast">Envoyer à tous</span></button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Settings Tab -->
+            <section id="settings-tab" class="tab-content">
+                <div class="glass-panel max-w-xl mx-auto" style="padding: 2rem;">
+                    <div class="panel-header mb-4">
+                        <h2><i class="fa-solid fa-link"></i> <span data-i18n="settings_title">Configuration de l'API</span></h2>
+                        <p data-i18n="settings_desc">Synchronisation entre cette interface et votre bot.</p>
+                    </div>
+                    <form id="settings-form">
+                        <div class="form-group"><label for="settings-bot-url"><i class="fa-solid fa-link"></i> URL API</label><input type="url" id="settings-bot-url" value="https://botstore1.onrender.com" required></div>
+                        <div class="form-group"><label for="settings-api-key"><i class="fa-solid fa-key"></i> <span data-i18n="login_key_label">Clé API</span></label><input type="password" id="settings-api-key" placeholder="••••••••" required></div>
+                        <button type="submit" class="btn-primary"><i class="fa-solid fa-save"></i> <span data-i18n="btn_save">Enregistrer</span></button>
+                    </form>
+                </div>
+
+                <div class="glass-panel max-w-xl mx-auto" style="padding: 2rem; margin-top: 2rem;">
+                    <div class="panel-header mb-4">
+                        <h2><i class="fa-solid fa-wallet"></i> <span>Adresses Crypto de Réception</span></h2>
+                        <p>Configurez vos adresses de réception USDT. Laissez un champ vide pour désactiver le mode de paiement correspondant dans le bot Telegram.</p>
+                    </div>
+                    <form id="crypto-settings-form">
+                        <div class="form-group">
+                            <label for="settings-bep20-address"><i class="fa-solid fa-coins"></i> Adresse BEP20 USDT (BNB Chain)</label>
+                            <input type="text" id="settings-bep20-address" placeholder="Ex: 0x..." style="width:100%; padding:0.75rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:var(--color-text); font-family:monospace;">
+                        </div>
+                        <div class="form-group">
+                            <label for="settings-trc20-address"><i class="fa-solid fa-coins"></i> Adresse TRC20 USDT (TRON Chain)</label>
+                            <input type="text" id="settings-trc20-address" placeholder="Ex: T..." style="width:100%; padding:0.75rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:var(--color-text); font-family:monospace;">
+                        </div>
+                        <button type="submit" class="btn-primary"><i class="fa-solid fa-save"></i> <span>Enregistrer les adresses</span></button>
+                    </form>
+                </div>
+
+                <!-- Display Mode Option (Default vs Turbo) -->
+                <div class="glass-panel max-w-xl mx-auto" style="padding: 2rem; margin-top: 2rem;">
+                    <div class="panel-header mb-4">
+                        <h2><i class="fa-solid fa-wand-magic-sparkles"></i> <span>Mode d'Affichage</span></h2>
+                        <p>Basculez entre le design standard et le mode Turbo (effets néon, spots lumineux réactifs et animations immersives partout).</p>
+                    </div>
+                    <div class="form-group" style="display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.02); padding: 1.25rem; border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; margin-bottom: 0;">
+                        <div>
+                            <strong style="display: block; font-size: 1rem; color: var(--color-text); margin-bottom: 0.25rem;">Mode Turbo</strong>
+                            <span style="font-size: 0.85rem; color: var(--color-text-muted);">Activer des animations et effets de lumière spectaculaires</span>
+                        </div>
+                        <label class="switch" style="position: relative; display: inline-block; width: 60px; height: 34px; min-width: 60px;">
+                            <input type="checkbox" id="settings-turbo-mode" style="opacity: 0; width: 0; height: 0;">
+                            <span class="slider round" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.1); transition: .4s; border-radius: 34px;"></span>
+                        </label>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Category modal removed — categories no longer used -->
+
+    <!-- Modal: Add Product -->
+    <div id="prod-modal" class="modal-overlay hidden">
+        <div class="modal-card glass-panel animate-slide">
+            <div class="modal-header"><h3 data-i18n="modal_add_prod">Ajouter un Produit</h3><button class="btn-close-modal"><i class="fa-solid fa-xmark"></i></button></div>
+            <form id="add-prod-form">
+                <input type="hidden" id="prod-id" value="">
+                <input type="hidden" id="prod-cat" value="1">
+                <div class="form-row"><div class="form-group col-3"><label>Émoji</label><input type="text" id="prod-emoji" placeholder="📦"></div><div class="form-group col-9"><label data-i18n="lbl_prod_name">Nom</label><input type="text" id="prod-name" required></div></div>
+                <div class="form-row"><div class="form-group col-6"><label data-i18n="lbl_price">Prix USD ($)</label><input type="number" step="0.01" id="prod-price" required></div><div class="form-group col-6"><label data-i18n="lbl_warranty">Garantie (J)</label><input type="number" id="prod-warranty" value="0"></div></div>
+                <div class="form-group">
+                    <label>Compte Binance Pay <small>(optionnel)</small></label>
+                    <select id="prod-binance-account" style="width:100%; padding:0.75rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:var(--color-text);">
+                        <option value="">-- Par défaut --</option>
+                    </select>
+                </div>
+                <div class="form-group"><label>Description</label><textarea id="prod-desc" rows="3"></textarea></div>
+                <div class="form-group"><label>Image URL (Optionnel)</label><input type="url" id="prod-image-url" placeholder="https://.../image.png" style="width:100%; padding:0.75rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:var(--color-text);"></div>
+                <div class="modal-footer"><button type="button" class="btn-secondary btn-close-modal" data-i18n="btn_cancel">Annuler</button><button type="submit" class="btn-primary" data-i18n="btn_create_prod">Créer</button></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Stock Management -->
+    <div id="stock-modal" class="modal-overlay hidden">
+        <div class="modal-card modal-card-lg glass-panel animate-slide">
+            <div class="modal-header"><h3><i class="fa-solid fa-warehouse"></i> <span id="stock-modal-title" data-i18n="stock_manage">Gérer le Stock</span></h3><button class="btn-close-modal"><i class="fa-solid fa-xmark"></i></button></div>
+            <div class="stock-modal-body">
+                <div class="stock-add-section">
+                    <label data-i18n="stock_add_label">Ajouter des comptes (un par ligne) :</label>
+                    <textarea id="stock-textarea" rows="4" placeholder="email1@example.com:password1&#10;email2@example.com:password2"></textarea>
+                    <div style="margin-top: 0.5rem; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                        <input type="checkbox" id="stock-broadcast-checkbox" style="width: 16px; height: 16px; accent-color: var(--primary-color); cursor: pointer;">
+                        <label for="stock-broadcast-checkbox" style="font-size: 0.85rem; cursor: pointer; color: var(--color-text-muted); margin-bottom: 0;">Diffuser une alerte de restock (Telegram)</label>
+                    </div>
+                    <div class="stock-add-actions">
+                        <div class="stock-add-left">
+                            <span id="stock-line-count" class="stock-line-hint">0</span>
+                            <label class="btn-secondary btn-sm file-import-btn"><i class="fa-solid fa-file-import"></i> <span data-i18n="btn_import_file">Importer .txt</span><input type="file" id="stock-file-input" accept=".txt" hidden></label>
+                        </div>
+                        <button type="button" id="btn-add-stock" class="btn-primary btn-sm"><i class="fa-solid fa-plus"></i> <span data-i18n="btn_add_stock">Ajouter</span></button>
+                    </div>
+                </div>
+                <div class="stock-existing-section">
+                    <h4><i class="fa-solid fa-list"></i> <span data-i18n="stock_existing">Stock existant</span> — <span id="stock-existing-count">0</span> <span data-i18n="stock_items_lbl">articles</span></h4>
+                    <div id="stock-items-list" class="stock-items-scroll"><p class="empty-state" data-i18n="no_stock">Aucun article.</p></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Add Promo Code -->
+    <div id="promo-modal" class="modal-overlay hidden">
+        <div class="modal-card glass-panel animate-slide">
+            <div class="modal-header"><h3 data-i18n="modal_add_promo">Créer un Code Promo</h3><button class="btn-close-modal"><i class="fa-solid fa-xmark"></i></button></div>
+            <form id="add-promo-form">
+                <div class="form-row">
+                    <div class="form-group col-6"><label>Code</label><input type="text" id="promo-code" placeholder="SUMMER20" required></div>
+                    <div class="form-group col-6"><label data-i18n="lbl_discount_type">Type</label>
+                        <select id="promo-type"><option value="percent">% Pourcentage</option><option value="fixed">$ Montant fixe</option></select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-4"><label data-i18n="lbl_discount_value">Valeur</label><input type="number" step="0.01" id="promo-value" required></div>
+                    <div class="form-group col-4"><label data-i18n="lbl_max_uses">Max utilisations</label><input type="number" id="promo-max" value="0" placeholder="0 = illimité"></div>
+                    <div class="form-group col-4"><label data-i18n="lbl_expires">Expiration</label><input type="date" id="promo-expires"></div>
+                </div>
+                <div class="modal-footer"><button type="button" class="btn-secondary btn-close-modal" data-i18n="btn_cancel">Annuler</button><button type="submit" class="btn-primary" data-i18n="btn_create_promo">Créer</button></div>
+            </form>
+        </div>
+    </div>
+
+
+    <!-- Modal: Price Tiers -->
+    <div id="tiers-modal" class="modal-overlay hidden">
+        <div class="modal-card modal-card-lg glass-panel animate-slide">
+            <div class="modal-header"><h3><i class="fa-solid fa-tags"></i> <span id="tiers-modal-title">Tarifs par palier</span></h3><button class="btn-close-modal"><i class="fa-solid fa-xmark"></i></button></div>
+            <div class="tiers-modal-body">
+                <p style="font-size:0.82rem;color:var(--color-text-muted);margin-bottom:1rem;">Définissez des prix unitaires différents selon la quantité commandée. Le prix de base est utilisé si aucun palier ne correspond.</p>
+                <div id="tiers-rows-container"></div>
+                <button type="button" id="btn-add-tier-row" class="btn-secondary btn-sm" style="margin-top:0.75rem;"><i class="fa-solid fa-plus"></i> Ajouter un palier</button>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary btn-close-modal">Annuler</button>
+                <button type="button" id="btn-save-tiers" class="btn-primary btn-sm"><i class="fa-solid fa-save"></i> Enregistrer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Order Detail (delivered items) -->
+    <div id="order-detail-modal" class="modal-overlay hidden">
+        <div class="modal-card modal-card-lg glass-panel animate-slide">
+            <div class="modal-header"><h3><i class="fa-solid fa-receipt"></i> <span id="order-detail-title">Détail Commande</span></h3><button class="btn-close-modal"><i class="fa-solid fa-xmark"></i></button></div>
+            <div id="order-detail-info" style="margin-bottom:1rem;"></div>
+            <div class="stock-existing-section">
+                <h4><i class="fa-solid fa-key"></i> Articles livrés — <span id="order-items-count">0</span></h4>
+                <div class="stock-items-scroll" id="order-items-list" style="max-height:300px;">
+                    <p class="empty-state">Aucun article.</p>
+                </div>
+            </div>
+            <div class="modal-footer"><button type="button" class="btn-secondary btn-close-modal">Fermer</button></div>
+        </div>
+    </div>
+
+    <!-- Modal: View Remaining Stock -->
+    <div id="view-stock-modal" class="modal-overlay hidden">
+        <div class="modal-card modal-card-lg glass-panel animate-slide">
+            <div class="modal-header"><h3><i class="fa-solid fa-boxes-stacked"></i> <span id="view-stock-title">Stock restant</span></h3><button class="btn-close-modal"><i class="fa-solid fa-xmark"></i></button></div>
+            <div class="stock-existing-section">
+                <h4><i class="fa-solid fa-warehouse"></i> Articles disponibles — <span id="view-stock-count">0</span></h4>
+                <div class="stock-items-scroll" id="view-stock-list" style="max-height:350px;">
+                    <p class="empty-state">Aucun article.</p>
+                </div>
+            </div>
+            <div class="modal-footer"><button type="button" class="btn-secondary btn-close-modal">Fermer</button></div>
+        </div>
+    </div>
+
+    <!-- Modal: Edit Product -->
+    <div id="edit-prod-modal" class="modal-overlay hidden">
+        <div class="modal-card glass-panel animate-slide">
+            <div class="modal-header"><h3><i class="fa-solid fa-pen-to-square"></i> <span id="edit-prod-title">Modifier le Produit</span></h3><button class="btn-close-modal"><i class="fa-solid fa-xmark"></i></button></div>
+            <form id="edit-prod-form">
+                <input type="hidden" id="edit-prod-id">
+                <div class="form-row">
+                    <div class="form-group"><label>Emoji</label><input type="text" id="edit-prod-emoji" maxlength="4" style="width:60px;text-align:center;font-size:1.4rem;"></div>
+                    <div class="form-group" style="flex:3"><label>Nom</label><input type="text" id="edit-prod-name" required></div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group"><label>Prix USD ($)</label><input type="number" step="0.01" id="edit-prod-price" required></div>
+                    <div class="form-group"><label>Garantie (jours)</label><input type="number" id="edit-prod-warranty" min="0"></div>
+                </div>
+                <div class="form-group"><label>Description</label><textarea id="edit-prod-desc" rows="2" style="width:100%;resize:vertical;"></textarea></div>
+                <div class="form-group"><label>Image URL (Optionnel)</label><input type="url" id="edit-prod-image-url" placeholder="https://.../image.png" style="width:100%; padding:0.75rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:var(--color-text);"></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary btn-close-modal">Annuler</button>
+                    <button type="submit" class="btn-primary"><i class="fa-solid fa-save"></i> Enregistrer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- REVENUE DETAILS MODAL -->
+    <div id="revenue-modal" class="modal-overlay hidden">
+        <div class="modal glass-panel">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-dollar-sign"></i> Détails des revenus (30J)</h3>
+                <button class="btn-close btn-close-modal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body" style="padding-top:1rem;">
+                <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
+                    <span>Ventes (Boutique) :</span>
+                    <strong id="rev-det-orders">$0.00</strong>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
+                    <span>Recharges (Wallet) :</span>
+                    <strong id="rev-det-topups" style="color:var(--color-success);">$0.00</strong>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:1rem; padding-bottom:1rem; border-bottom:1px solid var(--border-color);">
+                    <span>Déductions (Remboursements) :</span>
+                    <strong id="rev-det-admin" style="color:var(--color-error);">-$0.00</strong>
+                </div>
+                <div style="display:flex; justify-content:space-between; font-size:1.1rem;">
+                    <strong>Total Net :</strong>
+                    <strong id="rev-det-total" style="color:var(--primary-color);">$0.00</strong>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Finance Withdraw -->
+    <div id="finance-withdraw-modal" class="modal-overlay hidden">
+        <div class="modal-card glass-panel animate-slide" style="border: 1px solid rgba(244,63,94,0.3);">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-money-bill-transfer" style="color:#f43f5e;"></i> Retirer des fonds</h3>
+                <button class="btn-close-modal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form id="finance-withdraw-form">
+                <div class="modal-body">
+                    <p style="margin-bottom: 1rem; color: var(--color-text-muted);">
+                        Vous êtes sur le point de retirer des fonds du solde virtuel du bot. <br>
+                        Solde actuel : <strong id="withdraw-current-balance" style="color:white;">$0.00</strong>
+                    </p>
+                    <div class="form-group">
+                        <label>Montant à retirer ($)</label>
+                        <input type="number" id="withdraw-amount" step="0.01" required min="0.01">
+                        <div style="margin-top:0.5rem; display:flex; gap:0.5rem;">
+                            <button type="button" id="btn-withdraw-all" class="btn-secondary btn-sm">Tout retirer</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary btn-close-modal">Annuler</button>
+                    <button type="submit" class="btn-primary" style="background: linear-gradient(135deg, #f43f5e, #e11d48); border: none;">Confirmer le retrait</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Finance Adjust -->
+    <div id="finance-adjust-modal" class="modal-overlay hidden">
+        <div class="modal-card glass-panel animate-slide">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-sliders"></i> Ajuster le solde virtuel</h3>
+                <button class="btn-close-modal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form id="finance-adjust-form">
+                <div class="modal-body">
+                    <p style="margin-bottom: 1rem; color: var(--color-text-muted);">
+                        Ajoutez ou retirez manuellement un montant (utilisez un nombre négatif pour retirer).
+                    </p>
+                    <div class="form-group">
+                        <label>Montant ($)</label>
+                        <input type="number" id="adjust-amount" step="0.01" required placeholder="Ex: 50.00 ou -20.00">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary btn-close-modal">Annuler</button>
+                    <button type="submit" class="btn-primary">Ajuster</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- BINANCE ACCOUNT MODAL -->
+    <div id="binanceModal" class="modal-overlay hidden">
+        <div class="modal-card glass-panel animate-slide">
+            <div class="modal-header">
+                <h3 id="binanceModalTitle">Ajouter un compte Binance</h3>
+                <button type="button" class="btn-close-modal" onclick="closeBinanceModal()"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="binanceForm">
+                    <input type="hidden" id="binanceId">
+                    <div class="form-group">
+                        <label>Label (Nom affiché)</label>
+                        <input type="text" id="binanceLabel" placeholder="Ex: Compte Principal" required>
+                    </div>
+                    <div class="form-group">
+                        <label>UID Binance Pay</label>
+                        <input type="text" id="binanceUid" placeholder="Ex: 123456789" required>
+                    </div>
+                    <div class="form-group">
+                        <label>API Key <small>(Optionnel, pour vérification automatique)</small></label>
+                        <input type="text" id="binanceApiKey" placeholder="Votre clé API Binance">
+                    </div>
+                    <div class="form-group">
+                        <label>API Secret <small>(Optionnel)</small></label>
+                        <input type="password" id="binanceApiSecret" placeholder="Votre secret API Binance">
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem; margin-bottom: 0.5rem;">
+                        <input type="checkbox" id="binanceIsDefault" style="width: 16px; height: 16px; accent-color: var(--primary-color); cursor: pointer;">
+                        <label for="binanceIsDefault" style="font-size: 0.85rem; cursor: pointer; color: var(--color-text-muted); margin-bottom: 0;">Définir comme compte par défaut</label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" onclick="closeBinanceModal()">Annuler</button>
+                <button type="button" class="btn-primary" onclick="saveBinanceAccount()">Enregistrer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- BAN CONFIRMATION MODAL -->
+    <div id="banModal" class="modal-overlay hidden">
+        <div class="modal-card glass-panel animate-slide">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-ban" style="color:var(--color-error);"></i> <span data-i18n="ban_modal_title">Bannir l'utilisateur</span></h3>
+                <button type="button" class="btn-close-modal" onclick="closeBanModal()"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body" style="padding-top: 1rem;">
+                <p data-i18n="ban_modal_desc">Voulez-vous vraiment bannir cet utilisateur ?</p>
+                <input type="hidden" id="banUserId">
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.5rem; margin-bottom: 0.5rem;">
+                    <input type="checkbox" id="banNotifyUser" style="width: 16px; height: 16px; accent-color: var(--primary-color); cursor: pointer;">
+                    <label for="banNotifyUser" style="font-size: 0.85rem; cursor: pointer; color: var(--color-text-muted); margin-bottom: 0;" data-i18n="ban_modal_notify">Informer l'utilisateur qu'il a été banni</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" onclick="closeBanModal()" data-i18n="btn_cancel">Annuler</button>
+                <button type="button" class="btn-primary" onclick="confirmBanUser()" style="background:var(--color-error); border-color:var(--color-error); color:white;" data-i18n="ban">Bannir</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+    /* ── Mobile Sidebar Toggle ── */
+    (function() {
+        const menuBtn = document.getElementById('mobile-menu-btn');
+        const sidebar = document.querySelector('.sidebar');
+        const backdrop = document.getElementById('sidebar-backdrop');
+        if (!menuBtn || !sidebar || !backdrop) return;
+
+        function openSidebar() {
+            sidebar.classList.add('open');
+            backdrop.classList.add('active');
+            menuBtn.querySelector('i').className = 'fa-solid fa-xmark';
+        }
+        function closeSidebar() {
+            sidebar.classList.remove('open');
+            backdrop.classList.remove('active');
+            menuBtn.querySelector('i').className = 'fa-solid fa-bars';
+        }
+
+        menuBtn.addEventListener('click', function() {
+            sidebar.classList.contains('open') ? closeSidebar() : openSidebar();
+        });
+        backdrop.addEventListener('click', closeSidebar);
+
+        // Close sidebar when a menu item is clicked (on mobile)
+        sidebar.querySelectorAll('.menu-item').forEach(function(item) {
+            item.addEventListener('click', function() {
+                if (window.innerWidth <= 768) closeSidebar();
+            });
+        });
+
+        // Close sidebar on window resize to desktop
+        window.addEventListener('resize', function() {
+            if (window.innerWidth > 768) closeSidebar();
+        });
+    })();
+    </script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+# Proxy rules — update YOUR_APP.up.railway.app with your actual Railway domain
+# The dashboard connects directly to your Railway URL (entered at login),
+# so these redirects are only needed for direct /api access from the Netlify domain.
+# /api/*  https://YOUR_APP.up.railway.app/api/:splat  200
+# /health  https://YOUR_APP.up.railway.app/health  200

@@ -1,0 +1,38 @@
+# config.py — Configuration centrale du bot
+# Charge les variables d'environnement depuis le fichier .env (si présent)
+
+import os
+from dotenv import load_dotenv
+
+# override=False → les variables Railway/système ont la priorité sur .env
+load_dotenv(override=False)
+
+import logging
+
+_log = logging.getLogger(__name__)
+
+# ── Token du bot Telegram ──────────────────────────────────────────
+BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
+
+if not BOT_TOKEN:
+    _log.warning("BOT_TOKEN is EMPTY! Check your Railway Variables tab.")
+
+# ── Clés API Binance ───────────────────────────────────────────────
+BINANCE_API_KEY: str = os.getenv("BINANCE_API_KEY", "")
+BINANCE_API_SECRET: str = os.getenv("BINANCE_API_SECRET", "")
+BINANCE_PAY_ID: str = os.getenv("BINANCE_PAY_ID", "")
+
+
+# ── Identifiants des administrateurs (séparés par des virgules) ────
+ADMIN_IDS: list[int] = [
+    int(uid.strip())
+    for uid in os.getenv("ADMIN_IDS", "").split(",")
+    if uid.strip().isdigit()
+]
+
+# ── Paramètres généraux ───────────────────────────────────────────
+CURRENCY: str = "USDT"
+ORDER_EXPIRY_MINUTES: int = 60
+LOW_STOCK_THRESHOLD: int = 3
+DB_PATH: str = "bot_data.db"
+REQUIRED_CHANNEL: str = os.getenv("REQUIRED_CHANNEL", "@Batmanstore2")
