@@ -111,7 +111,8 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     try:
         product_id = int(query.data.split(":")[1])
-        product = await get_product(product_id)
+        from database.models import get_product_full_details
+        product, stock, tiers, sold_count = await get_product_full_details(product_id)
 
         if not product:
             await query.edit_message_text(
@@ -119,13 +120,6 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
                 reply_markup=back_keyboard("back_products", lang),
             )
             return
-
-        stock = await get_stock_count(product_id)
-
-        # Get price tiers for batch pricing
-        from database.models import get_price_tiers, get_sold_count
-        tiers = await get_price_tiers(product_id)
-        sold_count = await get_sold_count(product_id)
 
         text = t("product_detail", lang).format(
             emoji=product["emoji"],

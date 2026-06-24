@@ -18,6 +18,7 @@ _USER_BANNED_CACHE: dict[int, bool] = {}
 _CATEGORIES_CACHE: list[dict] | None = None
 _PRODUCTS_CACHE: list[dict] | None = None
 _PRODUCT_BY_ID_CACHE: dict[int, dict | None] = {}
+_TIERS_CACHE: dict[int, list[dict]] = {}
 
 
 # ╔══════════════════════════════════════════════════════════════════╗
@@ -378,21 +379,12 @@ async def add_product(
     _PRODUCT_BY_ID_CACHE.clear()
     db = await get_db()
     try:
-        try:
-            cursor = await db.execute(
-                """INSERT INTO products
-                   (category_id, name, description, price_usd, warranty_days, emoji, image_url, binance_account_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (category_id, name, description, price_usd, warranty_days, emoji, image_url, binance_account_id),
-            )
-        except Exception:
-            # Fallback if image_url column does not exist yet
-            cursor = await db.execute(
-                """INSERT INTO products
-                   (category_id, name, description, price_usd, warranty_days, emoji, binance_account_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (category_id, name, description, price_usd, warranty_days, emoji, binance_account_id),
-            )
+        cursor = await db.execute(
+            """INSERT INTO products
+               (category_id, name, description, price_usd, warranty_days, emoji, image_url, binance_account_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (category_id, name, description, price_usd, warranty_days, emoji, image_url, binance_account_id),
+        )
         await db.commit()
         return cursor.lastrowid  # type: ignore[return-value]
     finally:
@@ -414,23 +406,9 @@ async def update_product(product_id: int, **kwargs) -> None:
     values = list(safe_kwargs.values()) + [product_id]
     db = await get_db()
     try:
-        try:
-            await db.execute(
-                f"UPDATE products SET {columns} WHERE id = ?", values
-            )
-        except Exception:
-            # Fallback if a column (like image_url) doesn't exist yet
-            if "image_url" in safe_kwargs:
-                del safe_kwargs["image_url"]
-                if not safe_kwargs:
-                    return
-                columns = ", ".join(f"{safe_k} = ?" for safe_k in safe_kwargs)
-                values = list(safe_kwargs.values()) + [product_id]
-                await db.execute(
-                    f"UPDATE products SET {columns} WHERE id = ?", values
-                )
-            else:
-                raise
+        await db.execute(
+            f"UPDATE products SET {columns} WHERE id = ?", values
+        )
         await db.commit()
     finally:
         await db.close()
@@ -566,6 +544,9 @@ async def delete_product(product_id: int) -> None:
 
 async def get_price_tiers(product_id: int) -> list[dict]:
     """Retourne les paliers de prix pour un produit, triés par min_qty."""
+    global _TIERS_CACHE
+    if product_id in _TIERS_CACHE:
+        return _TIERS_CACHE[product_id]
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -573,7 +554,9 @@ async def get_price_tiers(product_id: int) -> list[dict]:
             (product_id,),
         )
         rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
+        res = [dict(r) for r in rows]
+        _TIERS_CACHE[product_id] = res
+        return res
     finally:
         await db.close()
 
@@ -583,6 +566,8 @@ async def set_price_tiers(product_id: int, tiers: list[dict]) -> None:
 
     Chaque tier est un dict avec min_qty, max_qty, price_usd.
     """
+    global _TIERS_CACHE
+    _TIERS_CACHE.pop(product_id, None)
     db = await get_db()
     try:
         await db.execute(
@@ -653,6 +638,51 @@ async def get_all_stock_counts() -> dict[int, int]:
             reserved = reservations.get(p_id, 0)
             result[p_id] = max(0, total - reserved)
         return result
+    finally:
+        await db.close()
+
+async def get_product_full_details(product_id: int) -> tuple[dict | None, int, list[dict], int]:
+    """Retourne (product, stock_count, tiers, sold_count) avec une seule connexion pour optimiser la latence."""
+    db = await get_db()
+    try:
+        # 1. Produit
+        cursor = await db.execute("SELECT * FROM products WHERE id = ?", (product_id,))
+        row = await cursor.fetchone()
+        product = dict(row) if row else None
+        
+        if not product:
+            return None, 0, [], 0
+
+        # 2. Stock non vendu
+        cursor = await db.execute("SELECT COUNT(*) as cnt FROM stock_items WHERE product_id = ? AND is_sold = 0", (product_id,))
+        row = await cursor.fetchone()
+        total_unsold = row["cnt"] if row else 0
+
+        # Stock réservé (dernières 5 minutes)
+        cursor = await db.execute(
+            "SELECT COALESCE(SUM(quantity), 0) as reserved FROM orders WHERE product_id = ? AND status IN ('PENDING', 'AWAITING_PAYMENT') AND created_at >= datetime('now', '-300 seconds')",
+            (product_id,),
+        )
+        row = await cursor.fetchone()
+        reserved = row["reserved"] if row else 0
+        stock_count = max(0, total_unsold - reserved)
+
+        # 3. Paliers de prix (Tiers) via cache si possible
+        global _TIERS_CACHE
+        if product_id in _TIERS_CACHE:
+            tiers = _TIERS_CACHE[product_id]
+        else:
+            cursor = await db.execute("SELECT * FROM price_tiers WHERE product_id = ? ORDER BY min_qty ASC", (product_id,))
+            rows = await cursor.fetchall()
+            tiers = [dict(r) for r in rows]
+            _TIERS_CACHE[product_id] = tiers
+
+        # 4. Nombre de ventes
+        cursor = await db.execute("SELECT COUNT(id) as cnt FROM stock_items WHERE product_id = ? AND is_sold = 1", (product_id,))
+        row = await cursor.fetchone()
+        sold_count = row["cnt"] if row else 0
+
+        return product, stock_count, tiers, sold_count
     finally:
         await db.close()
 
@@ -901,14 +931,13 @@ async def update_order_status(order_id: int, status: str, **kwargs) -> None:
         
         # If the order is transitioning to COMPLETED, update bot balance
         if status == "COMPLETED" and current_order and current_order.get("status") != "COMPLETED":
-            # Increment finance_bot_balance_{method} based on payment method
+            # Increment finance_bot_balance if paid externally
             pay_method = kwargs.get("payment_method") or current_order.get("payment_method")
-            pay_method_key = (pay_method or "binance").lower()
-            balance_key = f"finance_bot_balance_{pay_method_key}"
-            cursor = await db.execute("SELECT value FROM settings WHERE key = ?", (balance_key,))
-            row = await cursor.fetchone()
-            bal = float(row["value"]) if row else 0.0
-            await db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (balance_key, str(bal + float(current_order.get("amount_usd", 0)))))
+            if pay_method != "wallet":
+                cursor = await db.execute("SELECT value FROM settings WHERE key = 'finance_bot_balance'")
+                row = await cursor.fetchone()
+                bal = float(row["value"]) if row else 0.0
+                await db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("finance_bot_balance", str(bal + float(current_order.get("amount_usd", 0)))))
 
         await db.commit()
     finally:
@@ -1250,13 +1279,12 @@ async def topup_wallet(telegram_id: int, amount: float, description: str = "") -
             "INSERT INTO wallet_transactions (user_telegram_id, type, amount, balance_after, description) VALUES (?, 'topup', ?, ?, ?)",
             (telegram_id, amount, new_balance, description),
         )
-        # Increment finance_bot_balance_binance if it's a real topup (topups are paid via Binance)
+        # Increment finance_bot_balance if it's a real topup
         if not description.startswith("Admin") and not description.startswith("Refund"):
-            balance_key = "finance_bot_balance_binance"
-            cursor = await db.execute("SELECT value FROM settings WHERE key = ?", (balance_key,))
+            cursor = await db.execute("SELECT value FROM settings WHERE key = 'finance_bot_balance'")
             set_row = await cursor.fetchone()
             bal = float(set_row["value"]) if set_row else 0.0
-            await db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (balance_key, str(bal + amount)))
+            await db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("finance_bot_balance", str(bal + amount)))
 
         await db.commit()
         return new_balance

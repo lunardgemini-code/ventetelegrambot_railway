@@ -108,7 +108,7 @@ const state = {
     orderFilter:'all', orderPage:0, orderTotal:0,
     whFilter:'all', whPage:0, whTotal:0,
     usersPage:0, usersPerPage:20, usersSearch:'', usersTotal:0,
-    currentStockProductId:null, autoRefresh:false, autoRefreshTimer:null,
+    currentStockProductId:null, autoRefresh:true, autoRefreshTimer:null,
     revenueChart:null, ordersChart:null
 };
 
@@ -894,8 +894,7 @@ window.openEditProduct = function(productId) {
     $('edit-prod-price').value = parseFloat(p.price_usd).toFixed(2);
     $('edit-prod-warranty').value = p.warranty_days || 0;
     $('edit-prod-desc').value = p.description || '';
-    const editImageUrlInput = $('edit-prod-image-url');
-    if (editImageUrlInput) editImageUrlInput.value = p.image_url || '';
+    if ($('edit-prod-image-url')) $('edit-prod-image-url').value = p.image_url || '';
     $('edit-prod-title').textContent = `Modifier — ${p.emoji || '📦'} ${p.name}`;
     showModal(DOM.editProdModal);
 };
