@@ -108,7 +108,7 @@ const state = {
     orderFilter:'all', orderPage:0, orderTotal:0,
     whFilter:'all', whPage:0, whTotal:0,
     usersPage:0, usersPerPage:20, usersSearch:'', usersTotal:0,
-    currentStockProductId:null, autoRefresh:true, autoRefreshTimer:null,
+    currentStockProductId:null, autoRefresh:false, autoRefreshTimer:null,
     revenueChart:null, ordersChart:null
 };
 
