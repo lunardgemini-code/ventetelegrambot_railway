@@ -111,17 +111,26 @@ async def initiate_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         product = await get_product(product_id)
 
         if not product:
-            await query.edit_message_text(
-                t("product_not_found", lang),
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=t("product_not_found", lang),
                 reply_markup=back_keyboard("back_cats", lang),
             )
             return ConversationHandler.END
 
         stock = await get_stock_count(product_id)
         if stock <= 0:
-            await query.edit_message_text(
-                f"{product['emoji']} <b>{product['name']}</b>\n\n"
-                + t("out_of_stock", lang),
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=f"{product['emoji']} <b>{product['name']}</b>\n\n" + t("out_of_stock", lang),
                 parse_mode="HTML",
                 reply_markup=back_keyboard(f"back_prods:{product['category_id']}", lang),
             )
@@ -167,8 +176,13 @@ async def initiate_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return WAITING_QUANTITY
     except Exception as exc:
         logger.error("initiate_purchase: %s", exc, exc_info=True)
-        await query.edit_message_text(
-            t("order_error", lang),
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=t("order_error", lang),
             reply_markup=back_keyboard("back_main", lang),
         )
         return ConversationHandler.END
