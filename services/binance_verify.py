@@ -152,3 +152,91 @@ async def verify_payment(
         result["error"] = f"Erreur inattendue lors de la vérification : {exc}"
         logger.exception(result["error"])
         return result
+
+async def verify_internal_transfer(
+    client_tx_id: str,
+    expected_amount: float,
+    api_key: str | None = None,
+    api_secret: str | None = None,
+) -> dict:
+    """Vérifie un transfert interne Binance (off-chain) via l'historique des dépôts."""
+    result: dict = {"verified": False, "transaction": None, "error": None}
+
+    key_to_use = api_key if api_key else BINANCE_API_KEY
+    secret_to_use = api_secret if api_secret else BINANCE_API_SECRET
+
+    if not key_to_use or not secret_to_use:
+        result["error"] = "Clés API Binance non configurées."
+        logger.error(result["error"])
+        return result
+
+    now_ms = int(time.time() * 1000)
+    start_ts = now_ms - SEARCH_WINDOW_MS
+    
+    DEPOSIT_URL = "https://api.binance.com/sapi/v1/capital/deposit/hisrec"
+
+    query_string = (
+        f"timestamp={now_ms}"
+        f"&recvWindow={RECV_WINDOW}"
+        f"&startTime={start_ts}"
+        f"&endTime={now_ms}"
+        f"&coin=USDT"
+    )
+    signature = _generate_signature(query_string, secret_to_use)
+    full_url = f"{DEPOSIT_URL}?{query_string}&signature={signature}"
+    headers = {
+        "X-MBX-APIKEY": key_to_use,
+        "Content-Type": "application/json",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(full_url, headers=headers)
+
+        if response.status_code != 200:
+            result["error"] = f"Erreur API Binance — HTTP {response.status_code} : {response.text[:200]}"
+            logger.error(result["error"])
+            return result
+
+        deposits = response.json()
+        if not isinstance(deposits, list):
+            result["error"] = f"Erreur inattendue format API: {str(deposits)[:100]}"
+            return result
+
+        if not deposits:
+            result["error"] = "Aucun dépôt trouvé dans la période."
+            return result
+
+        cleaned_client_id = client_tx_id.strip().upper()
+
+        for dep in deposits:
+            tx_id = str(dep.get("txId", "")).strip().upper()
+            tx_amount = float(dep.get("amount", 0))
+            status = dep.get("status")
+
+            # 1: Success status for deposit
+            is_id_match = (
+                cleaned_client_id == tx_id or
+                f"OFF-CHAIN TRANSFER {cleaned_client_id}" == tx_id or
+                cleaned_client_id.replace("OFF-CHAIN TRANSFER ", "") == tx_id.replace("OFF-CHAIN TRANSFER ", "")
+            )
+            amount_match = abs(tx_amount - expected_amount) <= AMOUNT_TOLERANCE
+
+            if is_id_match and status == 1 and amount_match:
+                result["verified"] = True
+                result["transaction"] = dep
+                logger.info("Transfert interne vérifié — Transaction ID : %s, montant : %s", tx_id, tx_amount)
+                return result
+
+        result["error"] = f"Aucun transfert interne correspondant trouvé pour l'ID={client_tx_id}."
+        return result
+
+    except httpx.TimeoutException:
+        result["error"] = "Délai d'attente dépassé lors de la connexion à l'API Binance."
+        logger.exception(result["error"])
+        return result
+    except Exception as exc:
+        result["error"] = f"Erreur inattendue lors de la vérification interne : {exc}"
+        logger.exception(result["error"])
+        return result
+

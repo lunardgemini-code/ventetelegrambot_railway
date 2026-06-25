@@ -1088,8 +1088,12 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
         context.user_data.pop("paying_product_id", None)
         return ConversationHandler.END
 
-    # Simple length and format validation on tx hash
-    if not tx_hash.startswith("0x") or len(tx_hash) != 66:
+    # Validation: on-chain hashes start with "0x" and are 66 chars.
+    # Off-chain Binance transfers can be an ID (often digits) or "Off-chain transfer <ID>"
+    is_on_chain = tx_hash.startswith("0x") and len(tx_hash) == 66
+    is_off_chain = tx_hash.isdigit() or "off-chain" in tx_hash.lower() or (not tx_hash.startswith("0x") and len(tx_hash) > 5)
+
+    if not is_on_chain and not is_off_chain:
         await update.message.reply_text(t("bep20_invalid_tx_hash", lang))
         return WAITING_BEP20_TX_HASH
 
@@ -1127,9 +1131,27 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
             return ConversationHandler.END
 
         from services.blockchain_verify import verify_bep20_payment
+        from services.binance_verify import verify_internal_transfer
 
-        # On-chain verification
-        result = await verify_bep20_payment(tx_hash, expected_amount, bep20_address)
+        result = {"verified": False, "error": "Type de transaction non pris en charge."}
+
+        if is_on_chain:
+            # On-chain verification
+            result = await verify_bep20_payment(tx_hash, expected_amount, bep20_address)
+        else:
+            # Off-chain Binance internal verification
+            api_key = None
+            api_secret = None
+            if product_id:
+                product = await get_product(product_id)
+                if product and product.get("binance_account_id"):
+                    from database.models import get_binance_account
+                    acc = await get_binance_account(product["binance_account_id"])
+                    if acc:
+                        api_key = acc.get("api_key")
+                        api_secret = acc.get("api_secret")
+            
+            result = await verify_internal_transfer(tx_hash, expected_amount, api_key=api_key, api_secret=api_secret)
 
         if result.get("verified"):
             # Record hash to prevent double spending
