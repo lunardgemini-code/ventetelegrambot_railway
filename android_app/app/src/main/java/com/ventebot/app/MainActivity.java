@@ -13,8 +13,8 @@ import androidx.appcompat.app.AppCompatActivity;
 
 public class MainActivity extends AppCompatActivity {
     
-    // URL de ton GitHub Pages :
-    private static final String TARGET_URL = "https://lunardgemini-code.github.io/ventetelegrambot_railway/dashboard/";
+    // Dashboard servi directement depuis Railway (même origine que l'API = pas de CORS)
+    private static final String TARGET_URL = "https://ventetelegrambotrailway-production.up.railway.app/dashboard/";
 
     private WebView webView;
 

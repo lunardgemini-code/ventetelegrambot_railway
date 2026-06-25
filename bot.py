@@ -15,6 +15,8 @@ import os
 import threading
 from fastapi import FastAPI, Header, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 import uvicorn
 
 from telegram import Update
@@ -80,6 +82,16 @@ api.add_middleware(
     allow_headers=["X-API-Key", "Content-Type"],
     expose_headers=[],
 )
+
+# ── Serve dashboard static files directly from Railway ──
+import pathlib
+_dashboard_dir = pathlib.Path(__file__).parent / "dashboard"
+if _dashboard_dir.is_dir():
+    @api.get("/dashboard")
+    @api.get("/dashboard/")
+    async def serve_dashboard_index():
+        return FileResponse(str(_dashboard_dir / "index.html"), media_type="text/html")
+    api.mount("/dashboard", StaticFiles(directory=str(_dashboard_dir)), name="dashboard")
 
 ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "")
 if not ADMIN_API_KEY:
