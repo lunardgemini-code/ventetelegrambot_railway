@@ -1,5 +1,5 @@
 """
-Payment flow handlers — purchase → Binance Pay instructions → Order ID → verify → deliver.
+Payment flow handlers â€” purchase â†’ Binance Pay instructions â†’ Order ID â†’ verify â†’ deliver.
 Uses ConversationHandler with state WAITING_ORDER_ID = 200.
 """
 
@@ -59,7 +59,7 @@ async def send_delivery_messages(bot, chat_id: int, header: str, items: list, fo
     
     base_markup = main_menu_keyboard(lang)
     if order_id and total_length <= 1500 and len(items) <= 10:
-        new_kb = [[InlineKeyboardButton("📥 Download as TXT", callback_data=f"dl_txt:{order_id}")]] + base_markup.inline_keyboard
+        new_kb = [[InlineKeyboardButton("ðŸ“¥ Download as TXT", callback_data=f"dl_txt:{order_id}")]] + base_markup.inline_keyboard
         reply_markup = InlineKeyboardMarkup(new_kb)
     else:
         reply_markup = base_markup
@@ -67,13 +67,13 @@ async def send_delivery_messages(bot, chat_id: int, header: str, items: list, fo
     if total_length > 1500 or len(items) > 10:
         file_content = ""
         for i, item in enumerate(items):
-            file_content += f"--- Product n°{i+1} ---\n{item['account_data']}\n\n"
+            file_content += f"--- Product nÂ°{i+1} ---\n{item['account_data']}\n\n"
             
         file_bytes = io.BytesIO(file_content.encode('utf-8'))
         file_bytes.name = "accounts.txt"
         
         await bot.send_message(chat_id=chat_id, text=header, parse_mode="HTML")
-        await bot.send_document(chat_id=chat_id, document=file_bytes, caption=f"📁 {your_acc_text}")
+        await bot.send_document(chat_id=chat_id, document=file_bytes, caption=f"ðŸ“ {your_acc_text}")
         await bot.send_message(chat_id=chat_id, text=footer, parse_mode="HTML", reply_markup=reply_markup)
         return
 
@@ -84,7 +84,7 @@ async def send_delivery_messages(bot, chat_id: int, header: str, items: list, fo
         current_msg += f"{your_acc_text}\n"
         
     for item in items:
-        line = f"🔑 <code>{escape_html(item['account_data'])}</code>\n"
+        line = f"ðŸ”‘ <code>{escape_html(item['account_data'])}</code>\n"
         if len(current_msg) + len(line) > 3800:
             await bot.send_message(chat_id=chat_id, text=current_msg, parse_mode="HTML")
             current_msg = ""
@@ -101,7 +101,7 @@ async def send_delivery_messages(bot, chat_id: int, header: str, items: list, fo
         await bot.send_message(chat_id=chat_id, text=footer, parse_mode="HTML", reply_markup=reply_markup)
 
 async def initiate_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle 'buy:{product_id}' callback — entry point for purchase conversation. Ask for quantity."""
+    """Handle 'buy:{product_id}' callback â€” entry point for purchase conversation. Ask for quantity."""
     query = update.callback_query
     await query.answer()
     lang = await get_user_lang(update.effective_user.id)
@@ -252,7 +252,7 @@ async def _process_quantity(
     total_price = unit_price * quantity
     telegram_id = update.effective_user.id
 
-    # ── Prevent duplicate orders ──────────────────────────────────
+    # â”€â”€ Prevent duplicate orders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # Cancel any previous PENDING order for this user to avoid duplicates
     existing_order_id = context.user_data.get("pending_order_id")
     if existing_order_id:
@@ -326,14 +326,14 @@ async def show_payment_method_screen(
     base_price = product["price_usd"]
     unit_price_line = ""
     if abs(unit_price - base_price) > 0.001:
-        discount_label = {"fr": "💰 Prix unitaire (palier)", "en": "💰 Unit price (bulk)", "ar": "💰 سعر الوحدة (جملة)"}.get(lang, "💰 Prix unitaire (palier)")
+        discount_label = {"fr": "ðŸ’° Prix unitaire (palier)", "en": "ðŸ’° Unit price (bulk)", "ar": "ðŸ’° Ø³Ø¹Ø± Ø§Ù„ÙˆØ­Ø¯Ø© (Ø¬Ù…Ù„Ø©)"}.get(lang, "ðŸ’° Prix unitaire (palier)")
         unit_price_line = f"{discount_label}: {format_price(unit_price)}\n"
 
     # Promo discount line
     promo_line = ""
     if has_promo:
         promo_discount = order.get("promo_discount", 0.0)
-        promo_line = f"🎫 <b>Code Promo :</b> -{format_price(promo_discount)}\n"
+        promo_line = f"ðŸŽ« <b>Code Promo :</b> -{format_price(promo_discount)}\n"
 
     summary = (
         f"{t('new_order', lang)}\n\n"
@@ -364,7 +364,7 @@ async def show_payment_method_screen(
 
 
 async def start_apply_promo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle 'apply_promo:{order_id}' callback — prompt for promo code."""
+    """Handle 'apply_promo:{order_id}' callback â€” prompt for promo code."""
     query = update.callback_query
     await query.answer()
     lang = await get_user_lang(update.effective_user.id)
@@ -388,7 +388,7 @@ async def start_apply_promo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def back_to_payment_method(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle 'back_pay_method:{order_id}' callback — return to payment method selection."""
+    """Handle 'back_pay_method:{order_id}' callback â€” return to payment method selection."""
     query = update.callback_query
     await query.answer()
     lang = await get_user_lang(update.effective_user.id)
@@ -397,7 +397,7 @@ async def back_to_payment_method(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def receive_promo_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle text message in WAITING_PROMO_CODE state — apply promo code."""
+    """Handle text message in WAITING_PROMO_CODE state â€” apply promo code."""
     lang = await get_user_lang(update.effective_user.id)
     order_id = context.user_data.get("promo_order_id")
     promo_code_text = update.message.text.strip().upper()
@@ -473,7 +473,7 @@ async def receive_promo_code(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle 'pay_wallet:{order_id}' callback — instant payment from wallet balance."""
+    """Handle 'pay_wallet:{order_id}' callback â€” instant payment from wallet balance."""
     query = update.callback_query
     await query.answer()
     lang = await get_user_lang(update.effective_user.id)
@@ -527,7 +527,7 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return ConversationHandler.END
 
-        # Payment successful — deliver first, then complete
+        # Payment successful â€” deliver first, then complete
         delivered = await deliver_order(order_id, product_id)
 
         if delivered:
@@ -539,7 +539,7 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 .replace("${amount}", format_price(amount)) \
                 .replace("${balance}", format_price(new_balance))
 
-            await query.edit_message_text(f"{wallet_msg}\n\n✅ Préparation de votre commande...", parse_mode="HTML")
+            await query.edit_message_text(f"{wallet_msg}\n\nâœ… PrÃ©paration de votre commande...", parse_mode="HTML")
 
             header = f"{wallet_msg}"
             footer = (
@@ -554,7 +554,7 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _topup_refund(telegram_id, amount, f"Refund: delivery failed for order #{order_id}")
             refund_balance = await get_wallet_balance(telegram_id)
             await query.edit_message_text(
-                t("delivery_failed", lang) + f"\n\n💰 {format_price(amount)} refunded.",
+                t("delivery_failed", lang) + f"\n\nðŸ’° {format_price(amount)} refunded.",
                 parse_mode="HTML",
                 reply_markup=main_menu_keyboard(lang),
             )
@@ -565,10 +565,10 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             product = await get_product(product_id)
             pname = product["name"] if product else "?"
             await notify_admins(
-                f"💰 <b>Wallet Purchase!</b>\n"
-                f"👤 {escape_html(update.effective_user.first_name)}\n"
-                f"📦 {pname} x{order.get('quantity', 1)}\n"
-                f"💵 {format_price(amount)}"
+                f"ðŸ’° <b>Wallet Purchase!</b>\n"
+                f"ðŸ‘¤ {escape_html(update.effective_user.first_name)}\n"
+                f"ðŸ“¦ {pname} x{order.get('quantity', 1)}\n"
+                f"ðŸ’µ {format_price(amount)}"
             )
         except Exception:
             pass
@@ -582,7 +582,7 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def pay_with_binance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle 'pay_binance:{order_id}' callback — show Binance Pay instructions."""
+    """Handle 'pay_binance:{order_id}' callback â€” show Binance Pay instructions."""
     query = update.callback_query
     await query.answer()
     lang = await get_user_lang(update.effective_user.id)
@@ -623,7 +623,7 @@ async def pay_with_binance(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{t('binance_id_lbl', lang)}\n"
             f"<code>{uid_to_show}</code>\n\n"
             f"{t('amount_lbl', lang)} {format_price(order['amount_usd'])}\n\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
+            "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n"
             f"{t('pay_instructions', lang)}\n"
             f"{t('pay_step1', lang)}\n"
             f"{t('pay_step2', lang)}\n\n"
@@ -650,7 +650,7 @@ async def pay_with_binance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle text message in WAITING_ORDER_ID state — verify payment."""
+    """Handle text message in WAITING_ORDER_ID state â€” verify payment."""
     client_order_id = update.message.text.strip()
     order_id = context.user_data.get("paying_order_id")
     expected_amount = context.user_data.get("paying_amount", 0)
@@ -662,7 +662,7 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     db_order = await get_order(order_id)
-    if not db_order or db_order.get("status") == "CANCELLED":
+    if not db_order:
         await update.message.reply_text(
             t("order_cancelled", lang),
             parse_mode="HTML",
@@ -673,15 +673,17 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("paying_product_id", None)
         return ConversationHandler.END
 
+    # Track if order was cancelled by timeout (we still verify on-chain)
+    order_was_cancelled = db_order.get("status") == "CANCELLED"
+
     try:
         await update.message.reply_text(t("verifying", lang))
 
         # Verify order is still in a payable status
-        # Verify order is still in a payable status
         if db_order.get("status") == "COMPLETED":
             await update.message.reply_text(t("payment_confirmed", lang))
             return ConversationHandler.END
-        elif db_order.get("status") not in ("PENDING", "AWAITING_PAYMENT"):
+        elif db_order.get("status") not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED"):
             await update.message.reply_text(
                 t("order_cancelled", lang),
                 parse_mode="HTML",
@@ -716,7 +718,7 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.warning("REPLAY ATTACK BLOCKED: User %s tried to reuse transaction %s for order %d",
                              update.effective_user.id, tx_id, order_id)
                 await update.message.reply_text(
-                    "❌ This transaction has already been used for another order.",
+                    "âŒ This transaction has already been used for another order.",
                     reply_markup=main_menu_keyboard(lang),
                 )
                 return ConversationHandler.END
@@ -726,6 +728,10 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if task and not task.done():
                 task.cancel()
                 
+            # Reactivate order if it was cancelled by timeout but payment is confirmed
+            if order_was_cancelled:
+                await update_order_status(order_id, "PENDING", payment_method="binance")
+                logger.info("Order #%d reactivated: Binance payment confirmed after timeout", order_id)
             binance_tx_id = tx.get("transactionId", "")
             binance_order_id_val = tx.get("orderId", "")
             display_id = binance_order_id_val or binance_tx_id or client_order_id
@@ -737,7 +743,7 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 product = await get_product(product_id)
                 warranty_days = product.get("warranty_days", 0) if product else 0
 
-                await update.message.reply_text(f"✅ {t('payment_confirmed', lang)}\n\nPréparation de votre commande...", parse_mode="HTML")
+                await update.message.reply_text(f"âœ… {t('payment_confirmed', lang)}\n\nPrÃ©paration de votre commande...", parse_mode="HTML")
 
                 header = f"{t('payment_confirmed', lang)}"
                 footer = (
@@ -751,7 +757,7 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(
                     f"{t('payment_confirmed', lang)}\n\n"
                     f"{t('delivery_error', lang)}\n\n"
-                    f"⚠️ <b>Action requise :</b> Veuillez contacter le support technique avec l'ID de commande <b>#{order_id}</b> pour obtenir un remboursement manuel.",
+                    f"âš ï¸ <b>Action requise :</b> Veuillez contacter le support technique avec l'ID de commande <b>#{order_id}</b> pour obtenir un remboursement manuel.",
                     parse_mode="HTML",
                     reply_markup=main_menu_keyboard(lang),
                 )
@@ -772,7 +778,7 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
             error_msg = result.get("error", t("payment_not_detected", lang))
             await update.message.reply_text(
                 f"{t('payment_not_detected', lang)}\n\n"
-                f"❌ {error_msg}\n\n"
+                f"âŒ {error_msg}\n\n"
                 f"{t('retry_order_id', lang)}\n\n"
                 f"{t('contact_support', lang)}",
                 parse_mode="HTML",
@@ -787,7 +793,7 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def check_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle 'check_pay:{order_id}' callback — prompt user to send Order ID."""
+    """Handle 'check_pay:{order_id}' callback â€” prompt user to send Order ID."""
     query = update.callback_query
     await query.answer()
     lang = await get_user_lang(update.effective_user.id)
@@ -845,7 +851,7 @@ async def cancel_order_after_timeout(
 
 
 async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle 'cancel_order:{order_id}' callback — cancel the pending order."""
+    """Handle 'cancel_order:{order_id}' callback â€” cancel the pending order."""
     query = update.callback_query
     await query.answer()
     lang = await get_user_lang(update.effective_user.id)
@@ -910,16 +916,16 @@ async def _start_redirect(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# ── Admin notification helpers ──
+# â”€â”€ Admin notification helpers â”€â”€
 
 async def _notify_admins_sale(context, order_id, product_id, amount):
     product = await get_product(product_id) if product_id else None
     prod_name = escape_html(product["name"]) if product else "?"
     text = (
-        "🔔 <b>Nouvelle vente !</b>\n"
-        f"📦 Produit : {prod_name}\n"
-        f"💰 Montant : {format_price(amount)}\n"
-        f"🔖 Commande : #{order_id}"
+        "ðŸ”” <b>Nouvelle vente !</b>\n"
+        f"ðŸ“¦ Produit : {prod_name}\n"
+        f"ðŸ’° Montant : {format_price(amount)}\n"
+        f"ðŸ”– Commande : #{order_id}"
     )
     for admin_id in ADMIN_IDS:
         try:
@@ -933,9 +939,9 @@ async def _notify_admins_low_stock(context, product_id):
     prod_name = escape_html(product["name"]) if product else f"ID {product_id}"
     stock = await get_stock_count(product_id)
     text = (
-        "⚠️ <b>Stock faible !</b>\n"
-        f"📦 {prod_name}\n"
-        f"📉 Restant : {stock}"
+        "âš ï¸ <b>Stock faible !</b>\n"
+        f"ðŸ“¦ {prod_name}\n"
+        f"ðŸ“‰ Restant : {stock}"
     )
     for admin_id in ADMIN_IDS:
         try:
@@ -946,9 +952,9 @@ async def _notify_admins_low_stock(context, product_id):
 
 async def _notify_admins_manual_check(context, order_id, client_order_id):
     text = (
-        "🔔 <b>Vérification manuelle requise</b>\n"
-        f"🔖 Commande : #{order_id}\n"
-        f"📝 Order ID soumis : <code>{client_order_id}</code>"
+        "ðŸ”” <b>VÃ©rification manuelle requise</b>\n"
+        f"ðŸ”– Commande : #{order_id}\n"
+        f"ðŸ“ Order ID soumis : <code>{client_order_id}</code>"
     )
     for admin_id in ADMIN_IDS:
         try:
@@ -958,7 +964,7 @@ async def _notify_admins_manual_check(context, order_id, client_order_id):
 
 
 async def pay_with_bep20(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle 'pay_bep20:{order_id}' callback — show BEP20 deposit instructions."""
+    """Handle 'pay_bep20:{order_id}' callback â€” show BEP20 deposit instructions."""
     query = update.callback_query
     await query.answer()
     lang = await get_user_lang(update.effective_user.id)
@@ -980,7 +986,7 @@ async def pay_with_bep20(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from database.models import get_setting
         bep20_address = await get_setting("bep20_address")
         if not bep20_address:
-            await query.edit_message_text("❌ BEP20 USDT payment is not configured by admin.")
+            await query.edit_message_text("âŒ BEP20 USDT payment is not configured by admin.")
             return ConversationHandler.END
 
         await update_order_status(order_id, "AWAITING_PAYMENT")
@@ -996,9 +1002,9 @@ async def pay_with_bep20(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{t('bep20_address_lbl', lang)}\n"
             f"<code>{bep20_address}</code>\n\n"
             f"{t('amount_lbl', lang)} {format_price(order['amount_usd'])}\n\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
+            "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n"
             f"{t('bep20_instructions', lang)}\n\n"
-            f"👉 <b>{t('bep20_send_tx_hash', lang)}</b>",
+            f"ðŸ‘‰ <b>{t('bep20_send_tx_hash', lang)}</b>",
             parse_mode="HTML",
             reply_markup=payment_check_keyboard(order_id, lang),
         )
@@ -1024,7 +1030,7 @@ async def pay_with_bep20(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def check_bep20_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle 'check_bep20:{order_id}' callback — prompt user to send Tx Hash."""
+    """Handle 'check_bep20:{order_id}' callback â€” prompt user to send Tx Hash."""
     query = update.callback_query
     await query.answer()
     lang = await get_user_lang(update.effective_user.id)
@@ -1059,7 +1065,7 @@ async def check_bep20_payment(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle text message in WAITING_BEP20_TX_HASH state — verify BEP20 payment."""
+    """Handle text message in WAITING_BEP20_TX_HASH state â€” verify BEP20 payment."""
     tx_hash = update.message.text.strip()
     order_id = context.user_data.get("paying_order_id")
     expected_amount = context.user_data.get("paying_amount", 0)
@@ -1071,7 +1077,7 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
         return ConversationHandler.END
 
     db_order = await get_order(order_id)
-    if not db_order or db_order.get("status") == "CANCELLED":
+    if not db_order:
         await update.message.reply_text(
             t("order_cancelled", lang),
             parse_mode="HTML",
@@ -1087,13 +1093,16 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text(t("bep20_invalid_tx_hash", lang))
         return WAITING_BEP20_TX_HASH
 
+    # Track if order was cancelled by timeout (we still verify on-chain)
+    order_was_cancelled = db_order.get("status") == "CANCELLED"
+
     try:
         await update.message.reply_text(t("verifying", lang))
 
         if db_order.get("status") == "COMPLETED":
             await update.message.reply_text(t("payment_confirmed", lang))
             return ConversationHandler.END
-        elif db_order.get("status") not in ("PENDING", "AWAITING_PAYMENT"):
+        elif db_order.get("status") not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED"):
             await update.message.reply_text(
                 t("order_cancelled", lang),
                 parse_mode="HTML",
@@ -1114,7 +1123,7 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
 
         bep20_address = await get_setting("bep20_address")
         if not bep20_address:
-            await update.message.reply_text("❌ BEP20 payment address is not configured by the administrator.")
+            await update.message.reply_text("âŒ BEP20 payment address is not configured by the administrator.")
             return ConversationHandler.END
 
         from services.blockchain_verify import verify_bep20_payment
@@ -1137,8 +1146,13 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
             task = _timeout_tasks.pop(order_id, None)
             if task and not task.done():
                 task.cancel()
-                
-            # Deliver order first
+
+            # Reactivate order if it was cancelled by timeout but payment is confirmed on-chain
+            if order_was_cancelled:
+                await update_order_status(order_id, "PENDING", payment_method="bep20")
+                logger.info("Order #%d reactivated: BEP20 payment confirmed on-chain after timeout", order_id)
+
+            # Deliver order
             delivered = await deliver_order(order_id, product_id)
 
             if delivered:
@@ -1146,7 +1160,7 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                 product = await get_product(product_id)
                 warranty_days = product.get("warranty_days", 0) if product else 0
                 
-                await update.message.reply_text(f"✅ {t('payment_confirmed', lang)}\n\nPréparation de votre commande...", parse_mode="HTML")
+                await update.message.reply_text(f"âœ… {t('payment_confirmed', lang)}\n\nPrÃ©paration de votre commande...", parse_mode="HTML")
 
                 header = f"{t('payment_confirmed', lang)}"
                 footer = (
@@ -1160,7 +1174,7 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                 await update.message.reply_text(
                     f"{t('payment_confirmed', lang)}\n\n"
                     f"{t('delivery_error', lang)}\n\n"
-                    f"⚠️ <b>Action requise :</b> Veuillez contacter le support technique avec l'ID de commande <b>#{order_id}</b> pour obtenir un remboursement manuel.",
+                    f"âš ï¸ <b>Action requise :</b> Veuillez contacter le support technique avec l'ID de commande <b>#{order_id}</b> pour obtenir un remboursement manuel.",
                     parse_mode="HTML",
                     reply_markup=main_menu_keyboard(lang),
                 )
@@ -1171,10 +1185,10 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                 product = await get_product(product_id)
                 pname = product["name"] if product else "?"
                 await notify_admins(
-                    f"🪙 <b>BEP20 Sale!</b>\n"
-                    f"👤 {escape_html(update.effective_user.first_name)}\n"
-                    f"📦 {pname} x{db_order.get('quantity', 1)}\n"
-                    f"💵 {format_price(expected_amount)}"
+                    f"ðŸª™ <b>BEP20 Sale!</b>\n"
+                    f"ðŸ‘¤ {escape_html(update.effective_user.first_name)}\n"
+                    f"ðŸ“¦ {pname} x{db_order.get('quantity', 1)}\n"
+                    f"ðŸ’µ {format_price(expected_amount)}"
                 )
             except Exception:
                 pass
@@ -1193,7 +1207,7 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
             error_msg = result.get("error", t("payment_not_detected", lang))
             await update.message.reply_text(
                 f"{t('payment_not_detected', lang)}\n\n"
-                f"❌ {error_msg}\n\n"
+                f"âŒ {error_msg}\n\n"
                 f"{t('retry_order_id', lang)}\n\n"
                 f"{t('support_hint', lang)}",
                 parse_mode="HTML",
@@ -1209,7 +1223,7 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def pay_with_trc20(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle 'pay_trc20:{order_id}' callback — show TRC20 deposit instructions."""
+    """Handle 'pay_trc20:{order_id}' callback â€” show TRC20 deposit instructions."""
     query = update.callback_query
     await query.answer()
     lang = await get_user_lang(update.effective_user.id)
@@ -1231,7 +1245,7 @@ async def pay_with_trc20(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from database.models import get_setting
         trc20_address = await get_setting("trc20_address")
         if not trc20_address:
-            await query.edit_message_text("❌ TRC20 USDT payment is not configured by admin.")
+            await query.edit_message_text("âŒ TRC20 USDT payment is not configured by admin.")
             return ConversationHandler.END
 
         await update_order_status(order_id, "AWAITING_PAYMENT")
@@ -1247,9 +1261,9 @@ async def pay_with_trc20(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{t('trc20_address_lbl', lang)}\n"
             f"<code>{trc20_address}</code>\n\n"
             f"{t('amount_lbl', lang)} {format_price(order['amount_usd'])}\n\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
+            "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n"
             f"{t('trc20_instructions', lang)}\n\n"
-            f"👉 <b>{t('trc20_send_tx_hash', lang)}</b>",
+            f"ðŸ‘‰ <b>{t('trc20_send_tx_hash', lang)}</b>",
             parse_mode="HTML",
             reply_markup=payment_check_keyboard(order_id, lang),
         )
@@ -1275,7 +1289,7 @@ async def pay_with_trc20(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def check_trc20_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle 'check_trc20:{order_id}' callback — prompt user to send Tx Hash."""
+    """Handle 'check_trc20:{order_id}' callback â€” prompt user to send Tx Hash."""
     query = update.callback_query
     await query.answer()
     lang = await get_user_lang(update.effective_user.id)
@@ -1310,7 +1324,7 @@ async def check_trc20_payment(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle text message in WAITING_TRC20_TX_HASH state — verify TRC20 payment."""
+    """Handle text message in WAITING_TRC20_TX_HASH state - verify TRC20 payment."""
     tx_hash = update.message.text.strip()
     order_id = context.user_data.get("paying_order_id")
     expected_amount = context.user_data.get("paying_amount", 0)
@@ -1322,7 +1336,7 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
         return ConversationHandler.END
 
     db_order = await get_order(order_id)
-    if not db_order or db_order.get("status") == "CANCELLED":
+    if not db_order:
         await update.message.reply_text(
             t("order_cancelled", lang),
             parse_mode="HTML",
@@ -1344,13 +1358,16 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text(t("trc20_invalid_tx_hash", lang))
         return WAITING_TRC20_TX_HASH
 
+    # Track if order was cancelled by timeout (we still verify on-chain)
+    order_was_cancelled = db_order.get("status") == "CANCELLED"
+
     try:
         await update.message.reply_text(t("verifying", lang))
 
         if db_order.get("status") == "COMPLETED":
             await update.message.reply_text(t("payment_confirmed", lang))
             return ConversationHandler.END
-        elif db_order.get("status") not in ("PENDING", "AWAITING_PAYMENT"):
+        elif db_order.get("status") not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED"):
             await update.message.reply_text(
                 t("order_cancelled", lang),
                 parse_mode="HTML",
@@ -1371,7 +1388,7 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
 
         trc20_address = await get_setting("trc20_address")
         if not trc20_address:
-            await update.message.reply_text("❌ TRC20 payment address is not configured by the administrator.")
+            await update.message.reply_text("TRC20 payment address is not configured by the administrator.")
             return ConversationHandler.END
 
         from services.trc20_verify import verify_trc20_payment
@@ -1380,31 +1397,27 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
         result = await verify_trc20_payment(tx_hash_clean, expected_amount, trc20_address)
 
         if result.get("verified"):
-            # Record hash to prevent double spending
             if not await record_used_trc20_transaction(tx_hash_clean, order_id, update.effective_user.id, expected_amount):
-                logger.warning("REPLAY ATTACK BLOCKED (TRC20 DB constraint): User %s tried to reuse tx %s for order %d",
+                logger.warning("REPLAY ATTACK BLOCKED (TRC20 DB): User %s reuse tx %s order %d",
                                update.effective_user.id, tx_hash_clean, order_id)
-                await update.message.reply_text(
-                    t("tx_already_used", lang),
-                    reply_markup=main_menu_keyboard(lang),
-                )
+                await update.message.reply_text(t("tx_already_used", lang), reply_markup=main_menu_keyboard(lang))
                 return ConversationHandler.END
 
-            # Cancel any pending timeout task for this order since it's paid
             task = _timeout_tasks.pop(order_id, None)
             if task and not task.done():
                 task.cancel()
-                
-            # Deliver order first
+
+            if order_was_cancelled:
+                await update_order_status(order_id, "PENDING", payment_method="trc20")
+                logger.info("Order #%d reactivated: TRC20 payment confirmed on-chain after timeout", order_id)
+
             delivered = await deliver_order(order_id, product_id)
 
             if delivered:
                 await update_order_status(order_id, "COMPLETED", payment_method="trc20", binance_order_id=tx_hash_clean)
                 product = await get_product(product_id)
                 warranty_days = product.get("warranty_days", 0) if product else 0
-                
                 await update.message.reply_text(f"✅ {t('payment_confirmed', lang)}\n\nPréparation de votre commande...", parse_mode="HTML")
-
                 header = f"{t('payment_confirmed', lang)}"
                 footer = (
                     f"{t('warranty_lbl', lang).format(days=warranty_days)}\n"
@@ -1417,21 +1430,20 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                 await update.message.reply_text(
                     f"{t('payment_confirmed', lang)}\n\n"
                     f"{t('delivery_error', lang)}\n\n"
-                    f"⚠️ <b>Action requise :</b> Veuillez contacter le support technique avec l'ID de commande <b>#{order_id}</b> pour obtenir un remboursement manuel.",
+                    f"Action requise : Veuillez contacter le support avec l'ID de commande #{order_id}.",
                     parse_mode="HTML",
                     reply_markup=main_menu_keyboard(lang),
                 )
 
-            # Notify admins of TRON TRC20 sale
             try:
                 from bot import notify_admins
                 product = await get_product(product_id)
                 pname = product["name"] if product else "?"
                 await notify_admins(
-                    f"🪙 <b>TRC20 Sale!</b>\n"
-                    f"👤 {escape_html(update.effective_user.first_name)}\n"
-                    f"📦 {pname} x{db_order.get('quantity', 1)}\n"
-                    f"💵 {format_price(expected_amount)}"
+                    f"TRC20 Sale!\n"
+                    f"User: {escape_html(update.effective_user.first_name)}\n"
+                    f"Product: {pname} x{db_order.get('quantity', 1)}\n"
+                    f"Amount: {format_price(expected_amount)}"
                 )
             except Exception:
                 pass
@@ -1449,13 +1461,9 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
         else:
             error_msg = result.get("error", t("payment_not_detected", lang))
             await update.message.reply_text(
-                f"{t('payment_not_detected', lang)}\n\n"
-                f"❌ {error_msg}\n\n"
-                f"{t('retry_order_id', lang)}\n\n"
-                f"{t('support_hint', lang)}",
+                f"{t('payment_not_detected', lang)}\n\n{error_msg}\n\n{t('retry_order_id', lang)}\n\n{t('support_hint', lang)}",
                 parse_mode="HTML",
             )
-            # Notify admins of manual verification need
             await _notify_admins_manual_check(context, order_id, tx_hash)
             return WAITING_TRC20_TX_HASH
 
@@ -1463,7 +1471,6 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
         logger.error("receive_trc20_tx_hash: %s", exc, exc_info=True)
         await update.message.reply_text(t("verify_error", lang))
         return WAITING_TRC20_TX_HASH
-
 
 def get_payment_conversation_handler() -> ConversationHandler:
     """Build and return the payment ConversationHandler."""
@@ -1530,7 +1537,7 @@ async def download_txt_delivery(update: Update, context: ContextTypes.DEFAULT_TY
             
         file_content = ""
         for i, item in enumerate(items):
-            file_content += f"--- Product n°{i+1} ---\n{item['account_data']}\n\n"
+            file_content += f"--- Product nÂ°{i+1} ---\n{item['account_data']}\n\n"
             
         file_bytes = io.BytesIO(file_content.encode('utf-8'))
         file_bytes.name = f"Order_{order_id}_accounts.txt"
@@ -1538,7 +1545,7 @@ async def download_txt_delivery(update: Update, context: ContextTypes.DEFAULT_TY
         await context.bot.send_document(
             chat_id=update.effective_chat.id,
             document=file_bytes,
-            caption=f"📁 Order #{order_id} Accounts",
+            caption=f"ðŸ“ Order #{order_id} Accounts",
         )
     except Exception as exc:
         logger.error("download_txt_delivery error: %s", exc, exc_info=True)
