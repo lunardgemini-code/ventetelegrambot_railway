@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Payment flow handlers â€” purchase â†’ Binance Pay instructions â†’ Order ID â†’ verify â†’ deliver.
 Uses ConversationHandler with state WAITING_ORDER_ID = 200.
@@ -59,7 +60,7 @@ async def send_delivery_messages(bot, chat_id: int, header: str, items: list, fo
     
     base_markup = main_menu_keyboard(lang)
     if order_id and total_length <= 1500 and len(items) <= 10:
-        new_kb = [[InlineKeyboardButton("ðŸ“¥ Download as TXT", callback_data=f"dl_txt:{order_id}")]] + base_markup.inline_keyboard
+        new_kb = [[InlineKeyboardButton("📥 Download as TXT", callback_data=f"dl_txt:{order_id}")]] + base_markup.inline_keyboard
         reply_markup = InlineKeyboardMarkup(new_kb)
     else:
         reply_markup = base_markup
@@ -67,13 +68,13 @@ async def send_delivery_messages(bot, chat_id: int, header: str, items: list, fo
     if total_length > 1500 or len(items) > 10:
         file_content = ""
         for i, item in enumerate(items):
-            file_content += f"--- Product nÂ°{i+1} ---\n{item['account_data']}\n\n"
+            file_content += f"--- Product n°{i+1} ---\n{item['account_data']}\n\n"
             
-        file_bytes = io.BytesIO(file_content.encode('utf-8'))
+        file_bytes = i✅BytesIO(file_content.encode('utf-8'))
         file_bytes.name = "accounts.txt"
         
         await bot.send_message(chat_id=chat_id, text=header, parse_mode="HTML")
-        await bot.send_document(chat_id=chat_id, document=file_bytes, caption=f"ðŸ“ {your_acc_text}")
+        await bot.send_document(chat_id=chat_id, document=file_bytes, caption=f"📁 {your_acc_text}")
         await bot.send_message(chat_id=chat_id, text=footer, parse_mode="HTML", reply_markup=reply_markup)
         return
 
@@ -84,7 +85,7 @@ async def send_delivery_messages(bot, chat_id: int, header: str, items: list, fo
         current_msg += f"{your_acc_text}\n"
         
     for item in items:
-        line = f"ðŸ”‘ <code>{escape_html(item['account_data'])}</code>\n"
+        line = f"🔑 <code>{escape_html(item['account_data'])}</code>\n"
         if len(current_msg) + len(line) > 3800:
             await bot.send_message(chat_id=chat_id, text=current_msg, parse_mode="HTML")
             current_msg = ""
@@ -326,14 +327,14 @@ async def show_payment_method_screen(
     base_price = product["price_usd"]
     unit_price_line = ""
     if abs(unit_price - base_price) > 0.001:
-        discount_label = {"fr": "ðŸ’° Prix unitaire (palier)", "en": "ðŸ’° Unit price (bulk)", "ar": "ðŸ’° Ø³Ø¹Ø± Ø§Ù„ÙˆØ­Ø¯Ø© (Ø¬Ù…Ù„Ø©)"}.get(lang, "ðŸ’° Prix unitaire (palier)")
+        discount_label = {"fr": "💰 Prix unitaire (palier)", "en": "💰 Unit price (bulk)", "ar": "💰 Ø³Ø¹Ø± Ø§Ù„ÙˆØ­Ø¯Ø© (Ø¬Ù…Ù„Ø©)"}.get(lang, "💰 Prix unitaire (palier)")
         unit_price_line = f"{discount_label}: {format_price(unit_price)}\n"
 
     # Promo discount line
     promo_line = ""
     if has_promo:
         promo_discount = order.get("promo_discount", 0.0)
-        promo_line = f"ðŸŽ« <b>Code Promo :</b> -{format_price(promo_discount)}\n"
+        promo_line = f"🎫 <b>Code Promo :</b> -{format_price(promo_discount)}\n"
 
     summary = (
         f"{t('new_order', lang)}\n\n"
@@ -441,8 +442,8 @@ async def receive_promo_code(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     # Calculate discount
     original_amount = order["amount_usd"]
-    discount_type = promo.get("discount_type", "percent")
-    discount_value = promo.get("discount_value", 0.0)
+    discount_type = prom✅get("discount_type", "percent")
+    discount_value = prom✅get("discount_value", 0.0)
 
     if discount_type == "percent":
         discount = original_amount * (discount_value / 100.0)
@@ -539,7 +540,7 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 .replace("${amount}", format_price(amount)) \
                 .replace("${balance}", format_price(new_balance))
 
-            await query.edit_message_text(f"{wallet_msg}\n\nâœ… PrÃ©paration de votre commande...", parse_mode="HTML")
+            await query.edit_message_text(f"{wallet_msg}\n\n✅ Préparation de votre commande...", parse_mode="HTML")
 
             header = f"{wallet_msg}"
             footer = (
@@ -554,7 +555,7 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await _topup_refund(telegram_id, amount, f"Refund: delivery failed for order #{order_id}")
             refund_balance = await get_wallet_balance(telegram_id)
             await query.edit_message_text(
-                t("delivery_failed", lang) + f"\n\nðŸ’° {format_price(amount)} refunded.",
+                t("delivery_failed", lang) + f"\n\n💰 {format_price(amount)} refunded.",
                 parse_mode="HTML",
                 reply_markup=main_menu_keyboard(lang),
             )
@@ -634,7 +635,7 @@ async def pay_with_binance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         telegram_id = update.effective_user.id
         chat_id = query.message.chat_id if query.message else telegram_id
-        task = asyncio.create_task(
+        task = asynci✅create_task(
             cancel_order_after_timeout(
                 context, chat_id, order_id, telegram_id, timeout_seconds=300
             )
@@ -744,7 +745,7 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 product = await get_product(product_id)
                 warranty_days = product.get("warranty_days", 0) if product else 0
 
-                await update.message.reply_text(f"âœ… {t('payment_confirmed', lang)}\n\nPrÃ©paration de votre commande...", parse_mode="HTML")
+                await update.message.reply_text(f"✅ {t('payment_confirmed', lang)}\n\nPréparation de votre commande...", parse_mode="HTML")
 
                 header = f"{t('payment_confirmed', lang)}"
                 footer = (
@@ -834,7 +835,7 @@ async def cancel_order_after_timeout(
     timeout_seconds: int = 300,
 ):
     """Wait for timeout_seconds, then cancel order if it is still unpaid."""
-    await asyncio.sleep(timeout_seconds)
+    await asynci✅sleep(timeout_seconds)
     try:
         order = await get_order(order_id)
         if order and order.get("status") in ("PENDING", "AWAITING_PAYMENT"):
@@ -941,8 +942,8 @@ async def _notify_admins_low_stock(context, product_id):
     stock = await get_stock_count(product_id)
     text = (
         "âš ï¸ <b>Stock faible !</b>\n"
-        f"ðŸ“¦ {prod_name}\n"
-        f"ðŸ“‰ Restant : {stock}"
+        f"📦 {prod_name}\n"
+        f"📉 Restant : {stock}"
     )
     for admin_id in ADMIN_IDS:
         try:
@@ -953,9 +954,9 @@ async def _notify_admins_low_stock(context, product_id):
 
 async def _notify_admins_manual_check(context, order_id, client_order_id):
     text = (
-        "ðŸ”” <b>VÃ©rification manuelle requise</b>\n"
-        f"ðŸ”– Commande : #{order_id}\n"
-        f"ðŸ“ Order ID soumis : <code>{client_order_id}</code>"
+        "🔔 <b>Vérification manuelle requise</b>\n"
+        f"🔖 Commande : #{order_id}\n"
+        f"📝 Order ID soumis : <code>{client_order_id}</code>"
     )
     for admin_id in ADMIN_IDS:
         try:
@@ -1005,13 +1006,13 @@ async def pay_with_bep20(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{t('amount_lbl', lang)} {format_price(order['amount_usd'])}\n\n"
             "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n"
             f"{t('bep20_instructions', lang)}\n\n"
-            f"ðŸ‘‰ <b>{t('bep20_send_tx_hash', lang)}</b>",
+            f"👉 <b>{t('bep20_send_tx_hash', lang)}</b>",
             parse_mode="HTML",
             reply_markup=payment_check_keyboard(order_id, lang),
         )
 
         # Launch a background task to auto-cancel the order if not paid in 5 mins
-        task = asyncio.create_task(
+        task = asynci✅create_task(
             cancel_order_after_timeout(
                 context,
                 chat_id=update.effective_chat.id,
@@ -1183,7 +1184,7 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                 product = await get_product(product_id)
                 warranty_days = product.get("warranty_days", 0) if product else 0
                 
-                await update.message.reply_text(f"âœ… {t('payment_confirmed', lang)}\n\nPrÃ©paration de votre commande...", parse_mode="HTML")
+                await update.message.reply_text(f"✅ {t('payment_confirmed', lang)}\n\nPréparation de votre commande...", parse_mode="HTML")
 
                 header = f"{t('payment_confirmed', lang)}"
                 footer = (
@@ -1286,13 +1287,13 @@ async def pay_with_trc20(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{t('amount_lbl', lang)} {format_price(order['amount_usd'])}\n\n"
             "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n"
             f"{t('trc20_instructions', lang)}\n\n"
-            f"ðŸ‘‰ <b>{t('trc20_send_tx_hash', lang)}</b>",
+            f"👉 <b>{t('trc20_send_tx_hash', lang)}</b>",
             parse_mode="HTML",
             reply_markup=payment_check_keyboard(order_id, lang),
         )
 
         # Launch a background task to auto-cancel the order if not paid in 5 mins
-        task = asyncio.create_task(
+        task = asynci✅create_task(
             cancel_order_after_timeout(
                 context,
                 chat_id=update.effective_chat.id,
@@ -1582,15 +1583,15 @@ async def download_txt_delivery(update: Update, context: ContextTypes.DEFAULT_TY
             
         file_content = ""
         for i, item in enumerate(items):
-            file_content += f"--- Product nÂ°{i+1} ---\n{item['account_data']}\n\n"
+            file_content += f"--- Product n°{i+1} ---\n{item['account_data']}\n\n"
             
-        file_bytes = io.BytesIO(file_content.encode('utf-8'))
+        file_bytes = i✅BytesIO(file_content.encode('utf-8'))
         file_bytes.name = f"Order_{order_id}_accounts.txt"
         
         await context.bot.send_document(
             chat_id=update.effective_chat.id,
             document=file_bytes,
-            caption=f"ðŸ“ Order #{order_id} Accounts",
+            caption=f"📁 Order #{order_id} Accounts",
         )
     except Exception as exc:
         logger.error("download_txt_delivery error: %s", exc, exc_info=True)
