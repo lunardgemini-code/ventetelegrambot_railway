@@ -1128,6 +1128,20 @@ def main() -> None:
 
     tg_app = app
 
+    # ── Global Error Handler ─────────────
+    from telegram.error import BadRequest
+
+    async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Log the error and handle specific harmless errors."""
+        if isinstance(context.error, BadRequest):
+            if "Message is not modified" in str(context.error):
+                # Harmless error caused by users spamming inline buttons that don't change the message content
+                return
+        
+        logger.error("Exception while handling an update:", exc_info=context.error)
+
+    app.add_error_handler(global_error_handler)
+
     # ── Anti-spam middleware (runs before everything) ─────────────
     from utils.antispam import is_spam, should_warn, get_cooldown_remaining, SPAM_MESSAGES, WARN_MESSAGES, check_and_mark_cooldown_warned
 
