@@ -3,6 +3,7 @@
 
 import os
 import sqlite3
+import asyncio
 
 # ── Turso config ──
 TURSO_URL = os.environ.get("TURSO_DATABASE_URL", "")
@@ -43,13 +44,13 @@ class _AsyncCursor:
             self._columns = []
 
     async def fetchall(self):
-        rows = self._cursor.fetchall()
+        rows = await asyncio.to_thread(self._cursor.fetchall)
         if not self._columns:
             return rows
         return [_DictRow(self._columns, row) for row in rows]
 
     async def fetchone(self):
-        row = self._cursor.fetchone()
+        row = await asyncio.to_thread(self._cursor.fetchone)
         if row is None or not self._columns:
             return row
         return _DictRow(self._columns, row)
@@ -79,19 +80,19 @@ class _AsyncDB:
         if params:
             if isinstance(params, list):
                 params = tuple(params)
-            cursor = self._conn.execute(sql, params)
+            cursor = await asyncio.to_thread(self._conn.execute, sql, params)
         else:
-            cursor = self._conn.execute(sql)
+            cursor = await asyncio.to_thread(self._conn.execute, sql)
         return _AsyncCursor(cursor)
 
     async def executemany(self, sql, params_list):
-        self._conn.executemany(sql, params_list)
+        await asyncio.to_thread(self._conn.executemany, sql, params_list)
 
     async def executescript(self, sql):
-        self._conn.executescript(sql)
+        await asyncio.to_thread(self._conn.executescript, sql)
 
     async def commit(self):
-        self._conn.commit()
+        await asyncio.to_thread(self._conn.commit)
 
     async def close(self):
         try:
@@ -103,8 +104,6 @@ class _AsyncDB:
 # ══════════════════════════════════════════════
 #  Connection Pooling for Turso
 # ══════════════════════════════════════════════
-
-import asyncio
 
 _libsql_pool = []
 _pool_lock = None
