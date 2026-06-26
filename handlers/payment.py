@@ -1207,12 +1207,9 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                 product = await get_product(product_id)
                 pname = product["name"] if product else "?"
                 await notify_admins(
-                    f"💸 <b>BEP20 Sale!</b>
-"
-                    f"👤 {escape_html(update.effective_user.first_name)}
-"
-                    f"📦 {pname} x{db_order.get('quantity', 1)}
-"
+                    f"💸 <b>BEP20 Sale!</b>\n"
+                    f"👤 {escape_html(update.effective_user.first_name)}\n"
+                    f"📦 {pname} x{db_order.get('quantity', 1)}\n"
                     f"💰 {format_price(expected_amount)}"
                 )
             except Exception:
@@ -1465,11 +1462,9 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                 product = await get_product(product_id)
                 pname = product["name"] if product else "?"
                 await notify_admins(
-                    f"TRC20 Sale!\n"
-                    f"👤 {escape_html(update.effective_user.first_name)}
-"
-                    f"📦 {pname} x{db_order.get('quantity', 1)}
-"
+                    f"💸 <b>TRC20 Sale!</b>\n"
+                    f"👤 {escape_html(update.effective_user.first_name)}\n"
+                    f"📦 {pname} x{db_order.get('quantity', 1)}\n"
                     f"💰 {format_price(expected_amount)}"
                 )
             except Exception:
