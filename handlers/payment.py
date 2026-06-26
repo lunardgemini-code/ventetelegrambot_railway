@@ -565,10 +565,13 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             product = await get_product(product_id)
             pname = product["name"] if product else "?"
             await notify_admins(
-                f"ðŸ’° <b>Wallet Purchase!</b>\n"
-                f"ðŸ‘¤ {escape_html(update.effective_user.first_name)}\n"
-                f"ðŸ“¦ {pname} x{order.get('quantity', 1)}\n"
-                f"ðŸ’µ {format_price(amount)}"
+                f"💰 <b>Wallet Purchase!</b>
+"
+                f"👤 {escape_html(update.effective_user.first_name)}
+"
+                f"📦 {pname} x{order.get('quantity', 1)}
+"
+                f"💰 {format_price(amount)}"
             )
         except Exception:
             pass
@@ -916,16 +919,16 @@ async def _start_redirect(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# â”€â”€ Admin notification helpers â”€â”€
+# ── Admin notification helpers ──
 
 async def _notify_admins_sale(context, order_id, product_id, amount):
     product = await get_product(product_id) if product_id else None
     prod_name = escape_html(product["name"]) if product else "?"
     text = (
-        "ðŸ”” <b>Nouvelle vente !</b>\n"
-        f"ðŸ“¦ Produit : {prod_name}\n"
-        f"ðŸ’° Montant : {format_price(amount)}\n"
-        f"ðŸ”– Commande : #{order_id}"
+        "🔔 <b>Nouvelle vente !</b>\n"
+        f"📦 Produit : {prod_name}\n"
+        f"💰 Montant : {format_price(amount)}\n"
+        f"🔖 Commande : #{order_id}"
     )
     for admin_id in ADMIN_IDS:
         try:
@@ -1207,10 +1210,13 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                 product = await get_product(product_id)
                 pname = product["name"] if product else "?"
                 await notify_admins(
-                    f"ðŸª™ <b>BEP20 Sale!</b>\n"
-                    f"ðŸ‘¤ {escape_html(update.effective_user.first_name)}\n"
-                    f"ðŸ“¦ {pname} x{db_order.get('quantity', 1)}\n"
-                    f"ðŸ’µ {format_price(expected_amount)}"
+                    f"💸 <b>BEP20 Sale!</b>
+"
+                    f"👤 {escape_html(update.effective_user.first_name)}
+"
+                    f"📦 {pname} x{db_order.get('quantity', 1)}
+"
+                    f"💰 {format_price(expected_amount)}"
                 )
             except Exception:
                 pass
@@ -1463,9 +1469,11 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                 pname = product["name"] if product else "?"
                 await notify_admins(
                     f"TRC20 Sale!\n"
-                    f"User: {escape_html(update.effective_user.first_name)}\n"
-                    f"Product: {pname} x{db_order.get('quantity', 1)}\n"
-                    f"Amount: {format_price(expected_amount)}"
+                    f"👤 {escape_html(update.effective_user.first_name)}
+"
+                    f"📦 {pname} x{db_order.get('quantity', 1)}
+"
+                    f"💰 {format_price(expected_amount)}"
                 )
             except Exception:
                 pass
