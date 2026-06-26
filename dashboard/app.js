@@ -139,7 +139,7 @@ const DOM = {
     prodModal:$('prod-modal'), stockModal:$('stock-modal'), promoModal:$('promo-modal'), tiersModal:$('tiers-modal'),
     orderDetailModal:$('order-detail-modal'), viewStockModal:$('view-stock-modal'), editProdModal:$('edit-prod-modal'),
     addProdForm:$('add-prod-form'), addPromoForm:$('add-promo-form'), prodId:$('prod-id'),
-    prodName:$('prod-name'), prodPrice:$('prod-price'), prodWarranty:$('prod-warranty'), prodEmoji:$('prod-emoji'), prodDesc:$('prod-desc'), prodImageUrl:$('prod-image-url'),
+    prodName:$('prod-name'), prodPrice:$('prod-price'), prodWarranty:$('prod-warranty'), prodEmoji:$('prod-emoji'), prodCustomEmojiId:$('prod-custom-emoji-id'), prodDesc:$('prod-desc'), prodImageUrl:$('prod-image-url'),
     stockTextarea:$('stock-textarea'), stockLineCount:$('stock-line-count'), btnAddStock:$('btn-add-stock'),
     stockItemsList:$('stock-items-list'), stockExistingCount:$('stock-existing-count'), stockModalTitle:$('stock-modal-title'),
     stockFileInput:$('stock-file-input'),
@@ -895,6 +895,7 @@ window.openEditProduct = function(productId) {
     $('edit-prod-warranty').value = p.warranty_days || 0;
     $('edit-prod-desc').value = p.description || '';
     if ($('edit-prod-image-url')) $('edit-prod-image-url').value = p.image_url || '';
+    if ($('edit-prod-custom-emoji-id')) $('edit-prod-custom-emoji-id').value = p.custom_emoji_id || '';
     $('edit-prod-title').textContent = `Modifier — ${p.emoji || '📦'} ${p.name}`;
     showModal(DOM.editProdModal);
 };
@@ -904,6 +905,7 @@ $('edit-prod-form').addEventListener('submit', async (e) => {
     const id = $('edit-prod-id').value;
     const data = {
         emoji: $('edit-prod-emoji').value.trim() || '📦',
+        custom_emoji_id: $('edit-prod-custom-emoji-id') ? $('edit-prod-custom-emoji-id').value.trim() : '',
         name: $('edit-prod-name').value.trim(),
         price_usd: parseFloat($('edit-prod-price').value),
         warranty_days: parseInt($('edit-prod-warranty').value) || 0,
@@ -1301,6 +1303,7 @@ async function handleAddProduct(e) {
         price_usd: parseFloat(DOM.prodPrice.value),
         warranty_days: parseInt(DOM.prodWarranty.value) || 0,
         emoji: DOM.prodEmoji.value.trim() || '📦',
+        custom_emoji_id: DOM.prodCustomEmojiId && DOM.prodCustomEmojiId.value.trim() ? DOM.prodCustomEmojiId.value.trim() : null,
         description: DOM.prodDesc ? DOM.prodDesc.value.trim() : '',
         image_url: DOM.prodImageUrl && DOM.prodImageUrl.value.trim() ? DOM.prodImageUrl.value.trim() : null,
         binance_account_id: DOM.prodBinanceAccount && DOM.prodBinanceAccount.value ? parseInt(DOM.prodBinanceAccount.value) : null

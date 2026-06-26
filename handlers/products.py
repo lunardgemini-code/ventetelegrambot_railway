@@ -121,8 +121,12 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             return
 
+        p_emoji = product["emoji"]
+        if product.get("custom_emoji_id"):
+            p_emoji = f'<tg-emoji emoji-id="{product["custom_emoji_id"]}">{p_emoji}</tg-emoji>'
+
         text = t("product_detail", lang).format(
-            emoji=product["emoji"],
+            emoji=p_emoji,
             name=escape_html(product["name"]),
             description=escape_html(product.get("description", "N/A") or "N/A"),
             price=format_price(product["price_usd"]),

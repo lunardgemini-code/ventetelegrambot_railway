@@ -370,6 +370,7 @@ async def add_product(
     price_usd: float,
     warranty_days: int = 0,
     emoji: str = "📦",
+    custom_emoji_id: str | None = None,
     image_url: str | None = None,
     binance_account_id: int | None = None,
 ) -> int:
@@ -381,9 +382,9 @@ async def add_product(
     try:
         cursor = await db.execute(
             """INSERT INTO products
-               (category_id, name, description, price_usd, warranty_days, emoji, image_url, binance_account_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (category_id, name, description, price_usd, warranty_days, emoji, image_url, binance_account_id),
+               (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id),
         )
         await db.commit()
         return cursor.lastrowid  # type: ignore[return-value]
@@ -391,7 +392,7 @@ async def add_product(
         await db.close()
 
 
-ALLOWED_PRODUCT_COLUMNS = {"category_id", "name", "description", "price_usd", "warranty_days", "emoji", "image_url", "is_active", "binance_account_id"}
+ALLOWED_PRODUCT_COLUMNS = {"category_id", "name", "description", "price_usd", "warranty_days", "emoji", "custom_emoji_id", "image_url", "is_active", "binance_account_id"}
 
 
 async def update_product(product_id: int, **kwargs) -> None:

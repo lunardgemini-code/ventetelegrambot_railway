@@ -249,6 +249,7 @@ async def api_create_product(data: dict):
             price_usd=price,
             warranty_days=warranty,
             emoji=data.get("emoji", "📦"),
+            custom_emoji_id=data.get("custom_emoji_id"),
             image_url=data.get("image_url"),
             binance_account_id=data.get("binance_account_id")
         )
@@ -288,7 +289,7 @@ async def api_set_product_tiers(product_id: int, data: dict):
 async def api_update_product(product_id: int, data: dict):
     from database.models import update_product
     try:
-        allowed = {"name", "price_usd", "emoji", "warranty_days", "description", "is_active", "binance_account_id", "image_url"}
+        allowed = {"name", "price_usd", "emoji", "custom_emoji_id", "warranty_days", "description", "is_active", "binance_account_id", "image_url"}
         updates = {k: v for k, v in data.items() if k in allowed}
         if not updates:
             raise HTTPException(status_code=400, detail="No valid fields to update")

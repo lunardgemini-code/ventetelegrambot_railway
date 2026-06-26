@@ -238,6 +238,7 @@ async def init_db() -> None:
                 price_usd REAL NOT NULL,
                 warranty_days INTEGER DEFAULT 0,
                 emoji TEXT DEFAULT '📦',
+                custom_emoji_id TEXT DEFAULT NULL,
                 image_url TEXT DEFAULT NULL,
                 is_active INTEGER DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -372,6 +373,7 @@ async def init_db() -> None:
             "UPDATE orders SET binance_order_id = (SELECT tx_hash FROM used_bep20_transactions WHERE used_bep20_transactions.order_id = orders.id) WHERE binance_order_id IS NULL AND id IN (SELECT order_id FROM used_bep20_transactions WHERE order_id IS NOT NULL)",
             "UPDATE orders SET binance_order_id = (SELECT tx_hash FROM used_trc20_transactions WHERE used_trc20_transactions.order_id = orders.id) WHERE binance_order_id IS NULL AND id IN (SELECT order_id FROM used_trc20_transactions WHERE order_id IS NOT NULL)",
             "ALTER TABLE products ADD COLUMN image_url TEXT DEFAULT NULL",
+            "ALTER TABLE products ADD COLUMN custom_emoji_id TEXT DEFAULT NULL",
             "INSERT OR IGNORE INTO settings (key, value) SELECT 'finance_bot_balance_binance', value FROM settings WHERE key = 'finance_bot_balance'",
         ]
         for sql in migrations:
