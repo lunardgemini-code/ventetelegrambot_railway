@@ -249,7 +249,7 @@ async def _verify_crypto_topup(update: Update, context: ContextTypes.DEFAULT_TYP
                 acc = await get_default_binance_account()
                 api_key = acc.get("api_key") if acc else None
                 api_secret = acc.get("api_secret") if acc else None
-                result = await verify_internal_transfer(tx_hash, amount, api_key=api_key, api_secret=api_secret)
+                result = await verify_internal_transfer(tx_hash, amount, api_key=api_key, api_secret=api_secret, lang=lang)
             
             if result.get("verified"):
                 if not await record_used_bep20_transaction(tx_hash, None, telegram_id, amount):
@@ -261,14 +261,18 @@ async def _verify_crypto_topup(update: Update, context: ContextTypes.DEFAULT_TYP
                 return WALLET_TOPUP_BEP20_TX
 
         elif crypto_type == "TRC20":
-            tx_hash_clean = tx_hash
-            if tx_hash_clean.lower().startswith("0x"):
-                tx_hash_clean = tx_hash_clean[2:]
+            is_off_chain = tx_hash.isdigit() or "off-chain" in tx_hash.lower() or len(tx_hash) < 64
+            is_on_chain = not is_off_chain
             
-            import re
-            if not re.match(r"^[a-fA-F0-9]{64}$", tx_hash_clean):
-                await update.message.reply_text(t("trc20_invalid_tx_hash", lang))
-                return WALLET_TOPUP_TRC20_TX
+            tx_hash_clean = tx_hash
+            if is_on_chain:
+                if tx_hash_clean.lower().startswith("0x"):
+                    tx_hash_clean = tx_hash_clean[2:]
+                
+                import re
+                if not re.match(r"^[a-fA-F0-9]{64}$", tx_hash_clean):
+                    await update.message.reply_text(t("trc20_invalid_tx_hash", lang))
+                    return WALLET_TOPUP_TRC20_TX
             
             if await is_trc20_transaction_used(tx_hash_clean):
                 await update.message.reply_text(t("tx_already_used", lang), reply_markup=main_menu_keyboard(lang))
@@ -276,7 +280,17 @@ async def _verify_crypto_topup(update: Update, context: ContextTypes.DEFAULT_TYP
             
             trc20_address = await get_setting("trc20_address")
             from services.trc20_verify import verify_trc20_payment
-            result = await verify_trc20_payment(tx_hash_clean, amount, trc20_address)
+            from services.binance_verify import verify_internal_transfer
+
+            result = {"verified": False, "error": "Type de transaction non pris en charge."}
+            if is_on_chain:
+                result = await verify_trc20_payment(tx_hash_clean, amount, trc20_address)
+            else:
+                from database.models import get_default_binance_account
+                acc = await get_default_binance_account()
+                api_key = acc.get("api_key") if acc else None
+                api_secret = acc.get("api_secret") if acc else None
+                result = await verify_internal_transfer(tx_hash_clean, amount, api_key=api_key, api_secret=api_secret, lang=lang)
             
             if result.get("verified"):
                 if not await record_used_trc20_transaction(tx_hash_clean, None, telegram_id, amount):
@@ -351,7 +365,7 @@ async def wallet_verify_payment(update: Update, context: ContextTypes.DEFAULT_TY
             api_key_to_use = def_acc.get("api_key")
             api_secret_to_use = def_acc.get("api_secret")
 
-        result = await verify_payment(client_order_id, amount, api_key=api_key_to_use, api_secret=api_secret_to_use)
+        result = await verify_payment(client_order_id, amount, api_key=api_key_to_use, api_secret=api_secret_to_use, lang=lang)
 
         if result.get("verified"):
             # Anti-replay: check if this transaction was already used
