@@ -707,7 +707,8 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
             client_order_id, 
             expected_amount, 
             api_key=api_key_to_use, 
-            api_secret=api_secret_to_use
+            api_secret=api_secret_to_use,
+            lang=lang
         )
 
         if result.get("verified"):
@@ -1151,7 +1152,7 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                         api_key = acc.get("api_key")
                         api_secret = acc.get("api_secret")
             
-            result = await verify_internal_transfer(tx_hash, expected_amount, api_key=api_key, api_secret=api_secret)
+            result = await verify_internal_transfer(tx_hash, expected_amount, api_key=api_key, api_secret=api_secret, lang=lang)
 
         if result.get("verified"):
             # Record hash to prevent double spending
@@ -1369,16 +1370,20 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
         context.user_data.pop("paying_product_id", None)
         return ConversationHandler.END
 
-    # Clean the transaction hash for TRC20
-    tx_hash_clean = tx_hash
-    if tx_hash_clean.lower().startswith("0x"):
-        tx_hash_clean = tx_hash_clean[2:]
+    # Validation: on-chain TRON hashes are 64 hex characters.
+    # Off-chain Binance transfers are usually digits, contain "off-chain", or are shorter.
+    is_off_chain = tx_hash.isdigit() or "off-chain" in tx_hash.lower() or len(tx_hash) < 64
 
-    # Validate TRON Tx Hash length and character set
-    import re
-    if not re.match(r"^[a-fA-F0-9]{64}$", tx_hash_clean):
-        await update.message.reply_text(t("trc20_invalid_tx_hash", lang))
-        return WAITING_TRC20_TX_HASH
+    tx_hash_clean = tx_hash
+    if not is_off_chain:
+        if tx_hash_clean.lower().startswith("0x"):
+            tx_hash_clean = tx_hash_clean[2:]
+        import re
+        if not re.match(r"^[a-fA-F0-9]{64}$", tx_hash_clean):
+            await update.message.reply_text(t("trc20_invalid_tx_hash", lang))
+            return WAITING_TRC20_TX_HASH
+            
+    is_on_chain = not is_off_chain
 
     # Track if order was cancelled by timeout (we still verify on-chain)
     order_was_cancelled = db_order.get("status") == "CANCELLED"
@@ -1414,9 +1419,27 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
             return ConversationHandler.END
 
         from services.trc20_verify import verify_trc20_payment
+        from services.binance_verify import verify_internal_transfer
 
-        # On-chain verification
-        result = await verify_trc20_payment(tx_hash_clean, expected_amount, trc20_address)
+        result = {"verified": False, "error": "Type de transaction non pris en charge."}
+
+        if is_on_chain:
+            # On-chain verification
+            result = await verify_trc20_payment(tx_hash_clean, expected_amount, trc20_address)
+        else:
+            # Off-chain Binance internal verification
+            api_key = None
+            api_secret = None
+            if product_id:
+                product = await get_product(product_id)
+                if product and product.get("binance_account_id"):
+                    from database.models import get_binance_account
+                    acc = await get_binance_account(product["binance_account_id"])
+                    if acc:
+                        api_key = acc.get("api_key")
+                        api_secret = acc.get("api_secret")
+            
+            result = await verify_internal_transfer(tx_hash_clean, expected_amount, api_key=api_key, api_secret=api_secret, lang=lang)
 
         if result.get("verified"):
             if not await record_used_trc20_transaction(tx_hash_clean, order_id, update.effective_user.id, expected_amount):

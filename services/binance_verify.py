@@ -37,6 +37,7 @@ async def verify_payment(
     expected_amount: float,
     api_key: str | None = None,
     api_secret: str | None = None,
+    lang: str = "fr",
 ) -> dict:
     """Vérifie un paiement Binance Pay en consultant l'historique des transactions."""
     result: dict = {"verified": False, "transaction": None, "error": None}
@@ -45,7 +46,7 @@ async def verify_payment(
     secret_to_use = api_secret if api_secret else BINANCE_API_SECRET
 
     if not key_to_use or not secret_to_use:
-        result["error"] = "Clés API Binance non configurées."
+        result["error"] = {"en": "Binance API keys not configured.", "ar": "مفاتيح Binance API غير مهيأة."}.get(lang, "Clés API Binance non configurées.")
         logger.error(result["error"])
         return result
 
@@ -93,7 +94,7 @@ async def verify_payment(
         transactions: list[dict] = data.get("data", [])
 
         if not transactions:
-            result["error"] = "Aucune transaction trouvée dans la période."
+            result["error"] = {"en": "No transactions found in the period.", "ar": "لم يتم العثور على معاملات في هذه الفترة."}.get(lang, "Aucune transaction trouvée dans la période.")
             return result
 
         # Parcourir les transactions pour trouver une correspondance
@@ -134,14 +135,11 @@ async def verify_payment(
                 return result
 
         # Aucune correspondance trouvée
-        result["error"] = (
-            "Aucune transaction correspondante trouvée. "
-            f"Recherché : ID={client_order_id}, montant={expected_amount}"
-        )
+        result["error"] = {"en": f"No transaction found matching ID={client_order_id}, amount={expected_amount}", "ar": f"لم يتم العثور على معاملة مطابقة للمعرف={client_order_id} والمبلغ={expected_amount}"}.get(lang, f"Aucune transaction correspondante trouvée. Recherché : ID={client_order_id}, montant={expected_amount}")
         return result
 
     except httpx.TimeoutException:
-        result["error"] = "Délai d'attente dépassé lors de la connexion à l'API Binance."
+        result["error"] = {"en": "Timeout connecting to Binance API.", "ar": "انتهت مهلة الاتصال بـ Binance API."}.get(lang, "Délai d'attente dépassé lors de la connexion à l'API Binance.")
         logger.exception(result["error"])
         return result
     except httpx.RequestError as exc:
@@ -158,6 +156,7 @@ async def verify_internal_transfer(
     expected_amount: float,
     api_key: str | None = None,
     api_secret: str | None = None,
+    lang: str = "fr",
 ) -> dict:
     """Vérifie un transfert interne Binance (off-chain) via l'historique des dépôts."""
     result: dict = {"verified": False, "transaction": None, "error": None}
@@ -166,7 +165,7 @@ async def verify_internal_transfer(
     secret_to_use = api_secret if api_secret else BINANCE_API_SECRET
 
     if not key_to_use or not secret_to_use:
-        result["error"] = "Clés API Binance non configurées."
+        result["error"] = {"en": "Binance API keys not configured.", "ar": "مفاتيح Binance API غير مهيأة."}.get(lang, "Clés API Binance non configurées.")
         logger.error(result["error"])
         return result
 
@@ -204,7 +203,7 @@ async def verify_internal_transfer(
             return result
 
         if not deposits:
-            result["error"] = "Aucun dépôt trouvé dans la période."
+            result["error"] = {"en": "No deposits found in the period.", "ar": "لم يتم العثور على إيداعات في هذه الفترة."}.get(lang, "Aucun dépôt trouvé dans la période.")
             return result
 
         cleaned_client_id = client_tx_id.strip().upper()
@@ -228,11 +227,11 @@ async def verify_internal_transfer(
                 logger.info("Transfert interne vérifié — Transaction ID : %s, montant : %s", tx_id, tx_amount)
                 return result
 
-        result["error"] = f"Aucun transfert interne correspondant trouvé pour l'ID={client_tx_id}."
+        result["error"] = {"en": f"No internal transfer found matching ID={client_tx_id}.", "ar": f"لم يتم العثور على تحويل داخلي مطابق للمعرف={client_tx_id}."}.get(lang, f"Aucun transfert interne correspondant trouvé pour l'ID={client_tx_id}.")
         return result
 
     except httpx.TimeoutException:
-        result["error"] = "Délai d'attente dépassé lors de la connexion à l'API Binance."
+        result["error"] = {"en": "Timeout connecting to Binance API.", "ar": "انتهت مهلة الاتصال بـ Binance API."}.get(lang, "Délai d'attente dépassé lors de la connexion à l'API Binance.")
         logger.exception(result["error"])
         return result
     except Exception as exc:

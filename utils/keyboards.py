@@ -93,28 +93,14 @@ def products_keyboard(products: list[dict], stock_counts: dict, lang: str = "fr"
     buttons = []
     for prod in products:
         stock = stock_counts.get(prod["id"], 0)
-        custom_id = prod.get("custom_emoji_id")
         
         if stock > 0:
-            base_label = f"{prod['name']} | ${prod['price_usd']:.2f} | 📦 {stock}"
-            fallback_label = f"{prod['emoji']} {base_label}"
+            label = f"{prod['emoji']} {prod['name']} | ${prod['price_usd']:.2f} | 📦 {stock}"
         else:
             rupture_txt = {"en": "Out of stock", "fr": "Rupture", "ar": "نفذت الكمية"}.get(lang, "Rupture")
-            base_label = f"{prod['name']} | ${prod['price_usd']:.2f} | {rupture_txt}"
-            fallback_label = f"❌ {base_label}"
+            label = f"❌ {prod['name']} | ${prod['price_usd']:.2f} | {rupture_txt}"
             
-        btn = None
-        if custom_id and stock > 0:
-            try:
-                # Try to use the new icon_custom_emoji_id if python-telegram-bot supports it
-                btn = InlineKeyboardButton(base_label, callback_data=f"prod:{prod['id']}", icon_custom_emoji_id=str(custom_id))
-            except TypeError:
-                pass
-                
-        if btn is None:
-            btn = InlineKeyboardButton(fallback_label, callback_data=f"prod:{prod['id']}")
-            
-        buttons.append([btn])
+        buttons.append([InlineKeyboardButton(label, callback_data=f"prod:{prod['id']}")])
 
     buttons.append([
         InlineKeyboardButton(t("btn_refresh", lang), callback_data="refresh_prods"),
