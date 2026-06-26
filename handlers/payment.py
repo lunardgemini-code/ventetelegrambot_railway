@@ -565,12 +565,9 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             product = await get_product(product_id)
             pname = product["name"] if product else "?"
             await notify_admins(
-                f"💰 <b>Wallet Purchase!</b>
-"
-                f"👤 {escape_html(update.effective_user.first_name)}
-"
-                f"📦 {pname} x{order.get('quantity', 1)}
-"
+                f"💰 <b>Wallet Purchase!</b>\n"
+                f"👤 {escape_html(update.effective_user.first_name)}\n"
+                f"📦 {pname} x{order.get('quantity', 1)}\n"
                 f"💰 {format_price(amount)}"
             )
         except Exception:
