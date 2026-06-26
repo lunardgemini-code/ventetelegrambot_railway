@@ -1,0 +1,12 @@
+Line 73: file_bytes = i✅BytesIO(file_content.encode('utf-8'))
+Line 445: discount_type = prom✅get("discount_type", "percent")
+Line 446: discount_value = prom✅get("discount_value", 0.0)
+Line 543: await query.edit_message_text(f"{wallet_msg}\n\n✅ Préparation de votre commande...", parse_mode="HTML")
+Line 638: task = asynci✅create_task(
+Line 748: await update.message.reply_text(f"✅ {t('payment_confirmed', lang)}\n\nPréparation de votre commande...", parse_mode="HTML")
+Line 838: await asynci✅sleep(timeout_seconds)
+Line 1015: task = asynci✅create_task(
+Line 1187: await update.message.reply_text(f"✅ {t('payment_confirmed', lang)}\n\nPréparation de votre commande...", parse_mode="HTML")
+Line 1296: task = asynci✅create_task(
+Line 1466: await update.message.reply_text(f"✅ {t('payment_confirmed', lang)}\n\nPréparation de votre commande...", parse_mode="HTML")
+Line 1588: file_bytes = i✅BytesIO(file_content.encode('utf-8'))

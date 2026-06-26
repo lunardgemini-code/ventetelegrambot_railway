@@ -70,7 +70,7 @@ async def send_delivery_messages(bot, chat_id: int, header: str, items: list, fo
         for i, item in enumerate(items):
             file_content += f"--- Product n°{i+1} ---\n{item['account_data']}\n\n"
             
-        file_bytes = i✅BytesIO(file_content.encode('utf-8'))
+        file_bytes = io.BytesIO(file_content.encode('utf-8'))
         file_bytes.name = "accounts.txt"
         
         await bot.send_message(chat_id=chat_id, text=header, parse_mode="HTML")
@@ -442,8 +442,8 @@ async def receive_promo_code(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     # Calculate discount
     original_amount = order["amount_usd"]
-    discount_type = prom✅get("discount_type", "percent")
-    discount_value = prom✅get("discount_value", 0.0)
+    discount_type = promo.get("discount_type", "percent")
+    discount_value = promo.get("discount_value", 0.0)
 
     if discount_type == "percent":
         discount = original_amount * (discount_value / 100.0)
@@ -635,7 +635,7 @@ async def pay_with_binance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         telegram_id = update.effective_user.id
         chat_id = query.message.chat_id if query.message else telegram_id
-        task = asynci✅create_task(
+        task = asyncio.create_task(
             cancel_order_after_timeout(
                 context, chat_id, order_id, telegram_id, timeout_seconds=300
             )
@@ -835,7 +835,7 @@ async def cancel_order_after_timeout(
     timeout_seconds: int = 300,
 ):
     """Wait for timeout_seconds, then cancel order if it is still unpaid."""
-    await asynci✅sleep(timeout_seconds)
+    await asyncio.sleep(timeout_seconds)
     try:
         order = await get_order(order_id)
         if order and order.get("status") in ("PENDING", "AWAITING_PAYMENT"):
@@ -1012,7 +1012,7 @@ async def pay_with_bep20(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         # Launch a background task to auto-cancel the order if not paid in 5 mins
-        task = asynci✅create_task(
+        task = asyncio.create_task(
             cancel_order_after_timeout(
                 context,
                 chat_id=update.effective_chat.id,
@@ -1293,7 +1293,7 @@ async def pay_with_trc20(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         # Launch a background task to auto-cancel the order if not paid in 5 mins
-        task = asynci✅create_task(
+        task = asyncio.create_task(
             cancel_order_after_timeout(
                 context,
                 chat_id=update.effective_chat.id,
@@ -1585,7 +1585,7 @@ async def download_txt_delivery(update: Update, context: ContextTypes.DEFAULT_TY
         for i, item in enumerate(items):
             file_content += f"--- Product n°{i+1} ---\n{item['account_data']}\n\n"
             
-        file_bytes = i✅BytesIO(file_content.encode('utf-8'))
+        file_bytes = io.BytesIO(file_content.encode('utf-8'))
         file_bytes.name = f"Order_{order_id}_accounts.txt"
         
         await context.bot.send_document(
