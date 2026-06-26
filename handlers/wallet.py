@@ -69,7 +69,10 @@ async def wallet_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     if query:
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=wallet_menu_keyboard(balance, lang))
+        try:
+            await query.edit_message_text(text, parse_mode="HTML", reply_markup=wallet_menu_keyboard(balance, lang))
+        except Exception:
+            pass  # Message already shows this content
     else:
         await update.message.reply_text(text, parse_mode="HTML", reply_markup=wallet_menu_keyboard(balance, lang))
 
@@ -222,7 +225,10 @@ async def _verify_crypto_topup(update: Update, context: ContextTypes.DEFAULT_TYP
     
     try:
         if crypto_type == "BEP20":
-            if not tx_hash.startswith("0x") or len(tx_hash) != 66:
+            is_on_chain = tx_hash.startswith("0x") and len(tx_hash) == 66
+            is_off_chain = tx_hash.isdigit() or "off-chain" in tx_hash.lower() or (not tx_hash.startswith("0x") and len(tx_hash) > 5)
+
+            if not is_on_chain and not is_off_chain:
                 await update.message.reply_text(t("bep20_invalid_tx_hash", lang))
                 return WALLET_TOPUP_BEP20_TX
             
@@ -232,7 +238,18 @@ async def _verify_crypto_topup(update: Update, context: ContextTypes.DEFAULT_TYP
             
             bep20_address = await get_setting("bep20_address")
             from services.blockchain_verify import verify_bep20_payment
-            result = await verify_bep20_payment(tx_hash, amount, bep20_address)
+            from services.binance_verify import verify_internal_transfer
+
+            result = {"verified": False, "error": "Type de transaction non pris en charge."}
+
+            if is_on_chain:
+                result = await verify_bep20_payment(tx_hash, amount, bep20_address)
+            else:
+                from database.models import get_default_binance_account
+                acc = await get_default_binance_account()
+                api_key = acc.get("api_key") if acc else None
+                api_secret = acc.get("api_secret") if acc else None
+                result = await verify_internal_transfer(tx_hash, amount, api_key=api_key, api_secret=api_secret)
             
             if result.get("verified"):
                 if not await record_used_bep20_transaction(tx_hash, None, telegram_id, amount):
@@ -387,6 +404,9 @@ async def wallet_verify_payment(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def wallet_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Return to wallet menu from any sub-state."""
+    query = update.callback_query
+    if query:
+        await query.answer()
     context.user_data.pop("wallet_topup_amount", None)
     await wallet_menu(update, context)
     return ConversationHandler.END

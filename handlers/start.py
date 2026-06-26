@@ -122,11 +122,14 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     lang = await get_user_lang(update.effective_user.id)
 
     text = t("welcome", lang) or t("welcome", "fr")
-    await query.edit_message_text(
-        text,
-        parse_mode="HTML",
-        reply_markup=main_menu_keyboard(lang),
-    )
+    try:
+        await query.edit_message_text(
+            text,
+            parse_mode="HTML",
+            reply_markup=main_menu_keyboard(lang),
+        )
+    except Exception:
+        pass  # Message already shows this content
 
 
 async def callback_check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
