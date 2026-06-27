@@ -1972,7 +1972,7 @@ async def get_transactions_for_export(start_date: str, end_date: str):
                 '' as hash_id
             FROM wallet_transactions w
             LEFT JOIN users u ON w.user_telegram_id = u.telegram_id
-            WHERE w.description LIKE 'Topup via%'
+            WHERE (w.description LIKE 'Topup via%' OR w.description LIKE 'Binance Pay:%')
               AND datetime(w.created_at) >= datetime(?) 
               AND datetime(w.created_at) <= datetime(?)
             ORDER BY date DESC
