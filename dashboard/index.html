@@ -9,7 +9,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -793,12 +795,19 @@
         <div class="modal-body" style="padding-top:1rem;">
             <form id="exportForm" class="modal-form">
                 <div class="form-group" style="margin-bottom:1rem;">
+                    <label style="display:block; margin-bottom:0.5rem;">Format d'export</label>
+                    <select id="exportFormat" style="width:100%; padding:0.5rem; border-radius:4px; border:1px solid var(--border-color); background:var(--bg-secondary); color:var(--color-text-main);">
+                        <option value="excel">Excel (.xlsx)</option>
+                        <option value="pdf">PDF (.pdf)</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom:1rem;">
                     <label style="display:block; margin-bottom:0.5rem;">Date de début</label>
-                    <input type="date" id="exportStartDate" required style="width:100%; padding:0.5rem; border-radius:4px; border:1px solid var(--border-color); background:var(--bg-secondary); color:var(--color-text-main);">
+                    <input type="datetime-local" id="exportStartDate" required style="width:100%; padding:0.5rem; border-radius:4px; border:1px solid var(--border-color); background:var(--bg-secondary); color:var(--color-text-main);">
                 </div>
                 <div class="form-group" style="margin-bottom:1.5rem;">
                     <label style="display:block; margin-bottom:0.5rem;">Date de fin</label>
-                    <input type="date" id="exportEndDate" required style="width:100%; padding:0.5rem; border-radius:4px; border:1px solid var(--border-color); background:var(--bg-secondary); color:var(--color-text-main);">
+                    <input type="datetime-local" id="exportEndDate" required style="width:100%; padding:0.5rem; border-radius:4px; border:1px solid var(--border-color); background:var(--bg-secondary); color:var(--color-text-main);">
                 </div>
                 <div class="modal-footer" style="padding:0; border-top:none;">
                     <button type="button" class="btn-secondary btn-close-modal">Annuler</button>

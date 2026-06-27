@@ -1949,8 +1949,8 @@ async def get_transactions_for_export(start_date: str, end_date: str):
             FROM orders o
             LEFT JOIN users u ON o.user_telegram_id = u.telegram_id
             WHERE o.status = 'COMPLETED' 
-              AND date(o.created_at) >= date(?) 
-              AND date(o.created_at) <= date(?)
+              AND datetime(o.created_at) >= datetime(?) 
+              AND datetime(o.created_at) <= datetime(?)
             
             UNION ALL
             
@@ -1972,8 +1972,8 @@ async def get_transactions_for_export(start_date: str, end_date: str):
             FROM wallet_transactions w
             LEFT JOIN users u ON w.user_telegram_id = u.telegram_id
             WHERE w.description LIKE 'Topup via%'
-              AND date(w.created_at) >= date(?) 
-              AND date(w.created_at) <= date(?)
+              AND datetime(w.created_at) >= datetime(?) 
+              AND datetime(w.created_at) <= datetime(?)
             ORDER BY date DESC
         """
         cursor = await db.execute(query, (start_date, end_date, start_date, end_date))
