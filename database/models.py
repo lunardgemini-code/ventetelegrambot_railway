@@ -748,7 +748,7 @@ async def get_available_stock_item(product_id: int) -> dict | None:
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT id, account_data FROM stock_items WHERE product_id = ? AND is_sold = 0 ORDER BY added_at ASC LIMIT 1",
+            "SELECT * FROM stock_items WHERE product_id = ? AND is_sold = 0 ORDER BY added_at ASC LIMIT 1",
             (product_id,),
         )
         row = await cursor.fetchone()
@@ -762,7 +762,7 @@ async def get_available_stock_items(product_id: int, limit: int = 1) -> list[dic
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT id, account_data FROM stock_items WHERE product_id = ? AND is_sold = 0 ORDER BY added_at ASC LIMIT ?",
+            "SELECT * FROM stock_items WHERE product_id = ? AND is_sold = 0 ORDER BY added_at ASC LIMIT ?",
             (product_id, limit),
         )
         rows = await cursor.fetchall()
@@ -915,9 +915,6 @@ ALLOWED_ORDER_COLUMNS = {
 
 async def update_order_status(order_id: int, status: str, **kwargs) -> None:
     """Met à jour le statut d'une commande avec des champs optionnels."""
-    # Get current order state to detect status transitions
-    current_order = await get_order(order_id)
-
     set_parts = ["status = ?"]
     values: list = [status]
     safe_kwargs = {k: v for k, v in kwargs.items() if k in ALLOWED_ORDER_COLUMNS}
@@ -927,6 +924,12 @@ async def update_order_status(order_id: int, status: str, **kwargs) -> None:
     values.append(order_id)
     db = await get_db()
     try:
+        # Get current order state in the same connection (avoids a second round trip)
+        cursor = await db.execute("SELECT status, amount_usd, payment_method, promo_code_id FROM orders WHERE id = ?", (order_id,))
+        current_order = None
+        row = await cursor.fetchone()
+        if row:
+            current_order = dict(row)
         await db.execute(
             f"UPDATE orders SET {', '.join(set_parts)} WHERE id = ?", values
         )
@@ -1503,7 +1506,7 @@ async def get_daily_stats(days: int = 30) -> list[dict]:
                       COALESCE(SUM(CASE WHEN status='COMPLETED' AND (payment_method IS NULL OR payment_method != 'wallet') THEN amount_usd ELSE 0 END), 0) as revenue,
                       SUM(CASE WHEN status='COMPLETED' THEN 1 ELSE 0 END) as completed
                FROM orders
-               WHERE DATE(created_at) >= ?
+               WHERE created_at >= ?
                GROUP BY DATE(created_at)
                ORDER BY day ASC""",
             (since,),
@@ -1518,7 +1521,7 @@ async def get_daily_stats(days: int = 30) -> list[dict]:
                WHERE type = 'topup'
                  AND description NOT LIKE 'Admin%'
                  AND description NOT LIKE 'Refund%'
-                 AND DATE(created_at) >= ?
+                 AND created_at >= ?
                GROUP BY DATE(created_at)""",
             (since,),
         )
@@ -1956,8 +1959,8 @@ async def get_transactions_for_export(start_date: str, end_date: str):
             LEFT JOIN users u ON o.user_telegram_id = u.telegram_id
             WHERE o.status = 'COMPLETED' 
               AND (o.payment_method != 'wallet' OR o.payment_method IS NULL)
-              AND datetime(o.created_at) >= datetime(?) 
-              AND datetime(o.created_at) <= datetime(?)
+              AND o.created_at >= ? 
+              AND o.created_at <= ?
             
             UNION ALL
             
@@ -1979,8 +1982,8 @@ async def get_transactions_for_export(start_date: str, end_date: str):
             FROM wallet_transactions w
             LEFT JOIN users u ON w.user_telegram_id = u.telegram_id
             WHERE (w.description LIKE 'Topup via%' OR w.description LIKE 'Binance Pay:%')
-              AND datetime(w.created_at) >= datetime(?) 
-              AND datetime(w.created_at) <= datetime(?)
+              AND w.created_at >= ? 
+              AND w.created_at <= ?
             ORDER BY date DESC
         """
         cursor = await db.execute(query, (start_date, end_date, start_date, end_date))
