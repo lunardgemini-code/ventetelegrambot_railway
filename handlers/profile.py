@@ -40,10 +40,12 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{t('spent_lbl', lang)} {format_price(user.get('total_spent', 0))}"
         )
 
+        is_reseller = bool(user.get('is_reseller', 0))
+
         await query.edit_message_text(
             text,
             parse_mode="HTML",
-            reply_markup=profile_keyboard(lang),
+            reply_markup=profile_keyboard(lang, is_reseller=is_reseller),
         )
     except Exception as exc:
         logger.error("show_profile: %s", exc, exc_info=True)
