@@ -1128,17 +1128,51 @@ function logout() { state.botUrl='';state.apiKey='';localStorage.removeItem('ven
 // ═══════════════════════════════════════════
 $('exportForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const start = $('exportStartDate').value;
-    const end = $('exportEndDate').value;
+    const startLocal = $('exportStartDate').value;
+    const endLocal = $('exportEndDate').value;
+    // Convert local datetime to UTC ISO string to align with the database timezone
+    const start = startLocal ? new Date(startLocal).toISOString() : '';
+    const end = endLocal ? new Date(endLocal).toISOString() : '';
     const format = $('exportFormat').value;
     hideModal($('exportModal'));
     showLoading(true);
     try {
         const transactions = await apiCall(`/api/export/transactions?start_date=${start}&end_date=${end}`);
+        
+        // Compute running total chronologically (from oldest to newest)
+        let runningTotal = 0;
+        const reversed = [...transactions].reverse();
+        const rows = [];
+        reversed.forEach(t => {
+            runningTotal += parseFloat(t['Montant (USD)']);
+            rows.push({
+                'Date': t['Date'],
+                'Type': t['Type'],
+                'Client': t['Client'],
+                'Montant (USD)': parseFloat(t['Montant (USD)']),
+                'Cumul (USD)': runningTotal,
+                'Méthode': t['Méthode'],
+                'Identifiant': t['Identifiant']
+            });
+        });
+        rows.reverse(); // put back in newest-first order
+        
+        // Add a final total row
+        const totalRow = {
+            'Date': 'TOTAL',
+            'Type': '',
+            'Client': '',
+            'Montant (USD)': runningTotal,
+            'Cumul (USD)': '',
+            'Méthode': '',
+            'Identifiant': ''
+        };
+        rows.push(totalRow);
+
         if (format === 'excel') {
             const wb = XLSX.utils.book_new();
-            const ws = XLSX.utils.json_to_sheet(transactions);
-            ws['!cols'] = [{wch:20},{wch:10},{wch:15},{wch:15},{wch:15},{wch:40}];
+            const ws = XLSX.utils.json_to_sheet(rows);
+            ws['!cols'] = [{wch:20},{wch:10},{wch:15},{wch:15},{wch:15},{wch:15},{wch:40}];
             XLSX.utils.book_append_sheet(wb, ws, 'Transactions');
             XLSX.writeFile(wb, `Transactions_${start}_to_${end}.xlsx`);
         } else if (format === 'pdf') {
@@ -1146,12 +1180,13 @@ $('exportForm').addEventListener('submit', async (e) => {
             const doc = new jsPDF();
             doc.text(`Export des Transactions (${start} au ${end})`, 14, 15);
             
-            const headers = [['Date', 'Type', 'Client', 'Montant (USD)', 'Méthode', 'Identifiant']];
-            const body = transactions.map(t => [
+            const headers = [['Date', 'Type', 'Client', 'Montant (USD)', 'Cumul (USD)', 'Méthode', 'Identifiant']];
+            const body = rows.map(t => [
                 t['Date'] || '',
                 t['Type'] || '',
                 t['Client'] || '',
                 `$${parseFloat(t['Montant (USD)']).toFixed(2)}`,
+                t['Date'] === 'TOTAL' ? '' : `$${parseFloat(t['Cumul (USD)']).toFixed(2)}`,
                 t['Méthode'] || '',
                 t['Identifiant'] || ''
             ]);
@@ -1162,7 +1197,7 @@ $('exportForm').addEventListener('submit', async (e) => {
                 startY: 20,
                 theme: 'striped',
                 styles: { fontSize: 8 },
-                columnStyles: { 5: { cellWidth: 50 } }
+                columnStyles: { 6: { cellWidth: 40 } }
             });
             doc.save(`Transactions_${start}_to_${end}.pdf`);
         }
