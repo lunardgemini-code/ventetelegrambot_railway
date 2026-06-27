@@ -1949,6 +1949,7 @@ async def get_transactions_for_export(start_date: str, end_date: str):
             FROM orders o
             LEFT JOIN users u ON o.user_telegram_id = u.telegram_id
             WHERE o.status = 'COMPLETED' 
+              AND (o.payment_method != 'wallet' OR o.payment_method IS NULL)
               AND datetime(o.created_at) >= datetime(?) 
               AND datetime(o.created_at) <= datetime(?)
             
