@@ -204,7 +204,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "admin_not_found": "❌ Not found.",
         "admin_error": "⚠️ Error.",
         # ── Referral Program ──
-        "referral_title": "👥 <b>Referral Program</b>\n\nShare your referral link with your friends and earn a <b>5%</b> commission on each of their purchases, capped at a maximum of <b>$5.00 per friend</b>!\n\n🔗 <b>Your referral link:</b>\n<code>{link}</code>\n\n📊 <b>Statistics:</b>\n- Friends referred: <b>{count}</b>\n- Commission earned: <b>{earnings}</b>",
+        "referral_title": "👥 <b>Referral Program</b>\n\nInvite your friends using your referral link! For every <b>20 friends</b> you refer, you will receive a <b>free link</b>.\n\nTo claim your reward, simply open a support ticket and contact the admin.\n\n🔗 <b>Your referral link:</b>\n<code>{link}</code>\n\n📊 <b>Statistics:</b>\n- Friends referred: <b>{count}</b>",
         "referral_notif": "🎁 <b>Referral commission received!</b>\nYou have earned a commission of <b>{amount}</b> from the purchase of your friend {friend}.",
         # ── BEP20 USDT Payment ──
         "btn_pay_bep20": "🪙 Pay with USDT (BEP20)",
@@ -407,7 +407,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "admin_not_found": "❌ Introuvable.",
         "admin_error": "⚠️ Erreur.",
         # ── Referral Program ──
-        "referral_title": "👥 <b>Programme de Parrainage</b>\n\nPartagez votre lien de parrainage avec vos amis et gagnez une commission de <b>5%</b> sur chacun de leurs achats, jusqu'à un maximum de <b>$5.00 par ami</b> !\n\n🔗 <b>Votre lien de parrainage :</b>\n<code>{link}</code>\n\n📊 <b>Statistiques :</b>\n- Amis parrainés : <b>{count}</b>\n- Commissions gagnées : <b>{earnings}</b>",
+        "referral_title": "👥 <b>Programme de Parrainage</b>\n\nInvitez vos amis avec votre lien de parrainage ! Toutes les <b>20 personnes parrainées</b>, vous avez droit à un <b>lien gratuit</b>.\n\nPour réclamer votre lien gratuit, contactez simplement l'admin via le support.\n\n🔗 <b>Votre lien de parrainage :</b>\n<code>{link}</code>\n\n📊 <b>Statistiques :</b>\n- Amis parrainés : <b>{count}</b>",
         "referral_notif": "🎁 <b>Commission de parrainage reçue !</b>\nVous avez reçu une commission de <b>{amount}</b> grâce à l'achat de votre ami {friend}.",
         # ── BEP20 USDT Payment ──
         "btn_pay_bep20": "🪙 Payer en USDT (BEP20)",
@@ -610,7 +610,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "admin_not_found": "❌ غير موجود.",
         "admin_error": "⚠️ خطأ.",
         # ── Referral Program ──
-        "referral_title": "👥 <b>برنامج الإحالة</b>\n\nشارك رابط الإحالة الخاص بك مع أصدقائك واكسب عمولة قدرها <b>5%</b> على كل عملية شراء يقومون بها، بحد أقصى <b>$5.00 لكل صديق</b>!\n\n🔗 <b>رابط الإحالة الخاص بك:</b>\n<code>{link}</code>\n\n📊 <b>الإحصائيات:</b>\n- الأصدقاء الذين تمت إحالتهم: <b>{count}</b>\n- العمولات المكتسبة: <b>{earnings}</b>",
+        "referral_title": "👥 <b>برنامج الإحالة</b>\n\nقم بدعوة أصدقائك باستخدام رابط الإحالة الخاص بك! لكل <b>20 صديقًا</b> تقوم بإحالتهم، ستحصل على <b>رابط مجاني</b>.\n\nللمطالبة بمكافأتك، ما عليك سوى فتح تذكرة دعم والاتصال بالمسؤول.\n\n🔗 <b>رابط الإحالة الخاص بك:</b>\n<code>{link}</code>\n\n📊 <b>الإحصائيات:</b>\n- الأصدقاء الذين تمت إحالتهم: <b>{count}</b>",
         "referral_notif": "🎁 <b>تم استلام عمولة الإحالة!</b>\nلقد ربحت عمولة قدرها <b>{amount}</b> من عملية الشراء التي قام بها صديقك {friend}.",
         # ── BEP20 USDT Payment ──
         "btn_pay_bep20": "🪙 الدفع بـ USDT (BEP20)",

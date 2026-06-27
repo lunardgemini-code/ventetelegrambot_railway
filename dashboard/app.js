@@ -1145,8 +1145,10 @@ $('exportForm').addEventListener('submit', async (e) => {
         const rows = [];
         reversed.forEach(t => {
             runningTotal += parseFloat(t['Montant (USD)']);
+            // Format the UTC date from database to user's local timezone
+            const localDateStr = t['Date'] ? parseUTCDate(t['Date']).toLocaleString() : '—';
             rows.push({
-                'Date': t['Date'],
+                'Date': localDateStr,
                 'Type': t['Type'],
                 'Client': t['Client'],
                 'Montant (USD)': parseFloat(t['Montant (USD)']),

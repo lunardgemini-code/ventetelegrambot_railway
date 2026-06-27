@@ -1169,6 +1169,17 @@ def main() -> None:
         except Exception:
             pass
 
+        # Check if they clicked a referral link and store it in context.user_data
+        if update.message and update.message.text:
+            text = update.message.text
+            if text.startswith("/start ref_"):
+                try:
+                    ref_id = int(text.split("_")[1])
+                    if context.user_data is not None:
+                        context.user_data["referred_by"] = ref_id
+                except (ValueError, IndexError):
+                    pass
+
         # Forced Channel Subscription Check
         import time
         from config import REQUIRED_CHANNEL, ADMIN_IDS

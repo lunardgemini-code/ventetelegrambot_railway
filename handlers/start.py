@@ -149,7 +149,8 @@ async def callback_check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if "chat not found" in err_msg or "not enough rights" in err_msg or "admin" in err_msg:
             is_subscribed = True
 
-    db_user = await get_or_create_user(user_id, query.from_user.username, query.from_user.first_name)
+    referred_by = context.user_data.get("referred_by") if context.user_data else None
+    db_user = await get_or_create_user(user_id, query.from_user.username, query.from_user.first_name, referred_by=referred_by)
     lang = db_user.get("language") or "fr"
 
     if is_subscribed:

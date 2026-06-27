@@ -1731,7 +1731,8 @@ async def get_referred_users_count(telegram_id: int) -> int:
 
 async def process_referral_payout(order_id: int) -> None:
     """Calcule et verse la commission de parrainage de 5% (max $5.00 par filleul) au parrain."""
-    # 1. Get the completed order details
+    # Désactivé : le parrainage se base maintenant sur 20 invitations pour obtenir un lien gratuit via le support.
+    return
     db = await get_db()
     try:
         cursor = await db.execute("SELECT * FROM orders WHERE id = ?", (order_id,))
