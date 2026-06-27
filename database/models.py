@@ -46,11 +46,10 @@ async def get_or_create_user(
                 (username, first_name, telegram_id),
             )
             await db.commit()
-            cursor = await db.execute(
-                "SELECT * FROM users WHERE telegram_id = ?", (telegram_id,)
-            )
-            row = await cursor.fetchone()
+            # Build updated dict without a redundant second SELECT
             user_dict = dict(row)
+            user_dict["username"] = username
+            user_dict["first_name"] = first_name
             _USER_LANG_CACHE[telegram_id] = user_dict.get("language") or "fr"
             _USER_BANNED_CACHE[telegram_id] = bool(user_dict.get("is_banned"))
             return user_dict
@@ -105,9 +104,10 @@ async def get_all_users() -> list[dict]:
     db = await get_db()
     try:
         cursor = await db.execute("""
-            SELECT u.*, 
-                   (SELECT COUNT(*) FROM users f WHERE f.referred_by = u.telegram_id) as referrals_count 
-            FROM users u 
+            SELECT u.*, COUNT(f.telegram_id) as referrals_count
+            FROM users u
+            LEFT JOIN users f ON f.referred_by = u.telegram_id
+            GROUP BY u.id
             ORDER BY u.created_at DESC
         """)
         rows = await cursor.fetchall()
@@ -133,10 +133,11 @@ async def get_users_paginated(limit: int = 20, offset: int = 0, search: str = ""
         total = row_count["cnt"] if row_count else 0
 
         paginated_query = f"""
-            SELECT u.*, 
-                   (SELECT COUNT(*) FROM users f WHERE f.referred_by = u.telegram_id) as referrals_count 
+            SELECT u.*, COUNT(f.telegram_id) as referrals_count
             FROM users u
+            LEFT JOIN users f ON f.referred_by = u.telegram_id
             {where_clause}
+            GROUP BY u.id
             ORDER BY u.created_at DESC
             LIMIT ? OFFSET ?
         """
@@ -747,7 +748,7 @@ async def get_available_stock_item(product_id: int) -> dict | None:
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT * FROM stock_items WHERE product_id = ? AND is_sold = 0 ORDER BY added_at ASC LIMIT 1",
+            "SELECT id, account_data FROM stock_items WHERE product_id = ? AND is_sold = 0 ORDER BY added_at ASC LIMIT 1",
             (product_id,),
         )
         row = await cursor.fetchone()
@@ -761,7 +762,7 @@ async def get_available_stock_items(product_id: int, limit: int = 1) -> list[dic
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT * FROM stock_items WHERE product_id = ? AND is_sold = 0 ORDER BY added_at ASC LIMIT ?",
+            "SELECT id, account_data FROM stock_items WHERE product_id = ? AND is_sold = 0 ORDER BY added_at ASC LIMIT ?",
             (product_id, limit),
         )
         rows = await cursor.fetchall()
@@ -1007,11 +1008,15 @@ async def get_user_orders(
     limit: int = 10,
     offset: int = 0,
 ) -> list[dict]:
-    """Retourne les commandes d'un utilisateur avec pagination."""
+    """Retourne les commandes d'un utilisateur avec pagination, incluant le nom et l'emoji du produit."""
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT * FROM orders WHERE user_telegram_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            """SELECT o.*, p.name as product_name, p.emoji as product_emoji
+               FROM orders o
+               LEFT JOIN products p ON o.product_id = p.id
+               WHERE o.user_telegram_id = ?
+               ORDER BY o.created_at DESC LIMIT ? OFFSET ?""",
             (telegram_id, limit, offset),
         )
         rows = await cursor.fetchall()

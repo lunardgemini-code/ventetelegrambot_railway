@@ -14,6 +14,7 @@ from database.models import (
     get_user_order_count,
     get_user_orders,
 )
+# Note: get_product is still used in show_order_detail below
 from utils.helpers import format_date, format_price, escape_html
 from utils.keyboards import back_keyboard, history_keyboard
 from utils.locales import t
@@ -52,9 +53,9 @@ async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         text = f"{t('history_title', lang)}\n\n"
         for o in orders:
-            product = await get_product(o.get("product_id"))
-            pname = product["name"] if product else "?"
-            pemoji = product["emoji"] if product else "📦"
+            # Product data is already joined by get_user_orders (no extra DB call)
+            pname = o.get("product_name") or "?"
+            pemoji = o.get("product_emoji") or "📦"
             status_key = f"s_{o.get('status', 'PENDING').lower()}"
             status = t(status_key, lang)
             order_no = o.get("merchant_trade_no", "")
