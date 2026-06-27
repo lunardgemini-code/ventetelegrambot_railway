@@ -112,49 +112,59 @@ async def verify_bep20_payment(
         result["error"] = "Transaction failed on-chain."
         return result
 
-    # 2. Verify target contract address is the USDT contract on BSC
-    tx_to = (tx_data.get("to") or "").lower()
-    if tx_to != USDT_CONTRACT_BSC.lower():
-        result["error"] = f"Target contract is not BSC USDT. Transferred to: {tx_to}"
+    # 2. Inspect logs to find the USDT Transfer event
+    logs = receipt_data.get("logs", [])
+    if not logs:
+        result["error"] = "No transaction logs found (not a token contract call)."
         return result
 
-    # 3. Verify transfer function signature (transfer(address,uint256) -> 0xa9059cbb)
-    tx_input = tx_data.get("input") or ""
-    if not tx_input.lower().startswith("0xa9059cbb"):
-        result["error"] = "Transaction is not a standard BEP20 transfer call."
-        return result
+    usdt_log_found = False
+    TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
-    try:
-        # transfer(address _to, uint256 _value) input decoding:
-        # Method ID: 0xa9059cbb (10 characters: '0x' + 8 chars)
-        # Recipient parameter starts at 10, length 64 chars
-        # Recipient address is the last 40 chars
-        to_param = tx_input[10:74]
-        recipient_addr = "0x" + to_param[-40:].lower()
+    for log in logs:
+        log_address = (log.get("address") or "").lower()
+        if log_address != USDT_CONTRACT_BSC.lower():
+            continue
+
+        topics = log.get("topics", [])
+        if not topics or topics[0].lower() != TRANSFER_TOPIC.lower():
+            continue
+
+        if len(topics) < 3:
+            continue
+
+        # Extract recipient hex address (last 40 characters of topic 2)
+        recipient_addr = "0x" + topics[2][-40:].lower()
 
         if recipient_addr != merchant_address:
-            result["error"] = f"Transfer recipient ({recipient_addr}) does not match merchant address ({merchant_address})."
+            continue
+
+        # Found the matching log! Now parse the amount in data
+        usdt_log_found = True
+        try:
+            data_hex = log.get("data") or "0x0"
+            raw_value = int(data_hex, 16)
+            # USDT on BSC has 18 decimals
+            value_usdt = raw_value / (10**18)
+
+            # Check if amount is sufficient (allow 0.01 USDT deviation)
+            if value_usdt < (expected_amount - 0.01):
+                result["error"] = f"Insufficient transfer amount. Received: {value_usdt:.4f} USDT, expected: {expected_amount:.2f} USDT."
+                return result
+
+            result["verified"] = True
+            result["transaction"] = {
+                "tx_hash": tx_hash,
+                "amount": value_usdt,
+                "to": recipient_addr
+            }
             return result
 
-        # Amount parameter starts at 74, length 64 chars
-        value_param = tx_input[74:138]
-        raw_value = int(value_param, 16)
-        # Convert from 18 decimals
-        value_usdt = raw_value / (10**18)
-
-        # Allow small deviation (e.g. 0.01 USDT)
-        if value_usdt < (expected_amount - 0.01):
-            result["error"] = f"Insufficient transfer amount. Received: {value_usdt:.4f} USDT, expected: {expected_amount:.2f} USDT."
+        except Exception as e:
+            result["error"] = f"Failed to parse BEP20 transfer value: {e}"
             return result
 
-        result["verified"] = True
-        result["transaction"] = {
-            "tx_hash": tx_hash,
-            "amount": value_usdt,
-            "to": recipient_addr
-        }
-        return result
+    if not usdt_log_found:
+        result["error"] = f"USDT transfer to merchant address {merchant_address} not found in transaction logs."
 
-    except Exception as e:
-        result["error"] = f"Failed to parse transaction input parameters: {e}"
-        return result
+    return result
