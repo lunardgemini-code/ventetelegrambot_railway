@@ -1378,11 +1378,6 @@ def main() -> None:
         app.run_polling(drop_pending_updates=True)
 
 
-if __name__ == "__main__":
-    main()
-
-
-
 @api.get("/api/export/transactions", dependencies=[Depends(verify_api_key)])
 async def api_export_transactions(start_date: str, end_date: str):
     from database.models import get_transactions_for_export
@@ -1392,3 +1387,11 @@ async def api_export_transactions(start_date: str, end_date: str):
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+if __name__ == "__main__":
+    main()
+
+
+
+
