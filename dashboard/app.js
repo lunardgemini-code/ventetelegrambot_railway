@@ -262,7 +262,7 @@ function setupEvents() {
     DOM.btnRefresh.addEventListener('click', refreshData);
     DOM.btnTheme.addEventListener('click', toggleTheme);
     DOM.btnAutoRefresh.addEventListener('click', toggleAutoRefresh);
-    $('btn-export').addEventListener('click', exportToExcel);
+    $('btn-export').addEventListener('click', () => showModal($('exportModal')));
 
     $$('.sub-tab').forEach(t => t.addEventListener('click', () => {
         t.closest('.action-bar').querySelectorAll('.sub-tab').forEach(s => s.classList.remove('active'));
@@ -273,7 +273,7 @@ function setupEvents() {
     $('btn-open-prod-modal').addEventListener('click', () => { DOM.addProdForm.reset(); DOM.prodId.value=''; showModal(DOM.prodModal); });
     $('btn-open-promo-modal').addEventListener('click', () => showModal(DOM.promoModal));
     $('btn-open-binance-modal').addEventListener('click', openBinanceModal);
-    $$('.btn-close-modal').forEach(b => b.addEventListener('click', () => { [DOM.prodModal,DOM.stockModal,DOM.promoModal,DOM.tiersModal,DOM.orderDetailModal,DOM.viewStockModal,DOM.editProdModal,DOM.revenueModal,DOM.binanceModal,$('banModal'),$('finance-withdraw-modal'),$('finance-adjust-modal')].forEach(m => { if (m) hideModal(m); }); }));
+    $$('.btn-close-modal').forEach(b => b.addEventListener('click', () => { [DOM.prodModal,DOM.stockModal,DOM.promoModal,DOM.tiersModal,DOM.orderDetailModal,DOM.viewStockModal,DOM.editProdModal,DOM.revenueModal,DOM.binanceModal,$('banModal'),$('finance-withdraw-modal'),$('finance-adjust-modal'), $('exportModal')].forEach(m => { if (m) hideModal(m); }); }));
 
     DOM.addProdForm.addEventListener('submit', handleAddProduct);
     DOM.addPromoForm.addEventListener('submit', handleAddPromo);
@@ -1126,98 +1126,26 @@ function logout() { state.botUrl='';state.apiKey='';localStorage.removeItem('ven
 // ═══════════════════════════════════════════
 //  EXCEL EXPORT (SheetJS)
 // ═══════════════════════════════════════════
-async function exportToExcel() {
+$('exportForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const start = $('exportStartDate').value;
+    const end = $('exportEndDate').value;
+    hideModal($('exportModal'));
     showLoading(true);
     try {
-        // Fetch latest data
-        const [products, ordersData, users, tickets] = await Promise.all([
-            apiCall('/api/products'),
-            apiCall('/api/orders/all?limit=10000&offset=0'),
-            apiCall('/api/users'),
-            apiCall('/api/tickets')
-        ]);
-        const orders = ordersData.orders || [];
-
+        const transactions = await apiCall(`/api/export/transactions?start_date=${start}&end_date=${end}`);
         const wb = XLSX.utils.book_new();
-
-        // ── Sheet 1: Produits ──
-        const prodRows = products.map(p => ({
-            'ID': p.id,
-            'Nom': p.name,
-            'Emoji': p.emoji || '📦',
-            'Prix (USD)': parseFloat(p.price_usd).toFixed(2),
-            'Garantie (jours)': p.warranty_days || 0,
-            'Stock': p.stock ?? 0,
-            'Statut': p.is_active ? 'Actif' : 'Inactif',
-            'Description': p.description || ''
-        }));
-        const wsProd = XLSX.utils.json_to_sheet(prodRows);
-        wsProd['!cols'] = [{wch:5},{wch:25},{wch:6},{wch:12},{wch:16},{wch:8},{wch:10},{wch:40}];
-        XLSX.utils.book_append_sheet(wb, wsProd, 'Produits');
-
-        // ── Sheet 2: Commandes / Transactions ──
-        const orderRows = orders.map(o => {
-            const prod = products.find(p => p.id === o.product_id);
-            return {
-                'ID': o.id,
-                'N° Commande': o.merchant_trade_no || '—',
-                'Client': o.username ? `@${o.username}` : (o.user_first_name || o.user_telegram_id),
-                'Telegram ID': o.user_telegram_id,
-                'Produit': prod ? prod.name : (o.product_name ? `${o.product_name}${o.product_is_deleted ? ' (Supprimé)' : ''}` : `#${o.product_id}`),
-                'Quantité': o.quantity || 1,
-                'Montant (USD)': parseFloat(o.amount_usd).toFixed(2),
-                'Statut': o.status,
-                'Méthode': o.payment_method || '—',
-                'Date': o.created_at ? parseUTCDate(o.created_at).toLocaleString() : '—'
-            };
-        });
-        const wsOrders = XLSX.utils.json_to_sheet(orderRows);
-        wsOrders['!cols'] = [{wch:5},{wch:18},{wch:18},{wch:14},{wch:20},{wch:8},{wch:14},{wch:14},{wch:12},{wch:20}];
-        XLSX.utils.book_append_sheet(wb, wsOrders, 'Commandes');
-
-        // ── Sheet 3: Utilisateurs ──
-        const userRows = users.map(u => ({
-            'Telegram ID': u.telegram_id,
-            'Username': u.username || '—',
-            'Prénom': u.first_name || '—',
-            'Langue': u.language || 'fr',
-            'Commandes': u.total_orders || 0,
-            'Dépenses (USD)': parseFloat(u.total_spent || 0).toFixed(2),
-            'Wallet (USD)': parseFloat(u.wallet_balance || 0).toFixed(2),
-            'Parrain': u.referred_by || '—',
-            'Filleuls': u.referrals_count || 0,
-            'Gains Parrainage (USD)': parseFloat(u.referral_earnings || 0).toFixed(2),
-            'Banni': u.is_banned ? 'Oui' : 'Non',
-            'Inscrit': u.created_at ? parseUTCDate(u.created_at).toLocaleString() : '—'
-        }));
-        const wsUsers = XLSX.utils.json_to_sheet(userRows);
-        wsUsers['!cols'] = [{wch:14},{wch:18},{wch:15},{wch:8},{wch:12},{wch:14},{wch:14},{wch:14},{wch:10},{wch:20},{wch:8},{wch:20}];
-        XLSX.utils.book_append_sheet(wb, wsUsers, 'Utilisateurs');
-
-        // ── Sheet 4: Tickets ──
-        const ticketRows = tickets.map(tk => ({
-            'ID': tk.id,
-            'Telegram ID': tk.user_telegram_id,
-            'Message': tk.message || '',
-            'Statut': tk.status || 'OPEN',
-            'Réponse': tk.reply || '',
-            'Date': tk.created_at ? parseUTCDate(tk.created_at).toLocaleString() : '—'
-        }));
-        const wsTickets = XLSX.utils.json_to_sheet(ticketRows);
-        wsTickets['!cols'] = [{wch:5},{wch:14},{wch:40},{wch:10},{wch:40},{wch:20}];
-        XLSX.utils.book_append_sheet(wb, wsTickets, 'Tickets');
-
-        // ── Télécharger ──
-        const date = new Date().toISOString().slice(0,10);
-        XLSX.writeFile(wb, `VenteBot_Export_${date}.xlsx`);
-
-    } catch(e) {
-        console.error('Save settings failed:', e);
-        alert(t('settings_err') + e.message);
+        const ws = XLSX.utils.json_to_sheet(transactions);
+        ws['!cols'] = [{wch:20},{wch:10},{wch:15},{wch:15},{wch:15},{wch:40}];
+        XLSX.utils.book_append_sheet(wb, ws, 'Transactions');
+        XLSX.writeFile(wb, `Transactions_${start}_to_${end}.xlsx`);
+    } catch(err) {
+        console.error('Export failed:', err);
+        alert('Erreur: ' + err.message);
     } finally {
         showLoading(false);
     }
-}
+});
 
 // ═══════════════════════════════════════════
 //  BINANCE ACCOUNTS MODAL
@@ -1364,7 +1292,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnWithdraw = $('btn-finance-withdraw');
     const btnAdjust = $('btn-finance-adjust');
     const modalWithdraw = $('finance-withdraw-modal');
-    const modalAdjust = $('finance-adjust-modal');
+    const modalAdjust = $('finance-adjust-modal'), $('exportModal');
     const formWithdraw = $('finance-withdraw-form');
     const formAdjust = $('finance-adjust-form');
     const btnWithdrawAll = $('btn-withdraw-all');

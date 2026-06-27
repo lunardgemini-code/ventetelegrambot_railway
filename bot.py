@@ -1381,3 +1381,14 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 
+
+
+@api.get("/api/export/transactions", dependencies=[Depends(verify_api_key)])
+async def api_export_transactions(start_date: str, end_date: str):
+    from database.models import get_transactions_for_export
+    try:
+        transactions = await get_transactions_for_export(start_date, end_date)
+        return transactions
+    except Exception as exc:
+        logger.error("API error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")

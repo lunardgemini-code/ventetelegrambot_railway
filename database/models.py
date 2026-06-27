@@ -935,10 +935,19 @@ async def update_order_status(order_id: int, status: str, **kwargs) -> None:
             # Increment finance_bot_balance if paid externally
             pay_method = kwargs.get("payment_method") or current_order.get("payment_method")
             if pay_method != "wallet":
-                cursor = await db.execute("SELECT value FROM settings WHERE key = 'finance_bot_balance'")
+                method_suffix = "binance"
+                if pay_method == "bep20":
+                    method_suffix = "bep20"
+                elif pay_method == "trc20":
+                    method_suffix = "trc20"
+                elif pay_method == "binance_pay":
+                    method_suffix = "binance"
+                
+                setting_key = f"finance_bot_balance_{method_suffix}"
+                cursor = await db.execute("SELECT value FROM settings WHERE key = ?", (setting_key,))
                 row = await cursor.fetchone()
                 bal = float(row["value"]) if row else 0.0
-                await db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("finance_bot_balance", str(bal + float(current_order.get("amount_usd", 0)))))
+                await db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (setting_key, str(bal + float(current_order.get("amount_usd", 0)))))
 
         await db.commit()
     finally:
@@ -1282,10 +1291,17 @@ async def topup_wallet(telegram_id: int, amount: float, description: str = "") -
         )
         # Increment finance_bot_balance if it's a real topup
         if not description.startswith("Admin") and not description.startswith("Refund"):
-            cursor = await db.execute("SELECT value FROM settings WHERE key = 'finance_bot_balance'")
+            method_suffix = "binance"
+            if "BEP20" in description:
+                method_suffix = "bep20"
+            elif "TRC20" in description:
+                method_suffix = "trc20"
+            
+            setting_key = f"finance_bot_balance_{method_suffix}"
+            cursor = await db.execute("SELECT value FROM settings WHERE key = ?", (setting_key,))
             set_row = await cursor.fetchone()
             bal = float(set_row["value"]) if set_row else 0.0
-            await db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", ("finance_bot_balance", str(bal + amount)))
+            await db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (setting_key, str(bal + amount)))
 
         await db.commit()
         return new_balance
@@ -1909,5 +1925,72 @@ async def record_used_trc20_transaction(
             return True
         except Exception:
             return False
+    finally:
+        await db.close()
+
+
+async def get_transactions_for_export(start_date: str, end_date: str):
+    import sqlite3
+    from .db import get_db
+    
+    db = await get_db()
+    try:
+        query = """
+            SELECT 
+                'Achat' as type,
+                o.created_at as date,
+                u.username,
+                u.first_name,
+                o.user_telegram_id,
+                o.amount_usd as amount,
+                o.payment_method as method,
+                o.merchant_trade_no as identifier,
+                o.binance_order_id as hash_id
+            FROM orders o
+            LEFT JOIN users u ON o.user_telegram_id = u.telegram_id
+            WHERE o.status = 'COMPLETED' 
+              AND date(o.created_at) >= date(?) 
+              AND date(o.created_at) <= date(?)
+            
+            UNION ALL
+            
+            SELECT 
+                'Topup' as type,
+                w.created_at as date,
+                u.username,
+                u.first_name,
+                w.user_telegram_id,
+                w.amount as amount,
+                CASE 
+                    WHEN w.description LIKE '%Binance Pay%' THEN 'binance'
+                    WHEN w.description LIKE '%BEP20%' THEN 'bep20'
+                    WHEN w.description LIKE '%TRC20%' THEN 'trc20'
+                    ELSE 'wallet'
+                END as method,
+                w.description as identifier,
+                '' as hash_id
+            FROM wallet_transactions w
+            LEFT JOIN users u ON w.user_telegram_id = u.telegram_id
+            WHERE w.description LIKE 'Topup via%'
+              AND date(w.created_at) >= date(?) 
+              AND date(w.created_at) <= date(?)
+            ORDER BY date DESC
+        """
+        cursor = await db.execute(query, (start_date, end_date, start_date, end_date))
+        rows = await cursor.fetchall()
+        
+        results = []
+        for r in rows:
+            client = f"@{r['username']}" if r['username'] else (r['first_name'] or str(r['user_telegram_id']))
+            ident = r['hash_id'] if r['hash_id'] else r['identifier']
+            results.append({
+                'Date': r['date'],
+                'Type': r['type'],
+                'Client': client,
+                'Montant (USD)': float(r['amount']),
+                'Méthode': r['method'],
+                'Identifiant': ident
+            })
+        return results
     finally:
         await db.close()
