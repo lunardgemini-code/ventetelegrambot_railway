@@ -1489,9 +1489,9 @@ class B2BBalanceResponse(BaseModel):
 @api.get("/api/b2b/products", response_model=B2BProductsResponse)
 async def b2b_get_products(reseller: dict = Depends(verify_reseller_key)):
     """List all active products with stock counts and price tiers for resellers."""
-    from database.models import get_active_categories, get_products_by_category, get_all_stock_counts, get_price_tiers
+    from database.models import get_categories, get_products_by_category, get_all_stock_counts, get_price_tiers
     try:
-        categories = await get_active_categories()
+        categories = await get_categories()
         stock_counts = await get_all_stock_counts()
         result = []
         for cat in categories:
