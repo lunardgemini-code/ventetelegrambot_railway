@@ -1942,6 +1942,16 @@ async def get_transactions_for_export(start_date: str, end_date: str):
     import sqlite3
     from .db import get_db
     
+    # Normalize ISO-8601 strings (with T/Z) to standard SQLite timestamp format (YYYY-MM-DD HH:MM:SS)
+    if start_date:
+        start_date = start_date.replace("T", " ").replace("Z", "")
+        if "." in start_date:
+            start_date = start_date.split(".")[0]
+    if end_date:
+        end_date = end_date.replace("T", " ").replace("Z", "")
+        if "." in end_date:
+            end_date = end_date.split(".")[0]
+            
     db = await get_db()
     try:
         query = """
