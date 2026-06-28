@@ -45,7 +45,7 @@ from handlers.products import (
     show_product_detail,
     show_products_list,
 )
-from handlers.profile import show_profile, show_referrals, show_reseller_api
+from handlers.profile import show_profile, show_referrals
 from handlers.start import change_language, main_menu_callback, set_language, start_command, callback_check_sub
 from handlers.support import (
     get_support_conversation_handler,
@@ -79,7 +79,7 @@ api.add_middleware(
     allow_origins=[o.strip() for o in _cors_origins],
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=["X-API-Key", "Content-Type"],
     expose_headers=[],
 )
 
@@ -87,8 +87,8 @@ api.add_middleware(
 import pathlib
 _dashboard_dir = pathlib.Path(__file__).parent / "dashboard"
 if _dashboard_dir.is_dir():
-    @api.get("/dashboard", include_in_schema=False)
-    @api.get("/dashboard/", include_in_schema=False)
+    @api.get("/dashboard")
+    @api.get("/dashboard/")
     async def serve_dashboard_index():
         return FileResponse(str(_dashboard_dir / "index.html"), media_type="text/html")
     api.mount("/dashboard", StaticFiles(directory=str(_dashboard_dir)), name="dashboard")
@@ -109,25 +109,12 @@ async def verify_api_key(x_api_key: str = Header(None)):
     return x_api_key
 
 
-async def verify_reseller_key(x_reseller_key: str = Header(None)):
-    """Dependency to authenticate B2B reseller requests via X-Reseller-Key header."""
-    if not x_reseller_key:
-        raise HTTPException(status_code=401, detail="Missing X-Reseller-Key header")
-    from database.models import get_user_by_reseller_key
-    user = await get_user_by_reseller_key(x_reseller_key)
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid reseller API key")
-    if user.get("is_banned"):
-        raise HTTPException(status_code=403, detail="Account suspended")
-    return user
-
-
-@api.get("/health", include_in_schema=False)
+@api.get("/health")
 async def health_check():
     """Anonymous endpoint for Railway health check."""
     return {"status": "ok", "bot": "running"}
 
-@api.get("/api/finance", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.get("/api/finance", dependencies=[Depends(verify_api_key)])
 async def api_get_finance(method: str = None):
     from database.models import get_stats, get_setting
     try:
@@ -164,7 +151,7 @@ async def api_get_finance(method: str = None):
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@api.post("/api/finance/adjust", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.post("/api/finance/adjust", dependencies=[Depends(verify_api_key)])
 async def api_adjust_finance(data: dict):
     from database.models import get_setting, set_setting
     try:
@@ -189,7 +176,7 @@ async def api_adjust_finance(data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/stats", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.get("/api/stats", dependencies=[Depends(verify_api_key)])
 async def api_get_stats():
     from database.models import get_stats, get_all_users, get_all_products, get_all_stock_counts
     try:
@@ -217,7 +204,7 @@ async def api_get_stats():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/products", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.get("/api/products", dependencies=[Depends(verify_api_key)])
 async def api_get_products():
     from database.models import get_all_products, get_all_stock_counts
     try:
@@ -234,7 +221,7 @@ async def api_get_products():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/products", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.post("/api/products", dependencies=[Depends(verify_api_key)])
 async def api_create_product(data: dict):
     from database.models import add_product, get_categories, add_category
     try:
@@ -274,7 +261,7 @@ async def api_create_product(data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/products/{product_id}/tiers", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.get("/api/products/{product_id}/tiers", dependencies=[Depends(verify_api_key)])
 async def api_get_product_tiers(product_id: int):
     from database.models import get_price_tiers
     try:
@@ -285,7 +272,7 @@ async def api_get_product_tiers(product_id: int):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.put("/api/products/{product_id}/tiers", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.put("/api/products/{product_id}/tiers", dependencies=[Depends(verify_api_key)])
 async def api_set_product_tiers(product_id: int, data: dict):
     from database.models import set_price_tiers
     try:
@@ -298,7 +285,7 @@ async def api_set_product_tiers(product_id: int, data: dict):
 
 
 
-@api.put("/api/products/{product_id}", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.put("/api/products/{product_id}", dependencies=[Depends(verify_api_key)])
 async def api_update_product(product_id: int, data: dict):
     from database.models import update_product
     try:
@@ -319,7 +306,7 @@ async def api_update_product(product_id: int, data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.delete("/api/products/{product_id}", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.delete("/api/products/{product_id}", dependencies=[Depends(verify_api_key)])
 async def api_delete_product(product_id: int):
     from database.models import delete_product
     try:
@@ -332,7 +319,7 @@ async def api_delete_product(product_id: int):
 
 # ── Binance Accounts Endpoints ──
 
-@api.get("/api/binance-accounts", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.get("/api/binance-accounts", dependencies=[Depends(verify_api_key)])
 async def api_get_binance_accounts():
     from database.models import get_binance_accounts
     try:
@@ -342,7 +329,7 @@ async def api_get_binance_accounts():
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@api.post("/api/binance-accounts", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.post("/api/binance-accounts", dependencies=[Depends(verify_api_key)])
 async def api_create_binance_account(data: dict):
     from database.models import add_binance_account
     try:
@@ -362,7 +349,7 @@ async def api_create_binance_account(data: dict):
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@api.put("/api/binance-accounts/{account_id}", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.put("/api/binance-accounts/{account_id}", dependencies=[Depends(verify_api_key)])
 async def api_update_binance_account(account_id: int, data: dict):
     from database.models import update_binance_account
     try:
@@ -374,7 +361,7 @@ async def api_update_binance_account(account_id: int, data: dict):
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@api.delete("/api/binance-accounts/{account_id}", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.delete("/api/binance-accounts/{account_id}", dependencies=[Depends(verify_api_key)])
 async def api_delete_binance_account(account_id: int):
     from database.models import delete_binance_account
     try:
@@ -385,7 +372,7 @@ async def api_delete_binance_account(account_id: int):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/categories", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.get("/api/categories", dependencies=[Depends(verify_api_key)])
 async def api_get_categories():
     from database.models import get_categories
     try:
@@ -396,7 +383,7 @@ async def api_get_categories():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/categories", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.post("/api/categories", dependencies=[Depends(verify_api_key)])
 async def api_create_category(data: dict):
     from database.models import add_category
     try:
@@ -411,7 +398,7 @@ async def api_create_category(data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.delete("/api/categories/{category_id}", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.delete("/api/categories/{category_id}", dependencies=[Depends(verify_api_key)])
 async def api_delete_category(category_id: int):
     from database.models import delete_category
     try:
@@ -422,7 +409,7 @@ async def api_delete_category(category_id: int):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/orders", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.get("/api/orders", dependencies=[Depends(verify_api_key)])
 async def api_get_orders():
     from database.models import get_pending_orders
     try:
@@ -433,7 +420,7 @@ async def api_get_orders():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/orders/{order_id}/confirm", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.post("/api/orders/{order_id}/confirm", dependencies=[Depends(verify_api_key)])
 async def api_confirm_order(order_id: int):
     from database.models import get_order, update_order_status, get_product, get_user_lang
     from services.delivery import deliver_order
@@ -478,7 +465,7 @@ async def api_confirm_order(order_id: int):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/tickets", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.get("/api/tickets", dependencies=[Depends(verify_api_key)])
 async def api_get_tickets():
     from database.models import get_open_tickets
     try:
@@ -489,7 +476,7 @@ async def api_get_tickets():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/tickets/{ticket_id}/reply", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.post("/api/tickets/{ticket_id}/reply", dependencies=[Depends(verify_api_key)])
 async def api_reply_ticket(ticket_id: int, data: dict):
     from database.models import get_ticket, reply_ticket, get_user_lang
     try:
@@ -520,7 +507,7 @@ async def api_reply_ticket(ticket_id: int, data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/products/{product_id}/stock", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.get("/api/products/{product_id}/stock", dependencies=[Depends(verify_api_key)])
 async def api_get_product_stock(product_id: int):
     from database.models import get_stock_items_for_product
     try:
@@ -531,7 +518,7 @@ async def api_get_product_stock(product_id: int):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/products/{product_id}/stock", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.post("/api/products/{product_id}/stock", dependencies=[Depends(verify_api_key)])
 async def api_add_product_stock(product_id: int, data: dict):
     from database.models import add_stock_items
     try:
@@ -571,7 +558,7 @@ async def api_add_product_stock(product_id: int, data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.delete("/api/stock/{stock_id}", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.delete("/api/stock/{stock_id}", dependencies=[Depends(verify_api_key)])
 async def api_delete_stock_item(stock_id: int):
     from database.models import delete_stock_item
     try:
@@ -584,7 +571,7 @@ async def api_delete_stock_item(stock_id: int):
 
 from fastapi import Query as _Q
 
-@api.get("/api/orders/all", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.get("/api/orders/all", dependencies=[Depends(verify_api_key)])
 async def api_get_all_orders(order_status: str = _Q(None, alias="status"), limit: int = 50, offset: int = 0):
     from database.models import get_all_orders_filtered, get_all_topups_filtered
     try:
@@ -609,7 +596,7 @@ async def api_get_all_orders(order_status: str = _Q(None, alias="status"), limit
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/orders/{order_id}/items", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.get("/api/orders/{order_id}/items", dependencies=[Depends(verify_api_key)])
 async def api_get_order_items(order_id: int):
     from database.models import get_stock_items_for_order, get_order
     try:
@@ -625,7 +612,7 @@ async def api_get_order_items(order_id: int):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/orders/{order_id}/cancel", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.post("/api/orders/{order_id}/cancel", dependencies=[Depends(verify_api_key)])
 async def api_cancel_order(order_id: int):
     from database.models import update_order_status
     try:
@@ -636,7 +623,7 @@ async def api_cancel_order(order_id: int):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/orders/cleanup", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.post("/api/orders/cleanup", dependencies=[Depends(verify_api_key)])
 async def api_cleanup_stale_orders():
     """Auto-cancel all PENDING/AWAITING_PAYMENT orders older than 5 minutes."""
     from database.db import get_db
@@ -658,7 +645,7 @@ async def api_cleanup_stale_orders():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/stats/daily", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.get("/api/stats/daily", dependencies=[Depends(verify_api_key)])
 async def api_get_daily_stats(days: int = 30):
     from database.models import get_daily_stats
     try:
@@ -670,7 +657,7 @@ async def api_get_daily_stats(days: int = 30):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/broadcast", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.post("/api/broadcast", dependencies=[Depends(verify_api_key)])
 async def api_broadcast(data: dict):
     from database.models import get_all_users
     try:
@@ -737,7 +724,7 @@ async def api_broadcast(data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/promos", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.get("/api/promos", dependencies=[Depends(verify_api_key)])
 async def api_get_promos():
     from database.models import get_all_promos
     try:
@@ -747,7 +734,7 @@ async def api_get_promos():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/promos", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.post("/api/promos", dependencies=[Depends(verify_api_key)])
 async def api_create_promo(data: dict):
     from database.models import create_promo
     try:
@@ -775,7 +762,7 @@ async def api_create_promo(data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.delete("/api/promos/{promo_id}", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.delete("/api/promos/{promo_id}", dependencies=[Depends(verify_api_key)])
 async def api_delete_promo(promo_id: int):
     from database.models import delete_promo
     try:
@@ -786,7 +773,7 @@ async def api_delete_promo(promo_id: int):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/users", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.get("/api/users", dependencies=[Depends(verify_api_key)])
 async def api_get_users(limit: int = 20, offset: int = 0, search: str = ""):
     from database.models import get_users_paginated
     try:
@@ -797,7 +784,7 @@ async def api_get_users(limit: int = 20, offset: int = 0, search: str = ""):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/users/{telegram_id}/ban", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.post("/api/users/{telegram_id}/ban", dependencies=[Depends(verify_api_key)])
 async def api_ban_user(telegram_id: int, notify: bool = False):
     from database.models import ban_user, get_user_lang
     try:
@@ -829,7 +816,7 @@ async def api_ban_user(telegram_id: int, notify: bool = False):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/users/{telegram_id}/unban", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.post("/api/users/{telegram_id}/unban", dependencies=[Depends(verify_api_key)])
 async def api_unban_user(telegram_id: int):
     from database.models import unban_user
     try:
@@ -838,20 +825,9 @@ async def api_unban_user(telegram_id: int):
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
-@api.post("/api/users/{telegram_id}/toggle-reseller", dependencies=[Depends(verify_api_key)], include_in_schema=False)
-async def api_toggle_reseller(telegram_id: int):
-    from database.models import toggle_user_reseller
-    try:
-        new_status = await toggle_user_reseller(telegram_id)
-        return {"status": "success", "is_reseller": new_status}
-    except Exception as exc:
-        logger.error("API error: %s", exc, exc_info=True)
-        # Return the exact string so it surfaces in the alert box
-        raise HTTPException(status_code=400, detail=str(exc))
 
 
-
-@api.post("/api/users/{telegram_id}/wallet/topup", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.post("/api/users/{telegram_id}/wallet/topup", dependencies=[Depends(verify_api_key)])
 async def api_wallet_topup(telegram_id: int, data: dict):
     from database.models import topup_wallet
     try:
@@ -867,7 +843,7 @@ async def api_wallet_topup(telegram_id: int, data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/users/{telegram_id}/wallet/deduct", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.post("/api/users/{telegram_id}/wallet/deduct", dependencies=[Depends(verify_api_key)])
 async def api_wallet_deduct(telegram_id: int, data: dict):
     from database.models import deduct_wallet
     try:
@@ -885,7 +861,7 @@ async def api_wallet_deduct(telegram_id: int, data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/wallet/history", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.get("/api/wallet/history", dependencies=[Depends(verify_api_key)])
 async def api_wallet_history(limit: int = 50, offset: int = 0, tx_type: str = None):
     """Return all wallet transactions across all users (admin view)."""
     from database.models import get_all_wallet_transactions
@@ -899,7 +875,7 @@ async def api_wallet_history(limit: int = 50, offset: int = 0, tx_type: str = No
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/settings/payment", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.get("/api/settings/payment", dependencies=[Depends(verify_api_key)])
 async def api_get_payment_settings():
     from database.models import get_setting
     try:
@@ -911,7 +887,7 @@ async def api_get_payment_settings():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/settings/payment", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.post("/api/settings/payment", dependencies=[Depends(verify_api_key)])
 async def api_set_payment_settings(data: dict):
     from database.models import set_setting
     try:
@@ -987,7 +963,7 @@ WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
 
 from starlette.requests import Request as StarletteRequest
 
-@api.post("/webhook", include_in_schema=False)
+@api.post("/webhook")
 async def telegram_webhook(request: StarletteRequest):
     """Receive Telegram updates via webhook — zero polling, zero wasted CPU."""
     try:
@@ -1348,7 +1324,6 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(show_product_detail, pattern=r"^prod:"))
     app.add_handler(CallbackQueryHandler(show_profile, pattern=r"^menu_profile$"))
     app.add_handler(CallbackQueryHandler(show_referrals, pattern=r"^show_referrals$"))
-    app.add_handler(CallbackQueryHandler(show_reseller_api, pattern=r"^show_reseller_api$"))
     app.add_handler(CallbackQueryHandler(show_history, pattern=r"^menu_history$"))
     app.add_handler(CallbackQueryHandler(show_history, pattern=r"^hist_page:"))
     app.add_handler(CallbackQueryHandler(show_order_detail, pattern=r"^order:"))
@@ -1414,7 +1389,7 @@ def main() -> None:
         app.run_polling(drop_pending_updates=True)
 
 
-@api.get("/api/export/transactions", dependencies=[Depends(verify_api_key)], include_in_schema=False)
+@api.get("/api/export/transactions", dependencies=[Depends(verify_api_key)])
 async def api_export_transactions(start_date: str, end_date: str):
     from database.models import get_transactions_for_export
     try:
@@ -1425,207 +1400,9 @@ async def api_export_transactions(start_date: str, end_date: str):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-# ══════════════════════════════════════════════
-#  B2B RESELLER API
-# ══════════════════════════════════════════════
-
-
-from pydantic import BaseModel
-from typing import List, Optional
-
-class B2BPriceTierOut(BaseModel):
-    min_qty: int
-    max_qty: Optional[int]
-    price_usd: float
-
-class B2BProductOut(BaseModel):
-    id: int
-    name: str
-    description: str
-    price_usd: float
-    stock_available: int
-    price_tiers: List[B2BPriceTierOut]
-
-class B2BCategoryOut(BaseModel):
-    id: int
-    name: str
-    emoji: str
-    products: List[B2BProductOut]
-
-class B2BProductsResponse(BaseModel):
-    categories: List[B2BCategoryOut]
-
-class B2BBuyRequest(BaseModel):
-    product_id: int
-    quantity: int
-
-class B2BAccountData(BaseModel):
-    data: str
-
-class B2BBuyResponse(BaseModel):
-    status: str
-    order_id: int
-    product_name: str
-    quantity: int
-    total_price_usd: float
-    remaining_balance: float
-    accounts: List[B2BAccountData]
-
-class B2BOrderResponse(BaseModel):
-    order_id: int
-    product_name: str
-    quantity: int
-    status: str
-    total_price_usd: float
-    created_at: str
-    delivered_accounts: List[B2BAccountData]
-
-class B2BBalanceResponse(BaseModel):
-    telegram_id: int
-    username: str
-    balance_usd: float
-
-
-@api.get("/api/b2b/products", response_model=B2BProductsResponse)
-async def b2b_get_products(reseller: dict = Depends(verify_reseller_key)):
-    """List all active products with stock counts and price tiers for resellers."""
-    from database.models import get_categories, get_products_by_category, get_all_stock_counts, get_price_tiers
-    try:
-        categories = await get_categories()
-        stock_counts = await get_all_stock_counts()
-        result = []
-        for cat in categories:
-            products = await get_products_by_category(cat["id"])
-            prod_list = []
-            for p in products:
-                tiers = await get_price_tiers(p["id"])
-                prod_list.append({
-                    "id": p["id"],
-                    "name": p["name"],
-                    "description": p.get("description") or "",
-                    "price_usd": p["price_usd"],
-                    "stock_available": stock_counts.get(p["id"], 0),
-                    "price_tiers": [{"min_qty": t["min_qty"], "max_qty": t["max_qty"], "price_usd": t["price_usd"]} for t in tiers],
-                })
-            if prod_list:
-                result.append({"id": cat["id"], "name": cat["name"], "emoji": cat.get("emoji") or "", "products": prod_list})
-        return {"categories": result}
-    except Exception as exc:
-        logger.error("B2B products error: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@api.post("/api/b2b/buy", response_model=B2BBuyResponse)
-async def b2b_buy(request: B2BBuyRequest, reseller: dict = Depends(verify_reseller_key)):
-    """Purchase products using reseller wallet balance. Returns account data immediately."""
-    from database.models import (
-        get_product, get_effective_price, get_stock_count, deduct_wallet,
-        create_order, get_available_stock_items, mark_stock_sold, update_order_status,
-    )
-    try:
-        product_id = request.product_id
-        quantity = request.quantity
-        if not product_id or not isinstance(quantity, int) or quantity < 1:
-            raise HTTPException(status_code=400, detail="Invalid product_id or quantity")
-
-        product = await get_product(product_id)
-        if not product or not product.get("is_active") or product.get("is_deleted"):
-            raise HTTPException(status_code=404, detail="Product not found or inactive")
-
-        # Check stock
-        available = await get_stock_count(product_id)
-        if available < quantity:
-            raise HTTPException(status_code=400, detail=f"Not enough stock. Available: {available}, Requested: {quantity}")
-
-        # Calculate price (with tier discounts)
-        unit_price = await get_effective_price(product_id, quantity)
-        total = round(unit_price * quantity, 2)
-
-        # Check and debit wallet
-        telegram_id = reseller["telegram_id"]
-        balance = reseller.get("wallet_balance", 0)
-        if balance < total:
-            raise HTTPException(status_code=400, detail=f"Insufficient balance. Required: ${total:.2f}, Available: ${balance:.2f}")
-
-        await deduct_wallet(telegram_id, total, f"B2B Purchase: {quantity}x {product['name']}")
-
-        # Create order
-        order = await create_order(telegram_id, product_id, total, quantity)
-        order_id = order["id"]
-
-        # Assign stock items (FIFO)
-        stock_items = await get_available_stock_items(product_id, quantity)
-        delivered_items = []
-        for item in stock_items:
-            sold = await mark_stock_sold(item["id"], order_id)
-            if sold:
-                delivered_items.append(item["account_data"])
-
-        # Mark order as completed
-        await update_order_status(order_id, "COMPLETED", payment_method="wallet", paid_at="CURRENT_TIMESTAMP")
-
-        # Get updated balance
-        from database.models import get_user
-        updated_user = await get_user(telegram_id)
-        new_balance = updated_user.get("wallet_balance", 0) if updated_user else 0
-
-        return {
-            "order_id": order_id,
-            "product_name": product["name"],
-            "quantity": quantity,
-            "total_price_usd": total,
-            "remaining_balance": new_balance,
-            "status": "COMPLETED",
-            "accounts": [{"data": item} for item in delivered_items],
-        }
-    except HTTPException:
-        raise
-    except ValueError as ve:
-        raise HTTPException(status_code=400, detail=str(ve))
-    except Exception as exc:
-        logger.error("B2B buy error: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@api.get("/api/b2b/orders/{order_id}", response_model=B2BOrderResponse)
-async def b2b_get_order(order_id: int, reseller: dict = Depends(verify_reseller_key)):
-    """Get order details and delivered items for a specific order."""
-    from database.models import get_order, get_product, get_stock_items_for_order
-    try:
-        order = await get_order(order_id)
-        if not order:
-            raise HTTPException(status_code=404, detail="Order not found")
-        if order["user_telegram_id"] != reseller["telegram_id"]:
-            raise HTTPException(status_code=403, detail="This order does not belong to you")
-
-        product = await get_product(order["product_id"])
-        items = await get_stock_items_for_order(order_id)
-
-        return {
-            "order_id": order_id,
-            "product_name": product["name"] if product else "Unknown",
-            "quantity": order.get("quantity", 1),
-            "status": order["status"],
-            "total_price_usd": order["amount_usd"],
-            "created_at": order.get("created_at") or "",
-            "delivered_accounts": [{"data": item["account_data"]} for item in items] if items else [],
-        }
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error("B2B order error: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@api.get("/api/b2b/balance", response_model=B2BBalanceResponse)
-async def b2b_get_balance(reseller: dict = Depends(verify_reseller_key)):
-    """Get reseller wallet balance."""
-    return {
-        "telegram_id": reseller["telegram_id"],
-        "username": reseller.get("username", "") or "",
-        "balance_usd": reseller.get("wallet_balance", 0) or 0.0,
-    }
-
-
 if __name__ == "__main__":
     main()
+
+
+
+

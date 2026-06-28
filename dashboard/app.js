@@ -400,12 +400,7 @@ async function apiCall(endpoint, method='GET', body=null) {
     if (body) cfg.body = JSON.stringify(body);
     try {
         const res = await fetch(url, cfg); clearTimeout(tid);
-        if (!res.ok) {
-            if (res.status === 401) throw new Error('API_KEY_INVALID');
-            let errMsg = `API ${res.status}`;
-            try { const errData = await res.json(); if (errData.detail) errMsg = errData.detail; } catch (e) {}
-            throw new Error(errMsg);
-        }
+        if (!res.ok) { if (res.status===401) throw new Error('API_KEY_INVALID'); throw new Error(`API ${res.status}`); }
         return await res.json();
     } catch(e) { clearTimeout(tid); if (e.name==='AbortError') throw new Error('TIMEOUT'); throw e; }
 }
@@ -689,14 +684,12 @@ async function loadUsers() {
         if (r.users.length > 0) {
             DOM.usersTableBody.innerHTML = r.users.map(u => {
                 const banned = u.is_banned;
-                const isReseller = u.is_reseller;
                 const d = u.created_at ? parseUTCDate(u.created_at).toLocaleDateString() : '—';
                 const wb = parseFloat(u.wallet_balance||0).toFixed(2);
                 const refBy = u.referred_by ? `<code>${u.referred_by}</code>` : '—';
                 const refCount = u.referrals_count || 0;
                 const refEarnings = parseFloat(u.referral_earnings||0).toFixed(2);
-                const resellerBadge = isReseller ? ' <span class="status-badge" style="background:#3b82f6;color:white;font-size:0.7rem;padding:2px 4px;">API</span>' : '';
-                return `<tr><td><code>${u.telegram_id}</code></td><td>${u.username||'—'}</td><td>${u.first_name||'—'}${resellerBadge}</td><td>${u.language||'fr'}</td><td>${u.total_orders||0}</td><td>$${parseFloat(u.total_spent||0).toFixed(2)}</td><td>💰 $${wb}</td><td>${refBy}</td><td>${refCount}</td><td>💰 $${refEarnings}</td><td>${d}</td><td><button class="btn-table-action" onclick="toggleReseller(${u.telegram_id})" title="Revendeur API" style="color:#3b82f6;"><i class="fa-solid fa-code"></i></button> <button class="btn-table-action" onclick="creditWallet(${u.telegram_id})" title="Créditer" style="color:#22c55e;"><i class="fa-solid fa-circle-plus"></i></button> <button class="btn-table-action" onclick="debitWallet(${u.telegram_id})" title="Retirer" style="color:#ef4444;"><i class="fa-solid fa-circle-minus"></i></button> ${banned?`<span class="status-badge banned">${t('banned')}</span> <button class="btn-table-action unban" onclick="unbanUser(${u.telegram_id})"><i class="fa-solid fa-lock-open"></i></button>`:`<button class="btn-table-action ban" onclick="banUser(${u.telegram_id})"><i class="fa-solid fa-ban"></i></button>`}</td></tr>`;
+                return `<tr><td><code>${u.telegram_id}</code></td><td>${u.username||'—'}</td><td>${u.first_name||'—'}</td><td>${u.language||'fr'}</td><td>${u.total_orders||0}</td><td>$${parseFloat(u.total_spent||0).toFixed(2)}</td><td>💰 $${wb}</td><td>${refBy}</td><td>${refCount}</td><td>💰 $${refEarnings}</td><td>${d}</td><td><button class="btn-table-action" onclick="creditWallet(${u.telegram_id})" title="Créditer" style="color:#22c55e;"><i class="fa-solid fa-circle-plus"></i></button> <button class="btn-table-action" onclick="debitWallet(${u.telegram_id})" title="Retirer" style="color:#ef4444;"><i class="fa-solid fa-circle-minus"></i></button> ${banned?`<span class="status-badge banned">${t('banned')}</span> <button class="btn-table-action unban" onclick="unbanUser(${u.telegram_id})"><i class="fa-solid fa-lock-open"></i></button>`:`<button class="btn-table-action ban" onclick="banUser(${u.telegram_id})"><i class="fa-solid fa-ban"></i></button>`}</td></tr>`;
             }).join('');
         } else {
             DOM.usersTableBody.innerHTML = `<tr><td colspan="12" class="empty-state">${t('no_users')}</td></tr>`;
@@ -812,6 +805,7 @@ window.openOrderDetail = async function(orderId) {
     $('order-detail-info').innerHTML = '<p style="color:var(--color-text-muted);font-size:0.85rem;">Chargement...</p>';
     $('order-items-list').innerHTML = '';
     $('order-items-count').textContent = '...';
+    $('btn-download-order-txt').style.display = 'none';
     showModal(DOM.orderDetailModal);
 
     try {
@@ -838,6 +832,19 @@ window.openOrderDetail = async function(orderId) {
         $('order-items-count').textContent = items.length;
 
         if (items.length > 0) {
+            const btnDownload = $('btn-download-order-txt');
+            btnDownload.style.display = 'inline-block';
+            btnDownload.onclick = () => {
+                const textContent = items.map(it => it.account_data).join('\n');
+                const blob = new Blob([textContent], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Commande_${orderId}_Articles.txt`;
+                a.click();
+                URL.revokeObjectURL(url);
+            };
+
             $('order-items-list').innerHTML = items.map((it, i) => {
                 const safeData = it.account_data ? it.account_data.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
                 return `
@@ -847,6 +854,7 @@ window.openOrderDetail = async function(orderId) {
                 </div>`;
             }).join('');
         } else {
+            $('btn-download-order-txt').style.display = 'none';
             $('order-items-list').innerHTML = '<p class="empty-state">Aucun article livré trouvé.</p>';
         }
     } catch(e) {
@@ -956,7 +964,6 @@ window.confirmBanUser = async function() {
         showLoading(false);
     }
 };
-window.toggleReseller = async function(tid) { showLoading(true); try{await apiCall(`/api/users/${tid}/toggle-reseller`, 'POST'); await loadUsers();}catch(e){alert(e.message);}finally{showLoading(false);} };
 window.unbanUser = async function(tid) { if(!confirm(t('confirm_unban'))) return; showLoading(true); try{await apiCall(`/api/users/${tid}/unban`,'POST'); await loadUsers();}catch(e){alert(e.message);}finally{showLoading(false);} };
 window.creditWallet = async function(tid) {
     const amount = prompt('Montant à créditer (USD) :');

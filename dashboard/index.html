@@ -593,7 +593,10 @@
             <div class="modal-header"><h3><i class="fa-solid fa-receipt"></i> <span id="order-detail-title">Détail Commande</span></h3><button class="btn-close-modal"><i class="fa-solid fa-xmark"></i></button></div>
             <div id="order-detail-info" style="margin-bottom:1rem;"></div>
             <div class="stock-existing-section">
-                <h4><i class="fa-solid fa-key"></i> Articles livrés — <span id="order-items-count">0</span></h4>
+                <h4 style="display:flex; justify-content:space-between; align-items:center;">
+                    <span><i class="fa-solid fa-key"></i> Articles livrés — <span id="order-items-count">0</span></span>
+                    <button id="btn-download-order-txt" class="btn-primary" style="padding: 4px 10px; font-size: 0.8rem; display:none;"><i class="fa-solid fa-download"></i> .txt</button>
+                </h4>
                 <div class="stock-items-scroll" id="order-items-list" style="max-height:300px;">
                     <p class="empty-state">Aucun article.</p>
                 </div>
