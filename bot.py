@@ -1430,7 +1430,63 @@ async def api_export_transactions(start_date: str, end_date: str):
 # ══════════════════════════════════════════════
 
 
-@api.get("/api/b2b/products")
+from pydantic import BaseModel
+from typing import List, Optional
+
+class B2BPriceTierOut(BaseModel):
+    min_qty: int
+    max_qty: Optional[int]
+    price_usd: float
+
+class B2BProductOut(BaseModel):
+    id: int
+    name: str
+    description: str
+    price_usd: float
+    stock_available: int
+    price_tiers: List[B2BPriceTierOut]
+
+class B2BCategoryOut(BaseModel):
+    id: int
+    name: str
+    emoji: str
+    products: List[B2BProductOut]
+
+class B2BProductsResponse(BaseModel):
+    categories: List[B2BCategoryOut]
+
+class B2BBuyRequest(BaseModel):
+    product_id: int
+    quantity: int
+
+class B2BAccountData(BaseModel):
+    data: str
+
+class B2BBuyResponse(BaseModel):
+    status: str
+    order_id: int
+    product_name: str
+    quantity: int
+    total_price_usd: float
+    remaining_balance: float
+    accounts: List[B2BAccountData]
+
+class B2BOrderResponse(BaseModel):
+    order_id: int
+    product_name: str
+    quantity: int
+    status: str
+    total_price_usd: float
+    created_at: str
+    delivered_accounts: List[B2BAccountData]
+
+class B2BBalanceResponse(BaseModel):
+    telegram_id: int
+    username: str
+    balance_usd: float
+
+
+@api.get("/api/b2b/products", response_model=B2BProductsResponse)
 async def b2b_get_products(reseller: dict = Depends(verify_reseller_key)):
     """List all active products with stock counts and price tiers for resellers."""
     from database.models import get_active_categories, get_products_by_category, get_all_stock_counts, get_price_tiers
@@ -1459,16 +1515,16 @@ async def b2b_get_products(reseller: dict = Depends(verify_reseller_key)):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/b2b/buy")
-async def b2b_buy(request: dict, reseller: dict = Depends(verify_reseller_key)):
+@api.post("/api/b2b/buy", response_model=B2BBuyResponse)
+async def b2b_buy(request: B2BBuyRequest, reseller: dict = Depends(verify_reseller_key)):
     """Purchase products using reseller wallet balance. Returns account data immediately."""
     from database.models import (
         get_product, get_effective_price, get_stock_count, deduct_wallet,
         create_order, get_available_stock_items, mark_stock_sold, update_order_status,
     )
     try:
-        product_id = request.get("product_id")
-        quantity = request.get("quantity", 1)
+        product_id = request.product_id
+        quantity = request.quantity
         if not product_id or not isinstance(quantity, int) or quantity < 1:
             raise HTTPException(status_code=400, detail="Invalid product_id or quantity")
 
@@ -1515,12 +1571,12 @@ async def b2b_buy(request: dict, reseller: dict = Depends(verify_reseller_key)):
 
         return {
             "order_id": order_id,
-            "product": product["name"],
+            "product_name": product["name"],
             "quantity": quantity,
-            "unit_price": unit_price,
-            "total_charged": total,
+            "total_price_usd": total,
             "remaining_balance": new_balance,
-            "items": delivered_items,
+            "status": "COMPLETED",
+            "accounts": [{"data": item} for item in delivered_items],
         }
     except HTTPException:
         raise
@@ -1531,7 +1587,7 @@ async def b2b_buy(request: dict, reseller: dict = Depends(verify_reseller_key)):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/b2b/orders/{order_id}")
+@api.get("/api/b2b/orders/{order_id}", response_model=B2BOrderResponse)
 async def b2b_get_order(order_id: int, reseller: dict = Depends(verify_reseller_key)):
     """Get order details and delivered items for a specific order."""
     from database.models import get_order, get_product, get_stock_items_for_order
@@ -1547,12 +1603,12 @@ async def b2b_get_order(order_id: int, reseller: dict = Depends(verify_reseller_
 
         return {
             "order_id": order_id,
-            "status": order["status"],
-            "product": product["name"] if product else "Unknown",
+            "product_name": product["name"] if product else "Unknown",
             "quantity": order.get("quantity", 1),
-            "total": order["amount_usd"],
-            "created_at": order.get("created_at"),
-            "items": [item["account_data"] for item in items] if items else [],
+            "status": order["status"],
+            "total_price_usd": order["amount_usd"],
+            "created_at": order.get("created_at") or "",
+            "delivered_accounts": [{"data": item["account_data"]} for item in items] if items else [],
         }
     except HTTPException:
         raise
@@ -1561,13 +1617,13 @@ async def b2b_get_order(order_id: int, reseller: dict = Depends(verify_reseller_
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/b2b/balance")
+@api.get("/api/b2b/balance", response_model=B2BBalanceResponse)
 async def b2b_get_balance(reseller: dict = Depends(verify_reseller_key)):
     """Get reseller wallet balance."""
     return {
         "telegram_id": reseller["telegram_id"],
-        "username": reseller.get("username", ""),
-        "balance_usd": reseller.get("wallet_balance", 0),
+        "username": reseller.get("username", "") or "",
+        "balance_usd": reseller.get("wallet_balance", 0) or 0.0,
     }
 
 
