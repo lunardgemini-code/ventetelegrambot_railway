@@ -87,8 +87,8 @@ api.add_middleware(
 import pathlib
 _dashboard_dir = pathlib.Path(__file__).parent / "dashboard"
 if _dashboard_dir.is_dir():
-    @api.get("/dashboard")
-    @api.get("/dashboard/")
+    @api.get("/dashboard", include_in_schema=False)
+    @api.get("/dashboard/", include_in_schema=False)
     async def serve_dashboard_index():
         return FileResponse(str(_dashboard_dir / "index.html"), media_type="text/html")
     api.mount("/dashboard", StaticFiles(directory=str(_dashboard_dir)), name="dashboard")
@@ -122,7 +122,7 @@ async def verify_reseller_key(x_reseller_key: str = Header(None)):
     return user
 
 
-@api.get("/health")
+@api.get("/health", include_in_schema=False)
 async def health_check():
     """Anonymous endpoint for Railway health check."""
     return {"status": "ok", "bot": "running"}
@@ -987,7 +987,7 @@ WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
 
 from starlette.requests import Request as StarletteRequest
 
-@api.post("/webhook")
+@api.post("/webhook", include_in_schema=False)
 async def telegram_webhook(request: StarletteRequest):
     """Receive Telegram updates via webhook — zero polling, zero wasted CPU."""
     try:
