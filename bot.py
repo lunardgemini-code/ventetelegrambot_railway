@@ -846,7 +846,8 @@ async def api_toggle_reseller(telegram_id: int):
         return {"status": "success", "is_reseller": new_status}
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        # Return the exact string so it surfaces in the alert box
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 
