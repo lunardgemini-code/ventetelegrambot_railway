@@ -387,6 +387,9 @@ async def init_db() -> None:
             "ALTER TABLE products ADD COLUMN image_url TEXT DEFAULT NULL",
             "ALTER TABLE products ADD COLUMN custom_emoji_id TEXT DEFAULT NULL",
             "INSERT OR IGNORE INTO settings (key, value) SELECT 'finance_bot_balance_binance', value FROM settings WHERE key = 'finance_bot_balance'",
+            "ALTER TABLE users ADD COLUMN is_reseller INTEGER DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN reseller_api_key TEXT",
+            "CREATE INDEX IF NOT EXISTS idx_users_reseller_key ON users(reseller_api_key)",
         ]
         for sql in migrations:
             mig_db = await get_db()

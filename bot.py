@@ -45,7 +45,7 @@ from handlers.products import (
     show_product_detail,
     show_products_list,
 )
-from handlers.profile import show_profile, show_referrals
+from handlers.profile import show_profile, show_referrals, show_reseller_api
 from handlers.start import change_language, main_menu_callback, set_language, start_command, callback_check_sub
 from handlers.support import (
     get_support_conversation_handler,
@@ -79,7 +79,7 @@ api.add_middleware(
     allow_origins=[o.strip() for o in _cors_origins],
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["X-API-Key", "Content-Type"],
+    allow_headers=["X-API-Key", "X-Reseller-Key", "Content-Type"],
     expose_headers=[],
 )
 
@@ -107,6 +107,19 @@ async def verify_api_key(x_api_key: str = Header(None)):
             detail="Invalid or missing API Key"
         )
     return x_api_key
+
+
+async def verify_reseller_key(x_reseller_key: str = Header(None)):
+    """Dependency to authenticate B2B reseller requests via X-Reseller-Key header."""
+    if not x_reseller_key:
+        raise HTTPException(status_code=401, detail="Missing X-Reseller-Key header")
+    from database.models import get_user_by_reseller_key
+    user = await get_user_by_reseller_key(x_reseller_key)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid reseller API key")
+    if user.get("is_banned"):
+        raise HTTPException(status_code=403, detail="Account suspended")
+    return user
 
 
 @api.get("/health")
@@ -825,6 +838,16 @@ async def api_unban_user(telegram_id: int):
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
+@api.post("/api/users/{telegram_id}/toggle-reseller", dependencies=[Depends(verify_api_key)])
+async def api_toggle_reseller(telegram_id: int):
+    from database.models import toggle_user_reseller
+    try:
+        new_status = await toggle_user_reseller(telegram_id)
+        return {"status": "success", "is_reseller": new_status}
+    except Exception as exc:
+        logger.error("API error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 
 
 @api.post("/api/users/{telegram_id}/wallet/topup", dependencies=[Depends(verify_api_key)])
@@ -1324,6 +1347,7 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(show_product_detail, pattern=r"^prod:"))
     app.add_handler(CallbackQueryHandler(show_profile, pattern=r"^menu_profile$"))
     app.add_handler(CallbackQueryHandler(show_referrals, pattern=r"^show_referrals$"))
+    app.add_handler(CallbackQueryHandler(show_reseller_api, pattern=r"^show_reseller_api$"))
     app.add_handler(CallbackQueryHandler(show_history, pattern=r"^menu_history$"))
     app.add_handler(CallbackQueryHandler(show_history, pattern=r"^hist_page:"))
     app.add_handler(CallbackQueryHandler(show_order_detail, pattern=r"^order:"))
@@ -1400,9 +1424,151 @@ async def api_export_transactions(start_date: str, end_date: str):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+# ══════════════════════════════════════════════
+#  B2B RESELLER API
+# ══════════════════════════════════════════════
+
+
+@api.get("/api/b2b/products")
+async def b2b_get_products(reseller: dict = Depends(verify_reseller_key)):
+    """List all active products with stock counts and price tiers for resellers."""
+    from database.models import get_active_categories, get_products_by_category, get_all_stock_counts, get_price_tiers
+    try:
+        categories = await get_active_categories()
+        stock_counts = await get_all_stock_counts()
+        result = []
+        for cat in categories:
+            products = await get_products_by_category(cat["id"])
+            prod_list = []
+            for p in products:
+                tiers = await get_price_tiers(p["id"])
+                prod_list.append({
+                    "id": p["id"],
+                    "name": p["name"],
+                    "description": p.get("description", ""),
+                    "price_usd": p["price_usd"],
+                    "stock_available": stock_counts.get(p["id"], 0),
+                    "price_tiers": [{"min_qty": t["min_qty"], "max_qty": t["max_qty"], "price_usd": t["price_usd"]} for t in tiers],
+                })
+            if prod_list:
+                result.append({"id": cat["id"], "name": cat["name"], "emoji": cat.get("emoji", ""), "products": prod_list})
+        return {"categories": result}
+    except Exception as exc:
+        logger.error("B2B products error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/b2b/buy")
+async def b2b_buy(request: dict, reseller: dict = Depends(verify_reseller_key)):
+    """Purchase products using reseller wallet balance. Returns account data immediately."""
+    from database.models import (
+        get_product, get_effective_price, get_stock_count, deduct_wallet,
+        create_order, get_available_stock_items, mark_stock_sold, update_order_status,
+    )
+    try:
+        product_id = request.get("product_id")
+        quantity = request.get("quantity", 1)
+        if not product_id or not isinstance(quantity, int) or quantity < 1:
+            raise HTTPException(status_code=400, detail="Invalid product_id or quantity")
+
+        product = await get_product(product_id)
+        if not product or not product.get("is_active") or product.get("is_deleted"):
+            raise HTTPException(status_code=404, detail="Product not found or inactive")
+
+        # Check stock
+        available = await get_stock_count(product_id)
+        if available < quantity:
+            raise HTTPException(status_code=400, detail=f"Not enough stock. Available: {available}, Requested: {quantity}")
+
+        # Calculate price (with tier discounts)
+        unit_price = await get_effective_price(product_id, quantity)
+        total = round(unit_price * quantity, 2)
+
+        # Check and debit wallet
+        telegram_id = reseller["telegram_id"]
+        balance = reseller.get("wallet_balance", 0)
+        if balance < total:
+            raise HTTPException(status_code=400, detail=f"Insufficient balance. Required: ${total:.2f}, Available: ${balance:.2f}")
+
+        await deduct_wallet(telegram_id, total, f"B2B Purchase: {quantity}x {product['name']}")
+
+        # Create order
+        order = await create_order(telegram_id, product_id, total, quantity)
+        order_id = order["id"]
+
+        # Assign stock items (FIFO)
+        stock_items = await get_available_stock_items(product_id, quantity)
+        delivered_items = []
+        for item in stock_items:
+            sold = await mark_stock_sold(item["id"], order_id)
+            if sold:
+                delivered_items.append(item["account_data"])
+
+        # Mark order as completed
+        await update_order_status(order_id, "COMPLETED", payment_method="wallet", paid_at="CURRENT_TIMESTAMP")
+
+        # Get updated balance
+        from database.models import get_user
+        updated_user = await get_user(telegram_id)
+        new_balance = updated_user.get("wallet_balance", 0) if updated_user else 0
+
+        return {
+            "order_id": order_id,
+            "product": product["name"],
+            "quantity": quantity,
+            "unit_price": unit_price,
+            "total_charged": total,
+            "remaining_balance": new_balance,
+            "items": delivered_items,
+        }
+    except HTTPException:
+        raise
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as exc:
+        logger.error("B2B buy error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/api/b2b/orders/{order_id}")
+async def b2b_get_order(order_id: int, reseller: dict = Depends(verify_reseller_key)):
+    """Get order details and delivered items for a specific order."""
+    from database.models import get_order, get_product, get_stock_items_for_order
+    try:
+        order = await get_order(order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        if order["user_telegram_id"] != reseller["telegram_id"]:
+            raise HTTPException(status_code=403, detail="This order does not belong to you")
+
+        product = await get_product(order["product_id"])
+        items = await get_stock_items_for_order(order_id)
+
+        return {
+            "order_id": order_id,
+            "status": order["status"],
+            "product": product["name"] if product else "Unknown",
+            "quantity": order.get("quantity", 1),
+            "total": order["amount_usd"],
+            "created_at": order.get("created_at"),
+            "items": [item["account_data"] for item in items] if items else [],
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("B2B order error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/api/b2b/balance")
+async def b2b_get_balance(reseller: dict = Depends(verify_reseller_key)):
+    """Get reseller wallet balance."""
+    return {
+        "telegram_id": reseller["telegram_id"],
+        "username": reseller.get("username", ""),
+        "balance_usd": reseller.get("wallet_balance", 0),
+    }
+
+
 if __name__ == "__main__":
     main()
-
-
-
-

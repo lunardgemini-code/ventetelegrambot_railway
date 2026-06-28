@@ -99,6 +99,58 @@ async def get_user(telegram_id: int) -> dict | None:
         await db.close()
 
 
+async def get_user_by_reseller_key(api_key: str) -> dict | None:
+    """Récupère un utilisateur revendeur par sa clé API."""
+    if not api_key:
+        return None
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM users WHERE reseller_api_key = ? AND is_reseller = 1",
+            (api_key,),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def generate_reseller_api_key(telegram_id: int) -> str:
+    """Génère et enregistre une nouvelle clé API sécurisée pour un revendeur."""
+    import secrets
+    new_key = f"sk_reseller_{secrets.token_urlsafe(32)}"
+    db = await get_db()
+    try:
+        await db.execute(
+            "UPDATE users SET reseller_api_key = ? WHERE telegram_id = ?",
+            (new_key, telegram_id),
+        )
+        await db.commit()
+        return new_key
+    finally:
+        await db.close()
+
+
+async def toggle_user_reseller(telegram_id: int) -> bool:
+    """Active ou désactive le statut revendeur d'un utilisateur. Retourne le nouveau statut."""
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT is_reseller FROM users WHERE telegram_id = ?", (telegram_id,))
+        row = await cursor.fetchone()
+        if not row:
+            return False
+            
+        new_status = 1 if not row["is_reseller"] else 0
+        await db.execute(
+            "UPDATE users SET is_reseller = ? WHERE telegram_id = ?",
+            (new_status, telegram_id)
+        )
+        await db.commit()
+        return bool(new_status)
+    finally:
+        await db.close()
+
+
 async def get_all_users() -> list[dict]:
     """Retourne la liste de tous les utilisateurs enregistrés avec leur nombre de filleuls."""
     db = await get_db()
