@@ -1502,13 +1502,13 @@ async def b2b_get_products(reseller: dict = Depends(verify_reseller_key)):
                 prod_list.append({
                     "id": p["id"],
                     "name": p["name"],
-                    "description": p.get("description", ""),
+                    "description": p.get("description") or "",
                     "price_usd": p["price_usd"],
                     "stock_available": stock_counts.get(p["id"], 0),
                     "price_tiers": [{"min_qty": t["min_qty"], "max_qty": t["max_qty"], "price_usd": t["price_usd"]} for t in tiers],
                 })
             if prod_list:
-                result.append({"id": cat["id"], "name": cat["name"], "emoji": cat.get("emoji", ""), "products": prod_list})
+                result.append({"id": cat["id"], "name": cat["name"], "emoji": cat.get("emoji") or "", "products": prod_list})
         return {"categories": result}
     except Exception as exc:
         logger.error("B2B products error: %s", exc, exc_info=True)
