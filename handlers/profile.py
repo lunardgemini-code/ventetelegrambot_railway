@@ -148,7 +148,8 @@ async def show_reseller_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "fr": (
                 "⚙️ <b>API Revendeur</b>\n\n"
                 "🔑 <b>Votre clé API :</b>\n<code>{key}</code>\n\n"
-                "💰 <b>Solde :</b> ${balance:.2f}\n\n"
+                "💰 <b>Solde :</b> ${balance:.2f}\n"
+                "<i>⚠️ Vous devez recharger votre solde sur le bot pour pouvoir acheter via l'API.</i>\n\n"
                 "📖 <b>Documentation :</b>\n{docs}\n\n"
                 "━━━━━━━━━━━━━━━━━━━━\n"
                 "📌 <b>Guide rapide :</b>\n"
@@ -160,7 +161,8 @@ async def show_reseller_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "en": (
                 "⚙️ <b>Reseller API</b>\n\n"
                 "🔑 <b>Your API Key:</b>\n<code>{key}</code>\n\n"
-                "💰 <b>Balance:</b> ${balance:.2f}\n\n"
+                "💰 <b>Balance:</b> ${balance:.2f}\n"
+                "<i>⚠️ You must top up your bot wallet balance to make API purchases.</i>\n\n"
                 "📖 <b>Documentation:</b>\n{docs}\n\n"
                 "━━━━━━━━━━━━━━━━━━━━\n"
                 "📌 <b>Quick Guide:</b>\n"
@@ -172,7 +174,8 @@ async def show_reseller_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "ar": (
                 "⚙️ <b>API الموزع</b>\n\n"
                 "🔑 <b>مفتاح API الخاص بك:</b>\n<code>{key}</code>\n\n"
-                "💰 <b>الرصيد:</b> ${balance:.2f}\n\n"
+                "💰 <b>الرصيد:</b> ${balance:.2f}\n"
+                "<i>⚠️ يجب عليك شحن رصيدك في البوت لتتمكن من الشراء عبر API.</i>\n\n"
                 "📖 <b>التوثيق:</b>\n{docs}\n\n"
                 "━━━━━━━━━━━━━━━━━━━━\n"
                 "📌 <b>دليل سريع:</b>\n"

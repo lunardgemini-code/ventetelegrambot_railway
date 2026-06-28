@@ -400,7 +400,12 @@ async function apiCall(endpoint, method='GET', body=null) {
     if (body) cfg.body = JSON.stringify(body);
     try {
         const res = await fetch(url, cfg); clearTimeout(tid);
-        if (!res.ok) { if (res.status===401) throw new Error('API_KEY_INVALID'); throw new Error(`API ${res.status}`); }
+        if (!res.ok) {
+            if (res.status === 401) throw new Error('API_KEY_INVALID');
+            let errMsg = `API ${res.status}`;
+            try { const errData = await res.json(); if (errData.detail) errMsg = errData.detail; } catch (e) {}
+            throw new Error(errMsg);
+        }
         return await res.json();
     } catch(e) { clearTimeout(tid); if (e.name==='AbortError') throw new Error('TIMEOUT'); throw e; }
 }

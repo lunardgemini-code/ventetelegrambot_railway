@@ -127,7 +127,7 @@ async def health_check():
     """Anonymous endpoint for Railway health check."""
     return {"status": "ok", "bot": "running"}
 
-@api.get("/api/finance", dependencies=[Depends(verify_api_key)])
+@api.get("/api/finance", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_get_finance(method: str = None):
     from database.models import get_stats, get_setting
     try:
@@ -164,7 +164,7 @@ async def api_get_finance(method: str = None):
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@api.post("/api/finance/adjust", dependencies=[Depends(verify_api_key)])
+@api.post("/api/finance/adjust", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_adjust_finance(data: dict):
     from database.models import get_setting, set_setting
     try:
@@ -189,7 +189,7 @@ async def api_adjust_finance(data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/stats", dependencies=[Depends(verify_api_key)])
+@api.get("/api/stats", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_get_stats():
     from database.models import get_stats, get_all_users, get_all_products, get_all_stock_counts
     try:
@@ -217,7 +217,7 @@ async def api_get_stats():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/products", dependencies=[Depends(verify_api_key)])
+@api.get("/api/products", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_get_products():
     from database.models import get_all_products, get_all_stock_counts
     try:
@@ -234,7 +234,7 @@ async def api_get_products():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/products", dependencies=[Depends(verify_api_key)])
+@api.post("/api/products", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_create_product(data: dict):
     from database.models import add_product, get_categories, add_category
     try:
@@ -274,7 +274,7 @@ async def api_create_product(data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/products/{product_id}/tiers", dependencies=[Depends(verify_api_key)])
+@api.get("/api/products/{product_id}/tiers", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_get_product_tiers(product_id: int):
     from database.models import get_price_tiers
     try:
@@ -285,7 +285,7 @@ async def api_get_product_tiers(product_id: int):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.put("/api/products/{product_id}/tiers", dependencies=[Depends(verify_api_key)])
+@api.put("/api/products/{product_id}/tiers", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_set_product_tiers(product_id: int, data: dict):
     from database.models import set_price_tiers
     try:
@@ -298,7 +298,7 @@ async def api_set_product_tiers(product_id: int, data: dict):
 
 
 
-@api.put("/api/products/{product_id}", dependencies=[Depends(verify_api_key)])
+@api.put("/api/products/{product_id}", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_update_product(product_id: int, data: dict):
     from database.models import update_product
     try:
@@ -319,7 +319,7 @@ async def api_update_product(product_id: int, data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.delete("/api/products/{product_id}", dependencies=[Depends(verify_api_key)])
+@api.delete("/api/products/{product_id}", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_delete_product(product_id: int):
     from database.models import delete_product
     try:
@@ -332,7 +332,7 @@ async def api_delete_product(product_id: int):
 
 # ── Binance Accounts Endpoints ──
 
-@api.get("/api/binance-accounts", dependencies=[Depends(verify_api_key)])
+@api.get("/api/binance-accounts", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_get_binance_accounts():
     from database.models import get_binance_accounts
     try:
@@ -342,7 +342,7 @@ async def api_get_binance_accounts():
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@api.post("/api/binance-accounts", dependencies=[Depends(verify_api_key)])
+@api.post("/api/binance-accounts", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_create_binance_account(data: dict):
     from database.models import add_binance_account
     try:
@@ -362,7 +362,7 @@ async def api_create_binance_account(data: dict):
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@api.put("/api/binance-accounts/{account_id}", dependencies=[Depends(verify_api_key)])
+@api.put("/api/binance-accounts/{account_id}", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_update_binance_account(account_id: int, data: dict):
     from database.models import update_binance_account
     try:
@@ -374,7 +374,7 @@ async def api_update_binance_account(account_id: int, data: dict):
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@api.delete("/api/binance-accounts/{account_id}", dependencies=[Depends(verify_api_key)])
+@api.delete("/api/binance-accounts/{account_id}", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_delete_binance_account(account_id: int):
     from database.models import delete_binance_account
     try:
@@ -385,7 +385,7 @@ async def api_delete_binance_account(account_id: int):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/categories", dependencies=[Depends(verify_api_key)])
+@api.get("/api/categories", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_get_categories():
     from database.models import get_categories
     try:
@@ -396,7 +396,7 @@ async def api_get_categories():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/categories", dependencies=[Depends(verify_api_key)])
+@api.post("/api/categories", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_create_category(data: dict):
     from database.models import add_category
     try:
@@ -411,7 +411,7 @@ async def api_create_category(data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.delete("/api/categories/{category_id}", dependencies=[Depends(verify_api_key)])
+@api.delete("/api/categories/{category_id}", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_delete_category(category_id: int):
     from database.models import delete_category
     try:
@@ -422,7 +422,7 @@ async def api_delete_category(category_id: int):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/orders", dependencies=[Depends(verify_api_key)])
+@api.get("/api/orders", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_get_orders():
     from database.models import get_pending_orders
     try:
@@ -433,7 +433,7 @@ async def api_get_orders():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/orders/{order_id}/confirm", dependencies=[Depends(verify_api_key)])
+@api.post("/api/orders/{order_id}/confirm", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_confirm_order(order_id: int):
     from database.models import get_order, update_order_status, get_product, get_user_lang
     from services.delivery import deliver_order
@@ -478,7 +478,7 @@ async def api_confirm_order(order_id: int):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/tickets", dependencies=[Depends(verify_api_key)])
+@api.get("/api/tickets", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_get_tickets():
     from database.models import get_open_tickets
     try:
@@ -489,7 +489,7 @@ async def api_get_tickets():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/tickets/{ticket_id}/reply", dependencies=[Depends(verify_api_key)])
+@api.post("/api/tickets/{ticket_id}/reply", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_reply_ticket(ticket_id: int, data: dict):
     from database.models import get_ticket, reply_ticket, get_user_lang
     try:
@@ -520,7 +520,7 @@ async def api_reply_ticket(ticket_id: int, data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/products/{product_id}/stock", dependencies=[Depends(verify_api_key)])
+@api.get("/api/products/{product_id}/stock", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_get_product_stock(product_id: int):
     from database.models import get_stock_items_for_product
     try:
@@ -531,7 +531,7 @@ async def api_get_product_stock(product_id: int):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/products/{product_id}/stock", dependencies=[Depends(verify_api_key)])
+@api.post("/api/products/{product_id}/stock", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_add_product_stock(product_id: int, data: dict):
     from database.models import add_stock_items
     try:
@@ -571,7 +571,7 @@ async def api_add_product_stock(product_id: int, data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.delete("/api/stock/{stock_id}", dependencies=[Depends(verify_api_key)])
+@api.delete("/api/stock/{stock_id}", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_delete_stock_item(stock_id: int):
     from database.models import delete_stock_item
     try:
@@ -584,7 +584,7 @@ async def api_delete_stock_item(stock_id: int):
 
 from fastapi import Query as _Q
 
-@api.get("/api/orders/all", dependencies=[Depends(verify_api_key)])
+@api.get("/api/orders/all", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_get_all_orders(order_status: str = _Q(None, alias="status"), limit: int = 50, offset: int = 0):
     from database.models import get_all_orders_filtered, get_all_topups_filtered
     try:
@@ -609,7 +609,7 @@ async def api_get_all_orders(order_status: str = _Q(None, alias="status"), limit
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/orders/{order_id}/items", dependencies=[Depends(verify_api_key)])
+@api.get("/api/orders/{order_id}/items", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_get_order_items(order_id: int):
     from database.models import get_stock_items_for_order, get_order
     try:
@@ -625,7 +625,7 @@ async def api_get_order_items(order_id: int):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/orders/{order_id}/cancel", dependencies=[Depends(verify_api_key)])
+@api.post("/api/orders/{order_id}/cancel", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_cancel_order(order_id: int):
     from database.models import update_order_status
     try:
@@ -636,7 +636,7 @@ async def api_cancel_order(order_id: int):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/orders/cleanup", dependencies=[Depends(verify_api_key)])
+@api.post("/api/orders/cleanup", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_cleanup_stale_orders():
     """Auto-cancel all PENDING/AWAITING_PAYMENT orders older than 5 minutes."""
     from database.db import get_db
@@ -658,7 +658,7 @@ async def api_cleanup_stale_orders():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/stats/daily", dependencies=[Depends(verify_api_key)])
+@api.get("/api/stats/daily", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_get_daily_stats(days: int = 30):
     from database.models import get_daily_stats
     try:
@@ -670,7 +670,7 @@ async def api_get_daily_stats(days: int = 30):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/broadcast", dependencies=[Depends(verify_api_key)])
+@api.post("/api/broadcast", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_broadcast(data: dict):
     from database.models import get_all_users
     try:
@@ -737,7 +737,7 @@ async def api_broadcast(data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/promos", dependencies=[Depends(verify_api_key)])
+@api.get("/api/promos", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_get_promos():
     from database.models import get_all_promos
     try:
@@ -747,7 +747,7 @@ async def api_get_promos():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/promos", dependencies=[Depends(verify_api_key)])
+@api.post("/api/promos", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_create_promo(data: dict):
     from database.models import create_promo
     try:
@@ -775,7 +775,7 @@ async def api_create_promo(data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.delete("/api/promos/{promo_id}", dependencies=[Depends(verify_api_key)])
+@api.delete("/api/promos/{promo_id}", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_delete_promo(promo_id: int):
     from database.models import delete_promo
     try:
@@ -786,7 +786,7 @@ async def api_delete_promo(promo_id: int):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/users", dependencies=[Depends(verify_api_key)])
+@api.get("/api/users", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_get_users(limit: int = 20, offset: int = 0, search: str = ""):
     from database.models import get_users_paginated
     try:
@@ -797,7 +797,7 @@ async def api_get_users(limit: int = 20, offset: int = 0, search: str = ""):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/users/{telegram_id}/ban", dependencies=[Depends(verify_api_key)])
+@api.post("/api/users/{telegram_id}/ban", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_ban_user(telegram_id: int, notify: bool = False):
     from database.models import ban_user, get_user_lang
     try:
@@ -829,7 +829,7 @@ async def api_ban_user(telegram_id: int, notify: bool = False):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/users/{telegram_id}/unban", dependencies=[Depends(verify_api_key)])
+@api.post("/api/users/{telegram_id}/unban", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_unban_user(telegram_id: int):
     from database.models import unban_user
     try:
@@ -838,7 +838,7 @@ async def api_unban_user(telegram_id: int):
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
-@api.post("/api/users/{telegram_id}/toggle-reseller", dependencies=[Depends(verify_api_key)])
+@api.post("/api/users/{telegram_id}/toggle-reseller", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_toggle_reseller(telegram_id: int):
     from database.models import toggle_user_reseller
     try:
@@ -851,7 +851,7 @@ async def api_toggle_reseller(telegram_id: int):
 
 
 
-@api.post("/api/users/{telegram_id}/wallet/topup", dependencies=[Depends(verify_api_key)])
+@api.post("/api/users/{telegram_id}/wallet/topup", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_wallet_topup(telegram_id: int, data: dict):
     from database.models import topup_wallet
     try:
@@ -867,7 +867,7 @@ async def api_wallet_topup(telegram_id: int, data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/users/{telegram_id}/wallet/deduct", dependencies=[Depends(verify_api_key)])
+@api.post("/api/users/{telegram_id}/wallet/deduct", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_wallet_deduct(telegram_id: int, data: dict):
     from database.models import deduct_wallet
     try:
@@ -885,7 +885,7 @@ async def api_wallet_deduct(telegram_id: int, data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/wallet/history", dependencies=[Depends(verify_api_key)])
+@api.get("/api/wallet/history", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_wallet_history(limit: int = 50, offset: int = 0, tx_type: str = None):
     """Return all wallet transactions across all users (admin view)."""
     from database.models import get_all_wallet_transactions
@@ -899,7 +899,7 @@ async def api_wallet_history(limit: int = 50, offset: int = 0, tx_type: str = No
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/settings/payment", dependencies=[Depends(verify_api_key)])
+@api.get("/api/settings/payment", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_get_payment_settings():
     from database.models import get_setting
     try:
@@ -911,7 +911,7 @@ async def api_get_payment_settings():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/settings/payment", dependencies=[Depends(verify_api_key)])
+@api.post("/api/settings/payment", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_set_payment_settings(data: dict):
     from database.models import set_setting
     try:
@@ -1414,7 +1414,7 @@ def main() -> None:
         app.run_polling(drop_pending_updates=True)
 
 
-@api.get("/api/export/transactions", dependencies=[Depends(verify_api_key)])
+@api.get("/api/export/transactions", dependencies=[Depends(verify_api_key, include_in_schema=False)])
 async def api_export_transactions(start_date: str, end_date: str):
     from database.models import get_transactions_for_export
     try:
