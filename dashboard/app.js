@@ -6,7 +6,7 @@
 const LANG = {
 fr: {
     login_subtitle:"Console de Gestion Administrateur",login_url_label:"URL de l'API (optionnel)",login_url_hint:"Laissez vide pour le proxy Netlify",login_key_label:"Clé d'API Administrateur",login_btn:"Se connecter",
-    nav_dashboard:"Dashboard",nav_inventory:"Catalogue & Stock",nav_orders:"Commandes",nav_users:"Utilisateurs",nav_tickets:"Tickets",nav_broadcast:"Broadcast",nav_settings:"Paramètres",
+    nav_dashboard:"Dashboard",nav_inventory:"Catalogue & Stock",nav_orders:"Commandes",nav_users:"Utilisateurs",nav_tickets:"Tickets",nav_broadcast:"Broadcast",nav_settings:"Paramètres",nav_ventedz:"Vente DZ",tab_ventedz:"Gestion Vente DZ",
     admin_title:"Administrateur",status_connected:"Connecté",btn_logout:"Déconnexion",
     tab_dashboard:"Tableau de Bord",tab_inventory:"Catalogue & Stock",tab_orders:"Suivi des Commandes",tab_users:"Gestion des Utilisateurs",tab_tickets:"Tickets Support",tab_broadcast:"Broadcast",tab_settings:"Paramètres",
     metric_revenue:"Revenus (30J)",metric_sales:"Ventes (30J)",metric_clients:"Clients",metric_initiated:"Commandes (30J)",
@@ -37,7 +37,7 @@ fr: {
 },
 en: {
     login_subtitle:"Admin Management Console",login_url_label:"API URL (optional)",login_url_hint:"Leave empty for Netlify proxy",login_key_label:"Admin API Key",login_btn:"Connect",
-    nav_dashboard:"Dashboard",nav_inventory:"Catalog & Stock",nav_orders:"Orders",nav_users:"Users",nav_tickets:"Tickets",nav_broadcast:"Broadcast",nav_settings:"Settings",
+    nav_dashboard:"Dashboard",nav_inventory:"Catalog & Stock",nav_orders:"Orders",nav_users:"Users",nav_tickets:"Tickets",nav_broadcast:"Broadcast",nav_settings:"Settings",nav_ventedz:"Vente DZ",tab_ventedz:"Vente DZ Management",
     admin_title:"Administrator",status_connected:"Connected",btn_logout:"Logout",
     tab_dashboard:"Dashboard",tab_inventory:"Catalog & Stock",tab_orders:"Order Tracking",tab_users:"User Management",tab_tickets:"Support Tickets",tab_broadcast:"Broadcast",tab_settings:"Settings",
     metric_revenue:"Revenue (30D)",metric_sales:"Sales (30D)",metric_clients:"Clients",metric_initiated:"Orders (30D)",
@@ -68,7 +68,7 @@ en: {
 },
 ar: {
     login_subtitle:"لوحة إدارة المشرف",login_url_label:"رابط API (اختياري)",login_url_hint:"اتركه فارغاً لبروكسي Netlify",login_key_label:"مفتاح API للمشرف",login_btn:"اتصال",
-    nav_dashboard:"لوحة التحكم",nav_inventory:"الكتالوج والمخزون",nav_orders:"الطلبات",nav_users:"المستخدمين",nav_tickets:"التذاكر",nav_broadcast:"البث",nav_settings:"الإعدادات",
+    nav_dashboard:"لوحة التحكم",nav_inventory:"الكتالوج والمخزون",nav_orders:"الطلبات",nav_users:"المستخدمين",nav_tickets:"التذاكر",nav_broadcast:"البث",nav_settings:"الإعدادات",nav_ventedz:"Vente DZ",tab_ventedz:"إدارة Vente DZ",
     admin_title:"المشرف",status_connected:"متصل",btn_logout:"خروج",
     tab_dashboard:"لوحة التحكم",tab_inventory:"الكتالوج والمخزون",tab_orders:"تتبع الطلبات",tab_users:"إدارة المستخدمين",tab_tickets:"تذاكر الدعم",tab_broadcast:"البث",tab_settings:"الإعدادات",
     metric_revenue:"الإيرادات (30 يوم)",metric_sales:"المبيعات (30 يوم)",metric_clients:"العملاء",metric_initiated:"الطلبات (30 يوم)",
@@ -103,6 +103,7 @@ ar: {
 //  STATE & DOM
 // ═══════════════════════════════════════════
 const state = {
+    dzProducts: [], dz_usd_to_dzd: 250, dz_profit_per_usd: 100, dz_oneclick_api_key: '',
     botUrl:'', apiKey:'', currentLang:'fr', currentTab:'dashboard-tab',
     categories:[], products:[], orders:[], users:[], promos:[], tickets:[], walletHistory:[], binanceAccounts:[],
     orderFilter:'all', orderPage:0, orderTotal:0,
@@ -273,7 +274,7 @@ function setupEvents() {
     $('btn-open-prod-modal').addEventListener('click', () => { DOM.addProdForm.reset(); DOM.prodId.value=''; showModal(DOM.prodModal); });
     $('btn-open-promo-modal').addEventListener('click', () => showModal(DOM.promoModal));
     $('btn-open-binance-modal').addEventListener('click', openBinanceModal);
-    $$('.btn-close-modal').forEach(b => b.addEventListener('click', () => { [DOM.prodModal,DOM.stockModal,DOM.promoModal,DOM.tiersModal,DOM.orderDetailModal,DOM.viewStockModal,DOM.editProdModal,DOM.revenueModal,DOM.binanceModal,$('banModal'),$('finance-withdraw-modal'),$('finance-adjust-modal'), $('exportModal')].forEach(m => { if (m) hideModal(m); }); }));
+    $$('.btn-close-modal').forEach(b => b.addEventListener('click', () => { [DOM.prodModal,DOM.stockModal,DOM.promoModal,DOM.tiersModal,DOM.orderDetailModal,DOM.viewStockModal,DOM.editProdModal,DOM.revenueModal,DOM.binanceModal,$('banModal'),$('finance-withdraw-modal'),$('finance-adjust-modal'), $('exportModal'), $('dz-product-modal')].forEach(m => { if (m) hideModal(m); }); }));
 
     DOM.addProdForm.addEventListener('submit', handleAddProduct);
     DOM.addPromoForm.addEventListener('submit', handleAddPromo);
@@ -432,7 +433,7 @@ async function refreshData() {
     showLoading(true);
     DOM.apiStatusBadge.querySelector('.status-indicator').className = 'status-indicator';
     try {
-        await Promise.all([loadStats(), loadFinance(), loadProducts(), loadAllOrders(), loadTickets(), loadUsers(), loadPromos(), loadCharts(), loadWalletHistory(), loadBinanceAccounts(), loadPaymentSettings()]);
+        await Promise.all([loadStats(), loadFinance(), loadProducts(), loadAllOrders(), loadTickets(), loadUsers(), loadPromos(), loadCharts(), loadWalletHistory(), loadBinanceAccounts(), loadPaymentSettings(), loadVenteDZSettings(), loadVenteDZProducts(), loadVenteDZOrders()]);
         DOM.apiStatusBadge.querySelector('.status-indicator').classList.add('online');
     } catch(e) { console.error(e); DOM.apiStatusBadge.querySelector('.status-indicator').classList.add('offline'); }
     finally { showLoading(false); }
@@ -1110,7 +1111,7 @@ async function handleSaveCryptoSettings(e) {
 // ═══════════════════════════════════════════
 // Category select removed — not needed
 
-const tabKeys = { 'dashboard-tab':'tab_dashboard','inventory-tab':'tab_inventory','orders-tab':'tab_orders','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
+const tabKeys = { 'ventedz-tab':'tab_ventedz', 'dashboard-tab':'tab_dashboard','inventory-tab':'tab_inventory','orders-tab':'tab_orders','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
 
 function escapeHtml(str) {
     if (!str) return '';
@@ -1448,6 +1449,16 @@ document.addEventListener('DOMContentLoaded', () => {
             showLoading(false);
         }
     });
+    
+    // Vente DZ Event Listeners
+    const dzSettingsForm = $('dz-settings-form');
+    if (dzSettingsForm) {
+        dzSettingsForm.addEventListener('submit', saveDZSettings);
+    }
+    const dzProductForm = $('dz-product-form');
+    if (dzProductForm) {
+        dzProductForm.addEventListener('submit', saveDZProduct);
+    }
 });
 
 
@@ -1459,3 +1470,165 @@ if(methodFilterEl) {
     });
 }
 
+
+// ═══════════════════════════════════════════
+//  VENTE DZ FUNCTIONS
+// ═══════════════════════════════════════════
+async function loadVenteDZSettings() {
+    try {
+        const data = await apiCall('/api/dz/settings');
+        state.dz_usd_to_dzd = parseFloat(data.dz_usd_to_dzd || 250);
+        state.dz_profit_per_usd = parseFloat(data.dz_profit_per_usd || 100);
+        state.dz_oneclick_api_key = data.dz_oneclick_api_key || '';
+        
+        if ($('dz-usd-to-dzd')) $('dz-usd-to-dzd').value = state.dz_usd_to_dzd;
+        if ($('dz-profit-per-usd')) $('dz-profit-per-usd').value = state.dz_profit_per_usd;
+        if ($('dz-oneclick-api-key')) $('dz-oneclick-api-key').value = state.dz_oneclick_api_key;
+    } catch(err) {
+        console.error("Failed to load DZ settings", err);
+    }
+}
+
+async function saveDZSettings(e) {
+    e.preventDefault();
+    showLoading(true);
+    try {
+        const payload = {
+            dz_usd_to_dzd: parseFloat($('dz-usd-to-dzd').value) || 250,
+            dz_profit_per_usd: parseFloat($('dz-profit-per-usd').value) || 100,
+            dz_oneclick_api_key: $('dz-oneclick-api-key').value.trim()
+        };
+        await apiCall('/api/dz/settings', 'POST', payload);
+        alert("Paramètres DZ enregistrés avec succès !");
+        await refreshData();
+    } catch(err) {
+        alert("Erreur lors de l'enregistrement des paramètres DZ : " + err.message);
+    } finally {
+        showLoading(false);
+    }
+}
+
+async function loadVenteDZProducts() {
+    try {
+        const products = await apiCall('/api/dz/products');
+        state.dzProducts = products;
+        
+        const tbody = $('dz-products-table-body');
+        if (!tbody) return;
+        
+        if (products.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Aucun produit configuré.</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = products.map(p => {
+            const exchangeRate = state.dz_usd_to_dzd;
+            const profit = state.dz_profit_per_usd;
+            const estimatedDzd = Math.ceil(p.price_usd * (exchangeRate + profit));
+            
+            return `
+                <tr>
+                    <td><span style="font-size:1.2rem;margin-right:0.5rem;">${p.emoji || '📦'}</span> <strong>${escapeHtml(p.name)}</strong></td>
+                    <td>$${p.price_usd.toFixed(2)}</td>
+                    <td style="color:#ffd700;font-weight:600;">${estimatedDzd.toLocaleString()} د.ج</td>
+                    <td>
+                        ${p.dz_is_visible ? '<span class="status-badge status-completed">Visible</span>' : '<span class="status-badge status-cancelled">Masqué</span>'}
+                    </td>
+                    <td>
+                        ${p.dz_image_url ? `<a href="${escapeHtml(p.dz_image_url)}" target="_blank" style="color:var(--primary-color);">Lien Image</a>` : '<span style="color:var(--color-text-muted);">Aucune</span>'}
+                    </td>
+                    <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        ${escapeHtml(p.dz_description) || '<span style="color:var(--color-text-muted);">Aucune</span>'}
+                    </td>
+                    <td>
+                        <button class="btn-secondary btn-sm" onclick="editDZProduct(${p.id})"><i class="fa-solid fa-pen-to-square"></i> Modifier</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch(err) {
+        console.error("Failed to load DZ products", err);
+    }
+}
+
+window.editDZProduct = function(productId) {
+    const product = state.dzProducts.find(p => p.id === productId);
+    if (!product) return;
+    
+    $('dz-product-id').value = product.id;
+    $('dz-product-is-visible').checked = !!product.dz_is_visible;
+    $('dz-product-image-url').value = product.dz_image_url || '';
+    $('dz-product-description').value = product.dz_description || '';
+    
+    showModal($('dz-product-modal'));
+};
+
+async function saveDZProduct(e) {
+    e.preventDefault();
+    showLoading(true);
+    const id = $('dz-product-id').value;
+    try {
+        const payload = {
+            is_visible: $('dz-product-is-visible').checked ? 1 : 0,
+            dz_image_url: $('dz-product-image-url').value.trim(),
+            dz_description: $('dz-product-description').value.trim()
+        };
+        await apiCall(`/api/dz/products/${id}`, 'POST', payload);
+        hideModal($('dz-product-modal'));
+        await refreshData();
+    } catch(err) {
+        alert("Erreur lors de l'enregistrement du produit DZ : " + err.message);
+    } finally {
+        showLoading(false);
+    }
+}
+
+async function loadVenteDZOrders() {
+    try {
+        const data = await apiCall('/api/dz/orders');
+        const tbody = $('dz-orders-table-body');
+        if (!tbody) return;
+        
+        const orders = data.orders || [];
+        if (orders.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Aucune commande DZ.</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = orders.map(o => {
+            const formattedDate = new Date(o.created_at).toLocaleString();
+            let statusClass = 'status-pending';
+            let statusText = 'En attente';
+            if (o.status === 'CONFIRMED') {
+                statusClass = 'status-completed';
+                statusText = 'Payé';
+            } else if (o.status === 'FAILED') {
+                statusClass = 'status-cancelled';
+                statusText = 'Échoué';
+            } else if (o.status === 'DELIVERED') {
+                statusClass = 'status-completed';
+                statusText = 'Livré';
+            }
+            
+            return `
+                <tr>
+                    <td><strong>#${o.id}</strong></td>
+                    <td>${escapeHtml(o.product_name)}</td>
+                    <td>${o.quantity}</td>
+                    <td style="color:#ffd700;font-weight:600;">${o.amount_dzd.toLocaleString()} د.ج</td>
+                    <td>
+                        <div><strong>${escapeHtml(o.customer_name)}</strong></div>
+                        <div style="font-size:0.8rem;color:var(--color-text-muted);">${escapeHtml(o.customer_phone)}</div>
+                    </td>
+                    <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                    <td>${formattedDate}</td>
+                    <td>
+                        ${o.payment_ref ? `<code>${escapeHtml(o.payment_ref)}</code>` : '<span style="color:var(--color-text-muted);">—</span>'}
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch(err) {
+        console.error("Failed to load DZ orders", err);
+    }
+}

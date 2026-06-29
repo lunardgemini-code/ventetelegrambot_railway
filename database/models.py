@@ -2014,3 +2014,261 @@ async def get_transactions_for_export(start_date: str, end_date: str):
         return results
     finally:
         await db.close()
+
+
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  VENTE DZ — Paramètres & commandes pour le site e-commerce DZ   ║
+# ╚══════════════════════════════════════════════════════════════════╝
+
+
+async def get_dz_settings() -> dict:
+    """Retourne les paramètres Vente DZ (taux, profit, clé API)."""
+    db = await get_db()
+    try:
+        result = {}
+        for key in ("dz_usd_to_dzd", "dz_profit_per_usd", "dz_oneclick_api_key"):
+            cursor = await db.execute("SELECT value FROM settings WHERE key = ?", (key,))
+            row = await cursor.fetchone()
+            result[key] = row["value"] if row else None
+        # Defaults
+        if result["dz_usd_to_dzd"] is None:
+            result["dz_usd_to_dzd"] = "250"
+        if result["dz_profit_per_usd"] is None:
+            result["dz_profit_per_usd"] = "100"
+        if result["dz_oneclick_api_key"] is None:
+            result["dz_oneclick_api_key"] = ""
+        return result
+    finally:
+        await db.close()
+
+
+async def set_dz_settings(usd_to_dzd: str, profit_per_usd: str, api_key: str) -> None:
+    """Met à jour les paramètres Vente DZ."""
+    db = await get_db()
+    try:
+        await db.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            ("dz_usd_to_dzd", str(usd_to_dzd).strip()),
+        )
+        await db.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            ("dz_profit_per_usd", str(profit_per_usd).strip()),
+        )
+        await db.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            ("dz_oneclick_api_key", str(api_key).strip()),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def get_dz_product_setting(product_id: int) -> dict | None:
+    """Retourne les paramètres DZ d'un produit ou None."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM dz_product_settings WHERE product_id = ?", (product_id,)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def get_all_dz_product_settings() -> list[dict]:
+    """Retourne tous les paramètres DZ de tous les produits."""
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM dz_product_settings ORDER BY product_id ASC")
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def upsert_dz_product_setting(
+    product_id: int,
+    is_visible: int = 0,
+    dz_description: str = "",
+    dz_image_url: str = "",
+) -> None:
+    """Insert ou met à jour les paramètres DZ d'un produit."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT id FROM dz_product_settings WHERE product_id = ?", (product_id,)
+        )
+        existing = await cursor.fetchone()
+        if existing:
+            await db.execute(
+                "UPDATE dz_product_settings SET is_visible = ?, dz_description = ?, dz_image_url = ? WHERE product_id = ?",
+                (is_visible, dz_description, dz_image_url, product_id),
+            )
+        else:
+            await db.execute(
+                "INSERT INTO dz_product_settings (product_id, is_visible, dz_description, dz_image_url) VALUES (?, ?, ?, ?)",
+                (product_id, is_visible, dz_description, dz_image_url),
+            )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def get_visible_dz_products() -> list[dict]:
+    """Retourne les produits visibles sur Vente DZ avec le nombre de stock."""
+    db = await get_db()
+    try:
+        cursor = await db.execute("""
+            SELECT p.*, dps.is_visible, dps.dz_description, dps.dz_image_url,
+                   COALESCE(s.stock_count, 0) as stock_count
+            FROM products p
+            INNER JOIN dz_product_settings dps ON dps.product_id = p.id
+            LEFT JOIN (
+                SELECT product_id, COUNT(*) as stock_count
+                FROM stock_items WHERE is_sold = 0
+                GROUP BY product_id
+            ) s ON s.product_id = p.id
+            WHERE dps.is_visible = 1 AND p.is_active = 1 AND p.is_deleted = 0
+            ORDER BY p.id ASC
+        """)
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_visible_dz_product(product_id: int) -> dict | None:
+    """Retourne un produit visible sur Vente DZ avec le nombre de stock."""
+    db = await get_db()
+    try:
+        cursor = await db.execute("""
+            SELECT p.*, dps.is_visible, dps.dz_description, dps.dz_image_url,
+                   COALESCE(s.stock_count, 0) as stock_count
+            FROM products p
+            INNER JOIN dz_product_settings dps ON dps.product_id = p.id
+            LEFT JOIN (
+                SELECT product_id, COUNT(*) as stock_count
+                FROM stock_items WHERE is_sold = 0
+                GROUP BY product_id
+            ) s ON s.product_id = p.id
+            WHERE dps.is_visible = 1 AND p.is_active = 1 AND p.is_deleted = 0
+              AND p.id = ?
+        """, (product_id,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def create_dz_order(
+    product_id: int,
+    quantity: int,
+    amount_dzd: int,
+    amount_usd: float,
+    customer_name: str = "",
+    customer_phone: str = "",
+    payment_ref: str = "",
+    payment_url: str = "",
+) -> int:
+    """Crée une commande Vente DZ et retourne son identifiant."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """INSERT INTO dz_orders
+               (product_id, quantity, amount_dzd, amount_usd, customer_name, customer_phone, payment_ref, payment_url)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (product_id, quantity, amount_dzd, amount_usd, customer_name, customer_phone, payment_ref, payment_url),
+        )
+        await db.commit()
+        return cursor.lastrowid
+    finally:
+        await db.close()
+
+
+async def get_dz_order_by_ref(payment_ref: str) -> dict | None:
+    """Retourne une commande DZ par sa référence de paiement."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM dz_orders WHERE payment_ref = ?", (payment_ref,)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def update_dz_order_status(order_id: int, status: str) -> None:
+    """Met à jour le statut d'une commande DZ. Si CONFIRMED, enregistre paid_at."""
+    db = await get_db()
+    try:
+        if status == "CONFIRMED":
+            await db.execute(
+                "UPDATE dz_orders SET status = ?, paid_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (status, order_id),
+            )
+        else:
+            await db.execute(
+                "UPDATE dz_orders SET status = ? WHERE id = ?",
+                (status, order_id),
+            )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def get_all_dz_orders(limit: int = 50, offset: int = 0) -> tuple[list[dict], int]:
+    """Retourne la liste paginée des commandes DZ avec le nom du produit."""
+    db = await get_db()
+    try:
+        # Total count
+        cursor = await db.execute("SELECT COUNT(*) as cnt FROM dz_orders")
+        row = await cursor.fetchone()
+        total = row["cnt"] if row else 0
+
+        cursor = await db.execute("""
+            SELECT o.*, p.name as product_name
+            FROM dz_orders o
+            LEFT JOIN products p ON p.id = o.product_id
+            ORDER BY o.created_at DESC
+            LIMIT ? OFFSET ?
+        """, (limit, offset))
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows], total
+    finally:
+        await db.close()
+
+
+async def deliver_dz_order(order_id: int, product_id: int, quantity: int) -> list[str]:
+    """Livre les comptes numériques pour une commande DZ.
+
+    Marque les stock_items comme vendus (FIFO) et retourne la liste des account_data.
+    Si le stock est insuffisant, livre partiellement avec ce qui est disponible.
+    """
+    db = await get_db()
+    try:
+        # 1. Get available stock items (FIFO)
+        cursor = await db.execute(
+            "SELECT id, account_data FROM stock_items WHERE product_id = ? AND is_sold = 0 ORDER BY added_at ASC LIMIT ?",
+            (product_id, quantity),
+        )
+        items = await cursor.fetchall()
+
+        if not items:
+            return []
+
+        # 2. Mark each as sold atomically
+        delivered = []
+        for item in items:
+            cursor = await db.execute(
+                "UPDATE stock_items SET is_sold = 1, sold_to_order_id = ?, sold_at = CURRENT_TIMESTAMP WHERE id = ? AND is_sold = 0",
+                (order_id, item["id"]),
+            )
+            if cursor.rowcount > 0:
+                delivered.append(item["account_data"])
+
+        await db.commit()
+        return delivered
+    finally:
+        await db.close()

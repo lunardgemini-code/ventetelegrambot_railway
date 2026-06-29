@@ -347,6 +347,30 @@ async def init_db() -> None:
                 amount REAL,
                 used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )""",
+            """CREATE TABLE IF NOT EXISTS dz_product_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER UNIQUE NOT NULL,
+                is_visible INTEGER DEFAULT 0,
+                dz_description TEXT DEFAULT '',
+                dz_image_url TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (product_id) REFERENCES products(id)
+            )""",
+            """CREATE TABLE IF NOT EXISTS dz_orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER NOT NULL,
+                quantity INTEGER DEFAULT 1,
+                amount_dzd INTEGER NOT NULL,
+                amount_usd REAL NOT NULL,
+                customer_name TEXT DEFAULT '',
+                customer_phone TEXT DEFAULT '',
+                payment_ref TEXT,
+                payment_url TEXT,
+                status TEXT DEFAULT 'PENDING',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                paid_at TIMESTAMP,
+                FOREIGN KEY (product_id) REFERENCES products(id)
+            )""",
         ]
 
         for sql in tables:
@@ -387,6 +411,12 @@ async def init_db() -> None:
             "ALTER TABLE products ADD COLUMN image_url TEXT DEFAULT NULL",
             "ALTER TABLE products ADD COLUMN custom_emoji_id TEXT DEFAULT NULL",
             "INSERT OR IGNORE INTO settings (key, value) SELECT 'finance_bot_balance_binance', value FROM settings WHERE key = 'finance_bot_balance'",
+            "INSERT OR IGNORE INTO settings (key, value) VALUES ('dz_usd_to_dzd', '250')",
+            "INSERT OR IGNORE INTO settings (key, value) VALUES ('dz_profit_per_usd', '100')",
+            "INSERT OR IGNORE INTO settings (key, value) VALUES ('dz_oneclick_api_key', '53d59b81-5e7a-4780-9eb4-51c0a2b267bc')",
+            "CREATE INDEX IF NOT EXISTS idx_dz_orders_payment_ref ON dz_orders(payment_ref)",
+            "CREATE INDEX IF NOT EXISTS idx_dz_orders_status ON dz_orders(status)",
+            "CREATE INDEX IF NOT EXISTS idx_dz_product_settings_product ON dz_product_settings(product_id)",
         ]
         for sql in migrations:
             mig_db = await get_db()

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Paiement — VENTE DZ</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛒</text></svg>">
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="index.html" class="site-logo">
+        <div class="site-logo-icon">VDZ</div>
+        <div class="site-logo-text">
+          <span class="site-logo-name">VENTE DZ</span>
+          <span class="site-logo-tagline">Votre boutique numérique</span>
+        </div>
+      </a>
+      <nav class="header-nav">
+        <a href="index.html" class="header-nav-link">🛍️ Catalogue</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Page Content -->
+  <main class="page-content">
+    <div class="container">
+
+      <a href="javascript:history.back()" class="back-link">← Retour</a>
+
+      <div class="page-hero">
+        <h1 class="page-hero-title">💳 Finaliser la commande</h1>
+        <p class="page-hero-subtitle">Plus qu'une étape pour recevoir votre produit</p>
+      </div>
+
+      <!-- Loading -->
+      <div class="loading-overlay" id="loadingState">
+        <div class="spinner"></div>
+        <p class="loading-text">Chargement de la commande...</p>
+      </div>
+
+      <!-- Error -->
+      <div class="error-state hidden" id="errorState">
+        <div class="error-state-icon">⚠️</div>
+        <h3 class="error-state-title">Erreur</h3>
+        <p class="error-state-desc" id="errorMessage">Impossible de charger les détails du produit.</p>
+        <a href="index.html" class="btn btn-primary">Voir le catalogue</a>
+      </div>
+
+      <!-- Checkout Content -->
+      <div class="checkout-layout hidden" id="checkoutContent">
+
+        <!-- Order Summary -->
+        <div class="checkout-summary">
+          <h2 class="checkout-summary-title">📋 Récapitulatif</h2>
+          <div class="checkout-item">
+            <span class="checkout-item-label">Produit</span>
+            <span class="checkout-item-value" id="summaryName"></span>
+          </div>
+          <div class="checkout-item">
+            <span class="checkout-item-label">Prix unitaire</span>
+            <span class="checkout-item-value" id="summaryUnitPrice"></span>
+          </div>
+          <div class="checkout-item">
+            <span class="checkout-item-label">Quantité</span>
+            <span class="checkout-item-value" id="summaryQty"></span>
+          </div>
+          <div class="checkout-total-row">
+            <span class="checkout-total-label">Total</span>
+            <span class="checkout-total-value" id="summaryTotal"></span>
+          </div>
+        </div>
+
+        <!-- Checkout Form -->
+        <div class="checkout-form">
+          <h2 class="checkout-form-title">👤 Vos informations</h2>
+
+          <form id="checkoutForm" onsubmit="return handleCheckout(event)">
+            <div class="form-group">
+              <label class="form-label" for="customerName">Nom complet *</label>
+              <input type="text" class="form-input" id="customerName" placeholder="Votre nom et prénom" required autocomplete="name">
+              <div class="form-error" id="nameError">Veuillez entrer votre nom complet</div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="customerPhone">Numéro de téléphone *</label>
+              <input type="tel" class="form-input" id="customerPhone" placeholder="05XX XX XX XX" required autocomplete="tel">
+              <div class="form-error" id="phoneError">Veuillez entrer un numéro de téléphone valide</div>
+              <div class="form-hint">Format: 05XXXXXXXX ou 06XXXXXXXX ou 07XXXXXXXX</div>
+            </div>
+
+            <button type="submit" class="btn btn-gradient btn-lg" id="payBtn" style="width:100%;">
+              🔐 Payer avec OneClick
+            </button>
+          </form>
+
+          <!-- Security -->
+          <div class="security-section" style="margin-top:24px; background: var(--bg-elevated);">
+            <div class="security-title">Paiement 100% sécurisé</div>
+            <div class="security-badges">
+              <div class="security-badge">
+                <span class="badge-icon">🔒</span>
+                SATIM
+              </div>
+              <div class="security-badge">
+                <span class="badge-icon">💳</span>
+                CIB
+              </div>
+              <div class="security-badge">
+                <span class="badge-icon">🏦</span>
+                Edahabia
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="container">
+      <p class="footer-text">© 2025 VENTE DZ — Tous droits réservés</p>
+    </div>
+  </footer>
+
+  <!-- Checkout processing overlay -->
+  <div class="checkout-overlay hidden" id="checkoutOverlay">
+    <div class="spinner"></div>
+    <div class="checkout-overlay-text">Traitement en cours...</div>
+    <div class="checkout-overlay-sub">Vous allez être redirigé vers la page de paiement</div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

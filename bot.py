@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import uvicorn
+import httpx
 
 from telegram import Update
 from telegram.ext import (
@@ -949,6 +950,375 @@ async def notify_admins(text: str):
             pass
 
 
+# ──────────────────────────────────────────────
+#  Vente DZ — Public API routes (no auth)
+# ──────────────────────────────────────────────
+
+@api.get("/dz/api/products")
+async def dz_get_products():
+    """Public: list all visible DZ products with stock count, categories, and settings."""
+    from database.models import get_visible_dz_products, get_dz_settings, get_categories
+    try:
+        products = await get_visible_dz_products()
+        settings = await get_dz_settings()
+        categories = await get_categories()
+
+        usd_to_dzd = float(settings.get("dz_usd_to_dzd", 250))
+        profit_per_usd = float(settings.get("dz_profit_per_usd", 100))
+
+        product_list = []
+        for p in products:
+            price_usd = float(p["price_usd"])
+            price_dzd = int(price_usd * (usd_to_dzd + profit_per_usd))
+            product_list.append({
+                "id": p["id"],
+                "name": p["name"],
+                "description": p.get("description", ""),
+                "dz_description": p.get("dz_description", ""),
+                "price_usd": price_usd,
+                "price_dzd": price_dzd,
+                "image_url": p.get("dz_image_url") or p.get("image_url") or "",
+                "emoji": p.get("emoji", "📦"),
+                "category_id": p.get("category_id"),
+                "stock_count": p.get("stock_count", 0),
+                "warranty_days": p.get("warranty_days", 0),
+            })
+
+        return {
+            "products": product_list,
+            "categories": [{"id": c["id"], "name": c["name"], "emoji": c.get("emoji", "📂")} for c in categories],
+            "settings": {
+                "usd_to_dzd": usd_to_dzd,
+                "profit_per_usd": profit_per_usd,
+            }
+        }
+    except Exception as exc:
+        logger.error("DZ API error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/dz/api/products/{product_id}")
+async def dz_get_product(product_id: int):
+    """Public: get single product detail with stock count."""
+    from database.models import get_visible_dz_product, get_dz_settings
+    try:
+        product = await get_visible_dz_product(product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        settings = await get_dz_settings()
+        usd_to_dzd = float(settings.get("dz_usd_to_dzd", 250))
+        profit_per_usd = float(settings.get("dz_profit_per_usd", 100))
+        price_usd = float(product["price_usd"])
+        price_dzd = int(price_usd * (usd_to_dzd + profit_per_usd))
+
+        return {
+            "id": product["id"],
+            "name": product["name"],
+            "description": product.get("description", ""),
+            "dz_description": product.get("dz_description", ""),
+            "price_usd": price_usd,
+            "price_dzd": price_dzd,
+            "image_url": product.get("dz_image_url") or product.get("image_url") or "",
+            "emoji": product.get("emoji", "📦"),
+            "category_id": product.get("category_id"),
+            "stock_count": product.get("stock_count", 0),
+            "warranty_days": product.get("warranty_days", 0),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("DZ API error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/dz/api/checkout")
+async def dz_checkout(data: dict):
+    """Public: create a DZ order and return a OneClick payment link."""
+    from database.models import (
+        get_visible_dz_product, get_dz_settings, create_dz_order,
+    )
+    from database.db import get_db
+    try:
+        product_id = data.get("product_id")
+        quantity = int(data.get("quantity", 1))
+        customer_name = str(data.get("customer_name", "")).strip()
+        customer_phone = str(data.get("customer_phone", "")).strip()
+
+        if not product_id:
+            raise HTTPException(status_code=400, detail="product_id is required")
+        if quantity < 1:
+            raise HTTPException(status_code=400, detail="quantity must be >= 1")
+
+        # Validate product exists, is visible, has stock
+        product = await get_visible_dz_product(int(product_id))
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found or not visible")
+
+        stock = product.get("stock_count", 0)
+        if stock < quantity:
+            raise HTTPException(status_code=400, detail=f"Not enough stock. Available: {stock}")
+
+        # Calculate price
+        settings = await get_dz_settings()
+        usd_to_dzd = float(settings.get("dz_usd_to_dzd", 250))
+        profit_per_usd = float(settings.get("dz_profit_per_usd", 100))
+        api_key = settings.get("dz_oneclick_api_key", "")
+
+        price_usd = float(product["price_usd"])
+        unit_price_dzd = price_usd * (usd_to_dzd + profit_per_usd)
+        total_dzd = int(unit_price_dzd * quantity)
+        total_usd = round(price_usd * quantity, 2)
+
+        if total_dzd < 500:
+            raise HTTPException(status_code=400, detail="Minimum payment amount is 500 DZD")
+        if total_dzd > 500000:
+            raise HTTPException(status_code=400, detail="Maximum payment amount is 500,000 DZD")
+
+        # Create order in DB (without payment ref yet)
+        order_id = await create_dz_order(
+            product_id=int(product_id),
+            quantity=quantity,
+            amount_dzd=total_dzd,
+            amount_usd=total_usd,
+            customer_name=customer_name,
+            customer_phone=customer_phone,
+        )
+
+        # Call OneClick API to create payment link
+        if not api_key:
+            raise HTTPException(status_code=500, detail="Payment gateway not configured")
+
+        product_title = f"{product['name']} x{quantity}" if quantity > 1 else product["name"]
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    "https://api.oneclickdz.com/v3/ocpay/createLink",
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Access-Token": api_key,
+                    },
+                    json={
+                        "productInfo": {
+                            "title": product_title,
+                            "amount": total_dzd,
+                        },
+                        "feeMode": "NO_FEE",
+                        "successMessage": f"Merci pour votre achat de {product_title} !",
+                        "redirectUrl": "",
+                    },
+                )
+                resp_data = resp.json()
+        except Exception as e:
+            logger.error("OneClick API error: %s", e, exc_info=True)
+            raise HTTPException(status_code=502, detail="Payment gateway error")
+
+        if not resp_data.get("success"):
+            logger.error("OneClick API failed: %s", resp_data)
+            raise HTTPException(status_code=502, detail="Payment gateway rejected the request")
+
+        payment_url = resp_data["data"]["paymentUrl"]
+        payment_ref = resp_data["data"]["paymentRef"]
+
+        # Update order with payment ref and URL
+        db = await get_db()
+        try:
+            await db.execute(
+                "UPDATE dz_orders SET payment_ref = ?, payment_url = ? WHERE id = ?",
+                (payment_ref, payment_url, order_id),
+            )
+            await db.commit()
+        finally:
+            await db.close()
+
+        return {
+            "payment_url": payment_url,
+            "payment_ref": payment_ref,
+            "order_id": order_id,
+            "amount_dzd": total_dzd,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("DZ API error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/dz/api/order-status/{ref}")
+async def dz_order_status(ref: str):
+    """Public: check payment status and deliver stock if confirmed."""
+    from database.models import (
+        get_dz_order_by_ref, get_dz_settings, update_dz_order_status, deliver_dz_order,
+    )
+    try:
+        order = await get_dz_order_by_ref(ref)
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+
+        # If already delivered, return the items
+        if order["status"] == "DELIVERED":
+            # Re-fetch delivered items from stock
+            from database.db import get_db
+            db = await get_db()
+            try:
+                cursor = await db.execute(
+                    "SELECT account_data FROM stock_items WHERE sold_to_order_id = ?",
+                    (order["id"],)
+                )
+                rows = await cursor.fetchall()
+                items = [r["account_data"] for r in rows]
+            finally:
+                await db.close()
+            return {"status": "DELIVERED", "items": items}
+
+        if order["status"] == "FAILED":
+            return {"status": "FAILED", "items": []}
+
+        # Check payment status with OneClick API
+        settings = await get_dz_settings()
+        api_key = settings.get("dz_oneclick_api_key", "")
+
+        if not api_key:
+            return {"status": order["status"], "items": []}
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get(
+                    f"https://api.oneclickdz.com/v3/ocpay/checkPayment/{ref}",
+                    headers={"X-Access-Token": api_key},
+                )
+                resp_data = resp.json()
+        except Exception as e:
+            logger.error("OneClick check error: %s", e, exc_info=True)
+            return {"status": order["status"], "items": []}
+
+        if not resp_data.get("success"):
+            return {"status": order["status"], "items": []}
+
+        payment_status = resp_data["data"].get("status", "PENDING")
+
+        if payment_status == "FAILED":
+            await update_dz_order_status(order["id"], "FAILED")
+            return {"status": "FAILED", "items": []}
+
+        if payment_status == "CONFIRMED" and order["status"] != "DELIVERED":
+            # Mark as confirmed, then deliver
+            await update_dz_order_status(order["id"], "CONFIRMED")
+
+            # Deliver stock
+            items = await deliver_dz_order(
+                order_id=order["id"],
+                product_id=order["product_id"],
+                quantity=order["quantity"],
+            )
+
+            if items:
+                await update_dz_order_status(order["id"], "DELIVERED")
+                return {"status": "DELIVERED", "items": items}
+            else:
+                # No stock available
+                return {"status": "CONFIRMED", "items": [], "message": "Payment confirmed but no stock available. Contact support."}
+
+        return {"status": payment_status, "items": []}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("DZ API error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ──────────────────────────────────────────────
+#  Vente DZ — Admin API routes (auth required)
+# ──────────────────────────────────────────────
+
+@api.get("/api/dz/settings", dependencies=[Depends(verify_api_key)])
+async def api_dz_get_settings():
+    """Admin: get DZ settings."""
+    from database.models import get_dz_settings
+    try:
+        settings = await get_dz_settings()
+        return settings
+    except Exception as exc:
+        logger.error("DZ API error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/dz/settings", dependencies=[Depends(verify_api_key)])
+async def api_dz_set_settings(data: dict):
+    """Admin: update DZ settings."""
+    from database.models import set_dz_settings
+    try:
+        usd_to_dzd = data.get("dz_usd_to_dzd", "250")
+        profit_per_usd = data.get("dz_profit_per_usd", "100")
+        api_key = data.get("dz_oneclick_api_key", "")
+        await set_dz_settings(usd_to_dzd, profit_per_usd, api_key)
+        return {"status": "saved"}
+    except Exception as exc:
+        logger.error("DZ API error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/api/dz/products", dependencies=[Depends(verify_api_key)])
+async def api_dz_get_products():
+    """Admin: get ALL products with their DZ settings (visible or not)."""
+    from database.models import get_all_products, get_all_dz_product_settings, get_all_stock_counts
+    try:
+        products = await get_all_products()
+        dz_settings = await get_all_dz_product_settings()
+        stock_counts = await get_all_stock_counts()
+
+        # Build lookup of DZ settings by product_id
+        dz_map = {s["product_id"]: s for s in dz_settings}
+
+        result = []
+        for p in products:
+            item = dict(p)
+            item["stock"] = stock_counts.get(p["id"], 0)
+            dz = dz_map.get(p["id"])
+            item["dz_is_visible"] = dz["is_visible"] if dz else 0
+            item["dz_description"] = dz["dz_description"] if dz else ""
+            item["dz_image_url"] = dz["dz_image_url"] if dz else ""
+            result.append(item)
+        return result
+    except Exception as exc:
+        logger.error("DZ API error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/dz/products/{product_id}", dependencies=[Depends(verify_api_key)])
+async def api_dz_update_product(product_id: int, data: dict):
+    """Admin: upsert DZ product settings."""
+    from database.models import upsert_dz_product_setting
+    try:
+        await upsert_dz_product_setting(
+            product_id=product_id,
+            is_visible=int(data.get("is_visible", 0)),
+            dz_description=str(data.get("dz_description", "")),
+            dz_image_url=str(data.get("dz_image_url", "")),
+        )
+        return {"status": "updated"}
+    except Exception as exc:
+        logger.error("DZ API error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/api/dz/orders", dependencies=[Depends(verify_api_key)])
+async def api_dz_get_orders(limit: int = 50, offset: int = 0):
+    """Admin: get paginated DZ orders."""
+    from database.models import get_all_dz_orders
+    try:
+        limit = max(1, min(limit, 200))
+        offset = max(0, offset)
+        orders, total = await get_all_dz_orders(limit=limit, offset=offset)
+        return {"orders": orders, "total": total}
+    except Exception as exc:
+        logger.error("DZ API error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 tg_app = None
 
 
@@ -1137,6 +1507,12 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
     except Exception as exc:
         await update.message.reply_text(f"❌ Completed with some errors, check logs.")
 
+
+
+# ── Serve Vente DZ static files ──
+_ventedz_dir = pathlib.Path(__file__).parent / "ventedz"
+if _ventedz_dir.is_dir():
+    api.mount("/dz", StaticFiles(directory=str(_ventedz_dir), html=True), name="ventedz")
 
 
 # ──────────────────────────────────────────────

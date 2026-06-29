@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Détail du produit — VENTE DZ</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛒</text></svg>">
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="index.html" class="site-logo">
+        <div class="site-logo-icon">VDZ</div>
+        <div class="site-logo-text">
+          <span class="site-logo-name">VENTE DZ</span>
+          <span class="site-logo-tagline">Votre boutique numérique</span>
+        </div>
+      </a>
+      <nav class="header-nav">
+        <a href="index.html" class="header-nav-link">🛍️ Catalogue</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Page Content -->
+  <main class="page-content">
+    <div class="container">
+
+      <a href="index.html" class="back-link" id="backLink">← Retour au catalogue</a>
+
+      <!-- Loading -->
+      <div class="loading-overlay" id="loadingState">
+        <div class="spinner"></div>
+        <p class="loading-text">Chargement du produit...</p>
+      </div>
+
+      <!-- Error -->
+      <div class="error-state hidden" id="errorState">
+        <div class="error-state-icon">⚠️</div>
+        <h3 class="error-state-title">Produit introuvable</h3>
+        <p class="error-state-desc" id="errorMessage">Ce produit n'existe pas ou n'est plus disponible.</p>
+        <a href="index.html" class="btn btn-primary">Voir le catalogue</a>
+      </div>
+
+      <!-- Product Detail -->
+      <div class="product-detail hidden" id="productDetail">
+        <div class="product-image-container" id="productImageContainer">
+          <span class="product-image-placeholder" id="productPlaceholder">🎮</span>
+        </div>
+
+        <div class="product-info">
+          <div class="product-category-tag" id="productCategory"></div>
+          <h1 class="product-title" id="productName"></h1>
+          <p class="product-description" id="productDescription"></p>
+
+          <div class="product-price-box">
+            <span class="product-price-value" id="productPrice"></span>
+            <span class="product-price-label">par unité</span>
+          </div>
+
+          <div class="product-stock-info" id="productStock">
+            <span class="dot"></span>
+            <span id="productStockText"></span>
+          </div>
+
+          <div class="product-qty-section" id="qtySection">
+            <div class="product-qty-label">Quantité</div>
+            <div class="qty-control">
+              <button class="qty-btn" id="qtyMinus" onclick="changeQty(-1)">−</button>
+              <input type="number" class="qty-input" id="qtyInput" value="1" min="1" max="1" onchange="onQtyChange()">
+              <button class="qty-btn" id="qtyPlus" onclick="changeQty(1)">+</button>
+            </div>
+          </div>
+
+          <div class="product-total" id="totalSection">
+            <span class="product-total-label">Total</span>
+            <span class="product-total-value" id="totalPrice"></span>
+          </div>
+
+          <button class="btn btn-gradient btn-lg" id="buyBtn" onclick="goToCheckout()" style="width:100%">
+            🛒 Acheter maintenant
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="container">
+      <p class="footer-text">© 2025 VENTE DZ — Tous droits réservés</p>
+    </div>
+  </footer>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
