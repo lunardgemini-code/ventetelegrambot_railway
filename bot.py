@@ -1281,6 +1281,7 @@ async def api_dz_get_products():
             item["dz_is_visible"] = dz["is_visible"] if dz else 0
             item["dz_description"] = dz["dz_description"] if dz else ""
             item["dz_image_url"] = dz["dz_image_url"] if dz else ""
+            item["dz_profit"] = dz["dz_profit"] if dz else 0.0
             result.append(item)
         return result
     except Exception as exc:
@@ -1298,6 +1299,7 @@ async def api_dz_update_product(product_id: int, data: dict):
             is_visible=int(data.get("is_visible", 0)),
             dz_description=str(data.get("dz_description", "")),
             dz_image_url=str(data.get("dz_image_url", "")),
+            dz_profit=float(data.get("dz_profit", 0.0)),
         )
         return {"status": "updated"}
     except Exception as exc:
@@ -1359,9 +1361,10 @@ async def post_init(application: Application) -> None:
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
 
 from starlette.requests import Request as StarletteRequest
+from fastapi import BackgroundTasks
 
 @api.post("/webhook")
-async def telegram_webhook(request: StarletteRequest):
+async def telegram_webhook(request: StarletteRequest, background_tasks: BackgroundTasks):
     """Receive Telegram updates via webhook — zero polling, zero wasted CPU."""
     try:
         # Verify webhook secret if configured
@@ -1375,7 +1378,7 @@ async def telegram_webhook(request: StarletteRequest):
         logger.info("📨 Webhook received update: %s", data.get("update_id", "?"))
         if tg_app:
             update = Update.de_json(data, tg_app.bot)
-            await tg_app.process_update(update)
+            background_tasks.add_task(tg_app.process_update, update)
         else:
             logger.error("❌ tg_app is None — cannot process update")
         return {"ok": True}
