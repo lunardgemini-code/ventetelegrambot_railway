@@ -758,8 +758,7 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update_order_status(order_id, "FAILED", payment_method="binance", binance_order_id=display_id)
                 await update.message.reply_text(
                     f"{t('payment_confirmed', lang)}\n\n"
-                    f"{t('delivery_error', lang)}\n\n"
-                    f"âš ï¸ <b>Action requise :</b> Veuillez contacter le support technique avec l'ID de commande <b>#{order_id}</b> pour obtenir un remboursement manuel.",
+                    f"{t('delivery_error', lang).replace('{order_id}', str(order_id))}",
                     parse_mode="HTML",
                     reply_markup=main_menu_keyboard(lang),
                 )
@@ -1197,8 +1196,7 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                 await update_order_status(order_id, "FAILED", payment_method="bep20", binance_order_id=tx_hash)
                 await update.message.reply_text(
                     f"{t('payment_confirmed', lang)}\n\n"
-                    f"{t('delivery_error', lang)}\n\n"
-                    f"âš ï¸ <b>Action requise :</b> Veuillez contacter le support technique avec l'ID de commande <b>#{order_id}</b> pour obtenir un remboursement manuel.",
+                    f"{t('delivery_error', lang).replace('{order_id}', str(order_id))}",
                     parse_mode="HTML",
                     reply_markup=main_menu_keyboard(lang),
                 )
@@ -1475,8 +1473,7 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                 await update_order_status(order_id, "FAILED", payment_method="trc20", binance_order_id=tx_hash_clean)
                 await update.message.reply_text(
                     f"{t('payment_confirmed', lang)}\n\n"
-                    f"{t('delivery_error', lang)}\n\n"
-                    f"Action requise : Veuillez contacter le support avec l'ID de commande #{order_id}.",
+                    f"{t('delivery_error', lang).replace('{order_id}', str(order_id))}",
                     parse_mode="HTML",
                     reply_markup=main_menu_keyboard(lang),
                 )
