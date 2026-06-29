@@ -625,18 +625,45 @@ async def api_cancel_order(order_id: int):
 
 @api.post("/api/orders/cleanup", dependencies=[Depends(verify_api_key)])
 async def api_cleanup_stale_orders():
-    """Auto-cancel all PENDING/AWAITING_PAYMENT orders older than 5 minutes."""
+    """Auto-cancel all PENDING/AWAITING_PAYMENT orders older than 5 minutes and notify users."""
     from database.db import get_db
     try:
         db = await get_db()
         try:
             cursor = await db.execute(
-                """UPDATE orders SET status = 'CANCELLED'
+                """SELECT id, user_telegram_id FROM orders 
                    WHERE status IN ('PENDING', 'AWAITING_PAYMENT')
                      AND created_at <= datetime('now', '-5 minutes')"""
             )
-            await db.commit()
-            count = cursor.rowcount if cursor.rowcount > 0 else 0
+            stale_orders = await cursor.fetchall()
+            count = 0
+            
+            if stale_orders:
+                stale_ids = [str(o["id"]) for o in stale_orders]
+                placeholders = ",".join(["?"] * len(stale_ids))
+                await db.execute(
+                    f"UPDATE orders SET status = 'CANCELLED' WHERE id IN ({placeholders})",
+                    stale_ids
+                )
+                await db.commit()
+                count = len(stale_ids)
+                
+                from database.models import get_user_lang
+                from utils.locales import t
+                
+                if tg_app and tg_app.bot:
+                    for order in stale_orders:
+                        try:
+                            lang = await get_user_lang(order["user_telegram_id"])
+                            msg = t("order_expired_notification", lang).format(order_id=order["id"])
+                            await tg_app.bot.send_message(
+                                chat_id=order["user_telegram_id"],
+                                text=msg,
+                                parse_mode="HTML"
+                            )
+                        except Exception as e:
+                            logger.error(f"Failed to notify user {order['user_telegram_id']} of expired order {order['id']}: {e}")
+                            
             return {"status": "ok", "cancelled": count}
         finally:
             await db.close()

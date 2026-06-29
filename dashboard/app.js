@@ -835,7 +835,7 @@ window.openOrderDetail = async function(orderId) {
             const btnDownload = $('btn-download-order-txt');
             btnDownload.style.display = 'inline-block';
             btnDownload.onclick = () => {
-                const textContent = items.map(it => it.account_data).join('\n');
+                const textContent = items.map((it, idx) => `Produit ${idx + 1} :\n${it.account_data}`).join('\n\n');
                 const blob = new Blob([textContent], { type: 'text/plain' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');

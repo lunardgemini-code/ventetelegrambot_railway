@@ -624,7 +624,7 @@ async def pay_with_binance(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{t('binance_id_lbl', lang)}\n"
             f"<code>{uid_to_show}</code>\n\n"
             f"{t('amount_lbl', lang)} {format_price(order['amount_usd'])}\n\n"
-            "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
             f"{t('pay_instructions', lang)}\n"
             f"{t('pay_step1', lang)}\n"
             f"{t('pay_step2', lang)}\n\n"
@@ -1003,7 +1003,7 @@ async def pay_with_bep20(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{t('bep20_address_lbl', lang)}\n"
             f"<code>{bep20_address}</code>\n\n"
             f"{t('amount_lbl', lang)} {format_price(order['amount_usd'])}\n\n"
-            "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
             f"{t('bep20_instructions', lang)}\n\n"
             f"👉 <b>{t('bep20_send_tx_hash', lang)}</b>",
             parse_mode="HTML",
@@ -1283,7 +1283,7 @@ async def pay_with_trc20(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{t('trc20_address_lbl', lang)}\n"
             f"<code>{trc20_address}</code>\n\n"
             f"{t('amount_lbl', lang)} {format_price(order['amount_usd'])}\n\n"
-            "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
             f"{t('trc20_instructions', lang)}\n\n"
             f"👉 <b>{t('trc20_send_tx_hash', lang)}</b>",
             parse_mode="HTML",
