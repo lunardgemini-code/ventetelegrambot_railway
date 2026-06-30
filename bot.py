@@ -1397,6 +1397,30 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text("🚫 Access denied.")
         return
         
+    try:
+        from database.db import get_db
+        db = await get_db()
+        # count promo usages table
+        c = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='promo_code_usages'")
+        table_exists = await c.fetchone() is not None
+        
+        c = await db.execute("SELECT * FROM promo_codes ORDER BY id DESC LIMIT 1")
+        last_promo = dict(await c.fetchone()) if await c.fetchone() else None
+        
+        usage_count = 0
+        if last_promo and table_exists:
+            c = await db.execute("SELECT COUNT(*) as c FROM promo_code_usages WHERE promo_code_id = ?", (last_promo["id"],))
+            res = await c.fetchone()
+            usage_count = res["c"] if res else 0
+
+        await update.message.reply_text(
+            f"Table usages existe: {table_exists}\n"
+            f"Dernier promo max_per_user: {last_promo.get('max_uses_per_user') if last_promo else 'None'}\n"
+            f"Usages dans la table: {usage_count}"
+        )
+    except Exception as e:
+        await update.message.reply_text(f"Error: {e}")
+    
     await update.message.reply_text("🔄 Starting manual database migrations...")
     
     from database.db import get_db
