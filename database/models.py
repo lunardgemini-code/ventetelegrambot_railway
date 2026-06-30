@@ -1,4 +1,4 @@
-﻿# database/models.py â€” Fonctions CRUD asynchrones pour toutes les tables
+# database/models.py â€” Fonctions CRUD asynchrones pour toutes les tables
 # Chaque fonction ouvre sa propre connexion, exÃ©cute, commit et ferme.
 
 from __future__ import annotations
@@ -925,7 +925,7 @@ async def update_order_status(order_id: int, status: str, **kwargs) -> None:
     db = await get_db()
     try:
         # Get current order state in the same connection (avoids a second round trip)
-        cursor = await db.execute("SELECT status, amount_usd, payment_method, promo_code_id FROM orders WHERE id = ?", (order_id,))
+        cursor = await db.execute("SELECT status, amount_usd, payment_method, promo_code_id, user_telegram_id FROM orders WHERE id = ?", (order_id,))
         current_order = None
         row = await cursor.fetchone()
         if row:
