@@ -1695,10 +1695,6 @@ async def get_promo_by_code(code: str) -> dict | None:
 
 async def check_promo_usage(promo_id: int, user_telegram_id: int) -> bool:
     """VÃ©rifie si un utilisateur a le droit d'utiliser ce code (selon max_uses_per_user)."""
-    from config import ADMIN_IDS
-    if user_telegram_id in ADMIN_IDS:
-        return True
-
     db = await get_db()
     try:
         cursor = await db.execute("SELECT max_uses_per_user FROM promo_codes WHERE id = ?", (promo_id,))

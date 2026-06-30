@@ -1470,4 +1470,5 @@ const methodFilterEl = $('finance-method-filter');
 if(methodFilterEl) {
     methodFilterEl.addEventListener('change', () => {
         loadFinance();
+    });
 }
