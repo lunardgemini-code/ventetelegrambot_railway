@@ -1734,16 +1734,34 @@ async def increment_promo_usage(promo_id: int, user_telegram_id: int) -> None:
     # 2. Update user specific count
     db = await get_db()
     try:
-        await db.execute(
-            """INSERT INTO promo_code_usages (promo_code_id, user_telegram_id, usage_count)
-               VALUES (?, ?, 1)
-               ON CONFLICT(promo_code_id, user_telegram_id) DO UPDATE SET usage_count = usage_count + 1, last_used_at = CURRENT_TIMESTAMP""",
-            (promo_id, user_telegram_id)
-        )
+        try:
+            await db.execute(
+                """INSERT INTO promo_code_usages (promo_code_id, user_telegram_id, usage_count)
+                   VALUES (?, ?, 1)""",
+                (promo_id, user_telegram_id)
+            )
+        except Exception:
+            # Fallback for UNIQUE constraint violation
+            await db.execute(
+                """UPDATE promo_code_usages 
+                   SET usage_count = usage_count + 1, last_used_at = CURRENT_TIMESTAMP 
+                   WHERE promo_code_id = ? AND user_telegram_id = ?""",
+                (promo_id, user_telegram_id)
+            )
         await db.commit()
     except Exception as e:
         import logging
-        logging.getLogger(__name__).error("Error updating user promo count (table might be missing): %s", e)
+        logging.getLogger(__name__).error("Error updating user promo count: %s", e)
+        # Send error directly to admin for immediate debugging
+        try:
+            from config import ADMIN_IDS
+            from bot import tg_app
+            import asyncio
+            if tg_app and tg_app.bot:
+                for aid in ADMIN_IDS:
+                    asyncio.create_task(tg_app.bot.send_message(chat_id=aid, text=f"DEBUG SQLITE ERROR: {e}"))
+        except:
+            pass
     finally:
         await db.close()
 
