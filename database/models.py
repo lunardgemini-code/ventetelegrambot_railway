@@ -1719,10 +1719,21 @@ async def increment_promo_usage(promo_id: int, user_telegram_id: int) -> None:
     """Incrémente le compteur d'utilisation d'un code promo."""
     db = await get_db()
     try:
+        # 1. Update global count
         await db.execute(
             "UPDATE promo_codes SET used_count = used_count + 1 WHERE id = ?",
             (promo_id,),
         )
+        await db.commit()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error("Error updating global promo count: %s", e)
+    finally:
+        await db.close()
+
+    # 2. Update user specific count
+    db = await get_db()
+    try:
         await db.execute(
             """INSERT INTO promo_code_usages (promo_code_id, user_telegram_id, usage_count)
                VALUES (?, ?, 1)
@@ -1730,6 +1741,9 @@ async def increment_promo_usage(promo_id: int, user_telegram_id: int) -> None:
             (promo_id, user_telegram_id)
         )
         await db.commit()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error("Error updating user promo count (table might be missing): %s", e)
     finally:
         await db.close()
 
