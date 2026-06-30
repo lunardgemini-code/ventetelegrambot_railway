@@ -712,7 +712,8 @@ async function loadPromos() {
         if (promos.length > 0) {
             DOM.promosTableBody.innerHTML = promos.map(p => {
                 const typeLabel = p.discount_type==='percent' ? '%' : '$';
-                const usesLabel = p.max_uses > 0 ? `${p.used_count}/${p.max_uses}` : `${p.used_count} (${t('unlimited')})`;
+                let usesLabel = p.max_uses > 0 ? `${p.used_count}/${p.max_uses}` : `${p.used_count} (${t('unlimited')})`;
+                if (p.max_uses_per_user > 0) usesLabel += ` <br><small>(${p.max_uses_per_user}/user)</small>`;
                 const active = p.is_active ? 'active-promo' : 'expired';
                 return `<tr><td><strong>${p.code}</strong></td><td>${p.discount_type==='percent'?t('percent'):t('fixed')}</td><td>${p.discount_value}${typeLabel}</td><td>${usesLabel}</td><td><span class="status-badge ${active}">${p.is_active?t('active'):t('inactive')}</span></td><td><button class="btn-table-action delete" onclick="deletePromo(${p.id})"><i class="fa-solid fa-trash-can"></i></button></td></tr>`;
             }).join('');
@@ -724,7 +725,7 @@ async function loadPromos() {
 //  ACTIONS
 // ═══════════════════════════════════════════
 
-async function handleAddPromo(e) { e.preventDefault(); showLoading(true); try { await apiCall('/api/promos','POST',{code:$('promo-code').value.trim(),discount_type:$('promo-type').value,discount_value:$('promo-value').value,max_uses:$('promo-max').value||0,expires_at:$('promo-expires').value||null}); hideModal(DOM.promoModal); DOM.addPromoForm.reset(); await refreshData(); } catch(e){alert(e.message);} finally{showLoading(false);} }
+async function handleAddPromo(e) { e.preventDefault(); showLoading(true); try { await apiCall('/api/promos','POST',{code:$('promo-code').value.trim(),discount_type:$('promo-type').value,discount_value:$('promo-value').value,max_uses:$('promo-max').value||0,max_uses_per_user:$('promo-max-user').value||0,expires_at:$('promo-expires').value||null}); hideModal(DOM.promoModal); DOM.addPromoForm.reset(); await refreshData(); } catch(e){alert(e.message);} finally{showLoading(false);} }
 
 window.deleteProduct = async function(id) { if(!confirm(t('confirm_delete'))) return; showLoading(true); try{await apiCall(`/api/products/${id}`,'DELETE'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
 window.deletePromo = async function(id) { showLoading(true); try{await apiCall(`/api/promos/${id}`,'DELETE'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
@@ -1478,11 +1479,11 @@ async function loadVenteDZSettings() {
     try {
         const data = await apiCall('/api/dz/settings');
         state.dz_usd_to_dzd = parseFloat(data.dz_usd_to_dzd || 250);
-        state.dz_profit_per_usd = parseFloat(data.dz_profit_per_usd || 100);
+
         state.dz_oneclick_api_key = data.dz_oneclick_api_key || '';
         
         if ($('dz-usd-to-dzd')) $('dz-usd-to-dzd').value = state.dz_usd_to_dzd;
-        if ($('dz-profit-per-usd')) $('dz-profit-per-usd').value = state.dz_profit_per_usd;
+
         if ($('dz-oneclick-api-key')) $('dz-oneclick-api-key').value = state.dz_oneclick_api_key;
     } catch(err) {
         console.error("Failed to load DZ settings", err);
@@ -1495,7 +1496,6 @@ async function saveDZSettings(e) {
     try {
         const payload = {
             dz_usd_to_dzd: parseFloat($('dz-usd-to-dzd').value) || 250,
-            dz_profit_per_usd: parseFloat($('dz-profit-per-usd').value) || 100,
             dz_oneclick_api_key: $('dz-oneclick-api-key').value.trim()
         };
         await apiCall('/api/dz/settings', 'POST', payload);
@@ -1523,8 +1523,8 @@ async function loadVenteDZProducts() {
         
         tbody.innerHTML = products.map(p => {
             const exchangeRate = state.dz_usd_to_dzd;
-            const profit = state.dz_profit_per_usd;
-            const estimatedDzd = Math.ceil(p.price_usd * (exchangeRate + profit));
+            const profit = parseFloat(p.dz_profit || 0);
+            const estimatedDzd = Math.ceil(p.price_usd * exchangeRate) + profit;
             
             return `
                 <tr>
@@ -1559,6 +1559,7 @@ window.editDZProduct = function(productId) {
     $('dz-product-is-visible').checked = !!product.dz_is_visible;
     $('dz-product-image-url').value = product.dz_image_url || '';
     $('dz-product-description').value = product.dz_description || '';
+    $('dz-product-profit').value = product.dz_profit || 0;
     
     showModal($('dz-product-modal'));
 };
@@ -1571,7 +1572,8 @@ async function saveDZProduct(e) {
         const payload = {
             is_visible: $('dz-product-is-visible').checked ? 1 : 0,
             dz_image_url: $('dz-product-image-url').value.trim(),
-            dz_description: $('dz-product-description').value.trim()
+            dz_description: $('dz-product-description').value.trim(),
+            dz_profit: parseFloat($('dz-product-profit').value) || 0
         };
         await apiCall(`/api/dz/products/${id}`, 'POST', payload);
         hideModal($('dz-product-modal'));

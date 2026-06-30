@@ -961,7 +961,7 @@ async def update_order_status(order_id: int, status: str, **kwargs) -> None:
     if status == "COMPLETED" and current_order and current_order.get("status") != "COMPLETED":
         promo_id = current_order.get("promo_code_id")
         if promo_id:
-            await increment_promo_usage(promo_id)
+            await increment_promo_usage(promo_id, current_order.get("user_telegram_id"))
         # Trigger referral payout
         await process_referral_payout(order_id)
 
@@ -1642,15 +1642,16 @@ async def create_promo(
     discount_type: str = "percent",
     discount_value: float = 10,
     max_uses: int = 0,
+    max_uses_per_user: int = 0,
     expires_at: str | None = None,
 ) -> int:
     """Crée un code promo et retourne son identifiant."""
     db = await get_db()
     try:
         cursor = await db.execute(
-            """INSERT INTO promo_codes (code, discount_type, discount_value, max_uses, expires_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (code.upper(), discount_type, discount_value, max_uses, expires_at),
+            """INSERT INTO promo_codes (code, discount_type, discount_value, max_uses, max_uses_per_user, expires_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (code.upper(), discount_type, discount_value, max_uses, max_uses_per_user, expires_at),
         )
         await db.commit()
         return cursor.lastrowid
@@ -1687,14 +1688,39 @@ async def get_promo_by_code(code: str) -> dict | None:
     finally:
         await db.close()
 
+async def check_promo_usage(promo_id: int, user_telegram_id: int) -> bool:
+    """Vérifie si un utilisateur a le droit d'utiliser ce code (selon max_uses_per_user)."""
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT max_uses_per_user FROM promo_codes WHERE id = ?", (promo_id,))
+        row = await cursor.fetchone()
+        if not row:
+            return False
+        max_per_user = row["max_uses_per_user"]
+        if max_per_user <= 0:
+            return True # illimité
+        
+        c = await db.execute("SELECT usage_count FROM promo_code_usages WHERE promo_code_id = ? AND user_telegram_id = ?", (promo_id, user_telegram_id))
+        r = await c.fetchone()
+        usage_count = r["usage_count"] if r else 0
+        return usage_count < max_per_user
+    finally:
+        await db.close()
 
-async def increment_promo_usage(promo_id: int) -> None:
+
+async def increment_promo_usage(promo_id: int, user_telegram_id: int) -> None:
     """Incrémente le compteur d'utilisation d'un code promo."""
     db = await get_db()
     try:
         await db.execute(
             "UPDATE promo_codes SET used_count = used_count + 1 WHERE id = ?",
             (promo_id,),
+        )
+        await db.execute(
+            """INSERT INTO promo_code_usages (promo_code_id, user_telegram_id, usage_count)
+               VALUES (?, ?, 1)
+               ON CONFLICT(promo_code_id, user_telegram_id) DO UPDATE SET usage_count = usage_count + 1, last_used_at = CURRENT_TIMESTAMP""",
+            (promo_id, user_telegram_id)
         )
         await db.commit()
     finally:
@@ -2092,6 +2118,7 @@ async def upsert_dz_product_setting(
     is_visible: int = 0,
     dz_description: str = "",
     dz_image_url: str = "",
+    dz_profit: float = 0.0,
 ) -> None:
     """Insert ou met à jour les paramètres DZ d'un produit."""
     db = await get_db()
@@ -2102,13 +2129,13 @@ async def upsert_dz_product_setting(
         existing = await cursor.fetchone()
         if existing:
             await db.execute(
-                "UPDATE dz_product_settings SET is_visible = ?, dz_description = ?, dz_image_url = ? WHERE product_id = ?",
-                (is_visible, dz_description, dz_image_url, product_id),
+                "UPDATE dz_product_settings SET is_visible = ?, dz_description = ?, dz_image_url = ?, dz_profit = ? WHERE product_id = ?",
+                (is_visible, dz_description, dz_image_url, dz_profit, product_id),
             )
         else:
             await db.execute(
-                "INSERT INTO dz_product_settings (product_id, is_visible, dz_description, dz_image_url) VALUES (?, ?, ?, ?)",
-                (product_id, is_visible, dz_description, dz_image_url),
+                "INSERT INTO dz_product_settings (product_id, is_visible, dz_description, dz_image_url, dz_profit) VALUES (?, ?, ?, ?, ?)",
+                (product_id, is_visible, dz_description, dz_image_url, dz_profit),
             )
         await db.commit()
     finally:
@@ -2120,7 +2147,7 @@ async def get_visible_dz_products() -> list[dict]:
     db = await get_db()
     try:
         cursor = await db.execute("""
-            SELECT p.*, dps.is_visible, dps.dz_description, dps.dz_image_url,
+            SELECT p.*, dps.is_visible, dps.dz_description, dps.dz_image_url, dps.dz_profit,
                    COALESCE(s.stock_count, 0) as stock_count
             FROM products p
             INNER JOIN dz_product_settings dps ON dps.product_id = p.id
@@ -2143,7 +2170,7 @@ async def get_visible_dz_product(product_id: int) -> dict | None:
     db = await get_db()
     try:
         cursor = await db.execute("""
-            SELECT p.*, dps.is_visible, dps.dz_description, dps.dz_image_url,
+            SELECT p.*, dps.is_visible, dps.dz_description, dps.dz_image_url, dps.dz_profit,
                    COALESCE(s.stock_count, 0) as stock_count
             FROM products p
             INNER JOIN dz_product_settings dps ON dps.product_id = p.id

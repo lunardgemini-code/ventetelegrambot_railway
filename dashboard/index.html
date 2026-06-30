@@ -521,10 +521,7 @@
                                 <label for="dz-usd-to-dzd">Taux de change (1 USD = X DZD)</label>
                                 <input type="number" id="dz-usd-to-dzd" required min="1">
                             </div>
-                            <div class="form-group">
-                                <label for="dz-profit-per-usd">Bénéfice par USD (en DZD)</label>
-                                <input type="number" id="dz-profit-per-usd" required min="0">
-                            </div>
+
                             <div class="form-group">
                                 <label for="dz-oneclick-api-key">Clé API OneClick (OCPay)</label>
                                 <input type="text" id="dz-oneclick-api-key" placeholder="Entrez votre clé API" required>
@@ -654,7 +651,10 @@
                 </div>
                 <div class="form-row">
                     <div class="form-group col-4"><label data-i18n="lbl_discount_value">Valeur</label><input type="number" step="0.01" id="promo-value" required></div>
-                    <div class="form-group col-4"><label data-i18n="lbl_max_uses">Max utilisations</label><input type="number" id="promo-max" value="0" placeholder="0 = illimité"></div>
+                    <div class="form-group col-4"><label data-i18n="lbl_max_uses">Max (Total)</label><input type="number" id="promo-max" value="0" placeholder="0 = illimité"></div>
+                    <div class="form-group col-4"><label>Max / util.</label><input type="number" id="promo-max-user" value="0" placeholder="0 = illimité"></div>
+                </div>
+                <div class="form-row">
                     <div class="form-group col-4"><label data-i18n="lbl_expires">Expiration</label><input type="date" id="promo-expires"></div>
                 </div>
                 <div class="modal-footer"><button type="button" class="btn-secondary btn-close-modal" data-i18n="btn_cancel">Annuler</button><button type="submit" class="btn-primary" data-i18n="btn_create_promo">Créer</button></div>
@@ -935,6 +935,10 @@
                 <div class="form-group" style="margin-top: 1rem;">
                     <label for="dz-product-image-url">Image URL spécifique DZ</label>
                     <input type="url" id="dz-product-image-url" placeholder="https://.../image.png" style="width:100%; padding:0.75rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:var(--color-text);">
+                </div>
+                <div class="form-group" style="margin-top: 1rem;">
+                    <label for="dz-product-profit">Bénéfice spécifique (en DZD)</label>
+                    <input type="number" id="dz-product-profit" min="0" placeholder="Ex: 300" style="width:100%; padding:0.75rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:var(--color-text);">
                 </div>
                 <div class="form-group">
                     <label for="dz-product-description">Description spécifique DZ</label>

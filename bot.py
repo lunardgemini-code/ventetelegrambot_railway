@@ -780,6 +780,7 @@ async def api_create_promo(data: dict):
             discount_type=discount_type,
             discount_value=discount_value,
             max_uses=int(data.get("max_uses", 0)),
+            max_uses_per_user=int(data.get("max_uses_per_user", 0)),
             expires_at=data.get("expires_at"),
         )
         return {"id": promo_id, "status": "created"}

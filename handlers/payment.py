@@ -439,6 +439,16 @@ async def receive_promo_code(update: Update, context: ContextTypes.DEFAULT_TYPE)
             reply_markup=back_keyboard(f"back_pay_method:{order_id}", lang),
         )
         return WAITING_PROMO_CODE
+        
+    from database.models import check_promo_usage
+    can_use = await check_promo_usage(promo["id"], update.effective_user.id)
+    if not can_use:
+        await update.message.reply_text(
+            t("promo_max_uses_reached", lang),
+            parse_mode="HTML",
+            reply_markup=back_keyboard(f"back_pay_method:{order_id}", lang),
+        )
+        return WAITING_PROMO_CODE
 
     # Calculate discount
     original_amount = order["amount_usd"]
