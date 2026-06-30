@@ -450,6 +450,29 @@ async def receive_promo_code(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return WAITING_PROMO_CODE
 
+    # Check applicable products
+    applicable_product_ids_str = promo.get("applicable_product_ids")
+    if applicable_product_ids_str:
+        applicable_ids = [int(pid.strip()) for pid in applicable_product_ids_str.split(",") if pid.strip().isdigit()]
+        if applicable_ids and order.get("product_id") not in applicable_ids:
+            await update.message.reply_text(
+                t("promo_product_invalid", lang),
+                parse_mode="HTML",
+                reply_markup=back_keyboard(f"back_pay_method:{order_id}", lang),
+            )
+            return WAITING_PROMO_CODE
+            
+    # Check max quantity per order
+    max_qty = promo.get("max_qty_per_order", 0)
+    order_qty = order.get("quantity", 1)
+    if max_qty > 0 and order_qty > max_qty:
+        await update.message.reply_text(
+            t("promo_qty_limit", lang).format(max_qty=max_qty),
+            parse_mode="HTML",
+            reply_markup=back_keyboard(f"back_pay_method:{order_id}", lang),
+        )
+        return WAITING_PROMO_CODE
+
     # Calculate discount
     original_amount = order["amount_usd"]
     discount_type = promo.get("discount_type", "percent")

@@ -1646,15 +1646,17 @@ async def create_promo(
     discount_value: float = 10,
     max_uses: int = 0,
     max_uses_per_user: int = 0,
+    applicable_product_ids: str | None = None,
+    max_qty_per_order: int = 0,
     expires_at: str | None = None,
 ) -> int:
     """Crée un code promo et retourne son identifiant."""
     db = await get_db()
     try:
         cursor = await db.execute(
-            """INSERT INTO promo_codes (code, discount_type, discount_value, max_uses, max_uses_per_user, expires_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (code.upper(), discount_type, discount_value, max_uses, max_uses_per_user, expires_at),
+            """INSERT INTO promo_codes (code, discount_type, discount_value, max_uses, max_uses_per_user, applicable_product_ids, max_qty_per_order, expires_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (code.upper(), discount_type, discount_value, max_uses, max_uses_per_user, applicable_product_ids, max_qty_per_order, expires_at),
         )
         await db.commit()
         return cursor.lastrowid

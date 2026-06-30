@@ -298,6 +298,8 @@ async def init_db() -> None:
                 max_uses INTEGER DEFAULT 0,
                 max_uses_per_user INTEGER DEFAULT 0,
                 used_count INTEGER DEFAULT 0,
+                applicable_product_ids TEXT DEFAULT NULL,
+                max_qty_per_order INTEGER DEFAULT 0,
                 is_active INTEGER DEFAULT 1,
                 expires_at TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -430,6 +432,8 @@ async def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_dz_product_settings_product ON dz_product_settings(product_id)",
             "ALTER TABLE promo_codes ADD COLUMN max_uses_per_user INTEGER DEFAULT 0",
             "CREATE TABLE IF NOT EXISTS promo_code_usages (id INTEGER PRIMARY KEY AUTOINCREMENT, promo_code_id INTEGER NOT NULL, user_telegram_id INTEGER NOT NULL, usage_count INTEGER DEFAULT 0, last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(promo_code_id, user_telegram_id))",
+            "ALTER TABLE promo_codes ADD COLUMN applicable_product_ids TEXT DEFAULT NULL",
+            "ALTER TABLE promo_codes ADD COLUMN max_qty_per_order INTEGER DEFAULT 0",
         ]
         for sql in migrations:
             mig_db = await get_db()

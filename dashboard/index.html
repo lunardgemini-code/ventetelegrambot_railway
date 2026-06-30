@@ -656,6 +656,15 @@
                 </div>
                 <div class="form-row">
                     <div class="form-group col-4"><label data-i18n="lbl_expires">Expiration</label><input type="date" id="promo-expires"></div>
+                    <div class="form-group col-4">
+                        <label>Max Articles / Cmd</label><input type="number" id="promo-max-qty" value="0" placeholder="0 = illimité">
+                    </div>
+                    <div class="form-group col-4">
+                        <label>Produits spécifiques</label>
+                        <select id="promo-products" multiple size="2" style="height: auto; padding: 4px; overflow-y: auto;">
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
                 </div>
                 <div class="modal-footer"><button type="button" class="btn-secondary btn-close-modal" data-i18n="btn_cancel">Annuler</button><button type="submit" class="btn-primary" data-i18n="btn_create_promo">Créer</button></div>
             </form>

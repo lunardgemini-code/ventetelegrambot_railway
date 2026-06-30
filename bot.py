@@ -781,6 +781,8 @@ async def api_create_promo(data: dict):
             discount_value=discount_value,
             max_uses=int(data.get("max_uses", 0)),
             max_uses_per_user=int(data.get("max_uses_per_user", 0)),
+            applicable_product_ids=data.get("applicable_product_ids"),
+            max_qty_per_order=int(data.get("max_qty_per_order", 0)),
             expires_at=data.get("expires_at"),
         )
         return {"id": promo_id, "status": "created"}
@@ -1448,7 +1450,9 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
         ("UPDATE orders SET binance_order_id = (SELECT tx_hash FROM used_bep20_transactions WHERE used_bep20_transactions.order_id = orders.id) WHERE binance_order_id IS NULL AND id IN (SELECT order_id FROM used_bep20_transactions WHERE order_id IS NOT NULL)", "Retroactive BEP20 Tx Hashes"),
         ("UPDATE orders SET binance_order_id = (SELECT tx_hash FROM used_trc20_transactions WHERE used_trc20_transactions.order_id = orders.id) WHERE binance_order_id IS NULL AND id IN (SELECT order_id FROM used_trc20_transactions WHERE order_id IS NOT NULL)", "Retroactive TRC20 Tx Hashes"),
         ("ALTER TABLE promo_codes ADD COLUMN max_uses_per_user INTEGER DEFAULT 0", "Column 'promo_codes.max_uses_per_user'"),
-        ("CREATE TABLE IF NOT EXISTS promo_code_usages (id INTEGER PRIMARY KEY AUTOINCREMENT, promo_code_id INTEGER NOT NULL, user_telegram_id INTEGER NOT NULL, usage_count INTEGER DEFAULT 0, last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(promo_code_id, user_telegram_id))", "Table 'promo_code_usages'")
+        ("CREATE TABLE IF NOT EXISTS promo_code_usages (id INTEGER PRIMARY KEY AUTOINCREMENT, promo_code_id INTEGER NOT NULL, user_telegram_id INTEGER NOT NULL, usage_count INTEGER DEFAULT 0, last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(promo_code_id, user_telegram_id))", "Table 'promo_code_usages'"),
+        ("ALTER TABLE promo_codes ADD COLUMN applicable_product_ids TEXT DEFAULT NULL", "Column 'promo_codes.applicable_product_ids'"),
+        ("ALTER TABLE promo_codes ADD COLUMN max_qty_per_order INTEGER DEFAULT 0", "Column 'promo_codes.max_qty_per_order'"),
     ]
     
     for sql, name in queries:

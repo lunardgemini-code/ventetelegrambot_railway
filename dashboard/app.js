@@ -272,7 +272,17 @@ function setupEvents() {
     }));
 
     $('btn-open-prod-modal').addEventListener('click', () => { DOM.addProdForm.reset(); DOM.prodId.value=''; showModal(DOM.prodModal); });
-    $('btn-open-promo-modal').addEventListener('click', () => showModal(DOM.promoModal));
+    $('btn-open-promo-modal').addEventListener('click', () => {
+        const sel = $('promo-products');
+        sel.innerHTML = '';
+        _dataCache.products.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.name;
+            sel.appendChild(opt);
+        });
+        showModal(DOM.promoModal);
+    });
     $('btn-open-binance-modal').addEventListener('click', openBinanceModal);
     $$('.btn-close-modal').forEach(b => b.addEventListener('click', () => { [DOM.prodModal,DOM.stockModal,DOM.promoModal,DOM.tiersModal,DOM.orderDetailModal,DOM.viewStockModal,DOM.editProdModal,DOM.revenueModal,DOM.binanceModal,$('banModal'),$('finance-withdraw-modal'),$('finance-adjust-modal'), $('exportModal'), $('dz-product-modal')].forEach(m => { if (m) hideModal(m); }); }));
 
@@ -714,6 +724,8 @@ async function loadPromos() {
                 const typeLabel = p.discount_type==='percent' ? '%' : '$';
                 let usesLabel = p.max_uses > 0 ? `${p.used_count}/${p.max_uses}` : `${p.used_count} (${t('unlimited')})`;
                 if (p.max_uses_per_user > 0) usesLabel += ` <br><small>(${p.max_uses_per_user}/user)</small>`;
+                if (p.max_qty_per_order > 0) usesLabel += ` <br><small>(Max ${p.max_qty_per_order}/cmd)</small>`;
+                if (p.applicable_product_ids) usesLabel += ` <br><small>(Produits limités)</small>`;
                 const active = p.is_active ? 'active-promo' : 'expired';
                 return `<tr><td><strong>${p.code}</strong></td><td>${p.discount_type==='percent'?t('percent'):t('fixed')}</td><td>${p.discount_value}${typeLabel}</td><td>${usesLabel}</td><td><span class="status-badge ${active}">${p.is_active?t('active'):t('inactive')}</span></td><td><button class="btn-table-action delete" onclick="deletePromo(${p.id})"><i class="fa-solid fa-trash-can"></i></button></td></tr>`;
             }).join('');
@@ -725,7 +737,7 @@ async function loadPromos() {
 //  ACTIONS
 // ═══════════════════════════════════════════
 
-async function handleAddPromo(e) { e.preventDefault(); showLoading(true); try { await apiCall('/api/promos','POST',{code:$('promo-code').value.trim(),discount_type:$('promo-type').value,discount_value:$('promo-value').value,max_uses:$('promo-max').value||0,max_uses_per_user:$('promo-max-user').value||0,expires_at:$('promo-expires').value||null}); hideModal(DOM.promoModal); DOM.addPromoForm.reset(); await refreshData(); } catch(e){alert(e.message);} finally{showLoading(false);} }
+async function handleAddPromo(e) { e.preventDefault(); showLoading(true); try { const applicable_product_ids = Array.from($('promo-products').selectedOptions).map(o => o.value).join(','); await apiCall('/api/promos','POST',{code:$('promo-code').value.trim(),discount_type:$('promo-type').value,discount_value:$('promo-value').value,max_uses:$('promo-max').value||0,max_uses_per_user:$('promo-max-user').value||0,max_qty_per_order:$('promo-max-qty').value||0,applicable_product_ids:applicable_product_ids,expires_at:$('promo-expires').value||null}); hideModal(DOM.promoModal); DOM.addPromoForm.reset(); await refreshData(); } catch(e){alert(e.message);} finally{showLoading(false);} }
 
 window.deleteProduct = async function(id) { if(!confirm(t('confirm_delete'))) return; showLoading(true); try{await apiCall(`/api/products/${id}`,'DELETE'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
 window.deletePromo = async function(id) { showLoading(true); try{await apiCall(`/api/promos/${id}`,'DELETE'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
