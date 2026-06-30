@@ -1405,7 +1405,8 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
         table_exists = await c.fetchone() is not None
         
         c = await db.execute("SELECT * FROM promo_codes ORDER BY id DESC LIMIT 1")
-        last_promo = dict(await c.fetchone()) if await c.fetchone() else None
+        last_row = await c.fetchone()
+        last_promo = dict(last_row) if last_row else None
         
         usage_count = 0
         if last_promo and table_exists:
