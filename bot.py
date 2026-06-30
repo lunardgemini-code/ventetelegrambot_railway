@@ -1529,7 +1529,7 @@ def main() -> None:
     webhook_url = os.environ.get("WEBHOOK_URL", "").strip()
 
     # In webhook mode, disable the built-in Updater (we handle updates via FastAPI)
-    builder = Application.builder().token(BOT_TOKEN).post_init(post_init)
+    builder = Application.builder().token(BOT_TOKEN).connect_timeout(30.0).read_timeout(30.0).write_timeout(30.0).pool_timeout(30.0).post_init(post_init)
     if webhook_url:
         builder = builder.updater(None)
     app = builder.build()
