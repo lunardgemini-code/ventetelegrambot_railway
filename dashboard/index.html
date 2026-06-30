@@ -64,7 +64,7 @@
                 <a href="#" class="menu-item" data-tab="tickets-tab"><i class="fa-solid fa-ticket"></i> <span data-i18n="nav_tickets">Tickets</span><span id="badge-tickets" class="badge hidden">0</span></a>
                 <a href="#" class="menu-item" data-tab="binance-tab"><i class="fa-brands fa-btc"></i> <span data-i18n="nav_binance">Comptes Binance</span></a>
                 <a href="#" class="menu-item" data-tab="broadcast-tab"><i class="fa-solid fa-bullhorn"></i> <span data-i18n="nav_broadcast">Broadcast</span></a>
-                <a href="#" class="menu-item" data-tab="ventedz-tab"><i class="fa-solid fa-store"></i> <span data-i18n="nav_ventedz">Vente DZ</span></a>
+
                 <a href="#" class="menu-item" data-tab="settings-tab"><i class="fa-solid fa-sliders"></i> <span data-i18n="nav_settings">Paramètres</span></a>
             </nav>
             <div class="sidebar-footer">
@@ -444,94 +444,6 @@
                 </div>
             </section>
 
-            <!-- Vente DZ Tab -->
-            <section id="ventedz-tab" class="tab-content">
-                <div class="action-bar mb-4">
-                    <div class="tabs-sub">
-                        <button class="sub-tab active" data-sub="dz-products-sub"><i class="fa-solid fa-boxes-stacked"></i> <span>Produits DZ</span></button>
-                        <button class="sub-tab" data-sub="dz-orders-sub"><i class="fa-solid fa-receipt"></i> <span>Commandes DZ</span></button>
-                        <button class="sub-tab" data-sub="dz-settings-sub"><i class="fa-solid fa-sliders"></i> <span>Paramètres DZ</span></button>
-                    </div>
-                </div>
-
-                <!-- Sub-tab: Products DZ -->
-                <div id="dz-products-sub" class="sub-tab-content active">
-                    <div class="glass-panel">
-                        <div class="panel-header mb-4">
-                            <h3><i class="fa-solid fa-boxes-stacked"></i> Produits activés sur le site DZ</h3>
-                        </div>
-                        <div class="table-responsive">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Produit</th>
-                                        <th>Prix Bot (USD)</th>
-                                        <th>Prix Estimé (DZD)</th>
-                                        <th>Statut Vente DZ</th>
-                                        <th>Image URL DZ</th>
-                                        <th>Description DZ</th>
-                                        <th>Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="dz-products-table-body">
-                                    <tr><td colspan="7" class="empty-state">Chargement des produits...</td></tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Sub-tab: Orders DZ -->
-                <div id="dz-orders-sub" class="sub-tab-content">
-                    <div class="glass-panel">
-                        <div class="panel-header mb-4">
-                            <h3><i class="fa-solid fa-receipt"></i> Historique des Commandes DZ</h3>
-                        </div>
-                        <div class="table-responsive">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>ID</th>
-                                        <th>Produit</th>
-                                        <th>Quantité</th>
-                                        <th>Total (DZD)</th>
-                                        <th>Client</th>
-                                        <th>Statut</th>
-                                        <th>Date</th>
-                                        <th>Paiement Ref</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="dz-orders-table-body">
-                                    <tr><td colspan="8" class="empty-state">Aucune commande.</td></tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Sub-tab: Settings DZ -->
-                <div id="dz-settings-sub" class="sub-tab-content">
-                    <div class="glass-panel max-w-xl mx-auto" style="padding: 2rem;">
-                        <div class="panel-header mb-4">
-                            <h2><i class="fa-solid fa-sliders"></i> Paramètres Vente DZ</h2>
-                            <p>Configurez le taux de change, le bénéfice et l'API OneClick.</p>
-                        </div>
-                        <form id="dz-settings-form">
-                            <div class="form-group">
-                                <label for="dz-usd-to-dzd">Taux de change (1 USD = X DZD)</label>
-                                <input type="number" id="dz-usd-to-dzd" required min="1">
-                            </div>
-
-                            <div class="form-group">
-                                <label for="dz-oneclick-api-key">Clé API OneClick (OCPay)</label>
-                                <input type="text" id="dz-oneclick-api-key" placeholder="Entrez votre clé API" required>
-                            </div>
-                            <button type="submit" class="btn-primary"><i class="fa-solid fa-save"></i> Enregistrer</button>
-                        </form>
-                    </div>
-                </div>
-            </section>
-
             <!-- Settings Tab -->
             <section id="settings-tab" class="tab-content">
                 <div class="glass-panel max-w-xl mx-auto" style="padding: 2rem;">
@@ -660,8 +572,8 @@
                         <label>Max Articles / Cmd</label><input type="number" id="promo-max-qty" value="0" placeholder="0 = illimité">
                     </div>
                     <div class="form-group col-4">
-                        <label>Produits spécifiques</label>
-                        <select id="promo-products" multiple size="2" style="height: auto; padding: 4px; overflow-y: auto;">
+                        <label>Produits spécifiques <small style="font-weight:normal; font-size:0.75rem;">(Ctrl+Clic)</small></label>
+                        <select id="promo-products" multiple size="4" style="height: auto; padding: 4px; overflow-y: auto; min-height: 90px;">
                             <!-- Populated dynamically -->
                         </select>
                     </div>
@@ -922,44 +834,6 @@
     </div>
 </div>
 
-<!-- Modal: Edit DZ Product Settings -->
-    <div id="dz-product-modal" class="modal-overlay hidden">
-        <div class="modal-card glass-panel animate-slide">
-            <div class="modal-header">
-                <h3><i class="fa-solid fa-store"></i> Paramètres du Produit (DZ)</h3>
-                <button class="btn-close-modal"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <form id="dz-product-form">
-                <input type="hidden" id="dz-product-id">
-                <div class="form-group" style="display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.02); padding: 1rem; border: 1px solid rgba(255,255,255,0.05); border-radius: 8px;">
-                    <div>
-                        <strong style="display: block; font-size: 1rem; color: var(--color-text);">Visible sur Vente DZ</strong>
-                        <span style="font-size: 0.85rem; color: var(--color-text-muted);">Activer pour afficher sur le site algérien</span>
-                    </div>
-                    <label class="switch" style="position: relative; display: inline-block; width: 60px; height: 34px;">
-                        <input type="checkbox" id="dz-product-is-visible" style="opacity: 0; width: 0; height: 0;">
-                        <span class="slider round" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.1); transition: .4s; border-radius: 34px;"></span>
-                    </label>
-                </div>
-                <div class="form-group" style="margin-top: 1rem;">
-                    <label for="dz-product-image-url">Image URL spécifique DZ</label>
-                    <input type="url" id="dz-product-image-url" placeholder="https://.../image.png" style="width:100%; padding:0.75rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:var(--color-text);">
-                </div>
-                <div class="form-group" style="margin-top: 1rem;">
-                    <label for="dz-product-profit">Bénéfice spécifique (en DZD)</label>
-                    <input type="number" id="dz-product-profit" min="0" placeholder="Ex: 300" style="width:100%; padding:0.75rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:var(--color-text);">
-                </div>
-                <div class="form-group">
-                    <label for="dz-product-description">Description spécifique DZ</label>
-                    <textarea id="dz-product-description" rows="4" style="width:100%; padding:0.75rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:var(--color-text); resize:vertical;"></textarea>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn-secondary btn-close-modal">Annuler</button>
-                    <button type="submit" class="btn-primary">Enregistrer</button>
-                </div>
-            </form>
-        </div>
-    </div>
 
     <script src="app.js"></script>
     <script>

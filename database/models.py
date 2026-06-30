@@ -1,5 +1,5 @@
-# database/models.py — Fonctions CRUD asynchrones pour toutes les tables
-# Chaque fonction ouvre sa propre connexion, exécute, commit et ferme.
+﻿# database/models.py â€” Fonctions CRUD asynchrones pour toutes les tables
+# Chaque fonction ouvre sa propre connexion, exÃ©cute, commit et ferme.
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from .db import get_db
 logger = logging.getLogger(__name__)
 
 
-# ── Caches en mémoire pour optimiser la performance (éviter les appels réseau Turso répétitifs) ──
+# â”€â”€ Caches en mÃ©moire pour optimiser la performance (Ã©viter les appels rÃ©seau Turso rÃ©pÃ©titifs) â”€â”€
 _USER_LANG_CACHE: dict[int, str] = {}
 _USER_BANNED_CACHE: dict[int, bool] = {}
 _CATEGORIES_CACHE: list[dict] | None = None
@@ -21,9 +21,9 @@ _PRODUCT_BY_ID_CACHE: dict[int, dict | None] = {}
 _TIERS_CACHE: dict[int, list[dict]] = {}
 
 
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║  UTILISATEURS                                                    ║
-# ╚══════════════════════════════════════════════════════════════════╝
+# â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
+# â•‘  UTILISATEURS                                                    â•‘
+# â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
 async def get_or_create_user(
@@ -32,7 +32,7 @@ async def get_or_create_user(
     first_name: str,
     referred_by: int | None = None,
 ) -> dict:
-    """Récupère un utilisateur existant ou en crée un nouveau, en enregistrant le parrain si applicable."""
+    """RÃ©cupÃ¨re un utilisateur existant ou en crÃ©e un nouveau, en enregistrant le parrain si applicable."""
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -40,7 +40,7 @@ async def get_or_create_user(
         )
         row = await cursor.fetchone()
         if row:
-            # Mettre à jour le nom d'utilisateur et le prénom s'ils ont changé
+            # Mettre Ã  jour le nom d'utilisateur et le prÃ©nom s'ils ont changÃ©
             await db.execute(
                 "UPDATE users SET username = ?, first_name = ? WHERE telegram_id = ?",
                 (username, first_name, telegram_id),
@@ -82,7 +82,7 @@ async def get_or_create_user(
 
 
 async def get_user(telegram_id: int) -> dict | None:
-    """Récupère un utilisateur par son identifiant Telegram."""
+    """RÃ©cupÃ¨re un utilisateur par son identifiant Telegram."""
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -100,7 +100,7 @@ async def get_user(telegram_id: int) -> dict | None:
 
 
 async def get_all_users() -> list[dict]:
-    """Retourne la liste de tous les utilisateurs enregistrés avec leur nombre de filleuls."""
+    """Retourne la liste de tous les utilisateurs enregistrÃ©s avec leur nombre de filleuls."""
     db = await get_db()
     try:
         cursor = await db.execute("""
@@ -117,7 +117,7 @@ async def get_all_users() -> list[dict]:
 
 
 async def get_users_paginated(limit: int = 20, offset: int = 0, search: str = "") -> tuple[list[dict], int]:
-    """Retourne la liste des utilisateurs paginée et filtrée avec le nombre total."""
+    """Retourne la liste des utilisateurs paginÃ©e et filtrÃ©e avec le nombre total."""
     db = await get_db()
     try:
         where_clause = ""
@@ -162,7 +162,7 @@ async def get_user_count() -> int:
 
 
 async def get_user_lang(telegram_id: int) -> str:
-    """Retourne la langue préférée de l'utilisateur (par défaut 'fr')."""
+    """Retourne la langue prÃ©fÃ©rÃ©e de l'utilisateur (par dÃ©faut 'fr')."""
     if telegram_id in _USER_LANG_CACHE:
         return _USER_LANG_CACHE[telegram_id]
     db = await get_db()
@@ -179,7 +179,7 @@ async def get_user_lang(telegram_id: int) -> str:
 
 
 async def set_user_language(telegram_id: int, language: str) -> None:
-    """Définit la langue préférée de l'utilisateur."""
+    """DÃ©finit la langue prÃ©fÃ©rÃ©e de l'utilisateur."""
     _USER_LANG_CACHE[telegram_id] = language
     db = await get_db()
     try:
@@ -192,13 +192,13 @@ async def set_user_language(telegram_id: int, language: str) -> None:
         await db.close()
 
 
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║  CATÉGORIES                                                      ║
-# ╚══════════════════════════════════════════════════════════════════╝
+# â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
+# â•‘  CATÃ‰GORIES                                                      â•‘
+# â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
 async def get_categories() -> list[dict]:
-    """Retourne les catégories actives, triées par sort_order."""
+    """Retourne les catÃ©gories actives, triÃ©es par sort_order."""
     global _CATEGORIES_CACHE
     if _CATEGORIES_CACHE is not None:
         return _CATEGORIES_CACHE
@@ -222,7 +222,7 @@ async def get_categories() -> list[dict]:
 
 
 async def get_category(category_id: int) -> dict | None:
-    """Récupère une catégorie par son identifiant."""
+    """RÃ©cupÃ¨re une catÃ©gorie par son identifiant."""
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -236,10 +236,10 @@ async def get_category(category_id: int) -> dict | None:
 
 async def add_category(
     name: str,
-    emoji: str = "📂",
+    emoji: str = "ðŸ“‚",
     description: str = "",
 ) -> int:
-    """Ajoute une nouvelle catégorie et retourne son identifiant."""
+    """Ajoute une nouvelle catÃ©gorie et retourne son identifiant."""
     global _CATEGORIES_CACHE
     _CATEGORIES_CACHE = None
     db = await get_db()
@@ -258,7 +258,7 @@ ALLOWED_CATEGORY_COLUMNS = {"name", "emoji", "description", "is_active", "sort_o
 
 
 async def update_category(category_id: int, **kwargs) -> None:
-    """Met à jour une catégorie avec les champs fournis en kwargs."""
+    """Met Ã  jour une catÃ©gorie avec les champs fournis en kwargs."""
     global _CATEGORIES_CACHE
     _CATEGORIES_CACHE = None
     safe_kwargs = {k: v for k, v in kwargs.items() if k in ALLOWED_CATEGORY_COLUMNS}
@@ -277,7 +277,7 @@ async def update_category(category_id: int, **kwargs) -> None:
 
 
 async def delete_category(category_id: int) -> None:
-    """Marque une catégorie comme supprimée, ainsi que ses produits, et supprime leur stock non vendu."""
+    """Marque une catÃ©gorie comme supprimÃ©e, ainsi que ses produits, et supprime leur stock non vendu."""
     global _CATEGORIES_CACHE, _PRODUCTS_CACHE, _PRODUCT_BY_ID_CACHE
     _CATEGORIES_CACHE = None
     _PRODUCTS_CACHE = None
@@ -285,27 +285,27 @@ async def delete_category(category_id: int) -> None:
     db = await get_db()
     try:
         # Ne pas toucher aux commandes.
-        # Supprimer uniquement le stock non vendu pour les produits de cette catégorie
+        # Supprimer uniquement le stock non vendu pour les produits de cette catÃ©gorie
         await db.execute(
             "DELETE FROM stock_items WHERE product_id IN (SELECT id FROM products WHERE category_id = ?) AND is_sold = 0",
             (category_id,),
         )
-        # Soft delete les produits associés (is_deleted = 1, is_active = 0)
+        # Soft delete les produits associÃ©s (is_deleted = 1, is_active = 0)
         await db.execute("UPDATE products SET is_deleted = 1, is_active = 0 WHERE category_id = ?", (category_id,))
-        # Soft delete la catégorie (is_deleted = 1, is_active = 0)
+        # Soft delete la catÃ©gorie (is_deleted = 1, is_active = 0)
         await db.execute("UPDATE categories SET is_deleted = 1, is_active = 0 WHERE id = ?", (category_id,))
         await db.commit()
     finally:
         await db.close()
 
 
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║  PRODUITS                                                        ║
-# ╚══════════════════════════════════════════════════════════════════╝
+# â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
+# â•‘  PRODUITS                                                        â•‘
+# â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
 async def get_products_by_category(category_id: int) -> list[dict]:
-    """Retourne les produits actifs d'une catégorie donnée."""
+    """Retourne les produits actifs d'une catÃ©gorie donnÃ©e."""
     db = await get_db()
     try:
         try:
@@ -327,7 +327,7 @@ async def get_products_by_category(category_id: int) -> list[dict]:
 
 
 async def get_product(product_id: int) -> dict | None:
-    """Récupère un produit par son identifiant."""
+    """RÃ©cupÃ¨re un produit par son identifiant."""
     if product_id in _PRODUCT_BY_ID_CACHE:
         return _PRODUCT_BY_ID_CACHE[product_id]
     db = await get_db()
@@ -345,7 +345,7 @@ async def get_product(product_id: int) -> dict | None:
 
 
 async def get_all_products() -> list[dict]:
-    """Retourne la liste de tous les produits (actifs et inactifs, non supprimés)."""
+    """Retourne la liste de tous les produits (actifs et inactifs, non supprimÃ©s)."""
     global _PRODUCTS_CACHE
     if _PRODUCTS_CACHE is not None:
         return _PRODUCTS_CACHE
@@ -370,7 +370,7 @@ async def add_product(
     description: str,
     price_usd: float,
     warranty_days: int = 0,
-    emoji: str = "📦",
+    emoji: str = "ðŸ“¦",
     custom_emoji_id: str | None = None,
     image_url: str | None = None,
     binance_account_id: int | None = None,
@@ -397,7 +397,7 @@ ALLOWED_PRODUCT_COLUMNS = {"category_id", "name", "description", "price_usd", "w
 
 
 async def update_product(product_id: int, **kwargs) -> None:
-    """Met à jour un produit avec les champs fournis en kwargs."""
+    """Met Ã  jour un produit avec les champs fournis en kwargs."""
     global _PRODUCTS_CACHE
     _PRODUCTS_CACHE = None
     _PRODUCT_BY_ID_CACHE.clear()
@@ -416,7 +416,7 @@ async def update_product(product_id: int, **kwargs) -> None:
         await db.close()
 
 
-# ── Binance Accounts ──────────────────────────────────────────────
+# â”€â”€ Binance Accounts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 async def get_binance_accounts() -> list[dict]:
@@ -507,7 +507,7 @@ async def delete_binance_account(account_id: int) -> None:
 
 
 async def toggle_product(product_id: int) -> None:
-    """Inverse l'état actif/inactif d'un produit."""
+    """Inverse l'Ã©tat actif/inactif d'un produit."""
     global _PRODUCTS_CACHE
     _PRODUCTS_CACHE = None
     _PRODUCT_BY_ID_CACHE.clear()
@@ -523,7 +523,7 @@ async def toggle_product(product_id: int) -> None:
 
 
 async def delete_product(product_id: int) -> None:
-    """Marque un produit comme supprimé et supprime uniquement son stock non vendu."""
+    """Marque un produit comme supprimÃ© et supprime uniquement son stock non vendu."""
     global _PRODUCTS_CACHE
     _PRODUCTS_CACHE = None
     _PRODUCT_BY_ID_CACHE.clear()
@@ -539,13 +539,13 @@ async def delete_product(product_id: int) -> None:
         await db.close()
 
 
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║  PRIX PAR PALIERS (BATCH PRICING)                                ║
-# ╚══════════════════════════════════════════════════════════════════╝
+# â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
+# â•‘  PRIX PAR PALIERS (BATCH PRICING)                                â•‘
+# â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
 async def get_price_tiers(product_id: int) -> list[dict]:
-    """Retourne les paliers de prix pour un produit, triés par min_qty."""
+    """Retourne les paliers de prix pour un produit, triÃ©s par min_qty."""
     global _TIERS_CACHE
     if product_id in _TIERS_CACHE:
         return _TIERS_CACHE[product_id]
@@ -586,9 +586,9 @@ async def set_price_tiers(product_id: int, tiers: list[dict]) -> None:
 
 
 async def get_effective_price(product_id: int, quantity: int) -> float:
-    """Retourne le prix unitaire effectif pour une quantité donnée.
+    """Retourne le prix unitaire effectif pour une quantitÃ© donnÃ©e.
 
-    Cherche le palier correspondant à la quantité.
+    Cherche le palier correspondant Ã  la quantitÃ©.
     Si aucun palier ne correspond, retourne le prix de base du produit.
     """
     tiers = await get_price_tiers(product_id)
@@ -603,13 +603,13 @@ async def get_effective_price(product_id: int, quantity: int) -> float:
     return float(product["price_usd"])
 
 
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║  STOCK                                                           ║
-# ╚══════════════════════════════════════════════════════════════════╝
+# â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
+# â•‘  STOCK                                                           â•‘
+# â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
 async def get_all_stock_counts() -> dict[int, int]:
-    """Retourne le nombre d'articles non vendus et non réservés pour TOUS les produits en une seule requête.
+    """Retourne le nombre d'articles non vendus et non rÃ©servÃ©s pour TOUS les produits en une seule requÃªte.
 
     Returns:
         Dictionnaire {product_id: count}
@@ -623,7 +623,7 @@ async def get_all_stock_counts() -> dict[int, int]:
         rows = await cursor.fetchall()
         stocks = {r["product_id"]: r["cnt"] for r in rows}
 
-        # 2. Obtenir les réservations actives (créées dans les dernières 300 secondes / 5 minutes)
+        # 2. Obtenir les rÃ©servations actives (crÃ©Ã©es dans les derniÃ¨res 300 secondes / 5 minutes)
         cursor = await db.execute(
             """SELECT product_id, COALESCE(SUM(quantity), 0) as reserved 
                FROM orders 
@@ -660,7 +660,7 @@ async def get_product_full_details(product_id: int) -> tuple[dict | None, int, l
         row = await cursor.fetchone()
         total_unsold = row["cnt"] if row else 0
 
-        # Stock réservé (dernières 5 minutes)
+        # Stock rÃ©servÃ© (derniÃ¨res 5 minutes)
         cursor = await db.execute(
             "SELECT COALESCE(SUM(quantity), 0) as reserved FROM orders WHERE product_id = ? AND status IN ('PENDING', 'AWAITING_PAYMENT') AND created_at >= datetime('now', '-300 seconds')",
             (product_id,),
@@ -701,7 +701,7 @@ async def get_sold_count(product_id: int) -> int:
     finally:
         await db.close()
 async def get_stock_count(product_id: int) -> int:
-    """Retourne le nombre d'articles en stock non vendus et non réservés pour un produit."""
+    """Retourne le nombre d'articles en stock non vendus et non rÃ©servÃ©s pour un produit."""
     db = await get_db()
     try:
         # 1. Stock total non vendu en base
@@ -712,7 +712,7 @@ async def get_stock_count(product_id: int) -> int:
         row = await cursor.fetchone()
         total_unsold = row["cnt"] if row else 0
 
-        # 2. Stock réservé (commandes PENDING ou AWAITING_PAYMENT créées il y a moins de 300 secondes / 5 minutes)
+        # 2. Stock rÃ©servÃ© (commandes PENDING ou AWAITING_PAYMENT crÃ©Ã©es il y a moins de 300 secondes / 5 minutes)
         cursor = await db.execute(
             """SELECT COALESCE(SUM(quantity), 0) as reserved 
                FROM orders 
@@ -730,7 +730,7 @@ async def get_stock_count(product_id: int) -> int:
 
 
 async def add_stock_items(product_id: int, items: list[str]) -> int:
-    """Ajoute plusieurs articles en stock et retourne le nombre ajouté."""
+    """Ajoute plusieurs articles en stock et retourne le nombre ajoutÃ©."""
     db = await get_db()
     try:
         await db.executemany(
@@ -772,10 +772,10 @@ async def get_available_stock_items(product_id: int, limit: int = 1) -> list[dic
 
 
 async def mark_stock_sold(stock_id: int, order_id: int) -> bool:
-    """Marque un article comme vendu de manière atomique.
+    """Marque un article comme vendu de maniÃ¨re atomique.
     
-    Utilise WHERE is_sold = 0 pour éviter la double-livraison en cas de requêtes concurrentes.
-    Retourne True si l'article a été marqué, False s'il était déjà vendu.
+    Utilise WHERE is_sold = 0 pour Ã©viter la double-livraison en cas de requÃªtes concurrentes.
+    Retourne True si l'article a Ã©tÃ© marquÃ©, False s'il Ã©tait dÃ©jÃ  vendu.
     """
     db = await get_db()
     try:
@@ -790,7 +790,7 @@ async def mark_stock_sold(stock_id: int, order_id: int) -> bool:
 
 
 async def release_stock_item(stock_id: int) -> None:
-    """Relâche un article (annule la vente). Utilisé en cas de livraison partielle échouée."""
+    """RelÃ¢che un article (annule la vente). UtilisÃ© en cas de livraison partielle Ã©chouÃ©e."""
     db = await get_db()
     try:
         await db.execute(
@@ -817,7 +817,7 @@ async def get_stock_items_for_product(product_id: int) -> list[dict]:
 
 
 async def get_stock_items_for_order(order_id: int) -> list[dict]:
-    """Retourne les articles livrés pour une commande spécifique."""
+    """Retourne les articles livrÃ©s pour une commande spÃ©cifique."""
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -843,9 +843,9 @@ async def delete_stock_item(stock_id: int) -> None:
         await db.close()
 
 
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║  COMMANDES                                                       ║
-# ╚══════════════════════════════════════════════════════════════════╝
+# â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
+# â•‘  COMMANDES                                                       â•‘
+# â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
 async def create_order(
@@ -854,7 +854,7 @@ async def create_order(
     amount_usd: float,
     quantity: int = 1,
 ) -> dict:
-    """Crée une nouvelle commande avec un merchant_trade_no unique et une quantité."""
+    """CrÃ©e une nouvelle commande avec un merchant_trade_no unique et une quantitÃ©."""
     merchant_trade_no = uuid.uuid4().hex[:12].upper()
     db = await get_db()
     try:
@@ -879,7 +879,7 @@ async def create_order(
 
 
 async def get_order(order_id: int) -> dict | None:
-    """Récupère une commande par son identifiant."""
+    """RÃ©cupÃ¨re une commande par son identifiant."""
     db = await get_db()
     try:
         cursor = await db.execute("SELECT * FROM orders WHERE id = ?", (order_id,))
@@ -890,7 +890,7 @@ async def get_order(order_id: int) -> dict | None:
 
 
 async def get_order_by_merchant_id(merchant_trade_no: str) -> dict | None:
-    """Récupère une commande par son numéro de transaction marchand."""
+    """RÃ©cupÃ¨re une commande par son numÃ©ro de transaction marchand."""
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -914,7 +914,7 @@ ALLOWED_ORDER_COLUMNS = {
 
 
 async def update_order_status(order_id: int, status: str, **kwargs) -> None:
-    """Met à jour le statut d'une commande avec des champs optionnels."""
+    """Met Ã  jour le statut d'une commande avec des champs optionnels."""
     set_parts = ["status = ?"]
     values: list = [status]
     safe_kwargs = {k: v for k, v in kwargs.items() if k in ALLOWED_ORDER_COLUMNS}
@@ -997,7 +997,7 @@ async def set_order_binance_id(order_id: int, binance_order_id: str) -> None:
 
 
 async def set_order_stock(order_id: int, stock_item_id: int) -> None:
-    """Associe un article en stock à une commande."""
+    """Associe un article en stock Ã  une commande."""
     db = await get_db()
     try:
         await db.execute(
@@ -1063,8 +1063,8 @@ async def get_stats(days: int = 30, method: str = None) -> dict:
 
     Retourne un dictionnaire avec :
     - total_orders : nombre total de commandes
-    - total_revenue : revenu total (commandes complétées + wallet topups - admin debits)
-    - completed_orders : nombre de commandes complétées
+    - total_revenue : revenu total (commandes complÃ©tÃ©es + wallet topups - admin debits)
+    - completed_orders : nombre de commandes complÃ©tÃ©es
     - pending_orders : nombre de commandes en attente
     - topup_revenue : revenu des wallet topups uniquement
     """
@@ -1072,14 +1072,14 @@ async def get_stats(days: int = 30, method: str = None) -> dict:
     db = await get_db()
     
     try:
-        # Nombre total de commandes sur la période
+        # Nombre total de commandes sur la pÃ©riode
         cursor = await db.execute(
             "SELECT COUNT(*) as cnt FROM orders WHERE created_at >= ?", (since,)
         )
         total_orders = (await cursor.fetchone())["cnt"]
 
-        # Revenu total des commandes complétées (exclut les achats par portefeuille pour éviter le double comptage avec les recharges)
-        # Revenu total des commandes complétées (exclut les achats par portefeuille pour éviter le double comptage avec les recharges)
+        # Revenu total des commandes complÃ©tÃ©es (exclut les achats par portefeuille pour Ã©viter le double comptage avec les recharges)
+        # Revenu total des commandes complÃ©tÃ©es (exclut les achats par portefeuille pour Ã©viter le double comptage avec les recharges)
         cursor = await db.execute(
             "SELECT COALESCE(SUM(amount_usd), 0) as total FROM orders WHERE status = 'COMPLETED' AND (payment_method IS NULL OR payment_method != 'wallet') AND created_at >= ?",
             (since,),
@@ -1093,7 +1093,7 @@ async def get_stats(days: int = 30, method: str = None) -> dict:
         )
         topup_revenue = (await cursor.fetchone())["total"]
 
-        # Admin deductions (refunds) — subtract from revenue
+        # Admin deductions (refunds) â€” subtract from revenue
         cursor = await db.execute(
             "SELECT COALESCE(SUM(amount), 0) as total FROM wallet_transactions WHERE type = 'purchase' AND description LIKE 'Admin debit%' AND created_at >= ?",
             (since,),
@@ -1102,7 +1102,7 @@ async def get_stats(days: int = 30, method: str = None) -> dict:
 
         total_revenue = float(order_revenue) + float(topup_revenue) - float(admin_deductions)
 
-        # Nombre de commandes complétées
+        # Nombre de commandes complÃ©tÃ©es
         cursor = await db.execute(
             "SELECT COUNT(*) as cnt FROM orders WHERE status = 'COMPLETED' AND created_at >= ?",
             (since,),
@@ -1217,7 +1217,7 @@ async def get_all_topups_filtered(
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[dict], int]:
-    """Retourne les wallet topups formatés comme des commandes pour le dashboard."""
+    """Retourne les wallet topups formatÃ©s comme des commandes pour le dashboard."""
     db = await get_db()
     try:
         # Count total topups (exclude admin credits & refunds)
@@ -1262,9 +1262,9 @@ async def get_all_topups_filtered(
         await db.close()
 
 
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║  WALLET                                                          ║
-# ╚══════════════════════════════════════════════════════════════════╝
+# â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
+# â•‘  WALLET                                                          â•‘
+# â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
 async def get_wallet_balance(telegram_id: int) -> float:
@@ -1284,7 +1284,7 @@ async def get_wallet_balance(telegram_id: int) -> float:
 
 
 async def topup_wallet(telegram_id: int, amount: float, description: str = "") -> float:
-    """Crédite le wallet et enregistre la transaction. Retourne le nouveau solde."""
+    """CrÃ©dite le wallet et enregistre la transaction. Retourne le nouveau solde."""
     db = await get_db()
     try:
         # Atomic update and fetch new balance
@@ -1321,7 +1321,7 @@ async def topup_wallet(telegram_id: int, amount: float, description: str = "") -
 
 
 async def deduct_wallet(telegram_id: int, amount: float, description: str = "") -> float:
-    """Débite le wallet. Lève ValueError si solde insuffisant. Retourne le nouveau solde."""
+    """DÃ©bite le wallet. LÃ¨ve ValueError si solde insuffisant. Retourne le nouveau solde."""
     db = await get_db()
     try:
         # Check current balance first to give a specific error message if user does not exist or has insufficient funds
@@ -1363,7 +1363,7 @@ async def deduct_wallet(telegram_id: int, amount: float, description: str = "") 
 
 
 async def get_wallet_transactions(telegram_id: int, limit: int = 20) -> list[dict]:
-    """Retourne les dernières transactions du wallet."""
+    """Retourne les derniÃ¨res transactions du wallet."""
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -1406,13 +1406,13 @@ async def get_all_wallet_transactions(
         await db.close()
 
 
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║  TICKETS DE SUPPORT                                              ║
-# ╚══════════════════════════════════════════════════════════════════╝
+# â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
+# â•‘  TICKETS DE SUPPORT                                              â•‘
+# â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
 async def create_ticket(telegram_id: int, message: str) -> int:
-    """Crée un ticket de support et retourne son identifiant."""
+    """CrÃ©e un ticket de support et retourne son identifiant."""
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -1426,7 +1426,7 @@ async def create_ticket(telegram_id: int, message: str) -> int:
 
 
 async def get_ticket(ticket_id: int) -> dict | None:
-    """Récupère un ticket de support par son identifiant."""
+    """RÃ©cupÃ¨re un ticket de support par son identifiant."""
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -1453,7 +1453,7 @@ async def get_user_tickets(telegram_id: int) -> list[dict]:
 
 
 async def get_open_tickets() -> list[dict]:
-    """Retourne tous les tickets ouverts (en attente de réponse admin)."""
+    """Retourne tous les tickets ouverts (en attente de rÃ©ponse admin)."""
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -1466,7 +1466,7 @@ async def get_open_tickets() -> list[dict]:
 
 
 async def reply_ticket(ticket_id: int, admin_reply: str) -> None:
-    """Enregistre la réponse d'un administrateur sur un ticket."""
+    """Enregistre la rÃ©ponse d'un administrateur sur un ticket."""
     db = await get_db()
     try:
         await db.execute(
@@ -1491,9 +1491,9 @@ async def close_ticket(ticket_id: int) -> None:
         await db.close()
 
 
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║  STATISTIQUES JOURNALIÈRES                                      ║
-# ╚══════════════════════════════════════════════════════════════════╝
+# â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
+# â•‘  STATISTIQUES JOURNALIÃˆRES                                      â•‘
+# â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
 async def get_daily_stats(days: int = 30) -> list[dict]:
@@ -1542,9 +1542,9 @@ async def get_daily_stats(days: int = 30) -> list[dict]:
         await db.close()
 
 
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║  GESTION UTILISATEURS (BAN)                                     ║
-# ╚══════════════════════════════════════════════════════════════════╝
+# â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
+# â•‘  GESTION UTILISATEURS (BAN)                                     â•‘
+# â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
 async def ban_user(telegram_id: int) -> None:
@@ -1562,7 +1562,7 @@ async def ban_user(telegram_id: int) -> None:
 
 
 async def unban_user(telegram_id: int) -> None:
-    """Débannit un utilisateur."""
+    """DÃ©bannit un utilisateur."""
     _USER_BANNED_CACHE[telegram_id] = False
     db = await get_db()
     try:
@@ -1576,7 +1576,7 @@ async def unban_user(telegram_id: int) -> None:
 
 
 async def is_user_banned(telegram_id: int) -> bool:
-    """Vérifie si un utilisateur est banni."""
+    """VÃ©rifie si un utilisateur est banni."""
     if telegram_id in _USER_BANNED_CACHE:
         return _USER_BANNED_CACHE[telegram_id]
     db = await get_db()
@@ -1593,13 +1593,13 @@ async def is_user_banned(telegram_id: int) -> bool:
         await db.close()
 
 
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║  PROTECTION ANTI-REPLAY TRANSACTIONS                             ║
-# ╚══════════════════════════════════════════════════════════════════╝
+# â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
+# â•‘  PROTECTION ANTI-REPLAY TRANSACTIONS                             â•‘
+# â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
 async def is_transaction_used(transaction_id: str) -> bool:
-    """Vérifie si un ID de transaction Binance a déjà été utilisé."""
+    """VÃ©rifie si un ID de transaction Binance a dÃ©jÃ  Ã©tÃ© utilisÃ©."""
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -1618,7 +1618,7 @@ async def record_used_transaction(
     user_telegram_id: int | None = None,
     amount: float | None = None,
 ) -> bool:
-    """Enregistre un ID de transaction comme utilisé. Retourne False si déjà utilisé."""
+    """Enregistre un ID de transaction comme utilisÃ©. Retourne False si dÃ©jÃ  utilisÃ©."""
     db = await get_db()
     try:
         try:
@@ -1635,9 +1635,9 @@ async def record_used_transaction(
         await db.close()
 
 
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║  CODES PROMO                                                     ║
-# ╚══════════════════════════════════════════════════════════════════╝
+# â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
+# â•‘  CODES PROMO                                                     â•‘
+# â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
 async def create_promo(
@@ -1650,7 +1650,7 @@ async def create_promo(
     max_qty_per_order: int = 0,
     expires_at: str | None = None,
 ) -> int:
-    """Crée un code promo et retourne son identifiant."""
+    """CrÃ©e un code promo et retourne son identifiant."""
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -1665,7 +1665,7 @@ async def create_promo(
 
 
 async def get_promo_by_code(code: str) -> dict | None:
-    """Récupère un code promo par son code texte."""
+    """RÃ©cupÃ¨re un code promo par son code texte."""
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -1676,7 +1676,7 @@ async def get_promo_by_code(code: str) -> dict | None:
         if not row:
             return None
         promo = dict(row)
-        # Vérifier expiration
+        # VÃ©rifier expiration
         if promo.get("expires_at"):
             from datetime import datetime as dt, timezone
             try:
@@ -1686,7 +1686,7 @@ async def get_promo_by_code(code: str) -> dict | None:
                     return None
             except (ValueError, TypeError):
                 pass
-        # Vérifier max uses
+        # VÃ©rifier max uses
         if promo["max_uses"] > 0 and promo["used_count"] >= promo["max_uses"]:
             return None
         return promo
@@ -1694,7 +1694,7 @@ async def get_promo_by_code(code: str) -> dict | None:
         await db.close()
 
 async def check_promo_usage(promo_id: int, user_telegram_id: int) -> bool:
-    """Vérifie si un utilisateur a le droit d'utiliser ce code (selon max_uses_per_user)."""
+    """VÃ©rifie si un utilisateur a le droit d'utiliser ce code (selon max_uses_per_user)."""
     from config import ADMIN_IDS
     if user_telegram_id in ADMIN_IDS:
         return True
@@ -1707,7 +1707,7 @@ async def check_promo_usage(promo_id: int, user_telegram_id: int) -> bool:
             return False
         max_per_user = row["max_uses_per_user"]
         if max_per_user <= 0:
-            return True # illimité
+            return True # illimitÃ©
         
         c = await db.execute("SELECT usage_count FROM promo_code_usages WHERE promo_code_id = ? AND user_telegram_id = ?", (promo_id, user_telegram_id))
         r = await c.fetchone()
@@ -1718,7 +1718,7 @@ async def check_promo_usage(promo_id: int, user_telegram_id: int) -> bool:
 
 
 async def increment_promo_usage(promo_id: int, user_telegram_id: int) -> None:
-    """Incrémente le compteur d'utilisation d'un code promo."""
+    """IncrÃ©mente le compteur d'utilisation d'un code promo."""
     db = await get_db()
     try:
         # 1. Update global count
@@ -1792,7 +1792,7 @@ async def delete_promo(promo_id: int) -> None:
 
 
 async def get_referred_users_count(telegram_id: int) -> int:
-    """Retourne le nombre d'utilisateurs parrainés par cet utilisateur."""
+    """Retourne le nombre d'utilisateurs parrainÃ©s par cet utilisateur."""
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -1806,7 +1806,7 @@ async def get_referred_users_count(telegram_id: int) -> int:
 
 async def process_referral_payout(order_id: int) -> None:
     """Calcule et verse la commission de parrainage de 5% (max $5.00 par filleul) au parrain."""
-    # Désactivé : le parrainage se base maintenant sur 20 invitations pour obtenir un lien gratuit via le support.
+    # DÃ©sactivÃ© : le parrainage se base maintenant sur 20 invitations pour obtenir un lien gratuit via le support.
     return
     db = await get_db()
     try:
@@ -1905,7 +1905,7 @@ async def process_referral_payout(order_id: int) -> None:
 
 
 async def is_bep20_transaction_used(tx_hash: str) -> bool:
-    """Vérifie si un Tx Hash BEP20 a déjà été utilisé."""
+    """VÃ©rifie si un Tx Hash BEP20 a dÃ©jÃ  Ã©tÃ© utilisÃ©."""
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -1924,7 +1924,7 @@ async def record_used_bep20_transaction(
     user_telegram_id: int | None = None,
     amount: float | None = None,
 ) -> bool:
-    """Enregistre un Tx Hash BEP20 comme utilisé. Retourne False si déjà utilisé."""
+    """Enregistre un Tx Hash BEP20 comme utilisÃ©. Retourne False si dÃ©jÃ  utilisÃ©."""
     db = await get_db()
     try:
         try:
@@ -1941,10 +1941,10 @@ async def record_used_bep20_transaction(
         await db.close()
 
 
-# ── settings CRUD ──────────────────────────────────────────────
+# â”€â”€ settings CRUD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async def get_setting(key: str) -> str | None:
-    """Retourne la valeur d'un paramètre ou None."""
+    """Retourne la valeur d'un paramÃ¨tre ou None."""
     db = await get_db()
     try:
         cursor = await db.execute("SELECT value FROM settings WHERE key = ?", (key,))
@@ -1955,7 +1955,7 @@ async def get_setting(key: str) -> str | None:
 
 
 async def set_setting(key: str, value: str) -> None:
-    """Enregistre ou met à jour un paramètre."""
+    """Enregistre ou met Ã  jour un paramÃ¨tre."""
     db = await get_db()
     try:
         await db.execute(
@@ -1967,10 +1967,10 @@ async def set_setting(key: str, value: str) -> None:
         await db.close()
 
 
-# ── TRC20 Transactions ──────────────────────────────────────────
+# â”€â”€ TRC20 Transactions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async def is_trc20_transaction_used(tx_hash: str) -> bool:
-    """Vérifie si un Tx Hash TRC20 a déjà été utilisé."""
+    """VÃ©rifie si un Tx Hash TRC20 a dÃ©jÃ  Ã©tÃ© utilisÃ©."""
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -1989,7 +1989,7 @@ async def record_used_trc20_transaction(
     user_telegram_id: int | None = None,
     amount: float | None = None,
 ) -> bool:
-    """Enregistre un Tx Hash TRC20 comme utilisé. Retourne False si déjà utilisé."""
+    """Enregistre un Tx Hash TRC20 comme utilisÃ©. Retourne False si dÃ©jÃ  utilisÃ©."""
     db = await get_db()
     try:
         try:
@@ -2075,7 +2075,7 @@ async def get_transactions_for_export(start_date: str, end_date: str):
                 'Type': r['type'],
                 'Client': client,
                 'Montant (USD)': float(r['amount']),
-                'Méthode': r['method'],
+                'MÃ©thode': r['method'],
                 'Identifiant': ident
             })
         return results
@@ -2083,260 +2083,4 @@ async def get_transactions_for_export(start_date: str, end_date: str):
         await db.close()
 
 
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║  VENTE DZ — Paramètres & commandes pour le site e-commerce DZ   ║
-# ╚══════════════════════════════════════════════════════════════════╝
-
-
-async def get_dz_settings() -> dict:
-    """Retourne les paramètres Vente DZ (taux, profit, clé API)."""
-    db = await get_db()
-    try:
-        result = {}
-        for key in ("dz_usd_to_dzd", "dz_profit_per_usd", "dz_oneclick_api_key"):
-            cursor = await db.execute("SELECT value FROM settings WHERE key = ?", (key,))
-            row = await cursor.fetchone()
-            result[key] = row["value"] if row else None
-        # Defaults
-        if result["dz_usd_to_dzd"] is None:
-            result["dz_usd_to_dzd"] = "250"
-        if result["dz_profit_per_usd"] is None:
-            result["dz_profit_per_usd"] = "100"
-        if result["dz_oneclick_api_key"] is None:
-            result["dz_oneclick_api_key"] = ""
-        return result
-    finally:
-        await db.close()
-
-
-async def set_dz_settings(usd_to_dzd: str, profit_per_usd: str, api_key: str) -> None:
-    """Met à jour les paramètres Vente DZ."""
-    db = await get_db()
-    try:
-        await db.execute(
-            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-            ("dz_usd_to_dzd", str(usd_to_dzd).strip()),
-        )
-        await db.execute(
-            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-            ("dz_profit_per_usd", str(profit_per_usd).strip()),
-        )
-        await db.execute(
-            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-            ("dz_oneclick_api_key", str(api_key).strip()),
-        )
-        await db.commit()
-    finally:
-        await db.close()
-
-
-async def get_dz_product_setting(product_id: int) -> dict | None:
-    """Retourne les paramètres DZ d'un produit ou None."""
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            "SELECT * FROM dz_product_settings WHERE product_id = ?", (product_id,)
-        )
-        row = await cursor.fetchone()
-        return dict(row) if row else None
-    finally:
-        await db.close()
-
-
-async def get_all_dz_product_settings() -> list[dict]:
-    """Retourne tous les paramètres DZ de tous les produits."""
-    db = await get_db()
-    try:
-        cursor = await db.execute("SELECT * FROM dz_product_settings ORDER BY product_id ASC")
-        rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        await db.close()
-
-
-async def upsert_dz_product_setting(
-    product_id: int,
-    is_visible: int = 0,
-    dz_description: str = "",
-    dz_image_url: str = "",
-    dz_profit: float = 0.0,
-) -> None:
-    """Insert ou met à jour les paramètres DZ d'un produit."""
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            "SELECT id FROM dz_product_settings WHERE product_id = ?", (product_id,)
-        )
-        existing = await cursor.fetchone()
-        if existing:
-            await db.execute(
-                "UPDATE dz_product_settings SET is_visible = ?, dz_description = ?, dz_image_url = ?, dz_profit = ? WHERE product_id = ?",
-                (is_visible, dz_description, dz_image_url, dz_profit, product_id),
-            )
-        else:
-            await db.execute(
-                "INSERT INTO dz_product_settings (product_id, is_visible, dz_description, dz_image_url, dz_profit) VALUES (?, ?, ?, ?, ?)",
-                (product_id, is_visible, dz_description, dz_image_url, dz_profit),
-            )
-        await db.commit()
-    finally:
-        await db.close()
-
-
-async def get_visible_dz_products() -> list[dict]:
-    """Retourne les produits visibles sur Vente DZ avec le nombre de stock."""
-    db = await get_db()
-    try:
-        cursor = await db.execute("""
-            SELECT p.*, dps.is_visible, dps.dz_description, dps.dz_image_url, dps.dz_profit,
-                   COALESCE(s.stock_count, 0) as stock_count
-            FROM products p
-            INNER JOIN dz_product_settings dps ON dps.product_id = p.id
-            LEFT JOIN (
-                SELECT product_id, COUNT(*) as stock_count
-                FROM stock_items WHERE is_sold = 0
-                GROUP BY product_id
-            ) s ON s.product_id = p.id
-            WHERE dps.is_visible = 1 AND p.is_active = 1 AND p.is_deleted = 0
-            ORDER BY p.id ASC
-        """)
-        rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        await db.close()
-
-
-async def get_visible_dz_product(product_id: int) -> dict | None:
-    """Retourne un produit visible sur Vente DZ avec le nombre de stock."""
-    db = await get_db()
-    try:
-        cursor = await db.execute("""
-            SELECT p.*, dps.is_visible, dps.dz_description, dps.dz_image_url, dps.dz_profit,
-                   COALESCE(s.stock_count, 0) as stock_count
-            FROM products p
-            INNER JOIN dz_product_settings dps ON dps.product_id = p.id
-            LEFT JOIN (
-                SELECT product_id, COUNT(*) as stock_count
-                FROM stock_items WHERE is_sold = 0
-                GROUP BY product_id
-            ) s ON s.product_id = p.id
-            WHERE dps.is_visible = 1 AND p.is_active = 1 AND p.is_deleted = 0
-              AND p.id = ?
-        """, (product_id,))
-        row = await cursor.fetchone()
-        return dict(row) if row else None
-    finally:
-        await db.close()
-
-
-async def create_dz_order(
-    product_id: int,
-    quantity: int,
-    amount_dzd: int,
-    amount_usd: float,
-    customer_name: str = "",
-    customer_phone: str = "",
-    payment_ref: str = "",
-    payment_url: str = "",
-) -> int:
-    """Crée une commande Vente DZ et retourne son identifiant."""
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            """INSERT INTO dz_orders
-               (product_id, quantity, amount_dzd, amount_usd, customer_name, customer_phone, payment_ref, payment_url)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (product_id, quantity, amount_dzd, amount_usd, customer_name, customer_phone, payment_ref, payment_url),
-        )
-        await db.commit()
-        return cursor.lastrowid
-    finally:
-        await db.close()
-
-
-async def get_dz_order_by_ref(payment_ref: str) -> dict | None:
-    """Retourne une commande DZ par sa référence de paiement."""
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            "SELECT * FROM dz_orders WHERE payment_ref = ?", (payment_ref,)
-        )
-        row = await cursor.fetchone()
-        return dict(row) if row else None
-    finally:
-        await db.close()
-
-
-async def update_dz_order_status(order_id: int, status: str) -> None:
-    """Met à jour le statut d'une commande DZ. Si CONFIRMED, enregistre paid_at."""
-    db = await get_db()
-    try:
-        if status == "CONFIRMED":
-            await db.execute(
-                "UPDATE dz_orders SET status = ?, paid_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (status, order_id),
-            )
-        else:
-            await db.execute(
-                "UPDATE dz_orders SET status = ? WHERE id = ?",
-                (status, order_id),
-            )
-        await db.commit()
-    finally:
-        await db.close()
-
-
-async def get_all_dz_orders(limit: int = 50, offset: int = 0) -> tuple[list[dict], int]:
-    """Retourne la liste paginée des commandes DZ avec le nom du produit."""
-    db = await get_db()
-    try:
-        # Total count
-        cursor = await db.execute("SELECT COUNT(*) as cnt FROM dz_orders")
-        row = await cursor.fetchone()
-        total = row["cnt"] if row else 0
-
-        cursor = await db.execute("""
-            SELECT o.*, p.name as product_name
-            FROM dz_orders o
-            LEFT JOIN products p ON p.id = o.product_id
-            ORDER BY o.created_at DESC
-            LIMIT ? OFFSET ?
-        """, (limit, offset))
-        rows = await cursor.fetchall()
-        return [dict(r) for r in rows], total
-    finally:
-        await db.close()
-
-
-async def deliver_dz_order(order_id: int, product_id: int, quantity: int) -> list[str]:
-    """Livre les comptes numériques pour une commande DZ.
-
-    Marque les stock_items comme vendus (FIFO) et retourne la liste des account_data.
-    Si le stock est insuffisant, livre partiellement avec ce qui est disponible.
-    """
-    db = await get_db()
-    try:
-        # 1. Get available stock items (FIFO)
-        cursor = await db.execute(
-            "SELECT id, account_data FROM stock_items WHERE product_id = ? AND is_sold = 0 ORDER BY added_at ASC LIMIT ?",
-            (product_id, quantity),
-        )
-        items = await cursor.fetchall()
-
-        if not items:
-            return []
-
-        # 2. Mark each as sold atomically
-        delivered = []
-        for item in items:
-            cursor = await db.execute(
-                "UPDATE stock_items SET is_sold = 1, sold_to_order_id = ?, sold_at = CURRENT_TIMESTAMP WHERE id = ? AND is_sold = 0",
-                (order_id, item["id"]),
-            )
-            if cursor.rowcount > 0:
-                delivered.append(item["account_data"])
-
-        await db.commit()
-        return delivered
-    finally:
-        await db.close()
+# â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
