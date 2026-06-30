@@ -959,11 +959,14 @@ async def update_order_status(order_id: int, status: str, **kwargs) -> None:
 
     # Trigger referral payout and promo usage outside the DB connection (they open their own)
     if status == "COMPLETED" and current_order and current_order.get("status") != "COMPLETED":
-        promo_id = current_order.get("promo_code_id")
-        if promo_id:
-            await increment_promo_usage(promo_id, current_order.get("user_telegram_id"))
-        # Trigger referral payout
-        await process_referral_payout(order_id)
+        try:
+            promo_id = current_order.get("promo_code_id")
+            if promo_id:
+                await increment_promo_usage(promo_id, current_order.get("user_telegram_id"))
+            # Trigger referral payout
+            await process_referral_payout(order_id)
+        except Exception as e:
+            logger.error("Error in post-completion triggers for order %s: %s", order_id, e)
 
 
 async def cancel_all_pending_orders(user_telegram_id: int) -> int:
@@ -1690,6 +1693,10 @@ async def get_promo_by_code(code: str) -> dict | None:
 
 async def check_promo_usage(promo_id: int, user_telegram_id: int) -> bool:
     """Vérifie si un utilisateur a le droit d'utiliser ce code (selon max_uses_per_user)."""
+    from config import ADMIN_IDS
+    if user_telegram_id in ADMIN_IDS:
+        return True
+
     db = await get_db()
     try:
         cursor = await db.execute("SELECT max_uses_per_user FROM promo_codes WHERE id = ?", (promo_id,))
