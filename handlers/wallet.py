@@ -23,7 +23,7 @@ from database.models import (
 )
 from services.binance_verify import verify_payment
 from utils.helpers import format_price
-from utils.keyboards import back_keyboard, main_menu_keyboard, wallet_topup_method_keyboard
+from utils.keyboards import back_keyboard, main_menu_keyboard, wallet_topup_method_keyboard, make_button
 from utils.locales import t
 
 logger = logging.getLogger(__name__)
@@ -44,14 +44,14 @@ def wallet_menu_keyboard(balance: float, lang: str = "fr") -> InlineKeyboardMark
             InlineKeyboardButton(t("wallet_topup", lang), callback_data="wallet_topup"),
             InlineKeyboardButton(t("wallet_history", lang), callback_data="wallet_history"),
         ],
-        [InlineKeyboardButton(t("btn_back", lang), callback_data="back_main")],
+        [make_button("btn_back", lang, callback_data="back_main")],
     ])
 
 
 def wallet_topup_amounts_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
     """Back button only — user types custom amount as free text."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(t("btn_back", lang), callback_data="back_wallet")],
+        [make_button("btn_back", lang, callback_data="back_wallet")],
     ])
 
 
@@ -447,7 +447,7 @@ async def wallet_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
             t("wallet_no_transactions", lang),
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton(t("btn_back", lang), callback_data="back_wallet")],
+                [make_button("btn_back", lang, callback_data="back_wallet")],
             ]),
         )
         return
@@ -464,7 +464,7 @@ async def wallet_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "\n".join(lines),
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton(t("btn_back", lang), callback_data="back_wallet")],
+            [make_button("btn_back", lang, callback_data="back_wallet")],
         ]),
     )
 

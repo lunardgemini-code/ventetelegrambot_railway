@@ -5,9 +5,56 @@ for all menus, product listings, payment flows, and admin panels.
 Multi-language support via lang parameter.
 """
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.constants import KeyboardButtonStyle
 from utils.locales import t
+import re
+
+CUSTOM_EMOJIS = {
+    "btn_buy": "5309801015015405183",
+    "btn_wallet": "5443127283898405358",
+    "btn_profile": "5373012449597335010",
+    "btn_history": "5305265301917549162",
+    "btn_support": "5443038326535759644",
+    "btn_referral": "5456140674028019486",
+    "btn_language": "6053275839821257175",
+    "btn_refresh": "5312361253610475399",
+    "btn_cancel": "5271934564699226262",
+    "btn_back": "5332348837405145999",
+    "btn_buy_now": "5312361253610475399",
+    "btn_pay_wallet": "5278223861404421915",
+}
+
+def clean_standard_emoji(text: str) -> str:
+    """Removes standard leading emojis and spaces from button label."""
+    return re.sub(r'^[🛒💳👤📜💬👥🌐↩️❌🔄⚡💸➕🎫🚀✅🪙\s]+', '', text)
+
+def make_button(text_key: str, lang: str = "fr", callback_data: str | None = None, url: str | None = None, style = None, custom_text: str | None = None) -> InlineKeyboardButton:
+    """Creates an InlineKeyboardButton with automatic animated emoji if configured."""
+    emoji_id = CUSTOM_EMOJIS.get(text_key)
+    label = custom_text if custom_text is not None else t(text_key, lang)
+    btn_kwargs = {}
+    if emoji_id:
+        btn_kwargs["icon_custom_emoji_id"] = emoji_id
+        label = clean_standard_emoji(label)
+    if style is not None:
+        btn_kwargs["style"] = style
+    if callback_data is not None:
+        return InlineKeyboardButton(label, callback_data=callback_data, **btn_kwargs)
+    elif url is not None:
+        return InlineKeyboardButton(label, url=url, **btn_kwargs)
+    else:
+        return InlineKeyboardButton(label, **btn_kwargs)
+
+def make_reply_button(text_key: str, lang: str = "fr") -> KeyboardButton:
+    """Creates a KeyboardButton with automatic animated emoji if configured."""
+    emoji_id = CUSTOM_EMOJIS.get(text_key)
+    label = t(text_key, lang)
+    btn_kwargs = {}
+    if emoji_id:
+        btn_kwargs["icon_custom_emoji_id"] = emoji_id
+        label = clean_standard_emoji(label)
+    return KeyboardButton(label, **btn_kwargs)
 
 
 # ──────────────────────────────────────────────
@@ -30,17 +77,17 @@ def language_keyboard() -> InlineKeyboardMarkup:
 def main_menu_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
     """Main menu shown after /start and on 'back_main'."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(t("btn_buy", lang), callback_data="menu_buy")],
-        [InlineKeyboardButton(t("btn_wallet", lang), callback_data="menu_wallet")],
+        [make_button("btn_buy", lang, callback_data="menu_buy")],
+        [make_button("btn_wallet", lang, callback_data="menu_wallet")],
         [
-            InlineKeyboardButton(t("btn_profile", lang), callback_data="menu_profile"),
-            InlineKeyboardButton(t("btn_history", lang), callback_data="menu_history"),
+            make_button("btn_profile", lang, callback_data="menu_profile"),
+            make_button("btn_history", lang, callback_data="menu_history"),
         ],
         [
-            InlineKeyboardButton(t("btn_support", lang), callback_data="menu_support"),
-            InlineKeyboardButton(t("btn_referral", lang), callback_data="show_referrals"),
+            make_button("btn_support", lang, callback_data="menu_support"),
+            make_button("btn_referral", lang, callback_data="show_referrals"),
         ],
-        [InlineKeyboardButton(t("btn_language", lang), callback_data="change_lang")],
+        [make_button("btn_language", lang, callback_data="change_lang")],
     ])
 
 
@@ -48,8 +95,8 @@ def reply_menu_keyboard(lang: str = "fr") -> ReplyKeyboardMarkup:
     """Persistent bottom keyboard with quick-access buttons in a 2x2 layout."""
     return ReplyKeyboardMarkup(
         [
-            [t("btn_start", lang), t("btn_products", lang)],
-            [t("btn_support", lang), t("btn_language", lang)],
+            [make_reply_button("btn_start", lang), make_reply_button("btn_products", lang)],
+            [make_reply_button("btn_support", lang), make_reply_button("btn_language", lang)],
         ],
         resize_keyboard=True,
         one_time_keyboard=False,
@@ -59,7 +106,7 @@ def reply_menu_keyboard(lang: str = "fr") -> ReplyKeyboardMarkup:
 def back_keyboard(callback_data: str, lang: str = "fr") -> InlineKeyboardMarkup:
     """Single back button pointing to *callback_data*."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(t("btn_back", lang), callback_data=callback_data)],
+        [make_button("btn_back", lang, callback_data=callback_data)],
     ])
 
 
@@ -67,8 +114,8 @@ def profile_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
     """Profile menu with Referral Program button."""
     ref_btn = {"fr": "👥 Programme de Parrainage", "en": "👥 Referral Program", "ar": "👥 برنامج الإحالة"}.get(lang, "👥 Programme de Parrainage")
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(ref_btn, callback_data="show_referrals")],
-        [InlineKeyboardButton(t("btn_back", lang), callback_data="back_main")],
+        [make_button("btn_referral", lang, callback_data="show_referrals", custom_text=ref_btn)],
+        [make_button("btn_back", lang, callback_data="back_main")],
     ])
 
 
@@ -85,7 +132,7 @@ def categories_keyboard(categories: list[dict], lang: str = "fr") -> InlineKeybo
         )]
         for cat in categories
     ]
-    buttons.append([InlineKeyboardButton(t("btn_back", lang), callback_data="back_main")])
+    buttons.append([make_button("btn_back", lang, callback_data="back_main")])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -120,8 +167,8 @@ def products_keyboard(products: list[dict], stock_counts: dict, lang: str = "fr"
         buttons.append([InlineKeyboardButton(label, callback_data=f"prod:{prod['id']}", **btn_kwargs)])
 
     buttons.append([
-        InlineKeyboardButton(t("btn_refresh", lang), callback_data="refresh_prods"),
-        InlineKeyboardButton(t("btn_back", lang), callback_data="back_main"),
+        make_button("btn_refresh", lang, callback_data="refresh_prods"),
+        make_button("btn_back", lang, callback_data="back_main"),
     ])
     return InlineKeyboardMarkup(buttons)
 
@@ -129,15 +176,15 @@ def products_keyboard(products: list[dict], stock_counts: dict, lang: str = "fr"
 def product_detail_keyboard(product_id: int, lang: str = "fr") -> InlineKeyboardMarkup:
     """Buy now + back to product list."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(t("btn_buy_now", lang), callback_data=f"buy:{product_id}")],
-        [InlineKeyboardButton(t("btn_back", lang), callback_data="back_products")],
+        [make_button("btn_buy_now", lang, callback_data=f"buy:{product_id}")],
+        [make_button("btn_back", lang, callback_data="back_products")],
     ])
 
 
 def quantity_keyboard(product_id: int, stock: int, lang: str = "fr") -> InlineKeyboardMarkup:
     """Back button only — user types quantity as free text."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(t("btn_back", lang), callback_data=f"prod:{product_id}")],
+        [make_button("btn_back", lang, callback_data=f"prod:{product_id}")],
     ])
 
 
@@ -153,7 +200,7 @@ async def payment_method_keyboard(order_id: int, lang: str = "fr", wallet_balanc
     
     # Always show wallet button
     label = t("btn_pay_wallet", lang).replace("${balance}", format_price(wallet_balance))
-    buttons.append([InlineKeyboardButton(label, callback_data=f"pay_wallet:{order_id}")])
+    buttons.append([make_button("btn_pay_wallet", lang, callback_data=f"pay_wallet:{order_id}", custom_text=label)])
     
     # Always show binance pay button
     binance_label = t("btn_pay_binance", lang).lstrip("◇ ").strip()
@@ -191,7 +238,7 @@ async def payment_method_keyboard(order_id: int, lang: str = "fr", wallet_balanc
         promo_btn_text = {"fr": "🎫 Code Promo", "en": "🎫 Promo Code", "ar": "🎫 كود الخصم"}.get(lang, "🎫 Code Promo")
         buttons.append([InlineKeyboardButton(promo_btn_text, callback_data=f"apply_promo:{order_id}")])
 
-    buttons.append([InlineKeyboardButton(t("btn_cancel", lang), callback_data=f"cancel_order:{order_id}")])
+    buttons.append([make_button("btn_cancel", lang, callback_data=f"cancel_order:{order_id}")])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -232,7 +279,7 @@ async def wallet_topup_method_keyboard(lang: str = "fr") -> InlineKeyboardMarkup
         }.get(lang, "◇ Payer avec TRC20 (USDT)")
         buttons.append([InlineKeyboardButton(trc20_btn_text, callback_data="topup_trc20")])
 
-    buttons.append([InlineKeyboardButton(t("btn_cancel", lang), callback_data="back_wallet")])
+    buttons.append([make_button("btn_cancel", lang, callback_data="back_wallet")])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -241,7 +288,7 @@ def bep20_payment_check_keyboard(order_id: int, lang: str = "fr") -> InlineKeybo
     btn_paid = {"fr": "✅ J'ai payé (Saisir Tx Hash)", "en": "✅ I paid (Enter Tx Hash)", "ar": "✅ لقد دفعت (أدخل Hash)"}.get(lang, "✅ J'ai payé")
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(btn_paid, callback_data=f"check_bep20:{order_id}")],
-        [InlineKeyboardButton(t("btn_cancel", lang), callback_data=f"cancel_order:{order_id}")],
+        [make_button("btn_cancel", lang, callback_data=f"cancel_order:{order_id}")],
     ])
 
 
@@ -250,14 +297,14 @@ def trc20_payment_check_keyboard(order_id: int, lang: str = "fr") -> InlineKeybo
     btn_paid = {"fr": "✅ J'ai payé (Saisir Tx Hash)", "en": "✅ I paid (Enter Tx Hash)", "ar": "✅ لقد دفعت (أدخل Hash)"}.get(lang, "✅ J'ai payé")
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(btn_paid, callback_data=f"check_trc20:{order_id}")],
-        [InlineKeyboardButton(t("btn_cancel", lang), callback_data=f"cancel_order:{order_id}")],
+        [make_button("btn_cancel", lang, callback_data=f"cancel_order:{order_id}")],
     ])
 
 
 def payment_check_keyboard(order_id: int, lang: str = "fr") -> InlineKeyboardMarkup:
     """Cancel order during payment."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(t("btn_cancel", lang), callback_data=f"cancel_order:{order_id}")],
+        [make_button("btn_cancel", lang, callback_data=f"cancel_order:{order_id}")],
     ])
 
 
@@ -283,7 +330,7 @@ def history_keyboard(orders: list[dict], page: int, total_pages: int, lang: str 
     if nav:
         buttons.append(nav)
 
-    buttons.append([InlineKeyboardButton(t("btn_back", lang), callback_data="back_main")])
+    buttons.append([make_button("btn_back", lang, callback_data="back_main")])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -313,7 +360,7 @@ def tickets_keyboard(tickets: list[dict], lang: str = "fr") -> InlineKeyboardMar
         )]
         for t_item in tickets
     ]
-    buttons.append([InlineKeyboardButton(t("btn_back", lang), callback_data="menu_support")])
+    buttons.append([make_button("btn_back", lang, callback_data="menu_support")])
     return InlineKeyboardMarkup(buttons)
 
 
