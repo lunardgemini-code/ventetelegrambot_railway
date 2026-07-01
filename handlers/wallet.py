@@ -41,8 +41,8 @@ def wallet_menu_keyboard(balance: float, lang: str = "fr") -> InlineKeyboardMark
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"{t('wallet_balance_lbl', lang)} {format_price(balance)}", callback_data="wallet_noop")],
         [
-            InlineKeyboardButton(t("wallet_topup", lang), callback_data="wallet_topup"),
-            InlineKeyboardButton(t("wallet_history", lang), callback_data="wallet_history"),
+            make_button("wallet_topup", lang, callback_data="wallet_topup"),
+            make_button("wallet_history", lang, callback_data="wallet_history"),
         ],
         [make_button("btn_back", lang, callback_data="back_main")],
     ])

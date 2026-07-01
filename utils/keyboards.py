@@ -24,6 +24,8 @@ CUSTOM_EMOJIS = {
     "btn_buy_now": "5312361253610475399",
     "btn_pay_wallet": "5278223861404421915",
     "btn_start": "5463156928307801722",
+    "wallet_topup": "5361656830944624968",
+    "wallet_history": "5305265301917549162",
 }
 
 def clean_standard_emoji(text: str) -> str:
