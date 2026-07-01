@@ -1101,6 +1101,39 @@ async def telegram_webhook(request: StarletteRequest, background_tasks: Backgrou
         return {"ok": False}
 
 
+async def get_emoji_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin-only command to get the HTML code of any custom emoji sent with the message."""
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Access denied.")
+        return
+
+    message = update.message
+    if not message:
+        return
+
+    custom_emojis = [
+        e for e in (message.entities or []) if e.type == "custom_emoji"
+    ]
+    
+    if not custom_emojis:
+        await message.reply_text(
+            "Veuillez envoyer cette commande suivie d'un emoji premium.\n"
+            "Exemple: `/getemoji` 🔥 (avec un emoji premium animé)",
+            parse_mode="Markdown"
+        )
+        return
+
+    response = "Voici le(s) code(s) HTML pour vos emojis custom :\n\n"
+    for entity in custom_emojis:
+        emoji_char = message.text[entity.offset:entity.offset+entity.length]
+        emoji_id = entity.custom_emoji_id
+        html_code = f"<code>&lt;tg-emoji emoji-id=\"{emoji_id}\"&gt;{emoji_char}&lt;/tg-emoji&gt;</code>"
+        response += f"Emoji {emoji_char} (ID: <code>{emoji_id}</code>) :\n{html_code}\n\n"
+
+    await message.reply_text(response, parse_mode="HTML")
+
+
 async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin-only command to manually force run database migrations and print output."""
     user_id = update.effective_user.id
@@ -1459,6 +1492,7 @@ def main() -> None:
     # ── Command handlers ─────────────────────────────────────────
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("run_migrations", run_migrations_command))
+    app.add_handler(CommandHandler("getemoji", get_emoji_command))
 
     # ── Callback query handlers ──────────────────────────────────
     app.add_handler(CallbackQueryHandler(callback_check_sub, pattern=r"^check_sub$"))

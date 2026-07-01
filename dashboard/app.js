@@ -1,39 +1,39 @@
-﻿// dashboard/app.js â€” VenteBot Admin Dashboard with all features
+// dashboard/app.js — VenteBot Admin Dashboard with all features
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  i18n TRANSLATIONS
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 const LANG = {
 fr: {
-    login_subtitle:"Console de Gestion Administrateur",login_url_label:"URL de l'API (optionnel)",login_url_hint:"Laissez vide pour le proxy Netlify",login_key_label:"ClÃ© d'API Administrateur",login_btn:"Se connecter",
-    nav_dashboard:"Dashboard",nav_inventory:"Catalogue & Stock",nav_orders:"Commandes",nav_users:"Utilisateurs",nav_tickets:"Tickets",nav_broadcast:"Broadcast",nav_settings:"ParamÃ¨tres",nav_ventedz:"Vente DZ",tab_ventedz:"Gestion Vente DZ",
-    admin_title:"Administrateur",status_connected:"ConnectÃ©",btn_logout:"DÃ©connexion",
-    tab_dashboard:"Tableau de Bord",tab_inventory:"Catalogue & Stock",tab_orders:"Suivi des Commandes",tab_users:"Gestion des Utilisateurs",tab_tickets:"Tickets Support",tab_broadcast:"Broadcast",tab_settings:"ParamÃ¨tres",
+    login_subtitle:"Console de Gestion Administrateur",login_url_label:"URL de l'API (optionnel)",login_url_hint:"Laissez vide pour le proxy Netlify",login_key_label:"Clé d'API Administrateur",login_btn:"Se connecter",
+    nav_dashboard:"Dashboard",nav_inventory:"Catalogue & Stock",nav_orders:"Commandes",nav_users:"Utilisateurs",nav_tickets:"Tickets",nav_broadcast:"Broadcast",nav_settings:"Paramètres",nav_ventedz:"Vente DZ",tab_ventedz:"Gestion Vente DZ",
+    admin_title:"Administrateur",status_connected:"Connecté",btn_logout:"Déconnexion",
+    tab_dashboard:"Tableau de Bord",tab_inventory:"Catalogue & Stock",tab_orders:"Suivi des Commandes",tab_users:"Gestion des Utilisateurs",tab_tickets:"Tickets Support",tab_broadcast:"Broadcast",tab_settings:"Paramètres",
     metric_revenue:"Revenus (30J)",metric_sales:"Ventes (30J)",metric_clients:"Clients",metric_initiated:"Commandes (30J)",
     chart_revenue:"Revenus quotidiens ($)",chart_orders:"Commandes quotidiennes",
-    stock_status:"Ã‰tat des Stocks",no_products:"Aucun produit configurÃ©.",
-    sub_products:"Produits",sub_categories:"CatÃ©gories",sub_promos:"Codes Promo",
+    stock_status:"État des Stocks",no_products:"Aucun produit configuré.",
+    sub_products:"Produits",sub_categories:"Catégories",sub_promos:"Codes Promo",
     all_products:"Tous les Produits",btn_add_product:"Ajouter",th_product:"Produit",th_price:"Prix",th_warranty:"Garantie",th_status:"Statut",
-    all_categories:"CatÃ©gories",btn_add_category:"Ajouter",no_categories:"Aucune catÃ©gorie.",
-    all_promos:"Codes Promo",btn_add_promo:"CrÃ©er un Code",no_promos:"Aucun code promo.",th_type:"Type",th_value:"Valeur",th_uses:"Utilisations",
-    orders_title:"Suivi des Commandes",filter_all:"Toutes",filter_pending:"En attente",filter_completed:"ComplÃ©tÃ©es",filter_cancelled:"AnnulÃ©es",filter_topup:"Top-up",no_orders:"Aucune commande.",th_binance_id:"ID Binance / Tx Hash",th_payment_method:"MÃ©thode",th_client:"Client",th_amount:"Montant",th_qty:"QtÃ©",wallet_topup:"ðŸ’° Wallet Top-up",
-    users_title:"Gestion des Utilisateurs",no_users:"Aucun utilisateur.",th_firstname:"PrÃ©nom",th_lang:"Langue",th_orders_count:"Commandes",th_spent:"DÃ©penses",th_joined:"Inscrit",th_referrer:"Parrain",th_referrals:"Filleuls",th_referral_earnings:"Gains Parrainage",users_show_count:"Afficher :",users_search_placeholder:"Rechercher par ID ou nom...",
+    all_categories:"Catégories",btn_add_category:"Ajouter",no_categories:"Aucune catégorie.",
+    all_promos:"Codes Promo",btn_add_promo:"Créer un Code",no_promos:"Aucun code promo.",th_type:"Type",th_value:"Valeur",th_uses:"Utilisations",
+    orders_title:"Suivi des Commandes",filter_all:"Toutes",filter_pending:"En attente",filter_completed:"Complétées",filter_cancelled:"Annulées",filter_topup:"Top-up",no_orders:"Aucune commande.",th_binance_id:"ID Binance / Tx Hash",th_payment_method:"Méthode",th_client:"Client",th_amount:"Montant",th_qty:"Qté",wallet_topup:"💰 Wallet Top-up",
+    users_title:"Gestion des Utilisateurs",no_users:"Aucun utilisateur.",th_firstname:"Prénom",th_lang:"Langue",th_orders_count:"Commandes",th_spent:"Dépenses",th_joined:"Inscrit",th_referrer:"Parrain",th_referrals:"Filleuls",th_referral_earnings:"Gains Parrainage",users_show_count:"Afficher :",users_search_placeholder:"Rechercher par ID ou nom...",
     tickets_title:"Tickets Support",no_tickets:"Aucun ticket. ðŸ¤",
-    broadcast_title:"Envoyer un Message Broadcast",broadcast_desc:"Ce message sera envoyÃ© Ã  tous les utilisateurs du bot.",broadcast_label:"Message (HTML supportÃ©) :",btn_send_broadcast:"Envoyer Ã  tous",
+    broadcast_title:"Envoyer un Message Broadcast",broadcast_desc:"Ce message sera envoyé à tous les utilisateurs du bot.",broadcast_label:"Message (HTML supporté) :",btn_send_broadcast:"Envoyer à tous",
     settings_title:"Configuration de l'API",settings_desc:"Synchronisation avec votre bot.",btn_save:"Enregistrer",
-    modal_add_cat:"Ajouter une CatÃ©gorie",modal_add_prod:"Ajouter un Produit",modal_add_promo:"CrÃ©er un Code Promo",
-    lbl_name:"Nom",lbl_category:"CatÃ©gorie",lbl_prod_name:"Nom du Produit",lbl_price:"Prix USD ($)",lbl_warranty:"Garantie (J)",lbl_discount_type:"Type",lbl_discount_value:"Valeur",lbl_max_uses:"Max utilisations",lbl_expires:"Expiration",
-    btn_cancel:"Annuler",btn_create_cat:"CrÃ©er",btn_create_prod:"CrÃ©er",btn_create_promo:"CrÃ©er",
-    stock_manage:"GÃ©rer le Stock",stock_add_label:"Ajouter des comptes (un par ligne) :",btn_add_stock:"Ajouter",btn_import_file:"Importer .txt",stock_existing:"Stock existant",stock_items_lbl:"articles",no_stock:"Aucun article.",
+    modal_add_cat:"Ajouter une Catégorie",modal_add_prod:"Ajouter un Produit",modal_add_promo:"Créer un Code Promo",
+    lbl_name:"Nom",lbl_category:"Catégorie",lbl_prod_name:"Nom du Produit",lbl_price:"Prix USD ($)",lbl_warranty:"Garantie (J)",lbl_discount_type:"Type",lbl_discount_value:"Valeur",lbl_max_uses:"Max utilisations",lbl_expires:"Expiration",
+    btn_cancel:"Annuler",btn_create_cat:"Créer",btn_create_prod:"Créer",btn_create_promo:"Créer",
+    stock_manage:"Gérer le Stock",stock_add_label:"Ajouter des comptes (un par ligne) :",btn_add_stock:"Ajouter",btn_import_file:"Importer .txt",stock_existing:"Stock existant",stock_items_lbl:"articles",no_stock:"Aucun article.",
     stock_in:"en stock",days:"jours",active:"Actif",inactive:"Inactif",
-    confirm_delete:"Supprimer ce produit ?",confirm_order:"Confirmer le paiement #",accounts_detected:"comptes dÃ©tectÃ©s",
-    available:"âœ“ Disponible",sold:"âœ— Vendu",no_desc:"Pas de description",btn_confirm:"Confirmer",reply_placeholder:"Votre rÃ©ponse...",btn_reply:"RÃ©pondre",
-    ban:"Bannir",unban:"DÃ©bannir",banned:"Banni",confirm_ban:"Bannir cet utilisateur ?",confirm_unban:"DÃ©bannir cet utilisateur ?",ban_modal_title:"Bannir l'utilisateur",ban_modal_desc:"Voulez-vous vraiment bannir cet utilisateur ?",ban_modal_notify:"Informer l'utilisateur qu'il a Ã©tÃ© banni",
-    broadcast_sent:"EnvoyÃ© : {sent}/{total}",broadcast_failed:"Ã‰checs : {failed}",unlimited:"IllimitÃ©",percent:"Pourcentage",fixed:"Montant fixe",
+    confirm_delete:"Supprimer ce produit ?",confirm_order:"Confirmer le paiement #",accounts_detected:"comptes détectés",
+    available:"✓ Disponible",sold:"✗ Vendu",no_desc:"Pas de description",btn_confirm:"Confirmer",reply_placeholder:"Votre réponse...",btn_reply:"Répondre",
+    ban:"Bannir",unban:"Débannir",banned:"Banni",confirm_ban:"Bannir cet utilisateur ?",confirm_unban:"Débannir cet utilisateur ?",ban_modal_title:"Bannir l'utilisateur",ban_modal_desc:"Voulez-vous vraiment bannir cet utilisateur ?",ban_modal_notify:"Informer l'utilisateur qu'il a été banni",
+    broadcast_sent:"Envoyé : {sent}/{total}",broadcast_failed:"Échecs : {failed}",unlimited:"Illimité",percent:"Pourcentage",fixed:"Montant fixe",
     nav_wallet_history:"Wallet History",wh_title:"Historique Wallet",wh_total_topups:"Total Recharges",wh_total_purchases:"Total Achats Wallet",wh_total_count:"Transactions",
-    wh_filter_topup:"Recharges",wh_filter_purchase:"Achats Wallet",wh_th_type:"Type",wh_th_balance_after:"Solde aprÃ¨s",wh_th_description:"Description",wh_no_tx:"Aucune transaction.",
-    th_payment_method:"MÃ©thode",pay_method_wallet:"ðŸ’° Wallet",pay_method_binance:"âš¡ Binance",pay_method_unknown:"â€”",
-    nav_finance:"Finance",tab_finance:"Suivi Financier",nav_binance:"Comptes Binance",tab_binance:"Gestion des Comptes Binance",settings_err:"Ã‰chec de l'opÃ©ration : "
+    wh_filter_topup:"Recharges",wh_filter_purchase:"Achats Wallet",wh_th_type:"Type",wh_th_balance_after:"Solde après",wh_th_description:"Description",wh_no_tx:"Aucune transaction.",
+    th_payment_method:"Méthode",pay_method_wallet:"💰 Wallet",pay_method_binance:"⚡ Binance",pay_method_unknown:"—",
+    nav_finance:"Finance",tab_finance:"Suivi Financier",nav_binance:"Comptes Binance",tab_binance:"Gestion des Comptes Binance",settings_err:"Échec de l'opération : "
 },
 en: {
     login_subtitle:"Admin Management Console",login_url_label:"API URL (optional)",login_url_hint:"Leave empty for Netlify proxy",login_key_label:"Admin API Key",login_btn:"Connect",
@@ -47,7 +47,7 @@ en: {
     all_products:"All Products",btn_add_product:"Add",th_product:"Product",th_price:"Price",th_warranty:"Warranty",th_status:"Status",
     all_categories:"Categories",btn_add_category:"Add",no_categories:"No categories.",
     all_promos:"Promo Codes",btn_add_promo:"Create Code",no_promos:"No promo codes.",th_type:"Type",th_value:"Value",th_uses:"Uses",
-    orders_title:"Order Tracking",filter_all:"All",filter_pending:"Pending",filter_completed:"Completed",filter_cancelled:"Cancelled",filter_topup:"Top-up",no_orders:"No orders.",th_client:"Client",th_amount:"Amount",th_qty:"Qty",wallet_topup:"ðŸ’° Wallet Top-up",
+    orders_title:"Order Tracking",filter_all:"All",filter_pending:"Pending",filter_completed:"Completed",filter_cancelled:"Cancelled",filter_topup:"Top-up",no_orders:"No orders.",th_client:"Client",th_amount:"Amount",th_qty:"Qty",wallet_topup:"💰 Wallet Top-up",
     users_title:"User Management",no_users:"No users.",th_firstname:"First Name",th_lang:"Language",th_orders_count:"Orders",th_spent:"Spent",th_joined:"Joined",th_referrer:"Referrer",th_referrals:"Referrals",th_referral_earnings:"Referral Earnings",users_show_count:"Show:",users_search_placeholder:"Search by ID or name...",
     tickets_title:"Support Tickets",no_tickets:"No pending tickets. ðŸ¤",
     broadcast_title:"Send Broadcast Message",broadcast_desc:"This message will be sent to all bot users.",broadcast_label:"Message (HTML supported):",btn_send_broadcast:"Send to all",
@@ -58,44 +58,44 @@ en: {
     stock_manage:"Manage Stock",stock_add_label:"Add accounts (one per line):",btn_add_stock:"Add",btn_import_file:"Import .txt",stock_existing:"Existing Stock",stock_items_lbl:"items",no_stock:"No stock items.",
     stock_in:"in stock",days:"days",active:"Active",inactive:"Inactive",
     confirm_delete:"Delete this product?",confirm_order:"Confirm payment #",accounts_detected:"accounts detected",
-    available:"âœ“ Available",sold:"âœ— Sold",no_desc:"No description",btn_confirm:"Confirm",reply_placeholder:"Your reply...",btn_reply:"Reply",
+    available:"✓ Available",sold:"✗ Sold",no_desc:"No description",btn_confirm:"Confirm",reply_placeholder:"Your reply...",btn_reply:"Reply",
     ban:"Ban",unban:"Unban",banned:"Banned",confirm_ban:"Ban this user?",confirm_unban:"Unban this user?",ban_modal_title:"Ban User",ban_modal_desc:"Are you sure you want to ban this user?",ban_modal_notify:"Inform the user they have been banned",
     broadcast_sent:"Sent: {sent}/{total}",broadcast_failed:"Failed: {failed}",unlimited:"Unlimited",percent:"Percentage",fixed:"Fixed amount",
     nav_wallet_history:"Wallet History",wh_title:"Wallet History",wh_total_topups:"Total Top-ups",wh_total_purchases:"Total Wallet Purchases",wh_total_count:"Transactions",
     wh_filter_topup:"Top-ups",wh_filter_purchase:"Wallet Purchases",wh_th_type:"Type",wh_th_balance_after:"Balance after",wh_th_description:"Description",wh_no_tx:"No transactions.",
-    th_payment_method:"Method",pay_method_wallet:"ðŸ’° Wallet",pay_method_binance:"âš¡ Binance",pay_method_unknown:"â€”",
+    th_payment_method:"Method",pay_method_wallet:"💰 Wallet",pay_method_binance:"⚡ Binance",pay_method_unknown:"—",
     nav_finance:"Finance",tab_finance:"Financial Tracking",nav_binance:"Binance Accounts",tab_binance:"Binance Accounts Management",settings_err:"Operation failed: "
 },
 ar: {
-    login_subtitle:"Ù„ÙˆØ­Ø© Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù…Ø´Ø±Ù",login_url_label:"Ø±Ø§Ø¨Ø· API (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)",login_url_hint:"Ø§ØªØ±ÙƒÙ‡ ÙØ§Ø±ØºØ§Ù‹ Ù„Ø¨Ø±ÙˆÙƒØ³ÙŠ Netlify",login_key_label:"Ù…ÙØªØ§Ø­ API Ù„Ù„Ù…Ø´Ø±Ù",login_btn:"Ø§ØªØµØ§Ù„",
-    nav_dashboard:"Ù„ÙˆØ­Ø© Ø§Ù„ØªØ­ÙƒÙ…",nav_inventory:"Ø§Ù„ÙƒØªØ§Ù„ÙˆØ¬ ÙˆØ§Ù„Ù…Ø®Ø²ÙˆÙ†",nav_orders:"Ø§Ù„Ø·Ù„Ø¨Ø§Øª",nav_users:"Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…ÙŠÙ†",nav_tickets:"Ø§Ù„ØªØ°Ø§ÙƒØ±",nav_broadcast:"Ø§Ù„Ø¨Ø«",nav_settings:"Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª",nav_ventedz:"Vente DZ",tab_ventedz:"Ø¥Ø¯Ø§Ø±Ø© Vente DZ",
-    admin_title:"Ø§Ù„Ù…Ø´Ø±Ù",status_connected:"Ù…ØªØµÙ„",btn_logout:"Ø®Ø±ÙˆØ¬",
-    tab_dashboard:"Ù„ÙˆØ­Ø© Ø§Ù„ØªØ­ÙƒÙ…",tab_inventory:"Ø§Ù„ÙƒØªØ§Ù„ÙˆØ¬ ÙˆØ§Ù„Ù…Ø®Ø²ÙˆÙ†",tab_orders:"ØªØªØ¨Ø¹ Ø§Ù„Ø·Ù„Ø¨Ø§Øª",tab_users:"Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…ÙŠÙ†",tab_tickets:"ØªØ°Ø§ÙƒØ± Ø§Ù„Ø¯Ø¹Ù…",tab_broadcast:"Ø§Ù„Ø¨Ø«",tab_settings:"Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª",
-    metric_revenue:"Ø§Ù„Ø¥ÙŠØ±Ø§Ø¯Ø§Øª (30 ÙŠÙˆÙ…)",metric_sales:"Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª (30 ÙŠÙˆÙ…)",metric_clients:"Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡",metric_initiated:"Ø§Ù„Ø·Ù„Ø¨Ø§Øª (30 ÙŠÙˆÙ…)",
-    chart_revenue:"Ø§Ù„Ø¥ÙŠØ±Ø§Ø¯Ø§Øª Ø§Ù„ÙŠÙˆÙ…ÙŠØ© ($)",chart_orders:"Ø§Ù„Ø·Ù„Ø¨Ø§Øª Ø§Ù„ÙŠÙˆÙ…ÙŠØ©",
-    stock_status:"Ø­Ø§Ù„Ø© Ø§Ù„Ù…Ø®Ø²ÙˆÙ†",no_products:"Ù„Ù… ÙŠØªÙ… ØªÙƒÙˆÙŠÙ† Ù…Ù†ØªØ¬Ø§Øª.",
-    sub_products:"Ø§Ù„Ù…Ù†ØªØ¬Ø§Øª",sub_categories:"Ø§Ù„ÙØ¦Ø§Øª",sub_promos:"Ø£ÙƒÙˆØ§Ø¯ Ø§Ù„Ø®ØµÙ…",
-    all_products:"Ø¬Ù…ÙŠØ¹ Ø§Ù„Ù…Ù†ØªØ¬Ø§Øª",btn_add_product:"Ø¥Ø¶Ø§ÙØ©",th_product:"Ø§Ù„Ù…Ù†ØªØ¬",th_price:"Ø§Ù„Ø³Ø¹Ø±",th_warranty:"Ø§Ù„Ø¶Ù…Ø§Ù†",th_status:"Ø§Ù„Ø­Ø§Ù„Ø©",
-    all_categories:"Ø§Ù„ÙØ¦Ø§Øª",btn_add_category:"Ø¥Ø¶Ø§ÙØ©",no_categories:"Ù„Ø§ ØªÙˆØ¬Ø¯ ÙØ¦Ø§Øª.",
-    all_promos:"Ø£ÙƒÙˆØ§Ø¯ Ø§Ù„Ø®ØµÙ…",btn_add_promo:"Ø¥Ù†Ø´Ø§Ø¡ ÙƒÙˆØ¯",no_promos:"Ù„Ø§ ØªÙˆØ¬Ø¯ Ø£ÙƒÙˆØ§Ø¯ Ø®ØµÙ….",th_type:"Ø§Ù„Ù†ÙˆØ¹",th_value:"Ø§Ù„Ù‚ÙŠÙ…Ø©",th_uses:"Ø§Ù„Ø§Ø³ØªØ®Ø¯Ø§Ù…Ø§Øª",
-    orders_title:"ØªØªØ¨Ø¹ Ø§Ù„Ø·Ù„Ø¨Ø§Øª",filter_all:"Ø§Ù„ÙƒÙ„",filter_pending:"Ù‚ÙŠØ¯ Ø§Ù„Ø§Ù†ØªØ¸Ø§Ø±",filter_completed:"Ù…ÙƒØªÙ…Ù„Ø©",filter_cancelled:"Ù…Ù„ØºØ§Ø©",filter_topup:"Ø´Ø­Ù†",no_orders:"Ù„Ø§ ØªÙˆØ¬Ø¯ Ø·Ù„Ø¨Ø§Øª.",th_client:"Ø§Ù„Ø¹Ù…ÙŠÙ„",th_amount:"Ø§Ù„Ù…Ø¨Ù„Øº",th_qty:"Ø§Ù„ÙƒÙ…ÙŠØ©",wallet_topup:"ðŸ’° Ø´Ø­Ù† Ø§Ù„Ù…Ø­ÙØ¸Ø©",
-    users_title:"Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…ÙŠÙ†",no_users:"Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ù…Ø³ØªØ®Ø¯Ù…ÙˆÙ†.",th_firstname:"Ø§Ù„Ø§Ø³Ù…",th_lang:"Ø§Ù„Ù„ØºØ©",th_orders_count:"Ø§Ù„Ø·Ù„Ø¨Ø§Øª",th_spent:"Ø§Ù„Ù…ØµØ±ÙˆÙØ§Øª",th_joined:"Ø§Ù„ØªØ³Ø¬ÙŠÙ„",th_referrer:"Ø§Ù„Ù…Ø±Ø¬Ø¹",th_referrals:"Ø§Ù„Ø¥Ø­Ø§Ù„Ø§Øª",th_referral_earnings:"Ø£Ø±Ø¨Ø§Ø­ Ø§Ù„Ø¥Ø­Ø§Ù„Ø©",users_show_count:"Ø¹Ø±Ø¶:",users_search_placeholder:"Ø¨Ø­Ø« Ø¨Ø§Ù„Ù…Ø¹Ø±Ù Ø£Ùˆ Ø§Ù„Ø§Ø³Ù…...",
-    tickets_title:"ØªØ°Ø§ÙƒØ± Ø§Ù„Ø¯Ø¹Ù…",no_tickets:"Ù„Ø§ ØªÙˆØ¬Ø¯ ØªØ°Ø§ÙƒØ± Ù…Ø¹Ù„Ù‚Ø©. ðŸ¤",
-    broadcast_title:"Ø¥Ø±Ø³Ø§Ù„ Ø±Ø³Ø§Ù„Ø© Ø¨Ø«",broadcast_desc:"Ø³ØªÙØ±Ø³Ù„ Ù‡Ø°Ù‡ Ø§Ù„Ø±Ø³Ø§Ù„Ø© Ù„Ø¬Ù…ÙŠØ¹ Ù…Ø³ØªØ®Ø¯Ù…ÙŠ Ø§Ù„Ø¨ÙˆØª.",broadcast_label:"Ø§Ù„Ø±Ø³Ø§Ù„Ø© (ÙŠØ¯Ø¹Ù… HTML):",btn_send_broadcast:"Ø¥Ø±Ø³Ø§Ù„ Ù„Ù„Ø¬Ù…ÙŠØ¹",
-    settings_title:"Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª API",settings_desc:"Ø§Ù„Ù…Ø²Ø§Ù…Ù†Ø© Ù…Ø¹ Ø§Ù„Ø¨ÙˆØª.",btn_save:"Ø­ÙØ¸",
-    modal_add_cat:"Ø¥Ø¶Ø§ÙØ© ÙØ¦Ø©",modal_add_prod:"Ø¥Ø¶Ø§ÙØ© Ù…Ù†ØªØ¬",modal_add_promo:"Ø¥Ù†Ø´Ø§Ø¡ ÙƒÙˆØ¯ Ø®ØµÙ…",
-    lbl_name:"Ø§Ù„Ø§Ø³Ù…",lbl_category:"Ø§Ù„ÙØ¦Ø©",lbl_prod_name:"Ø§Ø³Ù… Ø§Ù„Ù…Ù†ØªØ¬",lbl_price:"Ø§Ù„Ø³Ø¹Ø± ($)",lbl_warranty:"Ø§Ù„Ø¶Ù…Ø§Ù† (Ø£ÙŠØ§Ù…)",lbl_discount_type:"Ø§Ù„Ù†ÙˆØ¹",lbl_discount_value:"Ø§Ù„Ù‚ÙŠÙ…Ø©",lbl_max_uses:"Ø§Ù„Ø­Ø¯ Ø§Ù„Ø£Ù‚ØµÙ‰",lbl_expires:"Ø§Ù†ØªÙ‡Ø§Ø¡ Ø§Ù„ØµÙ„Ø§Ø­ÙŠØ©",
-    btn_cancel:"Ø¥Ù„ØºØ§Ø¡",btn_create_cat:"Ø¥Ù†Ø´Ø§Ø¡",btn_create_prod:"Ø¥Ù†Ø´Ø§Ø¡",btn_create_promo:"Ø¥Ù†Ø´Ø§Ø¡",
-    stock_manage:"Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù…Ø®Ø²ÙˆÙ†",stock_add_label:"Ø£Ø¶Ù Ø­Ø³Ø§Ø¨Ø§Øª (ÙˆØ§Ø­Ø¯ ÙÙŠ ÙƒÙ„ Ø³Ø·Ø±):",btn_add_stock:"Ø¥Ø¶Ø§ÙØ©",btn_import_file:"Ø§Ø³ØªÙŠØ±Ø§Ø¯ .txt",stock_existing:"Ø§Ù„Ù…Ø®Ø²ÙˆÙ† Ø§Ù„Ø­Ø§Ù„ÙŠ",stock_items_lbl:"Ø¹Ù†Ø§ØµØ±",no_stock:"Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¹Ù†Ø§ØµØ±.",
-    stock_in:"ÙÙŠ Ø§Ù„Ù…Ø®Ø²ÙˆÙ†",days:"Ø£ÙŠØ§Ù…",active:"Ù†Ø´Ø·",inactive:"ØºÙŠØ± Ù†Ø´Ø·",
-    confirm_delete:"Ø­Ø°Ù Ù‡Ø°Ø§ Ø§Ù„Ù…Ù†ØªØ¬ØŸ",confirm_order:"ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ø¯ÙØ¹ #",accounts_detected:"Ø­Ø³Ø§Ø¨Ø§Øª Ù…ÙƒØªØ´ÙØ©",
-    available:"âœ“ Ù…ØªØ§Ø­",sold:"âœ— Ù…Ø¨Ø§Ø¹",no_desc:"Ø¨Ø¯ÙˆÙ† ÙˆØµÙ",btn_confirm:"ØªØ£ÙƒÙŠØ¯",reply_placeholder:"Ø±Ø¯Ùƒ...",btn_reply:"Ø±Ø¯",
-    ban:"Ø­Ø¸Ø±",unban:"Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ø­Ø¸Ø±",banned:"Ù…Ø­Ø¸ÙˆØ±",confirm_ban:"Ø­Ø¸Ø± Ù‡Ø°Ø§ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…ØŸ",confirm_unban:"Ø¥Ù„ØºØ§Ø¡ Ø­Ø¸Ø± Ù‡Ø°Ø§ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…ØŸ",ban_modal_title:"Ø­Ø¸Ø± Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…",ban_modal_desc:"Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ø£Ù†Ùƒ ØªØ±ÙŠØ¯ Ø­Ø¸Ø± Ù‡Ø°Ø§ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…ØŸ",ban_modal_notify:"Ø¥Ø¨Ù„Ø§Øº Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… Ø¨Ø£Ù†Ù‡ ØªÙ… Ø­Ø¸Ø±Ù‡",
-    broadcast_sent:"Ø£ÙØ±Ø³Ù„: {sent}/{total}",broadcast_failed:"ÙØ´Ù„: {failed}",unlimited:"ØºÙŠØ± Ù…Ø­Ø¯ÙˆØ¯",percent:"Ù†Ø³Ø¨Ø© Ù…Ø¦ÙˆÙŠØ©",fixed:"Ù…Ø¨Ù„Øº Ø«Ø§Ø¨Øª",
-    nav_wallet_history:"Ø³Ø¬Ù„ Ø§Ù„Ù…Ø­ÙØ¸Ø©",wh_title:"Ø³Ø¬Ù„ Ø§Ù„Ù…Ø­ÙØ¸Ø©",wh_total_topups:"Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø´Ø­Ù†Ø§Øª",wh_total_purchases:"Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ù…Ø´ØªØ±ÙŠØ§Øª Ø§Ù„Ø±ØµÙŠØ¯",wh_total_count:"Ø§Ù„Ù…Ø¹Ø§Ù…Ù„Ø§Øª",
-    wh_filter_topup:"Ø§Ù„Ø´Ø­Ù†Ø§Øª",wh_filter_purchase:"Ù…Ø´ØªØ±ÙŠØ§Øª Ø§Ù„Ø±ØµÙŠØ¯",wh_th_type:"Ø§Ù„Ù†ÙˆØ¹",wh_th_balance_after:"Ø§Ù„Ø±ØµÙŠØ¯ Ø¨Ø¹Ø¯",wh_th_description:"Ø§Ù„ÙˆØµÙ",wh_no_tx:"Ù„Ø§ ØªÙˆØ¬Ø¯ Ù…Ø¹Ø§Ù…Ù„Ø§Øª.",
-    th_payment_method:"Ø§Ù„Ø·Ø±ÙŠÙ‚Ø©",pay_method_wallet:"ðŸ’° Ø§Ù„Ù…Ø­ÙØ¸Ø©",pay_method_binance:"âš¡ Binance",pay_method_unknown:"â€”",
-    nav_finance:"Ø§Ù„Ù…Ø§Ù„ÙŠØ©",tab_finance:"Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø© Ø§Ù„Ù…Ø§Ù„ÙŠØ©",nav_binance:"Ø­Ø³Ø§Ø¨Ø§Øª Binance",tab_binance:"Ø¥Ø¯Ø§Ø±Ø© Ø­Ø³Ø§Ø¨Ø§Øª Binance",settings_err:"ÙØ´Ù„Øª Ø§Ù„Ø¹Ù…Ù„ÙŠØ©: "
+    login_subtitle:"Ù„Ùˆحة إدارة Ø§Ù„Ù…Ø´Ø±Ù",login_url_label:"رابط API (اختياري)",login_url_hint:"Ø§ØªØ±Ùƒه ÙØ§Ø±ØºØ§Ù‹ Ù„Ø¨Ø±ÙˆÙƒسي Netlify",login_key_label:"Ù…ÙØªØ§Ø­ API Ù„Ù„Ù…Ø´Ø±Ù",login_btn:"اتصال",
+    nav_dashboard:"Ù„Ùˆحة Ø§Ù„ØªØ­Ùƒم",nav_inventory:"Ø§Ù„ÙƒØªØ§Ù„Ùˆج ÙˆØ§Ù„Ù…Ø®Ø²Ùˆن",nav_orders:"الطلبات",nav_users:"المستخدمين",nav_tickets:"Ø§Ù„ØªØ°Ø§Ùƒر",nav_broadcast:"البث",nav_settings:"الإعدادات",nav_ventedz:"Vente DZ",tab_ventedz:"إدارة Vente DZ",
+    admin_title:"Ø§Ù„Ù…Ø´Ø±Ù",status_connected:"متصل",btn_logout:"Ø®Ø±Ùˆج",
+    tab_dashboard:"Ù„Ùˆحة Ø§Ù„ØªØ­Ùƒم",tab_inventory:"Ø§Ù„ÙƒØªØ§Ù„Ùˆج ÙˆØ§Ù„Ù…Ø®Ø²Ùˆن",tab_orders:"تتبع الطلبات",tab_users:"إدارة المستخدمين",tab_tickets:"ØªØ°Ø§Ùƒر الدعم",tab_broadcast:"البث",tab_settings:"الإعدادات",
+    metric_revenue:"الإيرادات (30 ÙŠÙˆم)",metric_sales:"المبيعات (30 ÙŠÙˆم)",metric_clients:"العملاء",metric_initiated:"الطلبات (30 ÙŠÙˆم)",
+    chart_revenue:"الإيرادات Ø§Ù„ÙŠÙˆمية ($)",chart_orders:"الطلبات Ø§Ù„ÙŠÙˆمية",
+    stock_status:"حالة Ø§Ù„Ù…Ø®Ø²Ùˆن",no_products:"لم يتم ØªÙƒÙˆين منتجات.",
+    sub_products:"المنتجات",sub_categories:"Ø§Ù„ÙØ¦Ø§Øª",sub_promos:"Ø£ÙƒÙˆاد الخصم",
+    all_products:"جميع المنتجات",btn_add_product:"Ø¥Ø¶Ø§ÙØ©",th_product:"المنتج",th_price:"السعر",th_warranty:"الضمان",th_status:"الحالة",
+    all_categories:"Ø§Ù„ÙØ¦Ø§Øª",btn_add_category:"Ø¥Ø¶Ø§ÙØ©",no_categories:"لا ØªÙˆجد ÙØ¦Ø§Øª.",
+    all_promos:"Ø£ÙƒÙˆاد الخصم",btn_add_promo:"إنشاء ÙƒÙˆد",no_promos:"لا ØªÙˆجد Ø£ÙƒÙˆاد خصم.",th_type:"Ø§Ù„Ù†Ùˆع",th_value:"القيمة",th_uses:"الاستخدامات",
+    orders_title:"تتبع الطلبات",filter_all:"Ø§Ù„Ùƒل",filter_pending:"قيد الانتظار",filter_completed:"Ù…Ùƒتملة",filter_cancelled:"ملغاة",filter_topup:"شحن",no_orders:"لا ØªÙˆجد طلبات.",th_client:"العميل",th_amount:"المبلغ",th_qty:"Ø§Ù„Ùƒمية",wallet_topup:"💰 شحن Ø§Ù„Ù…Ø­ÙØ¸Ø©",
+    users_title:"إدارة المستخدمين",no_users:"لا ÙŠÙˆجد Ù…Ø³ØªØ®Ø¯Ù…Ùˆن.",th_firstname:"الاسم",th_lang:"اللغة",th_orders_count:"الطلبات",th_spent:"Ø§Ù„Ù…ØµØ±ÙˆÙØ§Øª",th_joined:"التسجيل",th_referrer:"المرجع",th_referrals:"الإحالات",th_referral_earnings:"أرباح الإحالة",users_show_count:"عرض:",users_search_placeholder:"بحث Ø¨Ø§Ù„Ù…Ø¹Ø±Ù أو الاسم...",
+    tickets_title:"ØªØ°Ø§Ùƒر الدعم",no_tickets:"لا ØªÙˆجد ØªØ°Ø§Ùƒر معلقة. ðŸ¤",
+    broadcast_title:"إرسال رسالة بث",broadcast_desc:"Ø³ØªÙØ±Ø³Ù„ هذه الرسالة لجميع مستخدمي Ø§Ù„Ø¨Ùˆت.",broadcast_label:"الرسالة (يدعم HTML):",btn_send_broadcast:"إرسال للجميع",
+    settings_title:"إعدادات API",settings_desc:"المزامنة مع Ø§Ù„Ø¨Ùˆت.",btn_save:"Ø­ÙØ¸",
+    modal_add_cat:"Ø¥Ø¶Ø§ÙØ© ÙØ¦Ø©",modal_add_prod:"Ø¥Ø¶Ø§ÙØ© منتج",modal_add_promo:"إنشاء ÙƒÙˆد خصم",
+    lbl_name:"الاسم",lbl_category:"Ø§Ù„ÙØ¦Ø©",lbl_prod_name:"اسم المنتج",lbl_price:"السعر ($)",lbl_warranty:"الضمان (أيام)",lbl_discount_type:"Ø§Ù„Ù†Ùˆع",lbl_discount_value:"القيمة",lbl_max_uses:"الحد الأقصى",lbl_expires:"انتهاء الصلاحية",
+    btn_cancel:"إلغاء",btn_create_cat:"إنشاء",btn_create_prod:"إنشاء",btn_create_promo:"إنشاء",
+    stock_manage:"إدارة Ø§Ù„Ù…Ø®Ø²Ùˆن",stock_add_label:"Ø£Ø¶Ù حسابات (Ùˆاحد ÙÙŠ Ùƒل سطر):",btn_add_stock:"Ø¥Ø¶Ø§ÙØ©",btn_import_file:"استيراد .txt",stock_existing:"Ø§Ù„Ù…Ø®Ø²Ùˆن الحالي",stock_items_lbl:"عناصر",no_stock:"لا ØªÙˆجد عناصر.",
+    stock_in:"ÙÙŠ Ø§Ù„Ù…Ø®Ø²Ùˆن",days:"أيام",active:"نشط",inactive:"غير نشط",
+    confirm_delete:"Ø­Ø°Ù هذا المنتج؟",confirm_order:"ØªØ£Ùƒيد Ø§Ù„Ø¯ÙØ¹ #",accounts_detected:"حسابات Ù…ÙƒØªØ´ÙØ©",
+    available:"✓ متاح",sold:"✗ مباع",no_desc:"Ø¨Ø¯Ùˆن ÙˆØµÙ",btn_confirm:"ØªØ£Ùƒيد",reply_placeholder:"ردك...",btn_reply:"رد",
+    ban:"حظر",unban:"إلغاء الحظر",banned:"Ù…Ø­Ø¸Ùˆر",confirm_ban:"حظر هذا المستخدم؟",confirm_unban:"إلغاء حظر هذا المستخدم؟",ban_modal_title:"حظر المستخدم",ban_modal_desc:"هل أنت Ù…ØªØ£Ùƒد أنك تريد حظر هذا المستخدم؟",ban_modal_notify:"إبلاغ المستخدم بأنه تم حظره",
+    broadcast_sent:"Ø£ÙØ±Ø³Ù„: {sent}/{total}",broadcast_failed:"ÙØ´Ù„: {failed}",unlimited:"غير Ù…Ø­Ø¯Ùˆد",percent:"نسبة Ù…Ø¦Ùˆية",fixed:"مبلغ ثابت",
+    nav_wallet_history:"سجل Ø§Ù„Ù…Ø­ÙØ¸Ø©",wh_title:"سجل Ø§Ù„Ù…Ø­ÙØ¸Ø©",wh_total_topups:"إجمالي الشحنات",wh_total_purchases:"إجمالي مشتريات الرصيد",wh_total_count:"المعاملات",
+    wh_filter_topup:"الشحنات",wh_filter_purchase:"مشتريات الرصيد",wh_th_type:"Ø§Ù„Ù†Ùˆع",wh_th_balance_after:"الرصيد بعد",wh_th_description:"Ø§Ù„ÙˆØµÙ",wh_no_tx:"لا ØªÙˆجد معاملات.",
+    th_payment_method:"الطريقة",pay_method_wallet:"💰 Ø§Ù„Ù…Ø­ÙØ¸Ø©",pay_method_binance:"⚡ Binance",pay_method_unknown:"—",
+    nav_finance:"المالية",tab_finance:"المتابعة المالية",nav_binance:"حسابات Binance",tab_binance:"إدارة حسابات Binance",settings_err:"ÙØ´Ù„Øª العملية: "
 }
 };
 
@@ -276,10 +276,21 @@ function setupEvents() {
         const sel = $('promo-products');
         sel.innerHTML = '';
         state.products.forEach(p => {
-            const opt = document.createElement('option');
-            opt.value = p.id;
-            opt.textContent = p.name;
-            sel.appendChild(opt);
+            const lbl = document.createElement('label');
+            lbl.style.display = 'flex';
+            lbl.style.alignItems = 'center';
+            lbl.style.gap = '8px';
+            lbl.style.cursor = 'pointer';
+            lbl.style.margin = '0';
+            
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.value = p.id;
+            cb.className = 'promo-product-cb';
+            
+            lbl.appendChild(cb);
+            lbl.appendChild(document.createTextNode(' ' + p.name));
+            sel.appendChild(lbl);
         });
         showModal(DOM.promoModal);
     });
@@ -372,7 +383,7 @@ function setupEvents() {
     });
 }
 
-// â”€â”€ Particle Generator Utility â”€â”€
+// ── Particle Generator Utility ──
 function createParticleBurst(x, y) {
     const count = 15;
     const colors = ['#6366f1', '#ec4899', '#a78bfa', '#f59e0b', '#10b981'];
@@ -431,7 +442,7 @@ async function testConnectionAndStart() {
         showScreen('app'); refreshData(); startAutoRefresh();
     } catch(e) {
         showScreen('login'); DOM.botUrlInput.value = state.botUrl; DOM.loginError.classList.remove('hidden');
-        let msg = e.message==='TIMEOUT' ? 'â± Timeout â€” rÃ©essayez dans 30s' : e.message==='API_KEY_INVALID' ? 'ðŸ”‘ ClÃ© API invalide' : `âŒ ${e.message}`;
+        let msg = e.message==='TIMEOUT' ? 'â± Timeout — réessayez dans 30s' : e.message==='API_KEY_INVALID' ? '🔑 Clé API invalide' : `âŒ ${e.message}`;
         DOM.loginError.innerHTML = msg;
     } finally { showLoading(false); }
 }
@@ -477,7 +488,7 @@ async function loadBinanceAccounts() {
         // Populate dropdown in product modal
         if (DOM.prodBinanceAccount) {
             const currentVal = DOM.prodBinanceAccount.value;
-            DOM.prodBinanceAccount.innerHTML = '<option value="">-- Par dÃ©faut --</option>' +
+            DOM.prodBinanceAccount.innerHTML = '<option value="">-- Par défaut --</option>' +
                 accounts.map(a => `<option value="${a.id}">${escapeHtml(a.label)} (${escapeHtml(a.uid)})</option>`).join('');
             DOM.prodBinanceAccount.value = currentVal; // Restore selection if any
         }
@@ -527,20 +538,20 @@ async function loadCharts() {
     } catch(e) { console.warn('Charts failed:', e); }
 }
 
-// Categories removed â€” products shown directly
+// Categories removed — products shown directly
 
 async function loadProducts() {
     const prods = await apiCall('/api/products'); state.products = prods;
     if (prods.length > 0) {
         DOM.productsTableBody.innerHTML = prods.map(p => `<tr>
-            <td><div class="prod-badge"><span class="prod-emoji">${p.emoji||'ðŸ“¦'}</span><strong>${p.name}</strong></div></td>
+            <td><div class="prod-badge"><span class="prod-emoji">${p.emoji||'📦'}</span><strong>${p.name}</strong></div></td>
             <td>$${parseFloat(p.price_usd).toFixed(2)}</td><td>${p.warranty_days||0} ${t('days')}</td>
             <td><span class="stock-count-badge ${p.stock===0?'empty':p.stock<3?'low':'ok'}">${p.stock}</span></td>
             <td><span class="status-dot ${p.is_active?'online':''}"></span> ${p.is_active?t('active'):t('inactive')}</td>
-            <td><button class="btn-table-action" onclick="openEditProduct(${p.id})" title="Modifier" style="color:#3b82f6;"><i class="fa-solid fa-pen"></i></button><button class="btn-table-action" onclick="viewProductStock(${p.id},'${(p.emoji||'ðŸ“¦').replace(/'/g,'\\\'')}','${p.name.replace(/'/g,'\\\'')}')" title="Voir stock" style="color:#f59e0b;"><i class="fa-solid fa-eye"></i></button><button class="btn-table-action stock" onclick="openStockModal(${p.id},'${(p.emoji||'ðŸ“¦').replace(/'/g,'\\\'')}','${p.name.replace(/'/g,'\\\'')}')" title="${t('stock_manage')}"><i class="fa-solid fa-warehouse"></i></button><button class="btn-table-action" onclick="openTiersModal(${p.id},'${p.name.replace(/'/g,'\\\'')}',${parseFloat(p.price_usd).toFixed(2)})" title="Tarifs" style="color:#a78bfa;"><i class="fa-solid fa-tags"></i></button><button class="btn-table-action delete" onclick="deleteProduct(${p.id})"><i class="fa-solid fa-trash-can"></i></button></td>
+            <td><button class="btn-table-action" onclick="openEditProduct(${p.id})" title="Modifier" style="color:#3b82f6;"><i class="fa-solid fa-pen"></i></button><button class="btn-table-action" onclick="viewProductStock(${p.id},'${(p.emoji||'📦').replace(/'/g,'\\\'')}','${p.name.replace(/'/g,'\\\'')}')" title="Voir stock" style="color:#f59e0b;"><i class="fa-solid fa-eye"></i></button><button class="btn-table-action stock" onclick="openStockModal(${p.id},'${(p.emoji||'📦').replace(/'/g,'\\\'')}','${p.name.replace(/'/g,'\\\'')}')" title="${t('stock_manage')}"><i class="fa-solid fa-warehouse"></i></button><button class="btn-table-action" onclick="openTiersModal(${p.id},'${p.name.replace(/'/g,'\\\'')}',${parseFloat(p.price_usd).toFixed(2)})" title="Tarifs" style="color:#a78bfa;"><i class="fa-solid fa-tags"></i></button><button class="btn-table-action delete" onclick="deleteProduct(${p.id})"><i class="fa-solid fa-trash-can"></i></button></td>
         </tr>`).join('');
         if (DOM.broadcastBtnProductId) {
-            DOM.broadcastBtnProductId.innerHTML = prods.map(p => `<option value="${p.id}">${p.emoji||'ðŸ“¦'} ${p.name}</option>`).join('');
+            DOM.broadcastBtnProductId.innerHTML = prods.map(p => `<option value="${p.id}">${p.emoji||'📦'} ${p.name}</option>`).join('');
         }
     } else {
         DOM.productsTableBody.innerHTML = `<tr><td colspan="6" class="empty-state">${t('no_products')}</td></tr>`;
@@ -566,13 +577,13 @@ async function loadAllOrders() {
             const prod = !isTopup ? state.products.find(p=>p.id===o.product_id) : null;
             let pn = isTopup ? t('wallet_topup') : (prod ? `${prod.emoji} ${prod.name}` : `#${o.product_id}`);
             if (!isTopup && !prod && o.product_name) {
-                pn = `${o.product_emoji || 'ðŸ“¦'} ${o.product_name}${o.product_is_deleted ? ' (SupprimÃ©)' : ''}`;
+                pn = `${o.product_emoji || '📦'} ${o.product_name}${o.product_is_deleted ? ' (Supprimé)' : ''}`;
             }
             const d = parseUTCDate(o.created_at).toLocaleDateString();
             const uname = o.username ? `@${o.username}` : (o.user_first_name || o.user_telegram_id);
-            const orderNo = o.merchant_trade_no || 'â€”';
+            const orderNo = o.merchant_trade_no || '—';
             // Payment method badge
-            let payMethod = 'â€”';
+            let payMethod = '—';
             if (isTopup) {
                 payMethod = `<span class="pay-method-badge wallet">${t('pay_method_wallet')}</span>`;
             } else if (o.payment_method === 'wallet') {
@@ -588,9 +599,9 @@ async function loadAllOrders() {
             } else if (o.status === 'PENDING' || o.status === 'AWAITING_PAYMENT') {
                 actions = `<button class="btn-table-action" onclick="confirmOrderPayment(${o.id})" title="Confirmer" style="color:#22c55e;"><i class="fa-solid fa-check"></i></button> <button class="btn-table-action" onclick="cancelOrder(${o.id})" title="Annuler" style="color:#ef4444;"><i class="fa-solid fa-xmark"></i></button>`;
             } else if (o.status === 'COMPLETED') {
-                actions = `<button class="btn-table-action" onclick="openOrderDetail(${o.id})" title="Voir les articles livrÃ©s" style="color:#22c55e;"><i class="fa-solid fa-eye"></i></button>`;
+                actions = `<button class="btn-table-action" onclick="openOrderDetail(${o.id})" title="Voir les articles livrés" style="color:#22c55e;"><i class="fa-solid fa-eye"></i></button>`;
             } else {
-                actions = 'â€”';
+                actions = '—';
             }
             let statusHtml = o.status;
             if (!isTopup && (o.status === 'PENDING' || o.status === 'AWAITING_PAYMENT')) {
@@ -604,7 +615,7 @@ async function loadAllOrders() {
                     const lS = left % 60;
                     statusHtml += `<br><span style="font-size:0.7rem; color:var(--color-text-muted); display:block; margin-top:4px;">Depuis ${eM}m ${eS}s<br>Reste ${lM}m ${lS}s</span>`;
                 } else {
-                    statusHtml += `<br><span style="font-size:0.7rem; color:var(--color-error); display:block; margin-top:4px;">ExpirÃ© (Depuis ${eM}m ${eS}s)</span>`;
+                    statusHtml += `<br><span style="font-size:0.7rem; color:var(--color-error); display:block; margin-top:4px;">Expiré (Depuis ${eM}m ${eS}s)</span>`;
                 }
 
                 if (o.status === 'AWAITING_PAYMENT' && o.binance_order_id) {
@@ -612,12 +623,12 @@ async function loadAllOrders() {
                 }
             }
 
-            let displayBId = o.binance_order_id || 'â€”';
-            if (displayBId.length > 15 && displayBId !== 'â€”') {
+            let displayBId = o.binance_order_id || '—';
+            if (displayBId.length > 15 && displayBId !== '—') {
                 displayBId = `<span title="${o.binance_order_id}" style="cursor:help; border-bottom: 1px dotted rgba(255,255,255,0.5);">${o.binance_order_id.substring(0, 3)}...${o.binance_order_id.substring(o.binance_order_id.length - 4)}</span>`;
             }
 
-            return `<tr><td><strong>#${o.id}</strong></td><td><code>${orderNo}</code></td><td><code>${displayBId}</code></td><td>${uname}</td><td>${pn}</td><td>$${parseFloat(o.amount_usd).toFixed(2)}</td><td>${isTopup ? 'â€”' : (o.quantity||1)}</td><td>${payMethod}</td><td><div class="status-badge ${o.status.toLowerCase()}">${statusHtml}</div></td><td>${d}</td><td>${actions}</td></tr>`;
+            return `<tr><td><strong>#${o.id}</strong></td><td><code>${orderNo}</code></td><td><code>${displayBId}</code></td><td>${uname}</td><td>${pn}</td><td>$${parseFloat(o.amount_usd).toFixed(2)}</td><td>${isTopup ? '—' : (o.quantity||1)}</td><td>${payMethod}</td><td><div class="status-badge ${o.status.toLowerCase()}">${statusHtml}</div></td><td>${d}</td><td>${actions}</td></tr>`;
         }).join('');
     } else DOM.ordersTableBody.innerHTML = `<tr><td colspan="11" class="empty-state" data-i18n="no_orders">Aucune commande.</td></tr>`;
     const tp = Math.max(1, Math.ceil(r.total/20));
@@ -648,21 +659,21 @@ async function loadWalletHistory() {
     if (txs.length > 0) {
         DOM.whTableBody.innerHTML = txs.map(tx => {
             const uname = tx.username ? `@${tx.username}` : (tx.user_first_name || tx.user_telegram_id);
-            const d = tx.created_at ? parseUTCDate(tx.created_at).toLocaleString() : 'â€”';
+            const d = tx.created_at ? parseUTCDate(tx.created_at).toLocaleString() : '—';
             const isTopup = tx.type === 'topup';
             const typeLabel = isTopup
-                ? `<span class="status-badge completed" style="background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.3);">âž• Recharge</span>`
-                : `<span class="status-badge" style="background:rgba(99,102,241,0.15);color:#818cf8;border:1px solid rgba(99,102,241,0.3);">ðŸ›’ Achat</span>`;
+                ? `<span class="status-badge completed" style="background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.3);">➕ Recharge</span>`
+                : `<span class="status-badge" style="background:rgba(99,102,241,0.15);color:#818cf8;border:1px solid rgba(99,102,241,0.3);">🛒 Achat</span>`;
             const amountColor = isTopup ? '#22c55e' : '#ef4444';
             const amountSign = isTopup ? '+' : '-';
-            const desc = tx.description || 'â€”';
+            const desc = tx.description || '—';
             const balAfter = parseFloat(tx.balance_after||0).toFixed(2);
             return `<tr>
                 <td><strong>#${tx.id}</strong></td>
                 <td>${uname}</td>
                 <td>${typeLabel}</td>
                 <td style="color:${amountColor};font-weight:600;">${amountSign}$${parseFloat(tx.amount||0).toFixed(2)}</td>
-                <td>ðŸ’° $${balAfter}</td>
+                <td>💰 $${balAfter}</td>
                 <td style="font-size:0.82rem;color:var(--color-text-muted);">${desc}</td>
                 <td style="font-size:0.82rem;">${d}</td>
             </tr>`;
@@ -679,7 +690,7 @@ async function loadTickets() {
     const tks = await apiCall('/api/tickets'); state.tickets = tks;
     if (tks.length > 0) {
         DOM.badgeTickets.textContent = tks.length; DOM.badgeTickets.classList.remove('hidden');
-        DOM.openTicketsContainer.innerHTML = tks.map(tk => `<div class="ticket-card glass-panel animate-slide"><div class="ticket-header"><h3>ðŸŽ« #${tk.id}</h3><p>ðŸ‘¤ <code>${tk.user_telegram_id}</code></p></div><div class="ticket-message"><p>${tk.message}</p></div><form class="ticket-reply-form" onsubmit="submitTicketReply(event,${tk.id})"><div class="form-group"><input type="text" placeholder="${t('reply_placeholder')}" required></div><button type="submit" class="btn-primary btn-send-reply"><i class="fa-solid fa-paper-plane"></i></button></form></div>`).join('');
+        DOM.openTicketsContainer.innerHTML = tks.map(tk => `<div class="ticket-card glass-panel animate-slide"><div class="ticket-header"><h3>🎫 #${tk.id}</h3><p>👤 <code>${tk.user_telegram_id}</code></p></div><div class="ticket-message"><p>${tk.message}</p></div><form class="ticket-reply-form" onsubmit="submitTicketReply(event,${tk.id})"><div class="form-group"><input type="text" placeholder="${t('reply_placeholder')}" required></div><button type="submit" class="btn-primary btn-send-reply"><i class="fa-solid fa-paper-plane"></i></button></form></div>`).join('');
     } else { DOM.badgeTickets.classList.add('hidden'); DOM.openTicketsContainer.innerHTML = `<p class="empty-state">${t('no_tickets')}</p>`; }
 }
 
@@ -695,12 +706,12 @@ async function loadUsers() {
         if (r.users.length > 0) {
             DOM.usersTableBody.innerHTML = r.users.map(u => {
                 const banned = u.is_banned;
-                const d = u.created_at ? parseUTCDate(u.created_at).toLocaleDateString() : 'â€”';
+                const d = u.created_at ? parseUTCDate(u.created_at).toLocaleDateString() : '—';
                 const wb = parseFloat(u.wallet_balance||0).toFixed(2);
-                const refBy = u.referred_by ? `<code>${u.referred_by}</code>` : 'â€”';
+                const refBy = u.referred_by ? `<code>${u.referred_by}</code>` : '—';
                 const refCount = u.referrals_count || 0;
                 const refEarnings = parseFloat(u.referral_earnings||0).toFixed(2);
-                return `<tr><td><code>${u.telegram_id}</code></td><td>${u.username||'â€”'}</td><td>${u.first_name||'â€”'}</td><td>${u.language||'fr'}</td><td>${u.total_orders||0}</td><td>$${parseFloat(u.total_spent||0).toFixed(2)}</td><td>ðŸ’° $${wb}</td><td>${refBy}</td><td>${refCount}</td><td>ðŸ’° $${refEarnings}</td><td>${d}</td><td><button class="btn-table-action" onclick="creditWallet(${u.telegram_id})" title="CrÃ©diter" style="color:#22c55e;"><i class="fa-solid fa-circle-plus"></i></button> <button class="btn-table-action" onclick="debitWallet(${u.telegram_id})" title="Retirer" style="color:#ef4444;"><i class="fa-solid fa-circle-minus"></i></button> ${banned?`<span class="status-badge banned">${t('banned')}</span> <button class="btn-table-action unban" onclick="unbanUser(${u.telegram_id})"><i class="fa-solid fa-lock-open"></i></button>`:`<button class="btn-table-action ban" onclick="banUser(${u.telegram_id})"><i class="fa-solid fa-ban"></i></button>`}</td></tr>`;
+                return `<tr><td><code>${u.telegram_id}</code></td><td>${u.username||'—'}</td><td>${u.first_name||'—'}</td><td>${u.language||'fr'}</td><td>${u.total_orders||0}</td><td>$${parseFloat(u.total_spent||0).toFixed(2)}</td><td>💰 $${wb}</td><td>${refBy}</td><td>${refCount}</td><td>💰 $${refEarnings}</td><td>${d}</td><td><button class="btn-table-action" onclick="creditWallet(${u.telegram_id})" title="Créditer" style="color:#22c55e;"><i class="fa-solid fa-circle-plus"></i></button> <button class="btn-table-action" onclick="debitWallet(${u.telegram_id})" title="Retirer" style="color:#ef4444;"><i class="fa-solid fa-circle-minus"></i></button> ${banned?`<span class="status-badge banned">${t('banned')}</span> <button class="btn-table-action unban" onclick="unbanUser(${u.telegram_id})"><i class="fa-solid fa-lock-open"></i></button>`:`<button class="btn-table-action ban" onclick="banUser(${u.telegram_id})"><i class="fa-solid fa-ban"></i></button>`}</td></tr>`;
             }).join('');
         } else {
             DOM.usersTableBody.innerHTML = `<tr><td colspan="12" class="empty-state">${t('no_users')}</td></tr>`;
@@ -725,7 +736,7 @@ async function loadPromos() {
                 let usesLabel = p.max_uses > 0 ? `${p.used_count}/${p.max_uses}` : `${p.used_count} (${t('unlimited')})`;
                 if (p.max_uses_per_user > 0) usesLabel += ` <br><small>(${p.max_uses_per_user}/user)</small>`;
                 if (p.max_qty_per_order > 0) usesLabel += ` <br><small>(Max ${p.max_qty_per_order}/cmd)</small>`;
-                if (p.applicable_product_ids) usesLabel += ` <br><small>(Produits limitÃ©s)</small>`;
+                if (p.applicable_product_ids) usesLabel += ` <br><small>(Produits limités)</small>`;
                 const active = p.is_active ? 'active-promo' : 'expired';
                 return `<tr><td><strong>${p.code}</strong></td><td>${p.discount_type==='percent'?t('percent'):t('fixed')}</td><td>${p.discount_value}${typeLabel}</td><td>${usesLabel}</td><td><span class="status-badge ${active}">${p.is_active?t('active'):t('inactive')}</span></td><td><button class="btn-table-action delete" onclick="deletePromo(${p.id})"><i class="fa-solid fa-trash-can"></i></button></td></tr>`;
             }).join('');
@@ -737,7 +748,7 @@ async function loadPromos() {
 //  ACTIONS
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-async function handleAddPromo(e) { e.preventDefault(); showLoading(true); try { const applicable_product_ids = Array.from($('promo-products').selectedOptions).map(o => o.value).join(','); await apiCall('/api/promos','POST',{code:$('promo-code').value.trim(),discount_type:$('promo-type').value,discount_value:$('promo-value').value,max_uses:$('promo-max').value||0,max_uses_per_user:$('promo-max-user').value||0,max_qty_per_order:$('promo-max-qty').value||0,applicable_product_ids:applicable_product_ids,expires_at:$('promo-expires').value||null}); hideModal(DOM.promoModal); DOM.addPromoForm.reset(); await refreshData(); } catch(e){alert(e.message);} finally{showLoading(false);} }
+async function handleAddPromo(e) { e.preventDefault(); showLoading(true); try { const applicable_product_ids = Array.from(document.querySelectorAll('.promo-product-cb:checked')).map(o => o.value).join(','); await apiCall('/api/promos','POST',{code:$('promo-code').value.trim(),discount_type:$('promo-type').value,discount_value:$('promo-value').value,max_uses:$('promo-max').value||0,max_uses_per_user:$('promo-max-user').value||0,max_qty_per_order:$('promo-max-qty').value||0,applicable_product_ids:applicable_product_ids,expires_at:$('promo-expires').value||null}); hideModal(DOM.promoModal); DOM.addPromoForm.reset(); await refreshData(); } catch(e){alert(e.message);} finally{showLoading(false);} }
 
 window.deleteProduct = async function(id) { if(!confirm(t('confirm_delete'))) return; showLoading(true); try{await apiCall(`/api/products/${id}`,'DELETE'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
 window.deletePromo = async function(id) { showLoading(true); try{await apiCall(`/api/promos/${id}`,'DELETE'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
@@ -751,7 +762,7 @@ let _tiersProductId = null;
 
 window.openTiersModal = async function(productId, productName, basePrice) {
     _tiersProductId = productId;
-    $('tiers-modal-title').textContent = `Tarifs â€” ${productName} (base: $${basePrice})`;
+    $('tiers-modal-title').textContent = `Tarifs — ${productName} (base: $${basePrice})`;
     const container = $('tiers-rows-container');
     container.innerHTML = '<p style="color:var(--color-text-muted);font-size:0.85rem;">Chargement...</p>';
     showModal(DOM.tiersModal);
@@ -774,8 +785,8 @@ function _addTierRow(container, min, max, price) {
     row.className = 'tier-row';
     row.innerHTML = `
         <div class="form-row" style="align-items:flex-end;gap:0.5rem;margin-bottom:0.5rem;">
-            <div class="form-group" style="flex:1;margin-bottom:0;"><label style="font-size:0.75rem;">Min QtÃ©</label><input type="number" class="tier-min" value="${min}" min="1"></div>
-            <div class="form-group" style="flex:1;margin-bottom:0;"><label style="font-size:0.75rem;">Max QtÃ©</label><input type="number" class="tier-max" value="${max}" min="1"></div>
+            <div class="form-group" style="flex:1;margin-bottom:0;"><label style="font-size:0.75rem;">Min Qté</label><input type="number" class="tier-min" value="${min}" min="1"></div>
+            <div class="form-group" style="flex:1;margin-bottom:0;"><label style="font-size:0.75rem;">Max Qté</label><input type="number" class="tier-max" value="${max}" min="1"></div>
             <div class="form-group" style="flex:1;margin-bottom:0;"><label style="font-size:0.75rem;">Prix/u ($)</label><input type="number" step="0.01" class="tier-price" value="${parseFloat(price).toFixed(2)}"></div>
             <button type="button" class="btn-table-action delete" onclick="this.closest('.tier-row').remove()" style="margin-bottom:0.3rem;"><i class="fa-solid fa-trash-can"></i></button>
         </div>`;
@@ -798,7 +809,7 @@ $('btn-save-tiers').addEventListener('click', async () => {
         const max = parseInt(row.querySelector('.tier-max').value);
         const price = parseFloat(row.querySelector('.tier-price').value);
         if (isNaN(min)||isNaN(max)||isNaN(price)||min<=0||max<min||price<0) {
-            alert('VÃ©rifiez les valeurs des paliers (min â‰¤ max, prix â‰¥ 0).');
+            alert('Vérifiez les valeurs des paliers (min ≤ max, prix ≥ 0).');
             return;
         }
         tiers.push({min_qty:min, max_qty:max, price_usd:price});
@@ -828,18 +839,18 @@ window.openOrderDetail = async function(orderId) {
         const prod = order ? state.products.find(p => p.id === order.product_id) : null;
         let pn = prod ? `${prod.emoji} ${prod.name}` : (order ? `#${order.product_id}` : '?');
         if (order && !prod && order.product_name) {
-            pn = `${order.product_emoji || 'ðŸ“¦'} ${order.product_name}${order.product_is_deleted ? ' (SupprimÃ©)' : ''}`;
+            pn = `${order.product_emoji || '📦'} ${order.product_name}${order.product_is_deleted ? ' (Supprimé)' : ''}`;
         }
         const uname = order ? (order.username ? `@${order.username}` : (order.user_first_name || order.user_telegram_id)) : '?';
         
         $('order-detail-info').innerHTML = `
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;font-size:0.88rem;">
-                <div>ðŸ‘¤ <strong>Client :</strong> ${uname}</div>
-                <div>ðŸ“¦ <strong>Produit :</strong> ${pn}</div>
-                <div>ðŸ’µ <strong>Montant :</strong> $${order ? parseFloat(order.amount_usd).toFixed(2) : '?'}</div>
-                <div>ðŸ“Š <strong>QuantitÃ© :</strong> ${order ? (order.quantity || 1) : '?'}</div>
-                <div>ðŸ“… <strong>Date :</strong> ${order ? parseUTCDate(order.created_at).toLocaleString() : '?'}</div>
-                <div>âœ… <strong>Statut :</strong> <span class="status-badge completed">${data.status}</span></div>
+                <div>👤 <strong>Client :</strong> ${uname}</div>
+                <div>📦 <strong>Produit :</strong> ${pn}</div>
+                <div>💵 <strong>Montant :</strong> $${order ? parseFloat(order.amount_usd).toFixed(2) : '?'}</div>
+                <div>📊 <strong>Quantité :</strong> ${order ? (order.quantity || 1) : '?'}</div>
+                <div>📅 <strong>Date :</strong> ${order ? parseUTCDate(order.created_at).toLocaleString() : '?'}</div>
+                <div>✅ <strong>Statut :</strong> <span class="status-badge completed">${data.status}</span></div>
             </div>`;
 
         const items = data.items || [];
@@ -863,13 +874,13 @@ window.openOrderDetail = async function(orderId) {
                 const safeData = it.account_data ? it.account_data.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
                 return `
                 <div class="stock-item-row">
-                    <span class="stock-item-data">ðŸ”‘ ${safeData}</span>
-                    <span class="stock-item-status sold" style="font-size:0.72rem;">LivrÃ© ${it.sold_at ? parseUTCDate(it.sold_at).toLocaleDateString() : ''}</span>
+                    <span class="stock-item-data">🔑 ${safeData}</span>
+                    <span class="stock-item-status sold" style="font-size:0.72rem;">Livré ${it.sold_at ? parseUTCDate(it.sold_at).toLocaleDateString() : ''}</span>
                 </div>`;
             }).join('');
         } else {
             $('btn-download-order-txt').style.display = 'none';
-            $('order-items-list').innerHTML = '<p class="empty-state">Aucun article livrÃ© trouvÃ©.</p>';
+            $('order-items-list').innerHTML = '<p class="empty-state">Aucun article livré trouvé.</p>';
         }
     } catch(e) {
         $('order-detail-info').innerHTML = `<p style="color:var(--color-error);">Erreur: ${e.message}</p>`;
@@ -880,7 +891,7 @@ window.openOrderDetail = async function(orderId) {
 //  VIEW REMAINING STOCK MODAL
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 window.viewProductStock = async function(productId, emoji, name) {
-    $('view-stock-title').textContent = `${emoji} ${name} â€” Stock`;
+    $('view-stock-title').textContent = `${emoji} ${name} — Stock`;
     $('view-stock-list').innerHTML = '<p style="color:var(--color-text-muted);font-size:0.85rem;">Chargement...</p>';
     $('view-stock-count').textContent = '...';
     showModal(DOM.viewStockModal);
@@ -896,10 +907,10 @@ window.viewProductStock = async function(productId, emoji, name) {
                 const safeData = it.account_data ? it.account_data.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
                 return `
                 <div class="stock-item-row">
-                    <span class="stock-item-data">${it.is_sold ? 'ðŸ”´' : 'ðŸŸ¢'} ${safeData}</span>
+                    <span class="stock-item-data">${it.is_sold ? '🔴' : '🟢'} ${safeData}</span>
                     <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
                         <button class="btn-table-action" onclick="this.parentElement.previousElementSibling.classList.toggle('expanded')" title="Voir tout" style="color:#a78bfa;"><i class="fa-solid fa-eye"></i></button>
-                        <span class="stock-item-status ${it.is_sold ? 'sold' : 'available'}">${it.is_sold ? 'âœ— Vendu' : 'âœ“ Dispo'}</span>
+                        <span class="stock-item-status ${it.is_sold ? 'sold' : 'available'}">${it.is_sold ? '✗ Vendu' : '✓ Dispo'}</span>
                     </div>
                 </div>`;
             }).join('');
@@ -918,14 +929,14 @@ window.openEditProduct = function(productId) {
     const p = state.products.find(pr => pr.id === productId);
     if (!p) return;
     $('edit-prod-id').value = p.id;
-    $('edit-prod-emoji').value = p.emoji || 'ðŸ“¦';
+    $('edit-prod-emoji').value = p.emoji || '📦';
     $('edit-prod-name').value = p.name;
     $('edit-prod-price').value = parseFloat(p.price_usd).toFixed(2);
     $('edit-prod-warranty').value = p.warranty_days || 0;
     $('edit-prod-desc').value = p.description || '';
     if ($('edit-prod-image-url')) $('edit-prod-image-url').value = p.image_url || '';
     if ($('edit-prod-custom-emoji-id')) $('edit-prod-custom-emoji-id').value = p.custom_emoji_id || '';
-    $('edit-prod-title').textContent = `Modifier â€” ${p.emoji || 'ðŸ“¦'} ${p.name}`;
+    $('edit-prod-title').textContent = `Modifier — ${p.emoji || '📦'} ${p.name}`;
     showModal(DOM.editProdModal);
 };
 
@@ -933,7 +944,7 @@ $('edit-prod-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const id = $('edit-prod-id').value;
     const data = {
-        emoji: $('edit-prod-emoji').value.trim() || 'ðŸ“¦',
+        emoji: $('edit-prod-emoji').value.trim() || '📦',
         custom_emoji_id: $('edit-prod-custom-emoji-id') ? $('edit-prod-custom-emoji-id').value.trim() : '',
         name: $('edit-prod-name').value.trim(),
         price_usd: parseFloat($('edit-prod-price').value),
@@ -942,7 +953,7 @@ $('edit-prod-form').addEventListener('submit', async (e) => {
         image_url: $('edit-prod-image-url') && $('edit-prod-image-url').value.trim() ? $('edit-prod-image-url').value.trim() : null,
     };
     if (!data.name || isNaN(data.price_usd) || data.price_usd < 0) {
-        alert('VÃ©rifiez le nom et le prix.'); return;
+        alert('Vérifiez le nom et le prix.'); return;
     }
     showLoading(true);
     try {
@@ -980,7 +991,7 @@ window.confirmBanUser = async function() {
 };
 window.unbanUser = async function(tid) { if(!confirm(t('confirm_unban'))) return; showLoading(true); try{await apiCall(`/api/users/${tid}/unban`,'POST'); await loadUsers();}catch(e){alert(e.message);}finally{showLoading(false);} };
 window.creditWallet = async function(tid) {
-    const amount = prompt('Montant Ã  crÃ©diter (USD) :');
+    const amount = prompt('Montant à créditer (USD) :');
     if (!amount) return;
     const val = parseFloat(amount);
     if (isNaN(val) || val <= 0) { alert('Montant invalide'); return; }
@@ -990,7 +1001,7 @@ window.creditWallet = async function(tid) {
     finally { showLoading(false); }
 };
 window.debitWallet = async function(tid) {
-    const amount = prompt('Montant Ã  retirer (USD) :');
+    const amount = prompt('Montant à retirer (USD) :');
     if (!amount) return;
     const val = parseFloat(amount);
     if (isNaN(val) || val <= 0) { alert('Montant invalide'); return; }
@@ -1003,7 +1014,7 @@ window.debitWallet = async function(tid) {
 // Stock
 window.openStockModal = async function(pid, emoji, name) {
     state.currentStockProductId = pid;
-    DOM.stockModalTitle.textContent = `${emoji} ${name} â€” ${t('stock_manage')}`;
+    DOM.stockModalTitle.textContent = `${emoji} ${name} — ${t('stock_manage')}`;
     DOM.stockTextarea.value = ''; DOM.stockLineCount.textContent = `0 ${t('accounts_detected')}`;
     showModal(DOM.stockModal);
     try {
@@ -1026,7 +1037,7 @@ window.deleteStockItem = async function(stockId) {
     showLoading(true);
     try {
         await apiCall(`/api/stock/${stockId}`, 'DELETE');
-        await openStockModal(state.currentStockProductId, '', DOM.stockModalTitle.textContent.split('â€”')[0].trim());
+        await openStockModal(state.currentStockProductId, '', DOM.stockModalTitle.textContent.split('—')[0].trim());
         loadProducts(); loadStats();
     } catch(e) { alert(e.message); }
     finally { showLoading(false); }
@@ -1041,7 +1052,7 @@ async function handleAddStock() {
         await apiCall(`/api/products/${state.currentStockProductId}/stock`,'POST',{items:lines, broadcast_restock: broadcastRestock}); 
         DOM.stockTextarea.value=''; 
         if (DOM.stockBroadcastCheckbox) DOM.stockBroadcastCheckbox.checked = false;
-        await openStockModal(state.currentStockProductId,'',DOM.stockModalTitle.textContent.split('â€”')[0].trim()); 
+        await openStockModal(state.currentStockProductId,'',DOM.stockModalTitle.textContent.split('—')[0].trim()); 
         loadProducts(); 
         loadStats(); 
     }
@@ -1069,7 +1080,7 @@ async function handleBroadcast() {
         alert('Veuillez entrer un message ou une URL de photo.');
         return;
     }
-    if (!confirm(`Envoyer ce message Ã  tous les utilisateurs ?`)) return;
+    if (!confirm(`Envoyer ce message à tous les utilisateurs ?`)) return;
     showLoading(true); DOM.broadcastResult.textContent = '';
     try {
         const r = await apiCall('/api/broadcast','POST',{
@@ -1080,7 +1091,7 @@ async function handleBroadcast() {
             btn_text: btnType === 'url' ? btnText : '',
             btn_url: btnType === 'url' ? btnUrl : ''
         });
-        DOM.broadcastResult.textContent = `âœ… ${t('broadcast_sent').replace('{sent}',r.sent).replace('{total}',r.total)} | ${t('broadcast_failed').replace('{failed}',r.failed)}`;
+        DOM.broadcastResult.textContent = `✅ ${t('broadcast_sent').replace('{sent}',r.sent).replace('{total}',r.total)} | ${t('broadcast_failed').replace('{failed}',r.failed)}`;
         
         // Reset inputs
         DOM.broadcastTextarea.value = '';
@@ -1113,7 +1124,7 @@ async function handleSaveCryptoSettings(e) {
             bep20_address: bep20,
             trc20_address: trc20
         });
-        alert('Adresses crypto enregistrÃ©es avec succÃ¨s !');
+        alert('Adresses crypto enregistrées avec succès !');
         await loadPaymentSettings();
     } catch(err) { alert(`Erreur: ${err.message}`); }
     finally { showLoading(false); }
@@ -1122,7 +1133,7 @@ async function handleSaveCryptoSettings(e) {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  UI HELPERS
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// Category select removed â€” not needed
+// Category select removed — not needed
 
 const tabKeys = { 'ventedz-tab':'tab_ventedz', 'dashboard-tab':'tab_dashboard','inventory-tab':'tab_inventory','orders-tab':'tab_orders','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
 
@@ -1175,14 +1186,14 @@ $('exportForm').addEventListener('submit', async (e) => {
         reversed.forEach(t => {
             runningTotal += parseFloat(t['Montant (USD)']);
             // Format the UTC date from database to user's local timezone
-            const localDateStr = t['Date'] ? parseUTCDate(t['Date']).toLocaleString() : 'â€”';
+            const localDateStr = t['Date'] ? parseUTCDate(t['Date']).toLocaleString() : '—';
             rows.push({
                 'Date': localDateStr,
                 'Type': t['Type'],
                 'Client': t['Client'],
                 'Montant (USD)': parseFloat(t['Montant (USD)']),
                 'Cumul (USD)': runningTotal,
-                'MÃ©thode': t['MÃ©thode'],
+                'Méthode': t['Méthode'],
                 'Identifiant': t['Identifiant']
             });
         });
@@ -1195,7 +1206,7 @@ $('exportForm').addEventListener('submit', async (e) => {
             'Client': '',
             'Montant (USD)': runningTotal,
             'Cumul (USD)': '',
-            'MÃ©thode': '',
+            'Méthode': '',
             'Identifiant': ''
         };
         rows.push(totalRow);
@@ -1211,14 +1222,14 @@ $('exportForm').addEventListener('submit', async (e) => {
             const doc = new jsPDF();
             doc.text(`Export des Transactions (${start} au ${end})`, 14, 15);
             
-            const headers = [['Date', 'Type', 'Client', 'Montant (USD)', 'Cumul (USD)', 'MÃ©thode', 'Identifiant']];
+            const headers = [['Date', 'Type', 'Client', 'Montant (USD)', 'Cumul (USD)', 'Méthode', 'Identifiant']];
             const body = rows.map(t => [
                 t['Date'] || '',
                 t['Type'] || '',
                 t['Client'] || '',
                 `$${parseFloat(t['Montant (USD)']).toFixed(2)}`,
                 t['Date'] === 'TOTAL' ? '' : `$${parseFloat(t['Cumul (USD)']).toFixed(2)}`,
-                t['MÃ©thode'] || '',
+                t['Méthode'] || '',
                 t['Identifiant'] || ''
             ]);
             
@@ -1292,7 +1303,7 @@ window.editBinanceAccount = function(id) {
 };
 
 window.deleteBinanceAccount = async function(id) {
-    if (!confirm('Voulez-vous vraiment supprimer ce compte Binance ? Les produits liÃ©s utiliseront le compte par dÃ©faut.')) return;
+    if (!confirm('Voulez-vous vraiment supprimer ce compte Binance ? Les produits liés utiliseront le compte par défaut.')) return;
     try {
         await apiCall(`/api/binance-accounts/${id}`, 'DELETE');
         refreshData();
@@ -1323,7 +1334,7 @@ async function handleAddProduct(e) {
         name: DOM.prodName.value.trim(),
         price_usd: parseFloat(DOM.prodPrice.value),
         warranty_days: parseInt(DOM.prodWarranty.value) || 0,
-        emoji: DOM.prodEmoji.value.trim() || 'ðŸ“¦',
+        emoji: DOM.prodEmoji.value.trim() || '📦',
         custom_emoji_id: DOM.prodCustomEmojiId && DOM.prodCustomEmojiId.value.trim() ? DOM.prodCustomEmojiId.value.trim() : null,
         description: DOM.prodDesc ? DOM.prodDesc.value.trim() : '',
         image_url: DOM.prodImageUrl && DOM.prodImageUrl.value.trim() ? DOM.prodImageUrl.value.trim() : null,
@@ -1416,14 +1427,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const filterSelect = $('finance-method-filter');
         const method = filterSelect ? filterSelect.value : 'all';
         if (method === 'all') {
-            alert('Veuillez sÃ©lectionner une mÃ©thode spÃ©cifique (Binance, BEP20, etc.) pour retirer du solde.');
+            alert('Veuillez sélectionner une méthode spécifique (Binance, BEP20, etc.) pour retirer du solde.');
             return;
         }
         
         const amt = parseFloat($('withdraw-amount').value);
         if (isNaN(amt) || amt <= 0) return;
         if (amt > currentFinanceBalance) {
-            alert("Montant supÃ©rieur au solde actuel.");
+            alert("Montant supérieur au solde actuel.");
             return;
         }
         
@@ -1444,7 +1455,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const filterSelect = $('finance-method-filter');
         const method = filterSelect ? filterSelect.value : 'all';
         if (method === 'all') {
-            alert('Veuillez sÃ©lectionner une mÃ©thode spÃ©cifique (Binance, BEP20, etc.) pour ajuster le solde.');
+            alert('Veuillez sélectionner une méthode spécifique (Binance, BEP20, etc.) pour ajuster le solde.');
             return;
         }
         
