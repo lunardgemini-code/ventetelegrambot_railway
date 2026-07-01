@@ -286,6 +286,7 @@ async def api_set_product_tiers(product_id: int, data: dict):
 
 
 
+@api.post("/api/products/reorder", dependencies=[Depends(verify_api_key)])
 @api.post("/api/products/update-sort", dependencies=[Depends(verify_api_key)])
 async def api_reorder_products(request: Request):
     from database.db import get_db
