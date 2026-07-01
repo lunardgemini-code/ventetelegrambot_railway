@@ -2113,7 +2113,7 @@ async def get_products_sales_stats() -> list[dict]:
                 p.name, 
                 p.emoji, 
                 p.price_usd,
-                COALESCE(SUM(o.quantity), 0) as total_qty_sold,
+                COUNT(o.id) as total_qty_sold,
                 COALESCE(SUM(o.amount_usd), 0) as total_revenue_usd
             FROM products p
             LEFT JOIN orders o ON o.product_id = p.id AND o.status = 'COMPLETED'
