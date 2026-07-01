@@ -1409,6 +1409,10 @@ def main() -> None:
 
         # Forced Channel Subscription Check
         import time
+
+_stats_cache = {}
+_stats_cache_ttl = 60
+
         from config import REQUIRED_CHANNEL, ADMIN_IDS
         if REQUIRED_CHANNEL and user_id not in ADMIN_IDS:
             is_sub_callback = False
