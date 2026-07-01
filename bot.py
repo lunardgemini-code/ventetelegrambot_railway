@@ -286,6 +286,28 @@ async def api_set_product_tiers(product_id: int, data: dict):
 
 
 
+@api.post("/api/products/reorder", dependencies=[Depends(verify_api_key)])
+async def api_reorder_products(data: dict):
+    from database.db import get_db
+    from database.models import clear_products_cache
+    try:
+        orders = data.get("orders", [])
+        if not orders:
+            return {"status": "ok"}
+            
+        db = await get_db()
+        for item in orders:
+            prod_id = item.get("id")
+            sort_order = item.get("sort_order")
+            if prod_id is not None and sort_order is not None:
+                await db.execute("UPDATE products SET sort_order = ? WHERE id = ?", (sort_order, prod_id))
+        await db.commit()
+        clear_products_cache()
+        return {"status": "reordered"}
+    except Exception as exc:
+        logger.error("API error reorder products: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 @api.put("/api/products/{product_id}", dependencies=[Depends(verify_api_key)])
 async def api_update_product(product_id: int, data: dict):
     from database.models import update_product
@@ -1187,6 +1209,7 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
         ("ALTER TABLE products ADD COLUMN binance_account_id INTEGER DEFAULT NULL", "Column 'products.binance_account_id'"),
         ("ALTER TABLE products ADD COLUMN image_url TEXT DEFAULT NULL", "Column 'products.image_url'"),
         ("ALTER TABLE products ADD COLUMN custom_emoji_id TEXT DEFAULT NULL", "Column 'products.custom_emoji_id'"),
+        ("ALTER TABLE products ADD COLUMN sort_order INTEGER DEFAULT 0", "Column 'products.sort_order'"),
         ("CREATE TABLE IF NOT EXISTS binance_accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT NOT NULL, uid TEXT NOT NULL, api_key TEXT DEFAULT '', api_secret TEXT DEFAULT '', is_default INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)", "Table 'binance_accounts'"),
         ("UPDATE orders SET binance_order_id = (SELECT transaction_id FROM used_binance_transactions WHERE used_binance_transactions.order_id = orders.id) WHERE binance_order_id IS NULL AND id IN (SELECT order_id FROM used_binance_transactions WHERE order_id IS NOT NULL)", "Retroactive Binance Pay IDs"),
         ("UPDATE orders SET binance_order_id = (SELECT tx_hash FROM used_bep20_transactions WHERE used_bep20_transactions.order_id = orders.id) WHERE binance_order_id IS NULL AND id IN (SELECT order_id FROM used_bep20_transactions WHERE order_id IS NOT NULL)", "Retroactive BEP20 Tx Hashes"),
