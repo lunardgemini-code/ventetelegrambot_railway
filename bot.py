@@ -179,6 +179,10 @@ async def api_adjust_finance(data: dict):
 
 @api.get("/api/stats", dependencies=[Depends(verify_api_key)])
 async def api_get_stats():
+    current_time = time.time()
+    if "stats" in _stats_cache and current_time - _stats_cache["stats"]["time"] < _stats_cache_ttl:
+        return _stats_cache["stats"]["data"]
+
     from database.models import get_stats, get_all_users, get_all_products, get_all_stock_counts
     try:
         stats_30 = await get_stats(days=30)
@@ -193,7 +197,7 @@ async def api_get_stats():
             "stock": stock_counts.get(p["id"], 0)
         } for p in products]
 
-        return {
+        response_data = {
             "total_users": len(users),
             "total_orders": stats_30.get("total_orders", 0),
             "completed_orders": stats_30.get("completed_orders", 0),
@@ -713,9 +717,14 @@ async def api_get_daily_stats(days: int = 30):
 
 @api.get("/api/stats/products", dependencies=[Depends(verify_api_key)])
 async def api_get_products_stats():
+    current_time = time.time()
+    if "products_stats" in _stats_cache and current_time - _stats_cache["products_stats"]["time"] < _stats_cache_ttl:
+        return _stats_cache["products_stats"]["data"]
+
     from database.models import get_products_sales_stats
     try:
         data = await get_products_sales_stats()
+        _stats_cache["products_stats"] = {"time": current_time, "data": data}
         return data
     except Exception as exc:
         logger.error("API error products stats: %s", exc, exc_info=True)
@@ -1556,10 +1565,10 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(wallet_noop, pattern=r"^wallet_noop$"))
 
     # ── Reply keyboard text handlers ─────────────────────────────
-    app.add_handler(MessageHandler(filters.Regex(r"^(🛍️ Produits|🛍️ Products|🛍️ المنتجات)$"), show_products_list))
-    app.add_handler(MessageHandler(filters.Regex(r"^(💬 Support|💬 الدعم)$"), support_menu_text))
-    app.add_handler(MessageHandler(filters.Regex(r"^(🚀 Commencer|🚀 Start|🚀 ابدأ)$"), start_command))
-    app.add_handler(MessageHandler(filters.Regex(r"^(🌐 Langue|🌐 Language|🌐 اللغة)$"), change_language))
+    app.add_handler(MessageHandler(filters.Regex(r"(?i)(Produits|Products|المنتجات)"), show_products_list))
+    app.add_handler(MessageHandler(filters.Regex(r"(?i)(Support|الدعم)"), support_menu_text))
+    app.add_handler(MessageHandler(filters.Regex(r"(?i)(Commencer|Start|ابدأ)"), start_command))
+    app.add_handler(MessageHandler(filters.Regex(r"(?i)(Langue|Language|اللغة)"), change_language))
 
     # ── Decide: Webhook (production) or Polling (local dev) ──────
     port = int(os.environ.get("PORT", 8000))
