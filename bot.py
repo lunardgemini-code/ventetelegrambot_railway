@@ -286,11 +286,12 @@ async def api_set_product_tiers(product_id: int, data: dict):
 
 
 
-@api.post("/api/products/reorder", dependencies=[Depends(verify_api_key)])
-async def api_reorder_products(data: dict):
+@api.post("/api/products/update-sort", dependencies=[Depends(verify_api_key)])
+async def api_reorder_products(request: Request):
     from database.db import get_db
     from database.models import clear_products_cache
     try:
+        data = await request.json()
         orders = data.get("orders", [])
         if not orders:
             return {"status": "ok"}

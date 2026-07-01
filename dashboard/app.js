@@ -543,7 +543,8 @@ async function loadCharts() {
 async function loadProducts() {
     const prods = await apiCall('/api/products'); state.products = prods;
     if (prods.length > 0) {
-        DOM.productsTableBody.innerHTML = prods.map(p => `<tr>
+        DOM.productsTableBody.innerHTML = prods.map(p => `<tr data-id="${p.id}">
+            <td class="drag-handle" style="cursor: grab; text-align: center;"><i class="fas fa-bars" style="color:var(--color-primary);"></i></td>
             <td><div class="prod-badge"><span class="prod-emoji">${p.emoji||'📦'}</span><strong>${p.name}</strong></div></td>
             <td>$${parseFloat(p.price_usd).toFixed(2)}</td><td>${p.warranty_days||0} ${t('days')}</td>
             <td><span class="stock-count-badge ${p.stock===0?'empty':p.stock<3?'low':'ok'}">${p.stock}</span></td>
@@ -553,8 +554,28 @@ async function loadProducts() {
         if (DOM.broadcastBtnProductId) {
             DOM.broadcastBtnProductId.innerHTML = prods.map(p => `<option value="${p.id}">${p.emoji||'📦'} ${p.name}</option>`).join('');
         }
+        
+        if (!window.productsSortable) {
+            window.productsSortable = new Sortable(DOM.productsTableBody, {
+                handle: '.drag-handle',
+                animation: 150,
+                onEnd: async function () {
+                    const rows = DOM.productsTableBody.querySelectorAll('tr[data-id]');
+                    const newOrder = Array.from(rows).map((row, index) => ({
+                        id: parseInt(row.getAttribute('data-id')),
+                        sort_order: index
+                    }));
+                    try {
+                        await apiCall('/api/products/update-sort', 'POST', { orders: newOrder });
+                    } catch (e) {
+                        alert('Erreur de sauvegarde: ' + e.message);
+                        loadProducts();
+                    }
+                }
+            });
+        }
     } else {
-        DOM.productsTableBody.innerHTML = `<tr><td colspan="6" class="empty-state">${t('no_products')}</td></tr>`;
+        DOM.productsTableBody.innerHTML = `<tr><td colspan="7" class="empty-state">${t('no_products')}</td></tr>`;
         if (DOM.broadcastBtnProductId) {
             DOM.broadcastBtnProductId.innerHTML = '<option value="">Aucun produit</option>';
         }
