@@ -150,17 +150,26 @@ async def payment_method_keyboard(order_id: int, lang: str = "fr", wallet_balanc
     buttons.append([InlineKeyboardButton(label, callback_data=f"pay_wallet:{order_id}")])
     
     # Always show binance pay button
-    buttons.append([InlineKeyboardButton(t("btn_pay_binance", lang), callback_data=f"pay_binance:{order_id}")])
+    binance_label = t("btn_pay_binance", lang).lstrip("◇ ").strip()
+    buttons.append([InlineKeyboardButton(
+        binance_label, 
+        callback_data=f"pay_binance:{order_id}", 
+        icon_custom_emoji_id="5388622778817589921"
+    )])
 
     # Dynamic BEP20 button
     bep20_addr = await get_setting("bep20_address")
     if bep20_addr:
         bep20_btn_text = {
-            "fr": "◇ Payer avec BEP20 (USDT)",
-            "en": "◇ Pay with BEP20 (USDT)",
-            "ar": "◇ الدفع عبر BEP20 (USDT)"
-        }.get(lang, "◇ Payer avec BEP20 (USDT)")
-        buttons.append([InlineKeyboardButton(bep20_btn_text, callback_data=f"pay_bep20:{order_id}")])
+            "fr": "Payer avec BEP20 (USDT)",
+            "en": "Pay with BEP20 (USDT)",
+            "ar": "دفع عبر BEP20 (USDT)"
+        }.get(lang, "Payer avec BEP20 (USDT)")
+        buttons.append([InlineKeyboardButton(
+            bep20_btn_text, 
+            callback_data=f"pay_bep20:{order_id}", 
+            icon_custom_emoji_id="5413589900450625318"
+        )])
 
     # Dynamic TRC20 button
     trc20_addr = await get_setting("trc20_address")
@@ -186,17 +195,26 @@ async def wallet_topup_method_keyboard(lang: str = "fr") -> InlineKeyboardMarkup
     buttons = []
     
     # Always show binance pay button
-    buttons.append([InlineKeyboardButton(t("btn_pay_binance", lang), callback_data="topup_binance")])
+    binance_label = t("btn_pay_binance", lang).lstrip("◇ ").strip()
+    buttons.append([InlineKeyboardButton(
+        binance_label, 
+        callback_data="topup_binance", 
+        icon_custom_emoji_id="5388622778817589921"
+    )])
 
     # Dynamic BEP20 button
     bep20_addr = await get_setting("bep20_address")
     if bep20_addr:
         bep20_btn_text = {
-            "fr": "◇ Payer avec BEP20 (USDT)",
-            "en": "◇ Pay with BEP20 (USDT)",
-            "ar": "◇ الدفع عبر BEP20 (USDT)"
-        }.get(lang, "◇ Payer avec BEP20 (USDT)")
-        buttons.append([InlineKeyboardButton(bep20_btn_text, callback_data="topup_bep20")])
+            "fr": "Payer avec BEP20 (USDT)",
+            "en": "Pay with BEP20 (USDT)",
+            "ar": "دفع عبر BEP20 (USDT)"
+        }.get(lang, "Payer avec BEP20 (USDT)")
+        buttons.append([InlineKeyboardButton(
+            bep20_btn_text, 
+            callback_data="topup_bep20", 
+            icon_custom_emoji_id="5413589900450625318"
+        )])
 
     # Dynamic TRC20 button
     trc20_addr = await get_setting("trc20_address")

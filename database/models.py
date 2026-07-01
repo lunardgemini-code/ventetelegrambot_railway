@@ -161,6 +161,11 @@ async def get_user_count() -> int:
         await db.close()
 
 
+def clear_products_cache():
+    global _PRODUCTS_CACHE, _PRODUCT_BY_ID_CACHE
+    _PRODUCTS_CACHE = None
+    _PRODUCT_BY_ID_CACHE.clear()
+
 async def get_user_lang(telegram_id: int) -> str:
     """Retourne la langue prÃ©fÃ©rÃ©e de l'utilisateur (par dÃ©faut 'fr')."""
     if telegram_id in _USER_LANG_CACHE:
@@ -310,7 +315,7 @@ async def get_products_by_category(category_id: int) -> list[dict]:
     try:
         try:
             cursor = await db.execute(
-                "SELECT * FROM products WHERE category_id = ? AND is_active = 1 AND is_deleted = 0 ORDER BY id ASC",
+                "SELECT * FROM products WHERE category_id = ? AND is_active = 1 AND is_deleted = 0 ORDER BY sort_order ASC, id ASC",
                 (category_id,),
             )
             rows = await cursor.fetchall()
@@ -352,7 +357,7 @@ async def get_all_products() -> list[dict]:
     db = await get_db()
     try:
         try:
-            cursor = await db.execute("SELECT * FROM products WHERE is_deleted = 0 ORDER BY category_id, id")
+            cursor = await db.execute("SELECT * FROM products WHERE is_deleted = 0 ORDER BY category_id, sort_order ASC, id ASC")
             rows = await cursor.fetchall()
         except Exception:
             # Fallback if is_deleted column does not exist yet

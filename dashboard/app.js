@@ -568,7 +568,7 @@ async function loadProducts() {
                     try {
                         await apiCall('/api/products/update-sort', 'POST', { orders: newOrder });
                     } catch (e) {
-                        alert('Erreur de sauvegarde: ' + e.message);
+                        alert('Erreur de sauvegarde: ' + e.message + '\nCible: ' + (state.botUrl || 'relative') + '/api/products/update-sort');
                         loadProducts();
                     }
                 }

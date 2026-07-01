@@ -244,6 +244,7 @@ async def init_db() -> None:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 is_deleted INTEGER DEFAULT 0,
                 binance_account_id INTEGER DEFAULT NULL,
+                sort_order INTEGER DEFAULT 0,
                 FOREIGN KEY (category_id) REFERENCES categories(id)
             )""",
             """CREATE TABLE IF NOT EXISTS price_tiers (
