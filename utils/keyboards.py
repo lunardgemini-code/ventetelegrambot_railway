@@ -23,11 +23,12 @@ CUSTOM_EMOJIS = {
     "btn_back": "5332348837405145999",
     "btn_buy_now": "5312361253610475399",
     "btn_pay_wallet": "5278223861404421915",
+    "btn_start": "5463156928307801722",
 }
 
 def clean_standard_emoji(text: str) -> str:
     """Removes standard leading emojis and spaces from button label."""
-    return re.sub(r'^[🛒💳👤📜💬👥🌐↩️❌🔄⚡💸➕🎫🚀✅🪙\s]+', '', text)
+    return re.sub(r'^[🛒💳👤📜💬👥🌐↩️❌🔄⚡💸➕🎫🚀✅🪙💰◀️\s]+', '', text)
 
 def make_button(text_key: str, lang: str = "fr", callback_data: str | None = None, url: str | None = None, style = None, custom_text: str | None = None) -> InlineKeyboardButton:
     """Creates an InlineKeyboardButton with automatic animated emoji if configured."""
@@ -77,7 +78,7 @@ def language_keyboard() -> InlineKeyboardMarkup:
 def main_menu_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
     """Main menu shown after /start and on 'back_main'."""
     return InlineKeyboardMarkup([
-        [make_button("btn_buy", lang, callback_data="menu_buy")],
+        [make_button("btn_buy", lang, callback_data="menu_buy", style=KeyboardButtonStyle.SUCCESS)],
         [make_button("btn_wallet", lang, callback_data="menu_wallet")],
         [
             make_button("btn_profile", lang, callback_data="menu_profile"),
@@ -176,7 +177,7 @@ def products_keyboard(products: list[dict], stock_counts: dict, lang: str = "fr"
 def product_detail_keyboard(product_id: int, lang: str = "fr") -> InlineKeyboardMarkup:
     """Buy now + back to product list."""
     return InlineKeyboardMarkup([
-        [make_button("btn_buy_now", lang, callback_data=f"buy:{product_id}")],
+        [make_button("btn_buy_now", lang, callback_data=f"buy:{product_id}", style=KeyboardButtonStyle.SUCCESS)],
         [make_button("btn_back", lang, callback_data="back_products")],
     ])
 
