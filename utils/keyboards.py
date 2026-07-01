@@ -6,6 +6,7 @@ Multi-language support via lang parameter.
 """
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram.constants import KeyboardButtonStyle
 from utils.locales import t
 
 
@@ -110,6 +111,11 @@ def products_keyboard(products: list[dict], stock_counts: dict, lang: str = "fr"
         btn_kwargs = {}
         if custom_id:
             btn_kwargs["icon_custom_emoji_id"] = custom_id
+
+        if stock > 0:
+            btn_kwargs["style"] = KeyboardButtonStyle.SUCCESS
+        else:
+            btn_kwargs["style"] = KeyboardButtonStyle.DANGER
 
         buttons.append([InlineKeyboardButton(label, callback_data=f"prod:{prod['id']}", **btn_kwargs)])
 
