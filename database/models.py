@@ -2084,4 +2084,43 @@ async def get_transactions_for_export(start_date: str, end_date: str):
         await db.close()
 
 
+async def get_products_sales_stats() -> list[dict]:
+    """Retourne les statistiques de vente cumulées par produit (quantité et chiffre d'affaires)."""
+    db = await get_db()
+    try:
+        cursor = await db.execute("""
+            SELECT 
+                p.id, 
+                p.name, 
+                p.emoji, 
+                p.price_usd,
+                COALESCE(SUM(o.quantity), 0) as total_qty_sold,
+                COALESCE(SUM(o.amount_usd), 0) as total_revenue_usd
+            FROM products p
+            LEFT JOIN orders o ON o.product_id = p.id AND o.status = 'COMPLETED'
+            WHERE p.is_deleted = 0
+            GROUP BY p.id
+            ORDER BY total_qty_sold DESC
+        """)
+        rows = await cursor.fetchall()
+        
+        from database.models import get_all_stock_counts
+        stock_counts = await get_all_stock_counts()
+        
+        stats = []
+        for r in rows:
+            stats.append({
+                "id": r["id"],
+                "name": r["name"],
+                "emoji": r["emoji"] or '📦',
+                "price_usd": float(r["price_usd"]),
+                "total_sold": int(r["total_qty_sold"]),
+                "total_revenue": float(r["total_revenue_usd"]),
+                "stock": stock_counts.get(r["id"], 0)
+            })
+        return stats
+    finally:
+        await db.close()
+
+
 # â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—

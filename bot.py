@@ -709,6 +709,17 @@ async def api_get_daily_stats(days: int = 30):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@api.get("/api/stats/products", dependencies=[Depends(verify_api_key)])
+async def api_get_products_stats():
+    from database.models import get_products_sales_stats
+    try:
+        data = await get_products_sales_stats()
+        return data
+    except Exception as exc:
+        logger.error("API error products stats: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @api.post("/api/broadcast", dependencies=[Depends(verify_api_key)])
 async def api_broadcast(data: dict):
     from database.models import get_all_users

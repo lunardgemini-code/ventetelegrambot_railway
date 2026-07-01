@@ -57,6 +57,7 @@
             </div>
             <nav class="sidebar-menu">
                 <a href="#" class="menu-item active" data-tab="dashboard-tab"><i class="fa-solid fa-chart-simple"></i> <span data-i18n="nav_dashboard">Dashboard</span></a>
+                <a href="#" class="menu-item" data-tab="stats-tab"><i class="fa-solid fa-chart-pie"></i> <span data-i18n="nav_stats">Statistiques</span></a>
                 <a href="#" class="menu-item" data-tab="finance-tab"><i class="fa-solid fa-sack-dollar"></i> <span data-i18n="nav_finance">Finance</span></a>
                 <a href="#" class="menu-item" data-tab="inventory-tab"><i class="fa-solid fa-box-open"></i> <span data-i18n="nav_inventory">Catalogue & Stock</span></a>
                 <a href="#" class="menu-item" data-tab="orders-tab"><i class="fa-solid fa-receipt"></i> <span data-i18n="nav_orders">Commandes</span><span id="badge-orders" class="badge hidden">0</span></a>
@@ -130,6 +131,79 @@
                     <div class="dashboard-col glass-panel flex-grow-2">
                         <div class="panel-header"><h3><i class="fa-solid fa-warehouse"></i> <span data-i18n="stock_status">État des Stocks</span></h3></div>
                         <div class="panel-body"><div id="stock-summary-list" class="stock-status-list"><p class="empty-state" data-i18n="no_products">Aucun produit configuré.</p></div></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Stats Tab -->
+            <section id="stats-tab" class="tab-content">
+                <div class="flex-justify mb-4">
+                    <h2><i class="fa-solid fa-chart-pie" style="color:var(--primary-color)"></i> Analyse & Statistiques</h2>
+                </div>
+                
+                <div class="metrics-grid mb-4">
+                    <div class="metric-card glass-panel">
+                        <div class="metric-info">
+                            <p class="metric-label">Meilleur Produit</p>
+                            <h3 id="stats-kpi-top-product" style="font-size: 1.5rem; margin-top: 0.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">-</h3>
+                            <p id="stats-kpi-top-product-sub" class="metric-sub" style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">0 vente(s)</p>
+                        </div>
+                        <div class="metric-icon color-blue"><i class="fa-solid fa-trophy"></i></div>
+                    </div>
+                    <div class="metric-card glass-panel">
+                        <div class="metric-info">
+                            <p class="metric-label">Volume de Ventes</p>
+                            <h3 id="stats-kpi-total-sales">0</h3>
+                            <p id="stats-kpi-total-revenue" class="metric-sub" style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">$0.00 de revenus</p>
+                        </div>
+                        <div class="metric-icon color-green"><i class="fa-solid fa-chart-line"></i></div>
+                    </div>
+                    <div class="metric-card glass-panel">
+                        <div class="metric-info">
+                            <p class="metric-label">Alertes de Stock</p>
+                            <h3 id="stats-kpi-stock-alerts">0</h3>
+                            <p class="metric-sub" style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">Produits à restocker (< 3)</p>
+                        </div>
+                        <div class="metric-icon color-amber"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                    </div>
+                </div>
+
+                <div class="charts-row mb-4">
+                    <div class="chart-card glass-panel flex-grow-1" style="max-height: 450px;">
+                        <div class="panel-header">
+                            <h3><i class="fa-solid fa-chart-pie"></i> Chiffre d'affaires par produit</h3>
+                        </div>
+                        <div class="chart-wrapper" style="height: 300px; display: flex; align-items: center; justify-content: center; position: relative;">
+                            <canvas id="chart-product-sales"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-panel" style="padding: 1.5rem;">
+                    <div class="flex-justify mb-4" style="flex-wrap: wrap; gap: 1rem;">
+                        <h3><i class="fa-solid fa-table-list"></i> Performances des Produits</h3>
+                        <div class="search-box" style="max-width: 300px;">
+                            <input type="text" id="stats-product-search" class="form-control" placeholder="Rechercher un produit...">
+                        </div>
+                    </div>
+                    <div class="overflow-hidden">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Produit</th>
+                                    <th>Prix</th>
+                                    <th>Quantité vendue</th>
+                                    <th>Chiffre d'affaires</th>
+                                    <th>Stock restant</th>
+                                    <th>Performance / Statut</th>
+                                </tr>
+                            </thead>
+                            <tbody id="stats-products-table-body">
+                                <tr>
+                                    <td colspan="6" class="empty-state">Chargement des statistiques...</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </section>

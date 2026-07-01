@@ -1,14 +1,14 @@
 // dashboard/app.js — VenteBot Admin Dashboard with all features
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// —————————————————————————————————————————————————————
 //  i18n TRANSLATIONS
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// —————————————————————————————————————————————————————
 const LANG = {
 fr: {
     login_subtitle:"Console de Gestion Administrateur",login_url_label:"URL de l'API (optionnel)",login_url_hint:"Laissez vide pour le proxy Netlify",login_key_label:"Clé d'API Administrateur",login_btn:"Se connecter",
-    nav_dashboard:"Dashboard",nav_inventory:"Catalogue & Stock",nav_orders:"Commandes",nav_users:"Utilisateurs",nav_tickets:"Tickets",nav_broadcast:"Broadcast",nav_settings:"Paramètres",nav_ventedz:"Vente DZ",tab_ventedz:"Gestion Vente DZ",
+    nav_dashboard:"Dashboard",nav_stats:"Statistiques",nav_inventory:"Catalogue & Stock",nav_orders:"Commandes",nav_users:"Utilisateurs",nav_tickets:"Tickets",nav_broadcast:"Broadcast",nav_settings:"Paramètres",nav_ventedz:"Vente DZ",tab_ventedz:"Gestion Vente DZ",
     admin_title:"Administrateur",status_connected:"Connecté",btn_logout:"Déconnexion",
-    tab_dashboard:"Tableau de Bord",tab_inventory:"Catalogue & Stock",tab_orders:"Suivi des Commandes",tab_users:"Gestion des Utilisateurs",tab_tickets:"Tickets Support",tab_broadcast:"Broadcast",tab_settings:"Paramètres",
+    tab_dashboard:"Tableau de Bord",tab_stats:"Analyses & Statistiques",tab_inventory:"Catalogue & Stock",tab_orders:"Suivi des Commandes",tab_users:"Gestion des Utilisateurs",tab_tickets:"Tickets Support",tab_broadcast:"Broadcast",tab_settings:"Paramètres",
     metric_revenue:"Revenus (30J)",metric_sales:"Ventes (30J)",metric_clients:"Clients",metric_initiated:"Commandes (30J)",
     chart_revenue:"Revenus quotidiens ($)",chart_orders:"Commandes quotidiennes",
     stock_status:"État des Stocks",no_products:"Aucun produit configuré.",
@@ -37,9 +37,9 @@ fr: {
 },
 en: {
     login_subtitle:"Admin Management Console",login_url_label:"API URL (optional)",login_url_hint:"Leave empty for Netlify proxy",login_key_label:"Admin API Key",login_btn:"Connect",
-    nav_dashboard:"Dashboard",nav_inventory:"Catalog & Stock",nav_orders:"Orders",nav_users:"Users",nav_tickets:"Tickets",nav_broadcast:"Broadcast",nav_settings:"Settings",nav_ventedz:"Vente DZ",tab_ventedz:"Vente DZ Management",
+    nav_dashboard:"Dashboard",nav_stats:"Statistics",nav_inventory:"Catalog & Stock",nav_orders:"Orders",nav_users:"Users",nav_tickets:"Tickets",nav_broadcast:"Broadcast",nav_settings:"Settings",nav_ventedz:"Vente DZ",tab_ventedz:"Vente DZ Management",
     admin_title:"Administrator",status_connected:"Connected",btn_logout:"Logout",
-    tab_dashboard:"Dashboard",tab_inventory:"Catalog & Stock",tab_orders:"Order Tracking",tab_users:"User Management",tab_tickets:"Support Tickets",tab_broadcast:"Broadcast",tab_settings:"Settings",
+    tab_dashboard:"Dashboard",tab_stats:"Analytics & Statistics",tab_inventory:"Catalog & Stock",tab_orders:"Order Tracking",tab_users:"User Management",tab_tickets:"Support Tickets",tab_broadcast:"Broadcast",tab_settings:"Settings",
     metric_revenue:"Revenue (30D)",metric_sales:"Sales (30D)",metric_clients:"Clients",metric_initiated:"Orders (30D)",
     chart_revenue:"Daily Revenue ($)",chart_orders:"Daily Orders",
     stock_status:"Stock Status",no_products:"No products configured.",
@@ -110,7 +110,8 @@ const state = {
     whFilter:'all', whPage:0, whTotal:0,
     usersPage:0, usersPerPage:20, usersSearch:'', usersTotal:0,
     currentStockProductId:null, autoRefresh:false, autoRefreshTimer:null,
-    revenueChart:null, ordersChart:null
+    revenueChart:null, ordersChart:null, productSalesChart:null,
+    productStats:[]
 };
 
 function $(id) { return document.getElementById(id); }
@@ -125,6 +126,13 @@ const DOM = {
     stockSummaryList:$('stock-summary-list'),
     badgeOrders:$('badge-orders'), badgeTickets:$('badge-tickets'), apiStatusBadge:$('api-status-badge'),
     productsTableBody:$('products-table-body'),
+    statsProductsTableBody:$('stats-products-table-body'),
+    statsProductSearch:$('stats-product-search'),
+    statsKpiTopProduct:$('stats-kpi-top-product'),
+    statsKpiTopProductSub:$('stats-kpi-top-product-sub'),
+    statsKpiTotalSales:$('stats-kpi-total-sales'),
+    statsKpiTotalRevenue:$('stats-kpi-total-revenue'),
+    statsKpiStockAlerts:$('stats-kpi-stock-alerts'),
     promosTableBody:$('promos-table-body'),
     ordersTableBody:$('orders-table-body'), ordersPagination:$('orders-pagination'),
     ordersPrev:$('orders-prev'), ordersNext:$('orders-next'), ordersPageInfo:$('orders-page-info'),
@@ -264,6 +272,12 @@ function setupEvents() {
     DOM.btnTheme.addEventListener('click', toggleTheme);
     DOM.btnAutoRefresh.addEventListener('click', toggleAutoRefresh);
     $('btn-export').addEventListener('click', () => showModal($('exportModal')));
+    
+    if (DOM.statsProductSearch) {
+        DOM.statsProductSearch.addEventListener('input', () => {
+            renderStatsTable();
+        });
+    }
 
     $$('.sub-tab').forEach(t => t.addEventListener('click', () => {
         t.closest('.action-bar').querySelectorAll('.sub-tab').forEach(s => s.classList.remove('active'));
@@ -454,7 +468,7 @@ async function refreshData() {
     showLoading(true);
     DOM.apiStatusBadge.querySelector('.status-indicator').className = 'status-indicator';
     try {
-        await Promise.all([loadStats(), loadFinance(), loadProducts(), loadAllOrders(), loadTickets(), loadUsers(), loadPromos(), loadCharts(), loadWalletHistory(), loadBinanceAccounts(), loadPaymentSettings()]);
+        await Promise.all([loadStats(), loadFinance(), loadProducts(), loadAllOrders(), loadTickets(), loadUsers(), loadPromos(), loadCharts(), loadWalletHistory(), loadBinanceAccounts(), loadPaymentSettings(), loadProductStats()]);
         DOM.apiStatusBadge.querySelector('.status-indicator').classList.add('online');
     } catch(e) { console.error(e); DOM.apiStatusBadge.querySelector('.status-indicator').classList.add('offline'); }
     finally { showLoading(false); }
@@ -536,6 +550,172 @@ async function loadCharts() {
         if (state.ordersChart) state.ordersChart.destroy();
         state.ordersChart = new Chart(DOM.chartOrders, { type:'bar', data:{ labels, datasets:[{ data:orders, backgroundColor:chartColor+'60', borderColor:chartColor, borderWidth:1, borderRadius:4 }] }, options:opts });
     } catch(e) { console.warn('Charts failed:', e); }
+}
+
+async function loadProductStats() {
+    try {
+        const stats = await apiCall('/api/stats/products');
+        state.productStats = stats;
+        
+        let topProduct = null;
+        let maxSold = -1;
+        let totalSalesVolume = 0;
+        let totalRevenue = 0;
+        let stockAlerts = 0;
+        
+        stats.forEach(p => {
+            totalSalesVolume += p.total_sold;
+            totalRevenue += p.total_revenue;
+            if (p.total_sold > maxSold) {
+                maxSold = p.total_sold;
+                topProduct = p;
+            }
+            if (p.stock < 3) {
+                stockAlerts++;
+            }
+        });
+        
+        if (topProduct && maxSold > 0) {
+            DOM.statsKpiTopProduct.textContent = `${topProduct.emoji} ${topProduct.name}`;
+            DOM.statsKpiTopProductSub.textContent = `${maxSold} vente(s) ($${topProduct.total_revenue.toFixed(2)})`;
+        } else {
+            DOM.statsKpiTopProduct.textContent = "-";
+            DOM.statsKpiTopProductSub.textContent = "Aucune vente";
+        }
+        
+        DOM.statsKpiTotalSales.textContent = totalSalesVolume;
+        DOM.statsKpiTotalRevenue.textContent = `$${totalRevenue.toFixed(2)}`;
+        DOM.statsKpiStockAlerts.textContent = stockAlerts;
+        
+        renderProductSalesChart(stats);
+        renderStatsTable();
+        
+    } catch(e) {
+        console.error("Failed to load product stats:", e);
+    }
+}
+
+function renderProductSalesChart(stats) {
+    if (!DOM.chartProductSales) return;
+    
+    const sortedStats = [...stats].sort((a, b) => b.total_revenue - a.total_revenue);
+    const topN = sortedStats.slice(0, 5);
+    const others = sortedStats.slice(5);
+    
+    const labels = [];
+    const revenues = [];
+    
+    topN.forEach(p => {
+        if (p.total_revenue > 0) {
+            labels.push(`${p.emoji} ${p.name}`);
+            revenues.push(p.total_revenue);
+        }
+    });
+    
+    if (others.length > 0) {
+        const othersRevenue = others.reduce((sum, p) => sum + p.total_revenue, 0);
+        if (othersRevenue > 0) {
+            labels.push("Autres produits");
+            revenues.push(othersRevenue);
+        }
+    }
+    
+    if (revenues.length === 0) {
+        labels.push("Aucune vente");
+        revenues.push(1);
+    }
+    
+    const gridColor = getComputedStyle(document.documentElement).getPropertyValue('--chart-grid').trim() || 'rgba(255,255,255,0.05)';
+    const textColor = getComputedStyle(document.documentElement).getPropertyValue('--color-text-muted').trim() || '#9f9baa';
+    const colors = ['#6366f1', '#10b981', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6', '#64748b'];
+    
+    if (state.productSalesChart) state.productSalesChart.destroy();
+    
+    const hasSales = revenues.length > 1 || (revenues.length === 1 && labels[0] !== "Aucune vente");
+    const bgColors = hasSales ? colors.slice(0, revenues.length) : ['rgba(255, 255, 255, 0.05)'];
+    const borderColors = hasSales ? colors.slice(0, revenues.length).map(c => c + 'aa') : ['rgba(255, 255, 255, 0.1)'];
+    
+    state.productSalesChart = new Chart(DOM.chartProductSales, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: revenues,
+                backgroundColor: bgColors,
+                borderColor: borderColors,
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        color: textColor,
+                        boxWidth: 12,
+                        padding: 15
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            if (!hasSales) return "Aucune vente enregistrée";
+                            const val = context.raw;
+                            return ` ${context.label}: $${val.toFixed(2)}`;
+                        }
+                    }
+                }
+            },
+            cutout: '60%'
+        }
+    });
+}
+
+function renderStatsTable() {
+    if (!DOM.statsProductsTableBody) return;
+    
+    const query = DOM.statsProductSearch ? DOM.statsProductSearch.value.trim().toLowerCase() : '';
+    const filtered = state.productStats.filter(p => {
+        return p.name.toLowerCase().includes(query) || (p.emoji && p.emoji.includes(query));
+    });
+    
+    if (filtered.length === 0) {
+        DOM.statsProductsTableBody.innerHTML = `<tr><td colspan="6" class="empty-state">Aucun produit trouvé.</td></tr>`;
+        return;
+    }
+    
+    DOM.statsProductsTableBody.innerHTML = filtered.map(p => {
+        let statusBadge = '';
+        if (p.total_sold >= 10) {
+            statusBadge = '<span class="status-badge success"><i class="fa-solid fa-fire"></i> Top Vente</span>';
+        } else if (p.total_sold === 0) {
+            statusBadge = '<span class="status-badge neutral">Pas de vente</span>';
+        } else {
+            statusBadge = '<span class="status-badge info">Normal</span>';
+        }
+        
+        let stockBadge = '';
+        if (p.stock === 0) {
+            stockBadge = '<span class="stock-count-badge empty">Rupture</span>';
+        } else if (p.stock < 3) {
+            stockBadge = `<span class="stock-count-badge low">${p.stock} (Bas)</span>`;
+        } else {
+            stockBadge = `<span class="stock-count-badge ok">${p.stock}</span>`;
+        }
+        
+        return `
+            <tr>
+                <td><div class="prod-badge"><span class="prod-emoji">${p.emoji}</span><strong>${p.name}</strong></div></td>
+                <td>$${p.price_usd.toFixed(2)}</td>
+                <td>${p.total_sold}</td>
+                <td><strong>$${p.total_revenue.toFixed(2)}</strong></td>
+                <td>${stockBadge}</td>
+                <td>${statusBadge}</td>
+            </tr>
+        `;
+    }).join('');
 }
 
 // Categories removed — products shown directly
@@ -1156,7 +1336,7 @@ async function handleSaveCryptoSettings(e) {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // Category select removed — not needed
 
-const tabKeys = { 'ventedz-tab':'tab_ventedz', 'dashboard-tab':'tab_dashboard','inventory-tab':'tab_inventory','orders-tab':'tab_orders','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
+const tabKeys = { 'ventedz-tab':'tab_ventedz', 'dashboard-tab':'tab_dashboard','stats-tab':'tab_stats','inventory-tab':'tab_inventory','orders-tab':'tab_orders','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
 
 function escapeHtml(str) {
     if (!str) return '';
