@@ -94,13 +94,24 @@ def products_keyboard(products: list[dict], stock_counts: dict, lang: str = "fr"
     for prod in products:
         stock = stock_counts.get(prod["id"], 0)
         
+        custom_id = prod.get("custom_emoji_id")
         if stock > 0:
-            label = f"{prod['emoji']} {prod['name']} | ${prod['price_usd']:.2f} | 📦 {stock}"
+            if custom_id:
+                label = f"{prod['name']} | ${prod['price_usd']:.2f} | 📦 {stock}"
+            else:
+                label = f"{prod['emoji']} {prod['name']} | ${prod['price_usd']:.2f} | 📦 {stock}"
         else:
             rupture_txt = {"en": "Out of stock", "fr": "Rupture", "ar": "نفذت الكمية"}.get(lang, "Rupture")
-            label = f"❌ {prod['name']} | ${prod['price_usd']:.2f} | {rupture_txt}"
+            if custom_id:
+                label = f"{prod['name']} | ${prod['price_usd']:.2f} | {rupture_txt}"
+            else:
+                label = f"⚠️ {prod['name']} | ${prod['price_usd']:.2f} | {rupture_txt}"
             
-        buttons.append([InlineKeyboardButton(label, callback_data=f"prod:{prod['id']}")])
+        btn_kwargs = {}
+        if custom_id:
+            btn_kwargs["icon_custom_emoji_id"] = custom_id
+
+        buttons.append([InlineKeyboardButton(label, callback_data=f"prod:{prod['id']}", **btn_kwargs)])
 
     buttons.append([
         InlineKeyboardButton(t("btn_refresh", lang), callback_data="refresh_prods"),
