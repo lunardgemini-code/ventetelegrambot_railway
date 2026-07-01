@@ -1152,6 +1152,23 @@ async def get_stats(days: int = 30, method: str = None) -> dict:
         )
         topup_count = (await cursor.fetchone())["cnt"]
 
+        # Nouveaux utilisateurs sur la période
+        cursor = await db.execute(
+            "SELECT COUNT(*) as cnt FROM users WHERE created_at >= ?", (since,)
+        )
+        new_users = (await cursor.fetchone())["cnt"]
+
+        # Utilisateurs récurrents (avec au moins 2 commandes complétées)
+        cursor = await db.execute(
+            """SELECT COUNT(*) as cnt FROM (
+                SELECT user_telegram_id FROM orders 
+                WHERE status = 'COMPLETED' 
+                GROUP BY user_telegram_id 
+                HAVING COUNT(*) >= 2
+            )"""
+        )
+        returning_users = (await cursor.fetchone())["cnt"]
+
         return {
             "total_orders": total_orders,
             "total_revenue": total_revenue,
@@ -1165,6 +1182,8 @@ async def get_stats(days: int = 30, method: str = None) -> dict:
             "sales_trc20": sales_trc20,
             "sales_wallet": sales_wallet,
             "topup_count": topup_count,
+            "new_users": new_users,
+            "returning_users": returning_users,
         }
     finally:
         await db.close()

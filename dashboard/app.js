@@ -123,6 +123,7 @@ const DOM = {
     btnRefresh:$('btn-refresh'), btnLogout:$('btn-logout'), btnTheme:$('btn-theme'), btnAutoRefresh:$('btn-auto-refresh'),
     loadingOverlay:$('loading-overlay'),
     statRevenue:$('stat-revenue'), statOrders:$('stat-orders'), statUsers:$('stat-users'), statPending:$('stat-pending'),
+    statNewUsers:$('stat-new-users'), statReturningUsers:$('stat-returning-users'),
     stockSummaryList:$('stock-summary-list'),
     badgeOrders:$('badge-orders'), badgeTickets:$('badge-tickets'), apiStatusBadge:$('api-status-badge'),
     productsTableBody:$('products-table-body'),
@@ -133,6 +134,7 @@ const DOM = {
     statsKpiTotalSales:$('stats-kpi-total-sales'),
     statsKpiTotalRevenue:$('stats-kpi-total-revenue'),
     statsKpiStockAlerts:$('stats-kpi-stock-alerts'),
+    chartProductSales:$('chart-product-sales'),
     promosTableBody:$('promos-table-body'),
     ordersTableBody:$('orders-table-body'), ordersPagination:$('orders-pagination'),
     ordersPrev:$('orders-prev'), ordersNext:$('orders-next'), ordersPageInfo:$('orders-page-info'),
@@ -518,6 +520,8 @@ async function loadStats() {
     DOM.statOrders.textContent = s.completed_orders;
     DOM.statUsers.textContent = s.total_users;
     DOM.statPending.textContent = s.total_orders;
+    if (DOM.statNewUsers) DOM.statNewUsers.textContent = s.new_users || 0;
+    if (DOM.statReturningUsers) DOM.statReturningUsers.textContent = s.returning_users || 0;
     if (s.stock_summary?.length > 0) {
         DOM.stockSummaryList.innerHTML = s.stock_summary.map(i => {
             const c = i.stock===0?'empty':i.stock<3?'low':'ok';

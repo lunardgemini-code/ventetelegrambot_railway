@@ -198,7 +198,9 @@ async def api_get_stats():
             "total_orders": stats_30.get("total_orders", 0),
             "completed_orders": stats_30.get("completed_orders", 0),
             "total_revenue": stats_30.get("total_revenue", 0),
-            "stock_summary": stock_summary
+            "stock_summary": stock_summary,
+            "new_users": stats_30.get("new_users", 0),
+            "returning_users": stats_30.get("returning_users", 0)
         }
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
