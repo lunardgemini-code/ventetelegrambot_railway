@@ -410,6 +410,22 @@ async def api_translate(data: dict):
         raise HTTPException(status_code=500, detail=f"Erreur Gemini: {str(exc)}")
 
 
+@api.get("/api/fix-db")
+async def api_fix_db():
+    from database.db import get_db
+    db = await get_db()
+    results = []
+    cols = ["description_fr", "description_ar", "description_zh"]
+    for col in cols:
+        try:
+            await db.execute(f"ALTER TABLE products ADD COLUMN {col} TEXT DEFAULT ''")
+            await db.commit()
+            results.append(f"Added {col}")
+        except Exception as e:
+            results.append(f"Error for {col}: {e}")
+    await db.close()
+    return {"status": "done", "results": results}
+
 # ── Binance Accounts Endpoints ──
 
 @api.get("/api/binance-accounts", dependencies=[Depends(verify_api_key)])

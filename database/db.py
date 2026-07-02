@@ -424,8 +424,9 @@ async def init_db() -> None:
             try:
                 await mig_db.execute(sql)
                 await mig_db.commit()
-            except Exception:
-                pass
+            except Exception as e:
+                # Log l'erreur si la colonne existe déjà (normal) ou s'il y a un vrai problème
+                print(f"Migration error for '{sql}': {e}")
             finally:
                 await mig_db.close()
 
