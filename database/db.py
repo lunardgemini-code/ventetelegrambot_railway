@@ -420,15 +420,11 @@ async def init_db() -> None:
             "ALTER TABLE products ADD COLUMN description_zh TEXT DEFAULT ''",
         ]
         for sql in migrations:
-            mig_db = await get_db()
             try:
-                await mig_db.execute(sql)
-                await mig_db.commit()
+                await db.execute(sql)
             except Exception as e:
-                # Log l'erreur si la colonne existe déjà (normal) ou s'il y a un vrai problème
-                print(f"Migration error for '{sql}': {e}")
-            finally:
-                await mig_db.close()
+                print(f"Migration skip/error for '{sql}': {e}")
+        await db.commit()
 
     finally:
         await db.close()

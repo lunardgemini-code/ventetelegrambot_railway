@@ -379,6 +379,9 @@ async def add_product(
     custom_emoji_id: str | None = None,
     image_url: str | None = None,
     binance_account_id: int | None = None,
+    description_fr: str = "",
+    description_ar: str = "",
+    description_zh: str = "",
 ) -> int:
     """Ajoute un nouveau produit et retourne son identifiant."""
     global _PRODUCTS_CACHE
@@ -388,9 +391,9 @@ async def add_product(
     try:
         cursor = await db.execute(
             """INSERT INTO products
-               (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id),
+               (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id, description_fr, description_ar, description_zh)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id, description_fr, description_ar, description_zh),
         )
         await db.commit()
         return cursor.lastrowid  # type: ignore[return-value]
