@@ -272,7 +272,7 @@ async def api_create_product(data: dict):
         raise
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @api.get("/api/products/{product_id}/tiers", dependencies=[Depends(verify_api_key)])
@@ -341,7 +341,7 @@ async def api_update_product(product_id: int, data: dict):
         raise
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @api.delete("/api/products/{product_id}", dependencies=[Depends(verify_api_key)])
