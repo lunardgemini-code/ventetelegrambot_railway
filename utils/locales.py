@@ -836,8 +836,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     }
 }
 
-}
-
 
 def t(key: str, lang: str = "fr") -> str:
     """Get a translated string by key and language code.
