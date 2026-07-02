@@ -383,26 +383,31 @@ async def api_translate(data: dict):
     
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.post(url, json=payload, timeout=10.0)
-            resp.raise_for_status()
+            resp = await client.post(url, json=payload, timeout=30.0)
+            
+            # Si l'API retourne une erreur, on récupère le message exact de Google
+            if not resp.is_success:
+                error_body = resp.text
+                raise Exception(f"API Gemini HTTP {resp.status_code}: {error_body}")
+                
             result_json = resp.json()
             
             # Extract text from Gemini response format
             response_text = result_json["candidates"][0]["content"]["parts"][0]["text"]
             
             # Clean up potential markdown formatting block if Gemini disobeys "no markdown"
-            if response_text.startswith("```json"):
-                response_text = response_text[7:]
-            if response_text.startswith("```"):
-                response_text = response_text[3:]
-            if response_text.endswith("```"):
-                response_text = response_text[:-3]
+            import re
+            match = re.search(r'```(?:json)?\s*(.*?)\s*```', response_text, re.DOTALL)
+            if match:
+                response_text = match.group(1)
+            else:
+                response_text = response_text.strip()
                 
-            translations = json.loads(response_text.strip())
+            translations = json.loads(response_text)
             return translations
     except Exception as exc:
         logger.error("Gemini API error: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail="Translation failed")
+        raise HTTPException(status_code=500, detail=f"Erreur Gemini: {str(exc)}")
 
 
 # ── Binance Accounts Endpoints ──
