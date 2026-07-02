@@ -8,6 +8,7 @@ LANGUAGES = {
     "en": "🇬🇧 English",
     "fr": "🇫🇷 Français",
     "ar": "🇸🇦 العربية",
+    "zh": "🇨🇳 简体中文",
 }
 
 TRANSLATIONS: dict[str, dict[str, str]] = {

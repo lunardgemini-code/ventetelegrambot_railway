@@ -1569,10 +1569,10 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(wallet_noop, pattern=r"^wallet_noop$"))
 
     # ── Reply keyboard text handlers ─────────────────────────────
-    app.add_handler(MessageHandler(filters.Regex(r"(?i)(Produits|Products|المنتجات)"), show_products_list))
-    app.add_handler(MessageHandler(filters.Regex(r"(?i)(Support|الدعم)"), support_menu_text))
-    app.add_handler(MessageHandler(filters.Regex(r"(?i)(Commencer|Start|ابدأ)"), start_command))
-    app.add_handler(MessageHandler(filters.Regex(r"(?i)(Langue|Language|اللغة)"), change_language))
+    app.add_handler(MessageHandler(filters.Regex(r"(?i)(Produits|Products|المنتجات|产品)"), show_products_list))
+    app.add_handler(MessageHandler(filters.Regex(r"(?i)(Support|الدعم|客服)"), support_menu_text))
+    app.add_handler(MessageHandler(filters.Regex(r"(?i)(Commencer|Start|ابدأ|开始)"), start_command))
+    app.add_handler(MessageHandler(filters.Regex(r"(?i)(Langue|Language|اللغة|语言)"), change_language))
 
     # ── Decide: Webhook (production) or Polling (local dev) ──────
     port = int(os.environ.get("PORT", 8000))
