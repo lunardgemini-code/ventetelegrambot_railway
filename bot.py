@@ -369,7 +369,7 @@ async def api_translate(data: dict):
     if not api_key:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY non configurée")
         
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={api_key}"
     prompt = (
         "Translate the following product description into French, Arabic, and Chinese. "
         "Return a valid JSON object with the exact keys: 'fr', 'ar', 'zh'. "
