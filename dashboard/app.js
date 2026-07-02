@@ -368,6 +368,12 @@ function setupEvents() {
     });
     $$('.lang-btn').forEach(b => b.addEventListener('click', () => setLang(b.getAttribute('data-lang'))));
 
+    const btnTranslateAdd = $('btn-translate-add');
+    if (btnTranslateAdd) btnTranslateAdd.addEventListener('click', () => autoTranslate('add'));
+    
+    const btnTranslateEdit = $('btn-translate-edit');
+    if (btnTranslateEdit) btnTranslateEdit.addEventListener('click', () => autoTranslate('edit'));
+
     // Turbo Mode toggle listener
     const turboModeToggle = $('settings-turbo-mode');
     if (turboModeToggle) {
@@ -441,6 +447,36 @@ async function apiCall(endpoint, method='GET', body=null) {
         if (!res.ok) { if (res.status===401) throw new Error('API_KEY_INVALID'); throw new Error(`API ${res.status}`); }
         return await res.json();
     } catch(e) { clearTimeout(tid); if (e.name==='AbortError') throw new Error('TIMEOUT'); throw e; }
+}
+
+async function autoTranslate(type) {
+    const btn = type === 'add' ? $('btn-translate-add') : $('btn-translate-edit');
+    const sourceTextarea = type === 'add' ? DOM.prodDesc : $('edit-prod-desc');
+    const targetFr = type === 'add' ? $('prod-desc-fr') : $('edit-prod-desc-fr');
+    const targetAr = type === 'add' ? $('prod-desc-ar') : $('edit-prod-desc-ar');
+    const targetZh = type === 'add' ? $('prod-desc-zh') : $('edit-prod-desc-zh');
+    
+    const text = sourceTextarea ? sourceTextarea.value.trim() : '';
+    if (!text) {
+        alert("Veuillez d'abord remplir la description en anglais !");
+        return;
+    }
+    
+    const originalText = btn.textContent;
+    btn.textContent = "⏳...";
+    btn.disabled = true;
+    
+    try {
+        const res = await apiCall('/api/translate', 'POST', { text: text });
+        if (res.fr && targetFr) targetFr.value = res.fr;
+        if (res.ar && targetAr) targetAr.value = res.ar;
+        if (res.zh && targetZh) targetZh.value = res.zh;
+    } catch(e) {
+        alert("Erreur de traduction: " + (e.message || "Assurez-vous d'avoir configuré GEMINI_API_KEY sur Railway."));
+    } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
+    }
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -1139,6 +1175,9 @@ window.openEditProduct = function(productId) {
     $('edit-prod-price').value = parseFloat(p.price_usd).toFixed(2);
     $('edit-prod-warranty').value = p.warranty_days || 0;
     $('edit-prod-desc').value = p.description || '';
+    if ($('edit-prod-desc-fr')) $('edit-prod-desc-fr').value = p.description_fr || '';
+    if ($('edit-prod-desc-ar')) $('edit-prod-desc-ar').value = p.description_ar || '';
+    if ($('edit-prod-desc-zh')) $('edit-prod-desc-zh').value = p.description_zh || '';
     if ($('edit-prod-image-url')) $('edit-prod-image-url').value = p.image_url || '';
     if ($('edit-prod-custom-emoji-id')) $('edit-prod-custom-emoji-id').value = p.custom_emoji_id || '';
     $('edit-prod-title').textContent = `Modifier — ${p.emoji || '📦'} ${p.name}`;
@@ -1155,6 +1194,9 @@ $('edit-prod-form').addEventListener('submit', async (e) => {
         price_usd: parseFloat($('edit-prod-price').value),
         warranty_days: parseInt($('edit-prod-warranty').value) || 0,
         description: $('edit-prod-desc').value.trim(),
+        description_fr: $('edit-prod-desc-fr') ? $('edit-prod-desc-fr').value.trim() : '',
+        description_ar: $('edit-prod-desc-ar') ? $('edit-prod-desc-ar').value.trim() : '',
+        description_zh: $('edit-prod-desc-zh') ? $('edit-prod-desc-zh').value.trim() : '',
         image_url: $('edit-prod-image-url') && $('edit-prod-image-url').value.trim() ? $('edit-prod-image-url').value.trim() : null,
     };
     if (!data.name || isNaN(data.price_usd) || data.price_usd < 0) {
@@ -1526,6 +1568,9 @@ window.openEditProdModal = function(id) {
     DOM.prodWarranty.value = p.warranty_days || 0;
     DOM.prodEmoji.value = p.emoji;
     if (DOM.prodDesc) DOM.prodDesc.value = p.description || '';
+    if ($('prod-desc-fr')) $('prod-desc-fr').value = p.description_fr || '';
+    if ($('prod-desc-ar')) $('prod-desc-ar').value = p.description_ar || '';
+    if ($('prod-desc-zh')) $('prod-desc-zh').value = p.description_zh || '';
     if (DOM.prodImageUrl) DOM.prodImageUrl.value = p.image_url || '';
     if (DOM.prodBinanceAccount) DOM.prodBinanceAccount.value = p.binance_account_id || '';
     showModal(DOM.prodModal);
@@ -1542,6 +1587,9 @@ async function handleAddProduct(e) {
         emoji: DOM.prodEmoji.value.trim() || '📦',
         custom_emoji_id: DOM.prodCustomEmojiId && DOM.prodCustomEmojiId.value.trim() ? DOM.prodCustomEmojiId.value.trim() : null,
         description: DOM.prodDesc ? DOM.prodDesc.value.trim() : '',
+        description_fr: $('prod-desc-fr') ? $('prod-desc-fr').value.trim() : '',
+        description_ar: $('prod-desc-ar') ? $('prod-desc-ar').value.trim() : '',
+        description_zh: $('prod-desc-zh') ? $('prod-desc-zh').value.trim() : '',
         image_url: DOM.prodImageUrl && DOM.prodImageUrl.value.trim() ? DOM.prodImageUrl.value.trim() : null,
         binance_account_id: DOM.prodBinanceAccount && DOM.prodBinanceAccount.value ? parseInt(DOM.prodBinanceAccount.value) : null
     };

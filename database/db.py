@@ -154,7 +154,7 @@ class _PooledAsyncDB(_AsyncDB):
         """Returns the connection to the pool or closes it if an error occurred."""
         if self.has_error:
             try:
-                self._conn.close()
+                await asyncio.to_thread(self._conn.close)
             except Exception:
                 pass
             return
@@ -164,7 +164,7 @@ class _PooledAsyncDB(_AsyncDB):
                 _libsql_pool.append(self._conn)
             else:
                 try:
-                    self._conn.close()
+                    await asyncio.to_thread(self._conn.close)
                 except Exception:
                     pass
 
@@ -185,13 +185,22 @@ async def get_db():
             if _libsql_pool:
                 conn = _libsql_pool.pop()
             else:
-                conn = libsql.connect(TURSO_URL, auth_token=TURSO_TOKEN)
-        # libsql doesn't support row_factory — handled by _DictRow wrapper
+                conn = await asyncio.to_thread(libsql.connect, TURSO_URL, auth_token=TURSO_TOKEN)
         wrapper = _PooledAsyncDB(conn)
         try:
             await wrapper.execute("PRAGMA foreign_keys = ON")
         except Exception:
-            pass
+            # Stale connection from pool failed — close it and establish a fresh connection asynchronously
+            try:
+                await asyncio.to_thread(conn.close)
+            except Exception:
+                pass
+            conn = await asyncio.to_thread(libsql.connect, TURSO_URL, auth_token=TURSO_TOKEN)
+            wrapper = _PooledAsyncDB(conn)
+            try:
+                await wrapper.execute("PRAGMA foreign_keys = ON")
+            except Exception:
+                pass
         return wrapper
     else:
         import aiosqlite
@@ -235,6 +244,9 @@ async def init_db() -> None:
                 category_id INTEGER NOT NULL,
                 name TEXT NOT NULL,
                 description TEXT DEFAULT '',
+                description_fr TEXT DEFAULT '',
+                description_ar TEXT DEFAULT '',
+                description_zh TEXT DEFAULT '',
                 price_usd REAL NOT NULL,
                 warranty_days INTEGER DEFAULT 0,
                 emoji TEXT DEFAULT '📦',
@@ -403,6 +415,9 @@ async def init_db() -> None:
             "CREATE TABLE IF NOT EXISTS promo_code_usages (id INTEGER PRIMARY KEY AUTOINCREMENT, promo_code_id INTEGER NOT NULL, user_telegram_id INTEGER NOT NULL, usage_count INTEGER DEFAULT 0, last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(promo_code_id, user_telegram_id))",
             "ALTER TABLE promo_codes ADD COLUMN applicable_product_ids TEXT DEFAULT NULL",
             "ALTER TABLE promo_codes ADD COLUMN max_qty_per_order INTEGER DEFAULT 0",
+            "ALTER TABLE products ADD COLUMN description_fr TEXT DEFAULT ''",
+            "ALTER TABLE products ADD COLUMN description_ar TEXT DEFAULT ''",
+            "ALTER TABLE products ADD COLUMN description_zh TEXT DEFAULT ''",
         ]
         for sql in migrations:
             mig_db = await get_db()

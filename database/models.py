@@ -398,7 +398,7 @@ async def add_product(
         await db.close()
 
 
-ALLOWED_PRODUCT_COLUMNS = {"category_id", "name", "description", "price_usd", "warranty_days", "emoji", "custom_emoji_id", "image_url", "is_active", "binance_account_id"}
+ALLOWED_PRODUCT_COLUMNS = {"category_id", "name", "description", "description_fr", "description_ar", "description_zh", "price_usd", "warranty_days", "emoji", "custom_emoji_id", "image_url", "is_active", "binance_account_id"}
 
 
 async def update_product(product_id: int, **kwargs) -> None:

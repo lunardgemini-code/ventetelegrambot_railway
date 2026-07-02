@@ -126,7 +126,14 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
             p_emoji = f'<tg-emoji emoji-id="{product["custom_emoji_id"]}">{p_emoji}</tg-emoji>'
 
         import re
-        raw_desc = product.get("description", "N/A") or "N/A"
+        
+        # Multilingual Description logic
+        translated_desc = product.get(f"description_{lang}")
+        if translated_desc and str(translated_desc).strip():
+            raw_desc = translated_desc
+        else:
+            raw_desc = product.get("description", "N/A") or "N/A"
+            
         desc_escaped = escape_html(raw_desc)
         # Format 1: {emoji:ID:char}
         desc_parsed = re.sub(r'\{emoji:(\d+):(.*?)\}', r'<tg-emoji emoji-id="\1">\2</tg-emoji>', desc_escaped)

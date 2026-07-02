@@ -262,7 +262,10 @@ async def api_create_product(data: dict):
             emoji=data.get("emoji", "📦"),
             custom_emoji_id=data.get("custom_emoji_id"),
             image_url=data.get("image_url"),
-            binance_account_id=data.get("binance_account_id")
+            binance_account_id=data.get("binance_account_id"),
+            description_fr=data.get("description_fr", ""),
+            description_ar=data.get("description_ar", ""),
+            description_zh=data.get("description_zh", ""),
         )
         return {"id": prod_id, "status": "created"}
     except HTTPException:
@@ -324,7 +327,7 @@ async def api_reorder_products(request: Request):
 async def api_update_product(product_id: int, data: dict):
     from database.models import update_product
     try:
-        allowed = {"name", "price_usd", "emoji", "custom_emoji_id", "warranty_days", "description", "is_active", "binance_account_id", "image_url"}
+        allowed = {"name", "price_usd", "emoji", "custom_emoji_id", "warranty_days", "description", "description_fr", "description_ar", "description_zh", "is_active", "binance_account_id", "image_url"}
         updates = {k: v for k, v in data.items() if k in allowed}
         if not updates:
             raise HTTPException(status_code=400, detail="No valid fields to update")
@@ -350,6 +353,56 @@ async def api_delete_product(product_id: int):
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/translate", dependencies=[Depends(verify_api_key)])
+async def api_translate(data: dict):
+    import os
+    import json
+    import httpx
+    
+    text = data.get("text")
+    if not text:
+        raise HTTPException(status_code=400, detail="Missing text to translate")
+        
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY non configurée")
+        
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    prompt = (
+        "Translate the following product description into French, Arabic, and Chinese. "
+        "Return a valid JSON object with the exact keys: 'fr', 'ar', 'zh'. "
+        "Do not return markdown, just the raw JSON object.\n\n"
+        f"Text to translate: {text}"
+    )
+    
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}]
+    }
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, json=payload, timeout=10.0)
+            resp.raise_for_status()
+            result_json = resp.json()
+            
+            # Extract text from Gemini response format
+            response_text = result_json["candidates"][0]["content"]["parts"][0]["text"]
+            
+            # Clean up potential markdown formatting block if Gemini disobeys "no markdown"
+            if response_text.startswith("```json"):
+                response_text = response_text[7:]
+            if response_text.startswith("```"):
+                response_text = response_text[3:]
+            if response_text.endswith("```"):
+                response_text = response_text[:-3]
+                
+            translations = json.loads(response_text.strip())
+            return translations
+    except Exception as exc:
+        logger.error("Gemini API error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Translation failed")
 
 
 # ── Binance Accounts Endpoints ──
