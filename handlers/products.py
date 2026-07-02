@@ -125,10 +125,18 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
         if product.get("custom_emoji_id"):
             p_emoji = f'<tg-emoji emoji-id="{product["custom_emoji_id"]}">{p_emoji}</tg-emoji>'
 
+        import re
+        raw_desc = product.get("description", "N/A") or "N/A"
+        desc_escaped = escape_html(raw_desc)
+        # Format 1: {emoji:ID:char}
+        desc_parsed = re.sub(r'\{emoji:(\d+):(.*?)\}', r'<tg-emoji emoji-id="\1">\2</tg-emoji>', desc_escaped)
+        # Format 2: <tg-emoji emoji-id="ID">char</tg-emoji> (unescape it)
+        desc_parsed = re.sub(r'&lt;tg-emoji emoji-id=(?:&quot;|")(\d+)(?:&quot;|")&gt;(.*?)&lt;/tg-emoji&gt;', r'<tg-emoji emoji-id="\1">\2</tg-emoji>', desc_parsed)
+
         text = t("product_detail", lang).format(
             emoji=p_emoji,
             name=escape_html(product["name"]),
-            description=escape_html(product.get("description", "N/A") or "N/A"),
+            description=desc_parsed,
             price=format_price(product["price_usd"]),
             warranty=product.get("warranty_days", 0),
             stock=stock,
