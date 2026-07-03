@@ -188,6 +188,7 @@ async def get_db():
                 conn = await asyncio.to_thread(libsql.connect, TURSO_URL, auth_token=TURSO_TOKEN)
         wrapper = _PooledAsyncDB(conn)
         try:
+            await wrapper.execute("SELECT 1")
             await wrapper.execute("PRAGMA foreign_keys = ON")
         except Exception:
             # Stale connection from pool failed — close it and establish a fresh connection asynchronously
