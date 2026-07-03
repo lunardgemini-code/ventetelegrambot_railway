@@ -210,6 +210,8 @@ async def api_get_stats():
             "new_users": stats_30.get("new_users", 0),
             "returning_users": stats_30.get("returning_users", 0)
         }
+        _stats_cache["stats"] = {"time": current_time, "data": response_data}
+        return response_data
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -272,7 +274,7 @@ async def api_create_product(data: dict):
         raise
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @api.get("/api/products/{product_id}/tiers", dependencies=[Depends(verify_api_key)])
@@ -341,7 +343,7 @@ async def api_update_product(product_id: int, data: dict):
         raise
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @api.delete("/api/products/{product_id}", dependencies=[Depends(verify_api_key)])
@@ -369,7 +371,7 @@ async def api_translate(data: dict):
     if not api_key:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY non configurée")
         
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent"
     prompt = (
         "Translate the following product description into French, Arabic, and Chinese. "
         "Return a valid JSON object with the exact keys: 'fr', 'ar', 'zh'. "
@@ -378,19 +380,22 @@ async def api_translate(data: dict):
     )
     
     payload = {
-        "contents": [{"parts": [{"text": prompt}]}]
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.2}
     }
     
     try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(url, json=payload, timeout=30.0)
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+            )
+            if response.status_code != 200:
+                logger.error("Gemini API HTTP %d", response.status_code)
+                raise HTTPException(status_code=502, detail="Erreur de traduction (service indisponible)")
             
-            # Si l'API retourne une erreur, on récupère le message exact de Google
-            if not resp.is_success:
-                error_body = resp.text
-                raise Exception(f"API Gemini HTTP {resp.status_code}: {error_body}")
-                
-            result_json = resp.json()
+            result_json = response.json()
             
             # Extract text from Gemini response format
             response_text = result_json["candidates"][0]["content"]["parts"][0]["text"]
@@ -405,12 +410,14 @@ async def api_translate(data: dict):
                 
             translations = json.loads(response_text)
             return translations
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error("Gemini API error: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Erreur Gemini: {str(exc)}")
+        raise HTTPException(status_code=500, detail="Erreur de traduction")
 
 
-@api.get("/api/fix-db")
+@api.get("/api/fix-db", dependencies=[Depends(verify_api_key)])
 async def api_fix_db():
     from database.db import get_db
     db = await get_db()
@@ -422,8 +429,11 @@ async def api_fix_db():
             await db.commit()
             results.append(f"Added {col}")
         except Exception as e:
-            results.append(f"Error for {col}: {e}")
-    await db.close()
+            results.append(f"Skipped {col}: already exists")
+    try:
+        await db.close()
+    except Exception:
+        pass
     return {"status": "done", "results": results}
 
 # ── Binance Accounts Endpoints ──
