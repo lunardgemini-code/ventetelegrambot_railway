@@ -288,6 +288,8 @@ function setupEvents() {
     }));
 
     $('btn-open-prod-modal').addEventListener('click', () => { DOM.addProdForm.reset(); DOM.prodId.value=''; showModal(DOM.prodModal); });
+    const btnMassTranslate = $('btn-mass-translate');
+    if (btnMassTranslate) btnMassTranslate.addEventListener('click', massTranslate);
     $('btn-open-promo-modal').addEventListener('click', () => {
         const sel = $('promo-products');
         sel.innerHTML = '';
@@ -444,7 +446,15 @@ async function apiCall(endpoint, method='GET', body=null) {
     if (body) cfg.body = JSON.stringify(body);
     try {
         const res = await fetch(url, cfg); clearTimeout(tid);
-        if (!res.ok) { if (res.status===401) throw new Error('API_KEY_INVALID'); throw new Error(`API ${res.status}`); }
+        if (!res.ok) { 
+            if (res.status===401) throw new Error('API_KEY_INVALID'); 
+            let errDetail = `API ${res.status}`;
+            try {
+                const errBody = await res.json();
+                if (errBody && errBody.detail) errDetail = errBody.detail;
+            } catch(e) {}
+            throw new Error(errDetail); 
+        }
         return await res.json();
     } catch(e) { clearTimeout(tid); if (e.name==='AbortError') throw new Error('TIMEOUT'); throw e; }
 }
@@ -477,6 +487,101 @@ async function autoTranslate(type) {
         btn.textContent = originalText;
         btn.disabled = false;
     }
+}
+
+let massTranslateCancel = false;
+
+async function massTranslate() {
+    if (!state.products || state.products.length === 0) {
+        alert("Aucun produit dans le catalogue.");
+        return;
+    }
+    
+    // Find products that have an English description but are missing at least one translation
+    const toTranslate = state.products.filter(p => {
+        const hasEn = p.description && p.description.trim().length > 0;
+        const missingTranslation = !p.description_fr || !p.description_ar || !p.description_zh;
+        return hasEn && missingTranslation;
+    });
+    
+    if (toTranslate.length === 0) {
+        alert("🎉 Tous les produits sont déjà entièrement traduits !");
+        return;
+    }
+    
+    if (!confirm(`Trouvé ${toTranslate.length} produit(s) à traduire. Voulez-vous lancer la traduction automatique ?`)) {
+        return;
+    }
+    
+    massTranslateCancel = false;
+    const overlay = $('mass-translate-overlay');
+    const progressBar = $('mass-translate-progress');
+    const statusText = $('mass-translate-status');
+    const btnCancel = $('btn-mass-translate-cancel');
+    
+    overlay.style.display = 'flex';
+    progressBar.style.width = '0%';
+    
+    btnCancel.onclick = () => {
+        massTranslateCancel = true;
+        btnCancel.textContent = "Annulation en cours...";
+        btnCancel.disabled = true;
+    };
+    btnCancel.textContent = "Annuler";
+    btnCancel.disabled = false;
+    
+    let successCount = 0;
+    
+    for (let i = 0; i < toTranslate.length; i++) {
+        if (massTranslateCancel) break;
+        
+        const p = toTranslate[i];
+        statusText.textContent = `Traduction du produit "${p.name}" (${i+1}/${toTranslate.length})...`;
+        progressBar.style.width = `${((i) / toTranslate.length) * 100}%`;
+        
+        try {
+            // Call Gemini
+            const res = await apiCall('/api/translate', 'POST', { text: p.description });
+            
+            // Build updates for the missing fields
+            const updates = {};
+            if (!p.description_fr && res.fr) updates.description_fr = res.fr;
+            if (!p.description_ar && res.ar) updates.description_ar = res.ar;
+            if (!p.description_zh && res.zh) updates.description_zh = res.zh;
+            
+            // Save to database
+            if (Object.keys(updates).length > 0) {
+                await apiCall(`/api/products/${p.id}`, 'PUT', updates);
+                // Update local state so product won't be re-translated if cancelled and restarted
+                if (updates.description_fr) p.description_fr = updates.description_fr;
+                if (updates.description_ar) p.description_ar = updates.description_ar;
+                if (updates.description_zh) p.description_zh = updates.description_zh;
+                successCount++;
+            }
+            
+            // Wait 1 second to avoid rate limits
+            await new Promise(r => setTimeout(r, 1000));
+        } catch (e) {
+            console.error(`Erreur pour le produit ${p.id}:`, e);
+            // Si c'est l'API_KEY manquante, on arrête tout
+            if (e.message && e.message.includes('API_KEY_INVALID')) {
+                alert("Clé API invalide ou manquante.");
+                break;
+            }
+            // Sinon on continue avec le produit suivant
+        }
+    }
+    
+    progressBar.style.width = '100%';
+    statusText.textContent = `Terminé ! ${successCount} produit(s) traduit(s).`;
+    
+    setTimeout(() => {
+        overlay.style.display = 'none';
+        fetchProducts(); // Refresh the product list
+        if (successCount > 0) {
+            alert(`✅ Traduction terminée : ${successCount} produit(s) mis à jour avec succès.`);
+        }
+    }, 1500);
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
