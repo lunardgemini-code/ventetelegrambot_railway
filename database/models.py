@@ -1655,9 +1655,10 @@ async def record_used_transaction(
             )
             await db.commit()
             return True
-        except Exception:
-            # UNIQUE constraint violation = already used
-            return False
+        except Exception as e:
+            if "UNIQUE" in str(e).upper():
+                return False
+            raise
     finally:
         await db.close()
 
@@ -1957,9 +1958,10 @@ async def record_used_bep20_transaction(
             )
             await db.commit()
             return True
-        except Exception:
-            # UNIQUE constraint violation = already used
-            return False
+        except Exception as e:
+            if "UNIQUE" in str(e).upper():
+                return False
+            raise
     finally:
         await db.close()
 
@@ -2022,8 +2024,10 @@ async def record_used_trc20_transaction(
             )
             await db.commit()
             return True
-        except Exception:
-            return False
+        except Exception as e:
+            if "UNIQUE" in str(e).upper():
+                return False
+            raise
     finally:
         await db.close()
 

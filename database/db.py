@@ -122,32 +122,44 @@ class _PooledAsyncDB(_AsyncDB):
         super().__init__(conn)
         self.has_error = False
 
+    @staticmethod
+    def _is_connection_error(exc):
+        """Returns True only for connection-level errors (broken pipe, stream lost, etc.)."""
+        if isinstance(exc, (OSError, ConnectionError)):
+            return True
+        msg = str(exc).lower()
+        return any(kw in msg for kw in ("stream", "hrana", "connection", "broken pipe", "timed out"))
+
     async def execute(self, sql, params=None):
         try:
             return await super().execute(sql, params)
-        except Exception:
-            self.has_error = True
+        except Exception as e:
+            if self._is_connection_error(e):
+                self.has_error = True
             raise
 
     async def executemany(self, sql, params_list):
         try:
             await super().executemany(sql, params_list)
-        except Exception:
-            self.has_error = True
+        except Exception as e:
+            if self._is_connection_error(e):
+                self.has_error = True
             raise
 
     async def executescript(self, sql):
         try:
             await super().executescript(sql)
-        except Exception:
-            self.has_error = True
+        except Exception as e:
+            if self._is_connection_error(e):
+                self.has_error = True
             raise
 
     async def commit(self):
         try:
             await super().commit()
-        except Exception:
-            self.has_error = True
+        except Exception as e:
+            if self._is_connection_error(e):
+                self.has_error = True
             raise
 
     async def close(self):
