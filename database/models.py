@@ -382,6 +382,10 @@ async def add_product(
     description_fr: str = "",
     description_ar: str = "",
     description_zh: str = "",
+    activation_message: str = "",
+    activation_message_fr: str = "",
+    activation_message_ar: str = "",
+    activation_message_zh: str = "",
     delivery_type: str = "stock",
 ) -> int:
     """Ajoute un nouveau produit et retourne son identifiant."""
@@ -393,9 +397,9 @@ async def add_product(
     try:
         cursor = await db.execute(
             """INSERT INTO products
-               (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id, description_fr, description_ar, description_zh, delivery_type)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id, description_fr, description_ar, description_zh, delivery_type),
+               (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id, description_fr, description_ar, description_zh, activation_message, activation_message_fr, activation_message_ar, activation_message_zh, delivery_type)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id, description_fr, description_ar, description_zh, activation_message, activation_message_fr, activation_message_ar, activation_message_zh, delivery_type),
         )
         await db.commit()
         return cursor.lastrowid  # type: ignore[return-value]
@@ -403,7 +407,7 @@ async def add_product(
         await db.close()
 
 
-ALLOWED_PRODUCT_COLUMNS = {"category_id", "name", "description", "description_fr", "description_ar", "description_zh", "price_usd", "warranty_days", "emoji", "custom_emoji_id", "image_url", "is_active", "binance_account_id", "delivery_type"}
+ALLOWED_PRODUCT_COLUMNS = {"category_id", "name", "description", "description_fr", "description_ar", "description_zh", "activation_message", "activation_message_fr", "activation_message_ar", "activation_message_zh", "price_usd", "warranty_days", "emoji", "custom_emoji_id", "image_url", "is_active", "binance_account_id", "delivery_type"}
 
 
 async def update_product(product_id: int, **kwargs) -> None:

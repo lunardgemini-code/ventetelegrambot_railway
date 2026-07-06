@@ -229,9 +229,9 @@ function stopAutoRefresh() {
     if (state.autoRefreshTimer) { clearInterval(state.autoRefreshTimer); state.autoRefreshTimer = null; }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═════════════════════════════════════════════════════════════════════════
 //  INIT
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═════════════════════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
     state.currentLang = localStorage.getItem('vb_lang') || 'fr';
     const theme = localStorage.getItem('vb_theme') || 'dark';
@@ -287,39 +287,6 @@ function setupEvents() {
     }
 
     $$('.sub-tab').forEach(t => t.addEventListener('click', () => {
-        t.closest('.action-bar').querySelectorAll('.sub-tab').forEach(s => s.classList.remove('active'));
-        t.closest('section').querySelectorAll('.sub-tab-content').forEach(c => c.classList.remove('active'));
-        t.classList.add('active'); $(t.getAttribute('data-sub')).classList.add('active');
-    }));
-
-    $('btn-open-prod-modal').addEventListener('click', () => { DOM.addProdForm.reset(); DOM.prodId.value=''; if (DOM.prodDeliveryType) DOM.prodDeliveryType.value='stock'; showModal(DOM.prodModal); });
-    const btnMassTranslate = $('btn-mass-translate');
-    if (btnMassTranslate) btnMassTranslate.addEventListener('click', massTranslate);
-    $('btn-open-promo-modal').addEventListener('click', () => {
-        const sel = $('promo-products');
-        sel.innerHTML = '';
-        state.products.forEach(p => {
-            const lbl = document.createElement('label');
-            lbl.style.display = 'flex';
-            lbl.style.alignItems = 'center';
-            lbl.style.gap = '8px';
-            lbl.style.cursor = 'pointer';
-            lbl.style.margin = '0';
-            
-            const cb = document.createElement('input');
-            cb.type = 'checkbox';
-            cb.value = p.id;
-            cb.className = 'promo-product-cb';
-            
-            lbl.appendChild(cb);
-            lbl.appendChild(document.createTextNode(' ' + p.name));
-            sel.appendChild(lbl);
-        });
-        showModal(DOM.promoModal);
-    });
-    $('btn-open-binance-modal').addEventListener('click', openBinanceModal);
-    $$('.btn-close-modal').forEach(b => b.addEventListener('click', () => { [DOM.prodModal,DOM.stockModal,DOM.promoModal,DOM.tiersModal,DOM.orderDetailModal,DOM.viewStockModal,DOM.editProdModal,DOM.revenueModal,DOM.binanceModal,$('banModal'),$('finance-withdraw-modal'),$('finance-adjust-modal'), $('exportModal')].forEach(m => { if (m) hideModal(m); }); }));
-
     DOM.addProdForm.addEventListener('submit', handleAddProduct);
     DOM.addPromoForm.addEventListener('submit', handleAddPromo);
     DOM.settingsForm.addEventListener('submit', handleSaveSettings);

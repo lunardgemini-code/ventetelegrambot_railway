@@ -1441,12 +1441,29 @@ async def admin_complete_activation(update: Update, context: ContextTypes.DEFAUL
         product_name = product["name"] if product else f"#{order.get('product_id')}"
         try:
             user_lang = await get_user_lang(order["user_telegram_id"])
-            await context.bot.send_message(
-                order["user_telegram_id"],
-                t("activation_completed_user", user_lang).format(
+            
+            custom_msg = ""
+            if product:
+                if user_lang == "fr" and product.get("activation_message_fr"):
+                    custom_msg = product["activation_message_fr"]
+                elif user_lang == "ar" and product.get("activation_message_ar"):
+                    custom_msg = product["activation_message_ar"]
+                elif user_lang == "zh" and product.get("activation_message_zh"):
+                    custom_msg = product["activation_message_zh"]
+                elif product.get("activation_message"):
+                    custom_msg = product["activation_message"]
+            
+            if custom_msg:
+                final_msg = custom_msg.replace("{product}", escape_html(product_name)).replace("{order_id}", str(order_id))
+            else:
+                final_msg = t("activation_completed_user", user_lang).format(
                     product=escape_html(product_name),
                     order_id=order_id,
-                ),
+                )
+                
+            await context.bot.send_message(
+                order["user_telegram_id"],
+                final_msg,
                 parse_mode="HTML",
             )
         except Exception as exc:

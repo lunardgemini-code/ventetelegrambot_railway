@@ -805,12 +805,29 @@ async def api_activate_order(order_id: int):
                 lang = await get_user_lang(order["user_telegram_id"])
                 product = await get_product(order["product_id"])
                 product_name = product["name"] if product else f"#{order['product_id']}"
-                await tg_app.bot.send_message(
-                    chat_id=order["user_telegram_id"],
-                    text=t("activation_completed_user", lang).format(
+                
+                custom_msg = ""
+                if product:
+                    if lang == "fr" and product.get("activation_message_fr"):
+                        custom_msg = product["activation_message_fr"]
+                    elif lang == "ar" and product.get("activation_message_ar"):
+                        custom_msg = product["activation_message_ar"]
+                    elif lang == "zh" and product.get("activation_message_zh"):
+                        custom_msg = product["activation_message_zh"]
+                    elif product.get("activation_message"):
+                        custom_msg = product["activation_message"]
+                
+                if custom_msg:
+                    final_msg = custom_msg.replace("{product}", escape_html(product_name)).replace("{order_id}", str(order_id))
+                else:
+                    final_msg = t("activation_completed_user", lang).format(
                         product=escape_html(product_name),
                         order_id=order_id,
-                    ),
+                    )
+                
+                await tg_app.bot.send_message(
+                    chat_id=order["user_telegram_id"],
+                    text=final_msg,
                     parse_mode="HTML",
                 )
             except Exception:
