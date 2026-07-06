@@ -390,11 +390,12 @@ def admin_menu_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
     _bcast = "📢 Broadcast"
     _tickets = {"fr": "🎫 Tickets", "en": "🎫 Tickets", "ar": "🎫 التذاكر"}.get(lang, "🎫 Tickets")
     _orders = {"fr": "📋 Commandes", "en": "📋 Orders", "ar": "📋 الطلبات"}.get(lang, "📋 Commandes")
+    _activations = {"fr": "⚡ Activations", "en": "⚡ Activations", "ar": "⚡ التفعيلات", "zh": "⚡ 激活"}.get(lang, "⚡ Activations")
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(_prods, callback_data="adm_prods"), InlineKeyboardButton(_cats, callback_data="adm_cats")],
         [InlineKeyboardButton(_stock, callback_data="adm_stock"), InlineKeyboardButton(_stats, callback_data="adm_stats")],
         [InlineKeyboardButton(_bcast, callback_data="adm_broadcast"), InlineKeyboardButton(_tickets, callback_data="adm_tickets")],
-        [InlineKeyboardButton(_orders, callback_data="adm_orders")],
+        [InlineKeyboardButton(_orders, callback_data="adm_orders"), InlineKeyboardButton(_activations, callback_data="adm_activations")],
     ])
 
 

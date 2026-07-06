@@ -65,6 +65,7 @@ from handlers.support import (
 from handlers.wallet import wallet_conversation_handler, wallet_menu, wallet_history, wallet_noop
 
 from utils.helpers import escape_html
+from utils.locales import t
 
 # ── Logging ──
 logging.basicConfig(
@@ -561,16 +562,13 @@ async def api_confirm_order(order_id: int):
             await update_order_status(order_id, "AWAITING_ACTIVATION_INFO", payment_method=order.get("payment_method") or "manual")
             try:
                 user_lang = await get_user_lang(order["user_telegram_id"])
-                text = {
-                    "fr": "Paiement confirme. Veuillez envoyer l'identifiant a activer.",
-                    "en": "Payment confirmed. Please send the identifier to activate.",
-                    "ar": "تم تأكيد الدفع. يرجى إرسال المعرف للتفعيل.",
-                    "zh": "付款已确认。请发送需要激活的标识。",
-                }.get(user_lang, "Paiement confirme. Veuillez envoyer l'identifiant a activer.")
+                text = t("activation_manual_payment_prompt", user_lang).format(
+                    product=escape_html(product["name"])
+                )
                 if tg_app:
                     await tg_app.bot.send_message(
                         chat_id=order["user_telegram_id"],
-                        text=f"{text}\n\nProduit: {escape_html(product['name'])}\nCommande: #{order_id}",
+                        text=text,
                         parse_mode="HTML",
                     )
             except Exception as notify_exc:
@@ -734,7 +732,7 @@ async def api_get_all_orders(order_status: str = _Q(None, alias="status"), limit
             topups, total = await get_all_topups_filtered(limit=limit, offset=offset)
             return {"orders": topups, "total": total}
 
-        orders, total = await get_all_orders_filtered(status=order_status, limit=limit, offset=offset)
+        orders, total = await get_all_orders_filtered(status=order_status, limit=limit, offset=offset, exclude_activation=not order_status)
         return {"orders": orders, "total": total}
     except HTTPException:
         raise
@@ -770,6 +768,19 @@ async def api_cancel_order(order_id: int):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@api.get("/api/orders/activations", dependencies=[Depends(verify_api_key)])
+async def api_get_activation_orders(limit: int = 100, offset: int = 0):
+    from database.models import get_activation_orders
+    try:
+        limit = max(1, min(limit, 200))
+        offset = max(0, offset)
+        orders, total = await get_activation_orders(limit=limit, offset=offset)
+        return {"orders": orders, "total": total}
+    except Exception as exc:
+        logger.error("API error activation orders: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @api.post("/api/orders/{order_id}/activate", dependencies=[Depends(verify_api_key)])
 async def api_activate_order(order_id: int):
     from database.models import get_order, get_product, get_user_lang, update_order_status
@@ -794,15 +805,12 @@ async def api_activate_order(order_id: int):
                 lang = await get_user_lang(order["user_telegram_id"])
                 product = await get_product(order["product_id"])
                 product_name = product["name"] if product else f"#{order['product_id']}"
-                done_text = {
-                    "fr": "Votre activation est terminee.",
-                    "en": "Your activation is complete.",
-                    "ar": "تم تفعيل طلبك.",
-                    "zh": "您的激活已完成。",
-                }.get(lang, "Votre activation est terminee.")
                 await tg_app.bot.send_message(
                     chat_id=order["user_telegram_id"],
-                    text=f"{done_text}\n\nProduit: {escape_html(product_name)}\nCommande: #{order_id}",
+                    text=t("activation_completed_user", lang).format(
+                        product=escape_html(product_name),
+                        order_id=order_id,
+                    ),
                     parse_mode="HTML",
                 )
             except Exception:
@@ -1162,6 +1170,8 @@ async def notify_admins(text: str, reply_markup=None):
 
 
 tg_app = None
+webhook_update_queue: asyncio.Queue | None = None
+webhook_worker_task: asyncio.Task | None = None
 
 
 # ──────────────────────────────────────────────
@@ -1217,8 +1227,11 @@ async def telegram_webhook(request: StarletteRequest):
         logger.info("📨 Webhook received update: %s", data.get("update_id", "?"))
         if tg_app:
             update = Update.de_json(data, tg_app.bot)
-            task = asyncio.create_task(tg_app.process_update(update))
-            task.add_done_callback(_log_update_task_result)
+            if webhook_update_queue is not None:
+                webhook_update_queue.put_nowait(update)
+            else:
+                task = asyncio.create_task(tg_app.process_update(update))
+                task.add_done_callback(_log_update_task_result)
         else:
             logger.error("❌ tg_app is None — cannot process update")
         return {"ok": True}
@@ -1236,6 +1249,21 @@ def _log_update_task_result(task: asyncio.Task) -> None:
         logger.warning("Webhook update task was cancelled")
     except Exception as exc:
         logger.error("Webhook update task failed: %s", exc, exc_info=True)
+
+
+async def _webhook_update_worker(application: Application) -> None:
+    global webhook_update_queue
+    if webhook_update_queue is None:
+        webhook_update_queue = asyncio.Queue()
+
+    while True:
+        update = await webhook_update_queue.get()
+        try:
+            await application.process_update(update)
+        except Exception as exc:
+            logger.error("Webhook queued update failed: %s", exc, exc_info=True)
+        finally:
+            webhook_update_queue.task_done()
 
 
 async def get_emoji_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1436,7 +1464,7 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
 
 def main() -> None:
     """Build the Application, register handlers, and start in webhook or polling mode."""
-    global tg_app
+    global tg_app, webhook_update_queue, webhook_worker_task
 
     webhook_url = os.environ.get("WEBHOOK_URL", "").strip()
 
@@ -1454,7 +1482,8 @@ def main() -> None:
     async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Log the error and handle specific harmless errors."""
         if isinstance(context.error, BadRequest):
-            if "Message is not modified" in str(context.error):
+            err_text = str(context.error)
+            if "Message is not modified" in err_text or "Query is too old" in err_text:
                 # Harmless error caused by users spamming inline buttons that don't change the message content
                 return
         
@@ -1673,15 +1702,18 @@ def main() -> None:
 
         async def _setup_and_run():
             """Initialize the bot, set webhook, and run FastAPI."""
+            global webhook_update_queue, webhook_worker_task
             await app.initialize()
             await post_init(app)
             await app.start()
+            webhook_update_queue = asyncio.Queue()
+            webhook_worker_task = asyncio.create_task(_webhook_update_worker(app))
 
             wh = f"{webhook_url}/webhook"
             await app.bot.set_webhook(
                 url=wh,
                 secret_token=WEBHOOK_SECRET or None,
-                drop_pending_updates=False,
+                drop_pending_updates=True,
             )
             logger.info("🔗 Webhook set: %s", wh)
 
@@ -1692,6 +1724,8 @@ def main() -> None:
             finally:
                 # Do NOT delete the webhook on shutdown. In a rolling deployment,
                 # the old container shutting down would delete the webhook set by the new container.
+                if webhook_worker_task:
+                    webhook_worker_task.cancel()
                 await app.stop()
                 await app.shutdown()
 

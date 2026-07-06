@@ -1066,7 +1066,7 @@ async def get_pending_orders() -> list[dict]:
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT * FROM orders WHERE status IN ('PENDING', 'AWAITING_ACTIVATION_INFO', 'AWAITING_ACTIVATION') ORDER BY created_at ASC"
+            "SELECT * FROM orders WHERE status IN ('PENDING', 'AWAITING_PAYMENT') ORDER BY created_at ASC"
         )
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
@@ -1242,6 +1242,7 @@ async def get_all_orders_filtered(
     status: str | None = None,
     limit: int = 50,
     offset: int = 0,
+    exclude_activation: bool = False,
 ) -> tuple[list[dict], int]:
     """Retourne les commandes avec filtre optionnel sur le statut + count total + username."""
     db = await get_db()
@@ -1249,6 +1250,9 @@ async def get_all_orders_filtered(
         if status:
             where = "WHERE o.status = ?"
             params: list = [status]
+        elif exclude_activation:
+            where = "WHERE o.status NOT IN ('AWAITING_ACTIVATION_INFO', 'AWAITING_ACTIVATION')"
+            params = []
         else:
             where = ""
             params = []
@@ -1281,6 +1285,33 @@ async def get_all_orders_filtered(
                 params + [limit, offset],
             )
             rows = await cursor.fetchall()
+        return [dict(r) for r in rows], total
+    finally:
+        await db.close()
+
+
+async def get_activation_orders(limit: int = 100, offset: int = 0) -> tuple[list[dict], int]:
+    """Return manual activation orders with user and product details."""
+    db = await get_db()
+    try:
+        where = "WHERE o.status IN ('AWAITING_ACTIVATION_INFO', 'AWAITING_ACTIVATION')"
+        cursor = await db.execute(
+            f"SELECT COUNT(*) as cnt FROM orders o {where}"
+        )
+        total = (await cursor.fetchone())["cnt"]
+
+        cursor = await db.execute(
+            f"""SELECT o.*, u.username, u.first_name as user_first_name,
+                       p.name as product_name, p.emoji as product_emoji, p.is_deleted as product_is_deleted
+                FROM orders o
+                LEFT JOIN users u ON o.user_telegram_id = u.telegram_id
+                LEFT JOIN products p ON o.product_id = p.id
+                {where}
+                ORDER BY o.created_at DESC
+                LIMIT ? OFFSET ?""",
+            (limit, offset),
+        )
+        rows = await cursor.fetchall()
         return [dict(r) for r in rows], total
     finally:
         await db.close()

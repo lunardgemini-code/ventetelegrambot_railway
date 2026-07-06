@@ -61,6 +61,7 @@
                 <a href="#" class="menu-item" data-tab="finance-tab"><i class="fa-solid fa-sack-dollar"></i> <span data-i18n="nav_finance">Finance</span></a>
                 <a href="#" class="menu-item" data-tab="inventory-tab"><i class="fa-solid fa-box-open"></i> <span data-i18n="nav_inventory">Catalogue & Stock</span></a>
                 <a href="#" class="menu-item" data-tab="orders-tab"><i class="fa-solid fa-receipt"></i> <span data-i18n="nav_orders">Commandes</span><span id="badge-orders" class="badge hidden">0</span></a>
+                <a href="#" class="menu-item" data-tab="activations-tab"><i class="fa-solid fa-bolt"></i> <span data-i18n="nav_activations">Activations</span><span id="badge-activations" class="badge hidden">0</span></a>
                 <a href="#" class="menu-item" data-tab="users-tab"><i class="fa-solid fa-users"></i> <span data-i18n="nav_users">Utilisateurs</span></a>
                 <a href="#" class="menu-item" data-tab="wallet-history-tab"><i class="fa-solid fa-wallet"></i> <span data-i18n="nav_wallet_history">Wallet History</span></a>
                 <a href="#" class="menu-item" data-tab="tickets-tab"><i class="fa-solid fa-ticket"></i> <span data-i18n="nav_tickets">Tickets</span><span id="badge-tickets" class="badge hidden">0</span></a>
@@ -373,6 +374,16 @@
                 </div>
             </section>
 
+            <!-- Activations Tab -->
+            <section id="activations-tab" class="tab-content">
+                <div class="flex-justify mb-4"><h2><i class="fa-solid fa-bolt" style="color:var(--primary-color)"></i> <span data-i18n="activations_title">Activations</span></h2></div>
+                <div class="glass-panel overflow-hidden">
+                    <table class="data-table"><thead><tr>
+                        <th>#</th><th data-i18n="th_client">Client</th><th data-i18n="th_telegram_id">ID Telegram</th><th data-i18n="th_product">Produit</th><th data-i18n="th_activation_identifier">Identifiant à activer</th><th data-i18n="th_amount">Montant</th><th data-i18n="th_status">Statut</th><th data-i18n="th_date">Date</th><th data-i18n="th_action">Action</th>
+                    </tr></thead><tbody id="activations-table-body"><tr><td colspan="9" class="empty-state" data-i18n="no_activations">Aucune activation.</td></tr></tbody></table>
+                </div>
+            </section>
+
             <!-- Wallet History Tab -->
             <section id="wallet-history-tab" class="tab-content">
                 <div class="flex-justify mb-4">
@@ -593,7 +604,7 @@
                     <label>Type de livraison</label>
                     <select id="prod-delivery-type" style="width:100%; padding:0.75rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:var(--color-text);">
                         <option value="stock">Stock automatique</option>
-                        <option value="activation">Activation manuelle</option>
+                        <option value="activation" data-i18n="delivery_activation">Activation manuelle</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -741,7 +752,7 @@
                     <label>Type de livraison</label>
                     <select id="edit-prod-delivery-type" style="width:100%; padding:0.75rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:var(--color-text);">
                         <option value="stock">Stock automatique</option>
-                        <option value="activation">Activation manuelle</option>
+                        <option value="activation" data-i18n="delivery_activation">Activation manuelle</option>
                     </select>
                 </div>
                 <div class="form-group"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;"><label style="margin:0;">Description Principale (Anglais)</label><button type="button" id="btn-translate-edit" style="padding:4px 8px; font-size:0.8rem; background:var(--color-primary); color:white; border:none; border-radius:4px; cursor:pointer; transition: opacity 0.2s;">✨ Traduire</button></div><textarea id="edit-prod-desc" rows="2" style="width:100%;resize:vertical;"></textarea></div>

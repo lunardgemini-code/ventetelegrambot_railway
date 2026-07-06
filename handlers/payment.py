@@ -75,11 +75,9 @@ async def _prompt_activation_identifier(update: Update, context: ContextTypes.DE
     context.user_data.pop("paying_product_id", None)
 
     product_name = product["name"] if product else f"#{order_id}"
-    text = (
-        f"{t('payment_confirmed', lang)}\n\n"
-        f"Produit: <b>{escape_html(product_name)}</b>\n"
-        "Veuillez entrer l'identifiant a activer.\n"
-        "Exemple: @username Telegram, email, ID Grok, ou autre identifiant du service."
+    text = t("activation_prompt", lang).format(
+        payment_confirmed=t("payment_confirmed", lang),
+        product=escape_html(product_name),
     )
     if update.callback_query:
         await update.callback_query.edit_message_text(text, parse_mode="HTML")
@@ -97,7 +95,7 @@ async def receive_activation_identifier(update: Update, context: ContextTypes.DE
     identifier = update.message.text.strip()
     if len(identifier) < 2:
         if context.user_data.get("activation_order_id"):
-            await update.message.reply_text("Identifiant trop court. Envoyez l'identifiant a activer.")
+            await update.message.reply_text(t("activation_identifier_too_short", lang))
             return WAITING_ACTIVATION_IDENTIFIER
         return ConversationHandler.END
 
@@ -119,7 +117,7 @@ async def receive_activation_identifier(update: Update, context: ContextTypes.DE
     try:
         from bot import notify_admins
         markup = InlineKeyboardMarkup([[
-            InlineKeyboardButton("Marquer active", callback_data=f"adm_activate_order:{order_id}")
+            InlineKeyboardButton(t("activation_admin_button", lang), callback_data=f"adm_activate_order:{order_id}")
         ]])
         await notify_admins(
             "<b>Nouvelle activation a faire</b>\n\n"
@@ -133,11 +131,7 @@ async def receive_activation_identifier(update: Update, context: ContextTypes.DE
     except Exception:
         pass
 
-    await update.message.reply_text(
-        "Merci. Votre demande d'activation a ete envoyee a l'admin.\n"
-        "Vous recevrez un message quand l'activation sera terminee.",
-        reply_markup=main_menu_keyboard(lang),
-    )
+    await update.message.reply_text(t("activation_request_sent", lang), reply_markup=main_menu_keyboard(lang))
     return ConversationHandler.END
 
 async def send_delivery_messages(bot, chat_id: int, header: str, items: list, footer: str, lang: str, order_id: int = None):

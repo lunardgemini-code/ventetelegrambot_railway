@@ -16,7 +16,7 @@ All routes are restricted to ADMIN_IDS.
 import logging
 from datetime import datetime
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -35,6 +35,7 @@ from database.models import (
     delete_product,
     get_all_products,
     get_all_users,
+    get_activation_orders,
     get_categories,
     get_category,
     get_open_tickets,
@@ -1225,6 +1226,104 @@ async def admin_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⚠️ Erreur.")
 
 
+async def admin_activations(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle 'adm_activations' callback - list pending manual activations."""
+    query = update.callback_query
+    if not _admin_check(update):
+        await _not_admin(update)
+        return
+    await query.answer()
+    admin_lang = await get_user_lang(update.effective_user.id)
+
+    try:
+        activations, _total = await get_activation_orders(limit=100, offset=0)
+        if not activations:
+            await query.edit_message_text(
+                t("admin_activation_empty", admin_lang),
+                parse_mode="HTML",
+                reply_markup=back_keyboard("adm_menu"),
+            )
+            return
+
+        buttons = []
+        for order in activations:
+            username = order.get("username")
+            client = f"@{username}" if username else (order.get("user_first_name") or str(order.get("user_telegram_id")))
+            product_name = order.get("product_name") or f"Produit #{order.get('product_id')}"
+            status_icon = "✅" if order.get("status") == "AWAITING_ACTIVATION" else "⏳"
+            buttons.append([
+                InlineKeyboardButton(
+                    f"{status_icon} {client} - {product_name} #{order['id']}",
+                    callback_data=f"adm_activation:{order['id']}",
+                )
+            ])
+
+        buttons.append([InlineKeyboardButton("◀️ Retour", callback_data="adm_menu")])
+        await query.edit_message_text(
+            t("admin_activation_list", admin_lang).format(count=len(activations)),
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+    except Exception as exc:
+        logger.error("admin_activations: %s", exc, exc_info=True)
+        await query.edit_message_text(t("admin_activation_load_error", admin_lang))
+
+
+async def admin_activation_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show one manual activation request with accept button."""
+    query = update.callback_query
+    if not _admin_check(update):
+        await _not_admin(update)
+        return
+    await query.answer()
+    admin_lang = await get_user_lang(update.effective_user.id)
+
+    try:
+        order_id = int(query.data.split(":")[1])
+        activations, _total = await get_activation_orders(limit=200, offset=0)
+        order = next((o for o in activations if int(o["id"]) == order_id), None)
+        if not order:
+            raw_order = await get_order(order_id)
+            if not raw_order:
+                await query.edit_message_text(t("admin_activation_not_found", admin_lang), reply_markup=back_keyboard("adm_activations"))
+                return
+            order = raw_order
+
+        product = await get_product(order.get("product_id"))
+        product_name = order.get("product_name") or (product["name"] if product else f"Produit #{order.get('product_id')}")
+        username = order.get("username")
+        first_name = order.get("user_first_name") or ""
+        client_line = f"@{username}" if username else (first_name or str(order.get("user_telegram_id")))
+        activation_identifier = order.get("activation_identifier")
+        status = order.get("status")
+
+        text = (
+            f"⚡ <b>Activation #{order_id}</b>\n\n"
+            f"Client: <b>{escape_html(client_line)}</b>\n"
+            f"ID Telegram: <code>{order.get('user_telegram_id')}</code>\n"
+            f"Produit: <b>{escape_html(product_name)}</b>\n"
+            f"Quantité: {order.get('quantity', 1)}\n"
+            f"Montant: {format_price(order.get('amount_usd', 0))}\n"
+            f"Statut: <code>{escape_html(status or '')}</code>\n\n"
+            "Identifiant à activer:\n"
+            f"<code>{escape_html(activation_identifier or 'Le client ne l’a pas encore envoyé.')}</code>"
+        )
+
+        buttons = []
+        if status == "AWAITING_ACTIVATION" and activation_identifier:
+            buttons.append([InlineKeyboardButton(f"✅ {t('activation_admin_button', admin_lang)}", callback_data=f"adm_activate_order:{order_id}")])
+        buttons.append([InlineKeyboardButton("◀️ Retour", callback_data="adm_activations")])
+
+        await query.edit_message_text(
+            text,
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+    except Exception as exc:
+        logger.error("admin_activation_detail: %s", exc, exc_info=True)
+        await query.edit_message_text(t("admin_activation_load_error", admin_lang))
+
+
 async def admin_confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle 'adm_confirm_pay:{order_id}' callback — manually confirm payment."""
     query = update.callback_query
@@ -1236,6 +1335,7 @@ async def admin_confirm_payment(update: Update, context: ContextTypes.DEFAULT_TY
     try:
         order_id = int(query.data.split(":")[1])
         order = await get_order(order_id)
+        admin_lang = await get_user_lang(update.effective_user.id)
 
         if not order:
             await query.edit_message_text("❌ Commande introuvable.")
@@ -1245,20 +1345,18 @@ async def admin_confirm_payment(update: Update, context: ContextTypes.DEFAULT_TY
         if product and product.get("delivery_type") == "activation":
             await update_order_status(order_id, "AWAITING_ACTIVATION_INFO", payment_method=order.get("payment_method") or "manual", binance_order_id="MANUAL")
             try:
+                user_lang = await get_user_lang(order["user_telegram_id"])
                 await context.bot.send_message(
                     order["user_telegram_id"],
-                    "Paiement confirme.\n\n"
-                    f"Produit: <b>{escape_html(product['name'])}</b>\n"
-                    "Veuillez envoyer l'identifiant a activer.",
+                    t("activation_manual_payment_prompt", user_lang).format(product=escape_html(product["name"])),
                     parse_mode="HTML",
                 )
             except Exception as exc:
                 logger.warning("Could not notify activation user: %s", exc)
 
             await query.edit_message_text(
-                f"Commande #{order_id} confirmee.\n"
-                "Le client doit maintenant envoyer son identifiant a activer.",
-                reply_markup=admin_menu_keyboard(),
+                t("admin_activation_user_must_send", admin_lang).format(order_id=order_id),
+                reply_markup=admin_menu_keyboard(admin_lang),
             )
             return
 
@@ -1324,10 +1422,12 @@ async def admin_complete_activation(update: Update, context: ContextTypes.DEFAUL
             await query.edit_message_text("Commande introuvable.")
             return
         if order.get("status") == "COMPLETED":
-            await query.edit_message_text(f"Commande #{order_id} deja terminee.")
+            admin_lang = await get_user_lang(update.effective_user.id)
+            await query.edit_message_text(t("admin_activation_already_done", admin_lang).format(order_id=order_id))
             return
         if order.get("status") != "AWAITING_ACTIVATION":
-            await query.edit_message_text("Cette commande n'attend pas une activation.")
+            admin_lang = await get_user_lang(update.effective_user.id)
+            await query.edit_message_text(t("admin_activation_wrong_status", admin_lang))
             return
 
         await update_order_status(
@@ -1340,23 +1440,27 @@ async def admin_complete_activation(update: Update, context: ContextTypes.DEFAUL
         product = await get_product(order.get("product_id"))
         product_name = product["name"] if product else f"#{order.get('product_id')}"
         try:
+            user_lang = await get_user_lang(order["user_telegram_id"])
             await context.bot.send_message(
                 order["user_telegram_id"],
-                "Votre activation est terminee.\n\n"
-                f"Produit: <b>{escape_html(product_name)}</b>\n"
-                f"Commande: #{order_id}",
+                t("activation_completed_user", user_lang).format(
+                    product=escape_html(product_name),
+                    order_id=order_id,
+                ),
                 parse_mode="HTML",
             )
         except Exception as exc:
             logger.warning("Could not notify activated user: %s", exc)
 
+        admin_lang = await get_user_lang(update.effective_user.id)
         await query.edit_message_text(
-            f"Activation terminee pour la commande #{order_id}.",
-            reply_markup=admin_menu_keyboard(),
+            t("admin_activation_done_admin", admin_lang).format(order_id=order_id),
+            reply_markup=back_keyboard("adm_activations"),
         )
     except Exception as exc:
         logger.error("admin_complete_activation: %s", exc, exc_info=True)
-        await query.edit_message_text("Erreur lors de l'activation.")
+        admin_lang = await get_user_lang(update.effective_user.id)
+        await query.edit_message_text(t("admin_activation_error", admin_lang))
 
 
 async def _admin_start_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1382,6 +1486,8 @@ def get_admin_conversation_handler() -> ConversationHandler:
             CallbackQueryHandler(admin_stock_menu, pattern=r"^adm_stock$"),
             CallbackQueryHandler(admin_stats, pattern=r"^adm_stats$"),
             CallbackQueryHandler(admin_orders, pattern=r"^adm_orders$"),
+            CallbackQueryHandler(admin_activations, pattern=r"^adm_activations$"),
+            CallbackQueryHandler(admin_activation_detail, pattern=r"^adm_activation:"),
             CallbackQueryHandler(admin_tickets, pattern=r"^adm_tickets$"),
             CallbackQueryHandler(admin_category_detail, pattern=r"^adm_cat:"),
             CallbackQueryHandler(admin_product_detail, pattern=r"^adm_prod:\d+$"),
@@ -1389,6 +1495,7 @@ def get_admin_conversation_handler() -> ConversationHandler:
             CallbackQueryHandler(admin_delete_product, pattern=r"^adm_del_prod:"),
             CallbackQueryHandler(admin_close_ticket, pattern=r"^adm_close_ticket:"),
             CallbackQueryHandler(admin_confirm_payment, pattern=r"^adm_confirm_pay:"),
+            CallbackQueryHandler(admin_complete_activation, pattern=r"^adm_activate_order:"),
             # Multi-step entry points
             CallbackQueryHandler(admin_add_cat_start, pattern=r"^adm_add_cat$"),
             CallbackQueryHandler(admin_add_prod_start, pattern=r"^adm_add_prod:"),

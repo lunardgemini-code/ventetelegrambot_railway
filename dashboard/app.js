@@ -33,7 +33,9 @@ fr: {
     nav_wallet_history:"Wallet History",wh_title:"Historique Wallet",wh_total_topups:"Total Recharges",wh_total_purchases:"Total Achats Wallet",wh_total_count:"Transactions",
     wh_filter_topup:"Recharges",wh_filter_purchase:"Achats Wallet",wh_th_type:"Type",wh_th_balance_after:"Solde après",wh_th_description:"Description",wh_no_tx:"Aucune transaction.",
     th_payment_method:"Méthode",pay_method_wallet:"💰 Wallet",pay_method_binance:"⚡ Binance",pay_method_unknown:"—",
-    nav_finance:"Finance",tab_finance:"Suivi Financier",nav_binance:"Comptes Binance",tab_binance:"Gestion des Comptes Binance",settings_err:"Échec de l'opération : "
+    nav_finance:"Finance",tab_finance:"Suivi Financier",nav_binance:"Comptes Binance",tab_binance:"Gestion des Comptes Binance",settings_err:"Échec de l'opération : ",
+    nav_activations:"Activations",activations_title:"Activations",no_activations:"Aucune activation.",th_telegram_id:"ID Telegram",th_activation_identifier:"Identifiant à activer",th_date:"Date",th_action:"Action",
+    activation_waiting_client:"En attente du client",activation_ready:"À activer",activation_waiting_id:"Attend ID client",activation_mark_done:"Marquer activé",activation_confirm_prompt:"Marquer la commande #{id} comme activée ?",delivery_activation:"Activation manuelle"
 },
 en: {
     login_subtitle:"Admin Management Console",login_url_label:"API URL (optional)",login_url_hint:"Leave empty for Netlify proxy",login_key_label:"Admin API Key",login_btn:"Connect",
@@ -64,7 +66,9 @@ en: {
     nav_wallet_history:"Wallet History",wh_title:"Wallet History",wh_total_topups:"Total Top-ups",wh_total_purchases:"Total Wallet Purchases",wh_total_count:"Transactions",
     wh_filter_topup:"Top-ups",wh_filter_purchase:"Wallet Purchases",wh_th_type:"Type",wh_th_balance_after:"Balance after",wh_th_description:"Description",wh_no_tx:"No transactions.",
     th_payment_method:"Method",pay_method_wallet:"💰 Wallet",pay_method_binance:"⚡ Binance",pay_method_unknown:"—",
-    nav_finance:"Finance",tab_finance:"Financial Tracking",nav_binance:"Binance Accounts",tab_binance:"Binance Accounts Management",settings_err:"Operation failed: "
+    nav_finance:"Finance",tab_finance:"Financial Tracking",nav_binance:"Binance Accounts",tab_binance:"Binance Accounts Management",settings_err:"Operation failed: ",
+    nav_activations:"Activations",activations_title:"Activations",no_activations:"No activations.",th_telegram_id:"Telegram ID",th_activation_identifier:"Identifier to activate",th_date:"Date",th_action:"Action",
+    activation_waiting_client:"Waiting for customer",activation_ready:"To activate",activation_waiting_id:"Waiting for customer ID",activation_mark_done:"Mark activated",activation_confirm_prompt:"Mark order #{id} as activated?",delivery_activation:"Manual activation"
 },
 ar: {
     login_subtitle:"Ù„Ùˆحة إدارة Ø§Ù„Ù…Ø´Ø±Ù",login_url_label:"رابط API (اختياري)",login_url_hint:"Ø§ØªØ±Ùƒه ÙØ§Ø±ØºØ§Ù‹ Ù„Ø¨Ø±ÙˆÙƒسي Netlify",login_key_label:"Ù…ÙØªØ§Ø­ API Ù„Ù„Ù…Ø´Ø±Ù",login_btn:"اتصال",
@@ -95,7 +99,9 @@ ar: {
     nav_wallet_history:"سجل Ø§Ù„Ù…Ø­ÙØ¸Ø©",wh_title:"سجل Ø§Ù„Ù…Ø­ÙØ¸Ø©",wh_total_topups:"إجمالي الشحنات",wh_total_purchases:"إجمالي مشتريات الرصيد",wh_total_count:"المعاملات",
     wh_filter_topup:"الشحنات",wh_filter_purchase:"مشتريات الرصيد",wh_th_type:"Ø§Ù„Ù†Ùˆع",wh_th_balance_after:"الرصيد بعد",wh_th_description:"Ø§Ù„ÙˆØµÙ",wh_no_tx:"لا ØªÙˆجد معاملات.",
     th_payment_method:"الطريقة",pay_method_wallet:"💰 Ø§Ù„Ù…Ø­ÙØ¸Ø©",pay_method_binance:"⚡ Binance",pay_method_unknown:"—",
-    nav_finance:"المالية",tab_finance:"المتابعة المالية",nav_binance:"حسابات Binance",tab_binance:"إدارة حسابات Binance",settings_err:"ÙØ´Ù„Øª العملية: "
+    nav_finance:"المالية",tab_finance:"المتابعة المالية",nav_binance:"حسابات Binance",tab_binance:"إدارة حسابات Binance",settings_err:"ÙØ´Ù„Øª العملية: ",
+    nav_activations:"التفعيلات",activations_title:"التفعيلات",no_activations:"لا توجد طلبات تفعيل.",th_telegram_id:"Telegram ID",th_activation_identifier:"المعرّف المطلوب تفعيله",th_date:"التاريخ",th_action:"الإجراء",
+    activation_waiting_client:"بانتظار العميل",activation_ready:"جاهز للتفعيل",activation_waiting_id:"بانتظار معرّف العميل",activation_mark_done:"وضع كمفعّل",activation_confirm_prompt:"هل تريد وضع الطلب #{id} كمفعّل؟",delivery_activation:"تفعيل يدوي"
 }
 };
 
@@ -104,7 +110,7 @@ ar: {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 const state = {
     botUrl:'', apiKey:'', currentLang:'fr', currentTab:'dashboard-tab',
-    categories:[], products:[], orders:[], users:[], promos:[], tickets:[], walletHistory:[], binanceAccounts:[],
+    categories:[], products:[], orders:[], activations:[], users:[], promos:[], tickets:[], walletHistory:[], binanceAccounts:[],
     orderFilter:'all', orderPage:0, orderTotal:0,
     whFilter:'all', whPage:0, whTotal:0,
     usersPage:0, usersPerPage:20, usersSearch:'', usersTotal:0,
@@ -124,7 +130,7 @@ const DOM = {
     statRevenue:$('stat-revenue'), statOrders:$('stat-orders'), statUsers:$('stat-users'), statPending:$('stat-pending'),
     statNewUsers:$('stat-new-users'), statReturningUsers:$('stat-returning-users'),
     stockSummaryList:$('stock-summary-list'),
-    badgeOrders:$('badge-orders'), badgeTickets:$('badge-tickets'), apiStatusBadge:$('api-status-badge'),
+    badgeOrders:$('badge-orders'), badgeActivations:$('badge-activations'), badgeTickets:$('badge-tickets'), apiStatusBadge:$('api-status-badge'),
     productsTableBody:$('products-table-body'),
     statsProductsTableBody:$('stats-products-table-body'),
     statsProductSearch:$('stats-product-search'),
@@ -135,7 +141,7 @@ const DOM = {
     statsKpiStockAlerts:$('stats-kpi-stock-alerts'),
     chartProductSales:$('chart-product-sales'),
     promosTableBody:$('promos-table-body'),
-    ordersTableBody:$('orders-table-body'), ordersPagination:$('orders-pagination'),
+    ordersTableBody:$('orders-table-body'), activationsTableBody:$('activations-table-body'), ordersPagination:$('orders-pagination'),
     ordersPrev:$('orders-prev'), ordersNext:$('orders-next'), ordersPageInfo:$('orders-page-info'),
     usersTableBody:$('users-table-body'), usersSearch:$('users-search'), usersLimitSelector:$('users-limit-selector'),
     usersPagination:$('users-pagination'), usersPrev:$('users-prev'), usersNext:$('users-next'), usersPageInfo:$('users-page-info'),
@@ -610,7 +616,7 @@ async function refreshData() {
     showLoading(true);
     DOM.apiStatusBadge.querySelector('.status-indicator').className = 'status-indicator';
     try {
-        await Promise.all([loadStats(), loadFinance(), loadProducts(), loadAllOrders(), loadTickets(), loadUsers(), loadPromos(), loadCharts(), loadWalletHistory(), loadBinanceAccounts(), loadPaymentSettings(), loadProductStats()]);
+        await Promise.all([loadStats(), loadFinance(), loadProducts(), loadAllOrders(), loadActivations(), loadTickets(), loadUsers(), loadPromos(), loadCharts(), loadWalletHistory(), loadBinanceAccounts(), loadPaymentSettings(), loadProductStats()]);
         DOM.apiStatusBadge.querySelector('.status-indicator').classList.add('online');
     } catch(e) { console.error(e); DOM.apiStatusBadge.querySelector('.status-indicator').classList.add('offline'); }
     finally { showLoading(false); }
@@ -944,7 +950,7 @@ async function loadAllOrders() {
             } else if (o.status === 'PENDING' || o.status === 'AWAITING_PAYMENT') {
                 actions = `<button class="btn-table-action" onclick="confirmOrderPayment(${o.id})" title="Confirmer" style="color:#22c55e;"><i class="fa-solid fa-check"></i></button> <button class="btn-table-action" onclick="cancelOrder(${o.id})" title="Annuler" style="color:#ef4444;"><i class="fa-solid fa-xmark"></i></button>`;
             } else if (o.status === 'AWAITING_ACTIVATION') {
-                actions = `<button class="btn-table-action" onclick="completeActivation(${o.id})" title="Marquer active" style="color:#22c55e;"><i class="fa-solid fa-bolt"></i></button> <button class="btn-table-action" onclick="cancelOrder(${o.id})" title="Annuler" style="color:#ef4444;"><i class="fa-solid fa-xmark"></i></button>`;
+                actions = `<button class="btn-table-action" onclick="completeActivation(${o.id})" title="${t('activation_mark_done')}" style="color:#22c55e;"><i class="fa-solid fa-bolt"></i></button> <button class="btn-table-action" onclick="cancelOrder(${o.id})" title="Annuler" style="color:#ef4444;"><i class="fa-solid fa-xmark"></i></button>`;
             } else if (o.status === 'AWAITING_ACTIVATION_INFO') {
                 actions = `<button class="btn-table-action" onclick="cancelOrder(${o.id})" title="Annuler" style="color:#ef4444;"><i class="fa-solid fa-xmark"></i></button>`;
             } else if (o.status === 'COMPLETED') {
@@ -986,6 +992,51 @@ async function loadAllOrders() {
     const tp = Math.max(1, Math.ceil(r.total/20));
     DOM.ordersPageInfo.textContent = `${state.orderPage+1} / ${tp}`;
     DOM.ordersPagination.classList.toggle('hidden', tp <= 1);
+}
+
+async function loadActivations() {
+    const r = await apiCall('/api/orders/activations?limit=100&offset=0');
+    state.activations = r.orders || [];
+
+    if (DOM.badgeActivations) {
+        if (state.activations.length > 0) {
+            DOM.badgeActivations.textContent = state.activations.length;
+            DOM.badgeActivations.classList.remove('hidden');
+        } else {
+            DOM.badgeActivations.classList.add('hidden');
+        }
+    }
+
+    if (!DOM.activationsTableBody) return;
+    if (state.activations.length === 0) {
+        DOM.activationsTableBody.innerHTML = `<tr><td colspan="9" class="empty-state">${t('no_activations')}</td></tr>`;
+        return;
+    }
+
+    DOM.activationsTableBody.innerHTML = state.activations.map(o => {
+        const prod = state.products.find(p => p.id === o.product_id);
+        let pn = prod ? `${prod.emoji || '📦'} ${escapeHtml(prod.name)}` : `#${o.product_id}`;
+        if (!prod && o.product_name) pn = `${o.product_emoji || '📦'} ${escapeHtml(o.product_name)}`;
+        const uname = o.username ? `@${escapeHtml(o.username)}` : escapeHtml(o.user_first_name || o.user_telegram_id);
+        const identifier = o.activation_identifier ? `<code>${escapeHtml(o.activation_identifier)}</code>` : `<span style="color:var(--color-text-muted);">${t('activation_waiting_client')}</span>`;
+        const d = parseUTCDate(o.created_at).toLocaleDateString();
+        const statusLabel = o.status === 'AWAITING_ACTIVATION' ? t('activation_ready') : t('activation_waiting_id');
+        const actions = o.status === 'AWAITING_ACTIVATION'
+            ? `<button class="btn-table-action" onclick="completeActivation(${o.id})" title="${t('activation_mark_done')}" style="color:#22c55e;"><i class="fa-solid fa-bolt"></i></button> <button class="btn-table-action" onclick="cancelOrder(${o.id})" title="Annuler" style="color:#ef4444;"><i class="fa-solid fa-xmark"></i></button>`
+            : `<button class="btn-table-action" onclick="cancelOrder(${o.id})" title="Annuler" style="color:#ef4444;"><i class="fa-solid fa-xmark"></i></button>`;
+
+        return `<tr>
+            <td><strong>#${o.id}</strong></td>
+            <td>${uname}</td>
+            <td><code>${o.user_telegram_id}</code></td>
+            <td>${pn}</td>
+            <td>${identifier}</td>
+            <td>$${parseFloat(o.amount_usd || 0).toFixed(2)}</td>
+            <td><div class="status-badge ${o.status.toLowerCase()}">${statusLabel}</div></td>
+            <td>${d}</td>
+            <td>${actions}</td>
+        </tr>`;
+    }).join('');
 }
 
 async function loadWalletHistory() {
@@ -1105,7 +1156,7 @@ async function handleAddPromo(e) { e.preventDefault(); showLoading(true); try { 
 window.deleteProduct = async function(id) { if(!confirm(t('confirm_delete'))) return; showLoading(true); try{await apiCall(`/api/products/${id}`,'DELETE'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
 window.deletePromo = async function(id) { showLoading(true); try{await apiCall(`/api/promos/${id}`,'DELETE'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
 window.confirmOrderPayment = async function(id) { if(!confirm(`${t('confirm_order')}${id}?`)) return; showLoading(true); try{await apiCall(`/api/orders/${id}/confirm`,'POST'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
-window.completeActivation = async function(id) { if(!confirm(`Marquer la commande #${id} comme activee ?`)) return; showLoading(true); try{await apiCall(`/api/orders/${id}/activate`,'POST'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
+window.completeActivation = async function(id) { if(!confirm(t('activation_confirm_prompt').replace('{id}', id))) return; showLoading(true); try{await apiCall(`/api/orders/${id}/activate`,'POST'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
 window.cancelOrder = async function(id) { if(!confirm(`Annuler la commande #${id} ?`)) return; showLoading(true); try{await apiCall(`/api/orders/${id}/cancel`,'POST'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -1496,7 +1547,7 @@ async function handleSaveCryptoSettings(e) {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // Category select removed — not needed
 
-const tabKeys = { 'dashboard-tab':'tab_dashboard','stats-tab':'tab_stats','inventory-tab':'tab_inventory','orders-tab':'tab_orders','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
+const tabKeys = { 'dashboard-tab':'tab_dashboard','stats-tab':'tab_stats','inventory-tab':'tab_inventory','orders-tab':'tab_orders','activations-tab':'nav_activations','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
 
 function escapeHtml(str) {
     if (!str) return '';
