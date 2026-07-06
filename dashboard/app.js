@@ -488,23 +488,37 @@ async function apiCall(endpoint, method='GET', body=null) {
     } catch(e) { clearTimeout(tid); if (e.name==='AbortError') throw new Error('TIMEOUT'); throw e; }
 }
 
-async function autoTranslate(type) {
-    const btn = type === 'add' ? $('btn-translate-add') : $('btn-translate-edit');
-    const sourceTextarea = type === 'add' ? DOM.prodDesc : $('edit-prod-desc');
-    const targetFr = type === 'add' ? $('prod-desc-fr') : $('edit-prod-desc-fr');
-    const targetAr = type === 'add' ? $('prod-desc-ar') : $('edit-prod-desc-ar');
-    const targetZh = type === 'add' ? $('prod-desc-zh') : $('edit-prod-desc-zh');
-    
+async function autoTranslate(type, field) {
+    let btn, sourceTextarea, targetFr, targetAr, targetZh;
+    if (field === 'act') {
+        btn = type === 'add' ? $('btn-translate-act-add') : $('btn-translate-act-edit');
+        sourceTextarea = type === 'add' ? $('prod-act-msg') : $('edit-prod-act-msg');
+        targetFr = type === 'add' ? $('prod-act-msg-fr') : $('edit-prod-act-msg-fr');
+        targetAr = type === 'add' ? $('prod-act-msg-ar') : $('edit-prod-act-msg-ar');
+        targetZh = type === 'add' ? $('prod-act-msg-zh') : $('edit-prod-act-msg-zh');
+    } else if (field === 'conf') {
+        btn = type === 'add' ? $('btn-translate-conf-add') : $('btn-translate-conf-edit');
+        sourceTextarea = type === 'add' ? $('prod-conf-msg') : $('edit-prod-conf-msg');
+        targetFr = type === 'add' ? $('prod-conf-msg-fr') : $('edit-prod-conf-msg-fr');
+        targetAr = type === 'add' ? $('prod-conf-msg-ar') : $('edit-prod-conf-msg-ar');
+        targetZh = type === 'add' ? $('prod-conf-msg-zh') : $('edit-prod-conf-msg-zh');
+    } else {
+        btn = type === 'add' ? $('btn-translate-add') : $('btn-translate-edit');
+        sourceTextarea = type === 'add' ? DOM.prodDesc : $('edit-prod-desc');
+        targetFr = type === 'add' ? $('prod-desc-fr') : $('edit-prod-desc-fr');
+        targetAr = type === 'add' ? $('prod-desc-ar') : $('edit-prod-desc-ar');
+        targetZh = type === 'add' ? $('prod-desc-zh') : $('edit-prod-desc-zh');
+    }
+
     const text = sourceTextarea ? sourceTextarea.value.trim() : '';
     if (!text) {
-        alert("Veuillez d'abord remplir la description en anglais !");
+        alert("Veuillez d'abord remplir le texte en anglais !");
         return;
     }
-    
-    const originalText = btn.textContent;
-    btn.textContent = "⏳...";
-    btn.disabled = true;
-    
+
+    const originalText = btn ? btn.textContent : "✨ Traduire Message";
+    if (btn) { btn.textContent = "⏳..."; btn.disabled = true; }
+
     try {
         const res = await apiCall('/api/translate', 'POST', { text: text });
         if (res.fr && targetFr) targetFr.value = res.fr;
@@ -513,8 +527,7 @@ async function autoTranslate(type) {
     } catch(e) {
         alert("Erreur de traduction: " + (e.message || "Assurez-vous d'avoir configuré GEMINI_API_KEY sur Railway."));
     } finally {
-        btn.textContent = originalText;
-        btn.disabled = false;
+        if (btn) { btn.textContent = originalText; btn.disabled = false; }
     }
 }
 
@@ -1368,6 +1381,17 @@ window.openEditProduct = function(productId) {
     if ($('edit-prod-image-url')) $('edit-prod-image-url').value = p.image_url || '';
     if ($('edit-prod-custom-emoji-id')) $('edit-prod-custom-emoji-id').value = p.custom_emoji_id || '';
     if ($('edit-prod-delivery-type')) $('edit-prod-delivery-type').value = p.delivery_type || 'stock';
+
+    if ($('edit-prod-act-msg')) $('edit-prod-act-msg').value = p.activation_message || '';
+    if ($('edit-prod-act-msg-fr')) $('edit-prod-act-msg-fr').value = p.activation_message_fr || '';
+    if ($('edit-prod-act-msg-ar')) $('edit-prod-act-msg-ar').value = p.activation_message_ar || '';
+    if ($('edit-prod-act-msg-zh')) $('edit-prod-act-msg-zh').value = p.activation_message_zh || '';
+
+    if ($('edit-prod-conf-msg')) $('edit-prod-conf-msg').value = p.confirmation_message || '';
+    if ($('edit-prod-conf-msg-fr')) $('edit-prod-conf-msg-fr').value = p.confirmation_message_fr || '';
+    if ($('edit-prod-conf-msg-ar')) $('edit-prod-conf-msg-ar').value = p.confirmation_message_ar || '';
+    if ($('edit-prod-conf-msg-zh')) $('edit-prod-conf-msg-zh').value = p.confirmation_message_zh || '';
+
     $('edit-prod-title').textContent = `Modifier — ${p.emoji || '📦'} ${p.name}`;
     showModal(DOM.editProdModal);
 };
