@@ -17,6 +17,7 @@ import threading
 from datetime import datetime
 from fastapi import FastAPI, Header, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import uvicorn
@@ -54,6 +55,7 @@ from handlers.products import (
     show_products_list,
 )
 from handlers.profile import show_profile, show_referrals
+from handlers.reseller_api import confirm_generate_reseller_api_key, generate_reseller_api_key, reseller_api_menu
 from handlers.start import change_language, main_menu_callback, set_language, start_command, callback_check_sub
 from handlers.support import (
     get_support_conversation_handler,
@@ -79,7 +81,13 @@ logger = logging.getLogger(__name__)
 #  Secure REST API Server (FastAPI + uvicorn)
 # ──────────────────────────────────────────────
 
-api = FastAPI(title="VenteBot Admin API", version="1.0.0")
+api = FastAPI(
+    title="VenteBot Admin API",
+    version="1.0.0",
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
 
 # Enable CORS for browser access — restrict origins in production
 _cors_origins = os.environ.get("CORS_ORIGINS", "*").split(",")
@@ -88,7 +96,7 @@ api.add_middleware(
     allow_origins=[o.strip() for o in _cors_origins],
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["X-API-Key", "Content-Type"],
+    allow_headers=["X-API-Key", "X-Reseller-Key", "Content-Type"],
     expose_headers=[],
 )
 
@@ -118,10 +126,548 @@ async def verify_api_key(x_api_key: str = Header(None)):
     return x_api_key
 
 
+async def verify_reseller_key(x_reseller_key: str = Header(None)):
+    """Authenticate reseller API calls with a limited reseller key."""
+    if not x_reseller_key:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing reseller API key")
+    from database.models import get_reseller_by_api_key
+    reseller = await get_reseller_by_api_key(x_reseller_key)
+    if not reseller:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid reseller API key")
+    return reseller
+
+
+def _api_order_payload(order: dict | None) -> dict | None:
+    if not order:
+        return None
+    return {
+        "id": order.get("id"),
+        "status": order.get("status"),
+        "product_id": order.get("product_id"),
+        "product_name": order.get("product_name"),
+        "quantity": order.get("quantity"),
+        "amount_usd": float(order.get("amount_usd") or 0),
+        "delivery_type": order.get("delivery_type"),
+        "customer_reference": order.get("customer_reference") or "",
+        "idempotency_key": order.get("idempotency_key") or "",
+        "activation_identifier": order.get("activation_identifier"),
+        "created_at": order.get("created_at"),
+        "items": [
+            {"id": item.get("id"), "account_data": item.get("account_data")}
+            for item in order.get("items", [])
+        ],
+    }
+
+
 @api.get("/health")
 async def health_check():
     """Anonymous endpoint for Railway health check."""
     return {"status": "ok", "bot": "running"}
+
+
+def _reseller_openapi_schema() -> dict:
+    return {
+        "openapi": "3.0.3",
+        "info": {
+            "title": "VenteBot Reseller API",
+            "version": "1.0.0",
+            "description": (
+                "Public API for connecting a reseller bot to VenteBot. "
+                "Purchases debit the reseller account wallet."
+            ),
+        },
+        "servers": [{"url": "/"}],
+        "tags": [
+            {"name": "Account", "description": "Reseller account and wallet balance"},
+            {"name": "Products", "description": "Catalog and pricing"},
+            {"name": "Orders", "description": "Order creation and tracking"},
+            {"name": "Wallet", "description": "Reseller wallet history"},
+        ],
+        "components": {
+            "securitySchemes": {
+                "ResellerKey": {
+                    "type": "apiKey",
+                    "in": "header",
+                    "name": "X-Reseller-Key",
+                    "description": "API key generated from the Telegram bot or created by the admin in the Resellers tab.",
+                }
+            },
+            "schemas": {
+                "Error": {
+                    "type": "object",
+                    "properties": {"detail": {"type": "string", "example": "Invalid reseller API key"}},
+                },
+                "MeResponse": {
+                    "type": "object",
+                    "properties": {
+                        "user_telegram_id": {"type": "integer", "example": 123456789},
+                        "username": {"type": "string", "nullable": True, "example": "partner_bot"},
+                        "first_name": {"type": "string", "nullable": True, "example": "Partner"},
+                        "wallet_balance": {"type": "number", "format": "float", "example": 42.5},
+                        "key_name": {"type": "string", "example": "Partner bot"},
+                        "key_prefix": {"type": "string", "example": "abc123"},
+                    },
+                },
+                "PriceTier": {
+                    "type": "object",
+                    "properties": {
+                        "min_qty": {"type": "integer", "example": 10},
+                        "max_qty": {"type": "integer", "nullable": True, "example": 99},
+                        "price_usd": {"type": "number", "format": "float", "example": 1.75},
+                    },
+                },
+                "Product": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "integer", "example": 12},
+                        "name": {"type": "string", "example": "Grok 1 month"},
+                        "description": {"type": "string", "example": "Manual activation"},
+                        "emoji": {"type": "string", "nullable": True, "example": "⚡"},
+                        "image_url": {"type": "string", "nullable": True, "example": "https://example.com/product.png"},
+                        "price_usd": {"type": "number", "format": "float", "example": 5.0},
+                        "warranty_days": {"type": "integer", "example": 30},
+                        "delivery_type": {"type": "string", "enum": ["stock", "activation"], "example": "activation"},
+                        "stock": {"type": "integer", "nullable": True, "example": None},
+                        "price_tiers": {"type": "array", "items": {"$ref": "#/components/schemas/PriceTier"}},
+                    },
+                },
+                "QuoteRequest": {
+                    "type": "object",
+                    "required": ["product_id"],
+                    "properties": {
+                        "product_id": {"type": "integer", "example": 12},
+                        "quantity": {"type": "integer", "minimum": 1, "default": 1, "example": 1},
+                    },
+                },
+                "QuoteResponse": {
+                    "type": "object",
+                    "properties": {
+                        "quote": {
+                            "type": "object",
+                            "properties": {
+                                "product_id": {"type": "integer", "example": 12},
+                                "quantity": {"type": "integer", "example": 1},
+                                "unit_price": {"type": "number", "format": "float", "example": 5.0},
+                                "total": {"type": "number", "format": "float", "example": 5.0},
+                                "delivery_type": {"type": "string", "example": "activation"},
+                            },
+                        },
+                        "wallet_balance": {"type": "number", "format": "float", "example": 42.5},
+                    },
+                },
+                "CreateOrderRequest": {
+                    "type": "object",
+                    "required": ["product_id"],
+                    "properties": {
+                        "product_id": {"type": "integer", "example": 12},
+                        "quantity": {"type": "integer", "minimum": 1, "default": 1, "example": 1},
+                        "activation_identifier": {
+                            "type": "string",
+                            "description": "Telegram ID, Grok ID, email, or any service identifier to activate.",
+                            "example": "@client",
+                        },
+                        "customer_reference": {
+                            "type": "string",
+                            "description": "Internal customer reference from the reseller bot.",
+                            "example": "telegram_user_555",
+                        },
+                        "idempotency_key": {
+                            "type": "string",
+                            "description": "Unique value per purchase attempt to prevent duplicate orders.",
+                            "example": "order-555-20260706-001",
+                        },
+                    },
+                },
+                "ActivationIdentifierRequest": {
+                    "type": "object",
+                    "required": ["activation_identifier"],
+                    "properties": {
+                        "activation_identifier": {"type": "string", "example": "@client"},
+                    },
+                },
+                "OrderItem": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "integer", "example": 99},
+                        "account_data": {"type": "string", "example": "login:password"},
+                    },
+                },
+                "Order": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "integer", "example": 124},
+                        "status": {"type": "string", "example": "AWAITING_ACTIVATION"},
+                        "product_id": {"type": "integer", "example": 12},
+                        "product_name": {"type": "string", "example": "Grok 1 month"},
+                        "quantity": {"type": "integer", "example": 1},
+                        "amount_usd": {"type": "number", "format": "float", "example": 5.0},
+                        "delivery_type": {"type": "string", "example": "activation"},
+                        "customer_reference": {"type": "string", "example": "telegram_user_555"},
+                        "idempotency_key": {"type": "string", "example": "order-555-20260706-001"},
+                        "activation_identifier": {"type": "string", "nullable": True, "example": "@client"},
+                        "created_at": {"type": "string", "example": "2026-07-06 12:30:00"},
+                        "items": {"type": "array", "items": {"$ref": "#/components/schemas/OrderItem"}},
+                    },
+                },
+            },
+        },
+        "security": [{"ResellerKey": []}],
+        "paths": {
+            "/api/reseller/me": {
+                "get": {
+                    "tags": ["Account"],
+                    "summary": "Verify the key and read the wallet balance",
+                    "responses": {
+                        "200": {"description": "Reseller account", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MeResponse"}}}},
+                        "401": {"description": "Invalid key", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+                    },
+                }
+            },
+            "/api/reseller/products": {
+                "get": {
+                    "tags": ["Products"],
+                    "summary": "List active products",
+                    "parameters": [
+                        {
+                            "name": "lang",
+                            "in": "query",
+                            "schema": {"type": "string", "enum": ["en", "fr", "ar", "zh"], "default": "en"},
+                            "description": "Product description language.",
+                        }
+                    ],
+                    "responses": {
+                        "200": {
+                            "description": "Catalog",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "products": {"type": "array", "items": {"$ref": "#/components/schemas/Product"}}
+                                        },
+                                    }
+                                }
+                            },
+                        }
+                    },
+                }
+            },
+            "/api/reseller/quote": {
+                "post": {
+                    "tags": ["Products"],
+                    "summary": "Calculate the price before buying",
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/QuoteRequest"}}},
+                    },
+                    "responses": {
+                        "200": {"description": "Calculated price", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/QuoteResponse"}}}},
+                        "400": {"description": "Invalid product or quantity", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+                    },
+                }
+            },
+            "/api/reseller/orders": {
+                "post": {
+                    "tags": ["Orders"],
+                    "summary": "Create an order",
+                    "description": "Debits the reseller wallet. Use idempotency_key to prevent duplicate purchases.",
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateOrderRequest"}}},
+                    },
+                    "responses": {
+                        "200": {
+                            "description": "Order created or idempotent response",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "status": {"type": "string", "example": "ok"},
+                                            "idempotent": {"type": "boolean", "example": False},
+                                            "balance_after": {"type": "number", "format": "float", "example": 37.5},
+                                            "unit_price": {"type": "number", "format": "float", "example": 5.0},
+                                            "total": {"type": "number", "format": "float", "example": 5.0},
+                                            "order": {"$ref": "#/components/schemas/Order"},
+                                        },
+                                    }
+                                }
+                            },
+                        },
+                        "400": {"description": "Invalid order", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+                        "402": {"description": "Insufficient wallet balance", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+                    },
+                }
+            },
+            "/api/reseller/orders/{order_id}": {
+                "get": {
+                    "tags": ["Orders"],
+                    "summary": "Read an order",
+                    "parameters": [{"name": "order_id", "in": "path", "required": True, "schema": {"type": "integer"}}],
+                    "responses": {
+                        "200": {"description": "Order", "content": {"application/json": {"schema": {"type": "object", "properties": {"order": {"$ref": "#/components/schemas/Order"}}}}}},
+                        "404": {"description": "Order not found", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+                    },
+                }
+            },
+            "/api/reseller/orders/{order_id}/activation-identifier": {
+                "post": {
+                    "tags": ["Orders"],
+                    "summary": "Submit the activation identifier later",
+                    "parameters": [{"name": "order_id", "in": "path", "required": True, "schema": {"type": "integer"}}],
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ActivationIdentifierRequest"}}},
+                    },
+                    "responses": {
+                        "200": {"description": "Identifier saved", "content": {"application/json": {"schema": {"type": "object", "properties": {"status": {"type": "string", "example": "ok"}, "order": {"$ref": "#/components/schemas/Order"}}}}}},
+                        "400": {"description": "The order is not waiting for an identifier", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+                        "404": {"description": "Order not found", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+                    },
+                }
+            },
+            "/api/reseller/wallet/transactions": {
+                "get": {
+                    "tags": ["Wallet"],
+                    "summary": "Reseller wallet history",
+                    "parameters": [
+                        {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 50, "minimum": 1, "maximum": 200}},
+                        {"name": "offset", "in": "query", "schema": {"type": "integer", "default": 0, "minimum": 0}},
+                    ],
+                    "responses": {
+                        "200": {
+                            "description": "Transactions",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "transactions": {"type": "array", "items": {"type": "object"}}
+                                        },
+                                    }
+                                }
+                            },
+                        }
+                    },
+                }
+            },
+        },
+    }
+
+
+@api.get("/api/reseller/openapi.json", include_in_schema=False)
+async def api_reseller_openapi_json():
+    return _reseller_openapi_schema()
+
+
+@api.get("/api/swagger", include_in_schema=False)
+@api.get("/api/swagger/", include_in_schema=False)
+async def api_reseller_swagger():
+    return get_swagger_ui_html(
+        openapi_url="/api/reseller/openapi.json",
+        title="VenteBot Reseller API",
+        swagger_ui_parameters={"persistAuthorization": True},
+    )
+
+
+@api.get("/api/resellers", dependencies=[Depends(verify_api_key)])
+async def api_admin_list_resellers():
+    from database.models import list_reseller_api_keys
+    try:
+        return {"resellers": await list_reseller_api_keys()}
+    except Exception as exc:
+        logger.error("API error list resellers: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/resellers/keys", dependencies=[Depends(verify_api_key)])
+async def api_admin_create_reseller_key(data: dict):
+    from database.models import create_reseller_api_key, get_user
+    try:
+        telegram_id = int(data.get("user_telegram_id"))
+        user = await get_user(telegram_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        key = await create_reseller_api_key(telegram_id, data.get("name", ""))
+        return {"status": "created", "key": key}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("API error create reseller key: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.delete("/api/resellers/keys/{key_id}", dependencies=[Depends(verify_api_key)])
+async def api_admin_revoke_reseller_key(key_id: int):
+    from database.models import revoke_reseller_api_key
+    try:
+        if not await revoke_reseller_api_key(key_id):
+            raise HTTPException(status_code=404, detail="Key not found")
+        return {"status": "revoked"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("API error revoke reseller key: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/api/reseller/me")
+async def api_reseller_me(reseller: dict = Depends(verify_reseller_key)):
+    return {
+        "user_telegram_id": reseller["user_telegram_id"],
+        "username": reseller.get("username"),
+        "first_name": reseller.get("first_name"),
+        "wallet_balance": float(reseller.get("wallet_balance") or 0),
+        "key_name": reseller.get("name") or "",
+        "key_prefix": reseller.get("key_prefix"),
+    }
+
+
+@api.get("/api/reseller/products")
+async def api_reseller_products(lang: str = "en", reseller: dict = Depends(verify_reseller_key)):
+    from database.models import get_all_products, get_all_stock_counts, get_price_tiers
+    try:
+        lang = lang if lang in {"en", "fr", "ar", "zh"} else "en"
+        products = await get_all_products()
+        stock_counts = await get_all_stock_counts()
+        result = []
+        for p in products:
+            if not p.get("is_active", 1) or p.get("is_deleted", 0):
+                continue
+            desc = p.get(f"description_{lang}") if lang in {"fr", "ar", "zh"} else p.get("description")
+            if not desc:
+                desc = p.get("description", "")
+            tiers = await get_price_tiers(p["id"])
+            result.append({
+                "id": p["id"],
+                "name": p["name"],
+                "description": desc or "",
+                "emoji": p.get("emoji"),
+                "image_url": p.get("image_url"),
+                "price_usd": float(p.get("price_usd") or 0),
+                "warranty_days": p.get("warranty_days", 0),
+                "delivery_type": p.get("delivery_type") or "stock",
+                "stock": None if p.get("delivery_type") == "activation" else stock_counts.get(p["id"], 0),
+                "price_tiers": [
+                    {"min_qty": t_item["min_qty"], "max_qty": t_item["max_qty"], "price_usd": float(t_item["price_usd"])}
+                    for t_item in tiers
+                ],
+            })
+        return {"products": result}
+    except Exception as exc:
+        logger.error("API error reseller products: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/reseller/quote")
+async def api_reseller_quote(data: dict, reseller: dict = Depends(verify_reseller_key)):
+    from database.models import quote_reseller_order
+    try:
+        quote = await quote_reseller_order(int(data.get("product_id")), int(data.get("quantity", 1)))
+        return {"quote": quote, "wallet_balance": float(reseller.get("wallet_balance") or 0)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("API error reseller quote: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/reseller/orders")
+async def api_reseller_create_order(data: dict, reseller: dict = Depends(verify_reseller_key)):
+    from database.models import create_reseller_order
+    try:
+        result = await create_reseller_order(
+            reseller_user_telegram_id=reseller["user_telegram_id"],
+            product_id=int(data.get("product_id")),
+            quantity=int(data.get("quantity", 1)),
+            activation_identifier=data.get("activation_identifier"),
+            customer_reference=data.get("customer_reference", ""),
+            idempotency_key=data.get("idempotency_key"),
+        )
+        order = result.get("order")
+        if order and order.get("status") == "AWAITING_ACTIVATION":
+            try:
+                await notify_admins(
+                    "<b>Nouvelle activation revendeur</b>\n\n"
+                    f"Commande: #{order['id']}\n"
+                    f"Revendeur: <code>{reseller['user_telegram_id']}</code>\n"
+                    f"Produit: {escape_html(order.get('product_name') or str(order.get('product_id')))} x{order.get('quantity', 1)}\n"
+                    f"Identifiant: <code>{escape_html(order.get('activation_identifier') or '')}</code>"
+                )
+            except Exception:
+                pass
+        return {
+            "status": "ok",
+            "idempotent": bool(result.get("idempotent")),
+            "balance_after": result.get("balance_after"),
+            "unit_price": result.get("unit_price"),
+            "total": result.get("total"),
+            "order": _api_order_payload(order),
+        }
+    except ValueError as exc:
+        msg = str(exc)
+        code = 402 if "wallet" in msg.lower() else 400
+        raise HTTPException(status_code=code, detail=msg)
+    except Exception as exc:
+        logger.error("API error reseller create order: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/api/reseller/orders/{order_id}")
+async def api_reseller_get_order(order_id: int, reseller: dict = Depends(verify_reseller_key)):
+    from database.models import get_reseller_order
+    try:
+        order = await get_reseller_order(reseller["user_telegram_id"], order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        return {"order": _api_order_payload(order)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("API error reseller get order: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/reseller/orders/{order_id}/activation-identifier")
+async def api_reseller_submit_activation(order_id: int, data: dict, reseller: dict = Depends(verify_reseller_key)):
+    from database.models import get_reseller_order, submit_activation_identifier
+    try:
+        identifier = str(data.get("activation_identifier", "")).strip()
+        if len(identifier) < 2:
+            raise HTTPException(status_code=400, detail="activation_identifier is required")
+        order = await get_reseller_order(reseller["user_telegram_id"], order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        if order.get("status") != "AWAITING_ACTIVATION_INFO":
+            raise HTTPException(status_code=400, detail="Order is not waiting for an activation identifier")
+        await submit_activation_identifier(order_id, identifier)
+        try:
+            await notify_admins(
+                "<b>Nouvelle activation revendeur</b>\n\n"
+                f"Commande: #{order_id}\n"
+                f"Revendeur: <code>{reseller['user_telegram_id']}</code>\n"
+                f"Produit: {escape_html(order.get('product_name') or str(order.get('product_id')))} x{order.get('quantity', 1)}\n"
+                f"Identifiant: <code>{escape_html(identifier)}</code>"
+            )
+        except Exception:
+            pass
+        updated = await get_reseller_order(reseller["user_telegram_id"], order_id)
+        return {"status": "ok", "order": _api_order_payload(updated)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("API error reseller activation identifier: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/api/reseller/wallet/transactions")
+async def api_reseller_wallet_transactions(limit: int = 50, offset: int = 0, reseller: dict = Depends(verify_reseller_key)):
+    from database.models import get_reseller_wallet_transactions
+    try:
+        return {"transactions": await get_reseller_wallet_transactions(reseller["user_telegram_id"], limit, offset)}
+    except Exception as exc:
+        logger.error("API error reseller wallet tx: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @api.get("/api/finance", dependencies=[Depends(verify_api_key)])
 async def api_get_finance(method: str = None):
@@ -1383,6 +1929,11 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
         ("ALTER TABLE orders ADD COLUMN activation_status TEXT DEFAULT NULL", "Column 'orders.activation_status'"),
         ("ALTER TABLE orders ADD COLUMN activation_requested_at TIMESTAMP", "Column 'orders.activation_requested_at'"),
         ("ALTER TABLE orders ADD COLUMN activated_at TIMESTAMP", "Column 'orders.activated_at'"),
+        ("CREATE TABLE IF NOT EXISTS reseller_api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, user_telegram_id INTEGER NOT NULL, name TEXT DEFAULT '', key_prefix TEXT UNIQUE NOT NULL, key_hash TEXT NOT NULL, is_active INTEGER DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, last_used_at TIMESTAMP)", "Table 'reseller_api_keys'"),
+        ("CREATE TABLE IF NOT EXISTS reseller_order_links (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER UNIQUE NOT NULL, reseller_user_telegram_id INTEGER NOT NULL, customer_reference TEXT DEFAULT '', idempotency_key TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(reseller_user_telegram_id, idempotency_key))", "Table 'reseller_order_links'"),
+        ("CREATE INDEX IF NOT EXISTS idx_reseller_keys_user ON reseller_api_keys(user_telegram_id)", "Index 'idx_reseller_keys_user'"),
+        ("CREATE INDEX IF NOT EXISTS idx_reseller_keys_prefix ON reseller_api_keys(key_prefix)", "Index 'idx_reseller_keys_prefix'"),
+        ("CREATE INDEX IF NOT EXISTS idx_reseller_orders_user ON reseller_order_links(reseller_user_telegram_id, created_at)", "Index 'idx_reseller_orders_user'"),
         ("CREATE TABLE IF NOT EXISTS binance_accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT NOT NULL, uid TEXT NOT NULL, api_key TEXT DEFAULT '', api_secret TEXT DEFAULT '', is_default INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)", "Table 'binance_accounts'"),
         ("UPDATE orders SET binance_order_id = (SELECT transaction_id FROM used_binance_transactions WHERE used_binance_transactions.order_id = orders.id) WHERE binance_order_id IS NULL AND id IN (SELECT order_id FROM used_binance_transactions WHERE order_id IS NOT NULL)", "Retroactive Binance Pay IDs"),
         ("UPDATE orders SET binance_order_id = (SELECT tx_hash FROM used_bep20_transactions WHERE used_bep20_transactions.order_id = orders.id) WHERE binance_order_id IS NULL AND id IN (SELECT order_id FROM used_bep20_transactions WHERE order_id IS NOT NULL)", "Retroactive BEP20 Tx Hashes"),
@@ -1700,6 +2251,9 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(show_history, pattern=r"^menu_history$"))
     app.add_handler(CallbackQueryHandler(show_history, pattern=r"^hist_page:"))
     app.add_handler(CallbackQueryHandler(show_order_detail, pattern=r"^order:"))
+    app.add_handler(CallbackQueryHandler(reseller_api_menu, pattern=r"^menu_api$"))
+    app.add_handler(CallbackQueryHandler(generate_reseller_api_key, pattern=r"^api_generate_key$"))
+    app.add_handler(CallbackQueryHandler(confirm_generate_reseller_api_key, pattern=r"^api_confirm_generate_key$"))
     app.add_handler(CallbackQueryHandler(refresh_products, pattern=r"^refresh_prods$"))
     app.add_handler(CallbackQueryHandler(support_menu, pattern=r"^menu_support$"))
     app.add_handler(CallbackQueryHandler(show_my_tickets, pattern=r"^my_tickets$"))

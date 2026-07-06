@@ -1,3 +1,16 @@
+
+function toggleActivationFields(type) {
+    if (type === 'add') {
+        const val = DOM.prodDeliveryType ? DOM.prodDeliveryType.value : 'stock';
+        const container = $('prod-act-msg-container');
+        if (container) container.style.display = (val === 'activation') ? 'block' : 'none';
+    } else {
+        const val = $('edit-prod-delivery-type') ? $('edit-prod-delivery-type').value : 'stock';
+        const container = $('edit-prod-act-msg-container');
+        if (container) container.style.display = (val === 'activation') ? 'block' : 'none';
+    }
+}
+
 // dashboard/app.js — VenteBot Admin Dashboard with all features
 
 // —————————————————————————————————————————————————————
@@ -35,7 +48,8 @@ fr: {
     th_payment_method:"Méthode",pay_method_wallet:"💰 Wallet",pay_method_binance:"⚡ Binance",pay_method_unknown:"—",
     nav_finance:"Finance",tab_finance:"Suivi Financier",nav_binance:"Comptes Binance",tab_binance:"Gestion des Comptes Binance",settings_err:"Échec de l'opération : ",
     nav_activations:"Activations",activations_title:"Activations",no_activations:"Aucune activation.",th_telegram_id:"ID Telegram",th_activation_identifier:"Identifiant à activer",th_date:"Date",th_action:"Action",
-    activation_waiting_client:"En attente du client",activation_ready:"À activer",activation_waiting_id:"Attend ID client",activation_mark_done:"Marquer activé",activation_confirm_prompt:"Marquer la commande #{id} comme activée ?",delivery_activation:"Activation manuelle"
+    activation_waiting_client:"En attente du client",activation_ready:"À activer",activation_waiting_id:"Attend ID client",activation_mark_done:"Marquer activé",activation_confirm_prompt:"Marquer la commande #{id} comme activée ?",delivery_activation:"Activation manuelle",
+    nav_resellers:"Revendeurs",nav_api_docs:"Documentation API",resellers_title:"Revendeurs",no_resellers:"Aucun revendeur.",reseller_user_id:"ID Telegram du revendeur",reseller_key_name:"Nom de la clé",btn_create_reseller_key:"Créer la clé",reseller_key_created:"Clé créée, à copier maintenant :",reseller_revoke:"Révoquer"
 },
 en: {
     login_subtitle:"Admin Management Console",login_url_label:"API URL (optional)",login_url_hint:"Leave empty for Netlify proxy",login_key_label:"Admin API Key",login_btn:"Connect",
@@ -68,7 +82,8 @@ en: {
     th_payment_method:"Method",pay_method_wallet:"💰 Wallet",pay_method_binance:"⚡ Binance",pay_method_unknown:"—",
     nav_finance:"Finance",tab_finance:"Financial Tracking",nav_binance:"Binance Accounts",tab_binance:"Binance Accounts Management",settings_err:"Operation failed: ",
     nav_activations:"Activations",activations_title:"Activations",no_activations:"No activations.",th_telegram_id:"Telegram ID",th_activation_identifier:"Identifier to activate",th_date:"Date",th_action:"Action",
-    activation_waiting_client:"Waiting for customer",activation_ready:"To activate",activation_waiting_id:"Waiting for customer ID",activation_mark_done:"Mark activated",activation_confirm_prompt:"Mark order #{id} as activated?",delivery_activation:"Manual activation"
+    activation_waiting_client:"Waiting for customer",activation_ready:"To activate",activation_waiting_id:"Waiting for customer ID",activation_mark_done:"Mark activated",activation_confirm_prompt:"Mark order #{id} as activated?",delivery_activation:"Manual activation",
+    nav_resellers:"Resellers",nav_api_docs:"API Documentation",resellers_title:"Resellers",no_resellers:"No resellers.",reseller_user_id:"Reseller Telegram ID",reseller_key_name:"Key name",btn_create_reseller_key:"Create key",reseller_key_created:"Key created, copy it now:",reseller_revoke:"Revoke"
 },
 ar: {
     login_subtitle:"Ù„Ùˆحة إدارة Ø§Ù„Ù…Ø´Ø±Ù",login_url_label:"رابط API (اختياري)",login_url_hint:"Ø§ØªØ±Ùƒه ÙØ§Ø±ØºØ§Ù‹ Ù„Ø¨Ø±ÙˆÙƒسي Netlify",login_key_label:"Ù…ÙØªØ§Ø­ API Ù„Ù„Ù…Ø´Ø±Ù",login_btn:"اتصال",
@@ -101,7 +116,8 @@ ar: {
     th_payment_method:"الطريقة",pay_method_wallet:"💰 Ø§Ù„Ù…Ø­ÙØ¸Ø©",pay_method_binance:"⚡ Binance",pay_method_unknown:"—",
     nav_finance:"المالية",tab_finance:"المتابعة المالية",nav_binance:"حسابات Binance",tab_binance:"إدارة حسابات Binance",settings_err:"ÙØ´Ù„Øª العملية: ",
     nav_activations:"التفعيلات",activations_title:"التفعيلات",no_activations:"لا توجد طلبات تفعيل.",th_telegram_id:"Telegram ID",th_activation_identifier:"المعرّف المطلوب تفعيله",th_date:"التاريخ",th_action:"الإجراء",
-    activation_waiting_client:"بانتظار العميل",activation_ready:"جاهز للتفعيل",activation_waiting_id:"بانتظار معرّف العميل",activation_mark_done:"وضع كمفعّل",activation_confirm_prompt:"هل تريد وضع الطلب #{id} كمفعّل؟",delivery_activation:"تفعيل يدوي"
+    activation_waiting_client:"بانتظار العميل",activation_ready:"جاهز للتفعيل",activation_waiting_id:"بانتظار معرّف العميل",activation_mark_done:"وضع كمفعّل",activation_confirm_prompt:"هل تريد وضع الطلب #{id} كمفعّل؟",delivery_activation:"تفعيل يدوي",
+    nav_resellers:"الموزعون",nav_api_docs:"وثائق API",resellers_title:"الموزعون",no_resellers:"لا يوجد موزعون.",reseller_user_id:"Telegram ID للموزع",reseller_key_name:"اسم المفتاح",btn_create_reseller_key:"إنشاء مفتاح",reseller_key_created:"تم إنشاء المفتاح، انسخه الآن:",reseller_revoke:"إلغاء"
 }
 };
 
@@ -110,7 +126,7 @@ ar: {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 const state = {
     botUrl:'', apiKey:'', currentLang:'fr', currentTab:'dashboard-tab',
-    categories:[], products:[], orders:[], activations:[], users:[], promos:[], tickets:[], walletHistory:[], binanceAccounts:[],
+    categories:[], products:[], orders:[], activations:[], resellers:[], users:[], promos:[], tickets:[], walletHistory:[], binanceAccounts:[],
     orderFilter:'all', orderPage:0, orderTotal:0,
     whFilter:'all', whPage:0, whTotal:0,
     usersPage:0, usersPerPage:20, usersSearch:'', usersTotal:0,
@@ -146,6 +162,8 @@ const DOM = {
     usersTableBody:$('users-table-body'), usersSearch:$('users-search'), usersLimitSelector:$('users-limit-selector'),
     usersPagination:$('users-pagination'), usersPrev:$('users-prev'), usersNext:$('users-next'), usersPageInfo:$('users-page-info'),
     openTicketsContainer:$('open-tickets-container'),
+    resellersTableBody:$('resellers-table-body'), resellerUserId:$('reseller-user-id'), resellerKeyName:$('reseller-key-name'),
+    btnCreateResellerKey:$('btn-create-reseller-key'), resellerKeyOutput:$('reseller-key-output'), resellerNewKey:$('reseller-new-key'),
     broadcastTextarea:$('broadcast-textarea'), broadcastResult:$('broadcast-result'), btnSendBroadcast:$('btn-send-broadcast'),
     broadcastPhotoUrl:$('broadcast-photo-url'), broadcastBtnType:$('broadcast-btn-type'), broadcastBtnProductId:$('broadcast-btn-product-id'),
     broadcastBtnText:$('broadcast-btn-text'), broadcastBtnUrl:$('broadcast-btn-url'),
@@ -273,12 +291,21 @@ function setupEvents() {
         state.botUrl = u || '';
         testConnectionAndStart();
     });
-    $$('.menu-item').forEach(i => i.addEventListener('click', e => { e.preventDefault(); switchTab(i.getAttribute('data-tab')); }));
+    $$('.menu-item').forEach(i => i.addEventListener('click', e => {
+        e.preventDefault();
+        if (i.getAttribute('data-external') === 'api-docs') {
+            const baseUrl = (state.botUrl || window.location.origin || '').replace(/\/$/, '');
+            window.open(`${baseUrl}/api/swagger/`, '_blank', 'noopener');
+            return;
+        }
+        switchTab(i.getAttribute('data-tab'));
+    }));
     DOM.btnLogout.addEventListener('click', logout);
     DOM.btnRefresh.addEventListener('click', refreshData);
     DOM.btnTheme.addEventListener('click', toggleTheme);
     DOM.btnAutoRefresh.addEventListener('click', toggleAutoRefresh);
     $('btn-export').addEventListener('click', () => showModal($('exportModal')));
+    if (DOM.btnCreateResellerKey) DOM.btnCreateResellerKey.addEventListener('click', createResellerKey);
     
     if (DOM.statsProductSearch) {
         DOM.statsProductSearch.addEventListener('input', () => {
@@ -297,7 +324,8 @@ function setupEvents() {
     $('btn-open-prod-modal').addEventListener('click', () => { 
         DOM.addProdForm.reset(); 
         DOM.prodId.value=''; 
-        if (DOM.prodDeliveryType) DOM.prodDeliveryType.value='stock'; 
+        if (DOM.prodDeliveryType) DOM.prodDeliveryType.value='stock';
+        toggleActivationFields('add'); 
         
         if ($('prod-act-msg')) $('prod-act-msg').value = "Your activation is complete.\n\nProduct: {product}\nOrder: #{order_id}";
         if ($('prod-act-msg-fr')) $('prod-act-msg-fr').value = "Votre activation est terminée.\n\nProduit : {product}\nCommande : #{order_id}";
@@ -335,6 +363,14 @@ function setupEvents() {
     });
     $('btn-open-binance-modal').addEventListener('click', openBinanceModal);
     $$('.btn-close-modal').forEach(b => b.addEventListener('click', () => { [DOM.prodModal,DOM.stockModal,DOM.promoModal,DOM.tiersModal,DOM.orderDetailModal,DOM.viewStockModal,DOM.editProdModal,DOM.revenueModal,DOM.binanceModal,$('banModal'),$('finance-withdraw-modal'),$('finance-adjust-modal'), $('exportModal')].forEach(m => { if (m) hideModal(m); }); }));
+
+    
+    if (DOM.prodDeliveryType) {
+        DOM.prodDeliveryType.addEventListener('change', () => toggleActivationFields('add'));
+    }
+    if ($('edit-prod-delivery-type')) {
+        $('edit-prod-delivery-type').addEventListener('change', () => toggleActivationFields('edit'));
+    }
 
     DOM.addProdForm.addEventListener('submit', handleAddProduct);
     DOM.addPromoForm.addEventListener('submit', handleAddPromo);
@@ -653,7 +689,7 @@ async function refreshData() {
     showLoading(true);
     DOM.apiStatusBadge.querySelector('.status-indicator').className = 'status-indicator';
     try {
-        await Promise.all([loadStats(), loadFinance(), loadProducts(), loadAllOrders(), loadActivations(), loadTickets(), loadUsers(), loadPromos(), loadCharts(), loadWalletHistory(), loadBinanceAccounts(), loadPaymentSettings(), loadProductStats()]);
+        await Promise.all([loadStats(), loadFinance(), loadProducts(), loadAllOrders(), loadActivations(), loadResellers(), loadTickets(), loadUsers(), loadPromos(), loadCharts(), loadWalletHistory(), loadBinanceAccounts(), loadPaymentSettings(), loadProductStats()]);
         DOM.apiStatusBadge.querySelector('.status-indicator').classList.add('online');
     } catch(e) { console.error(e); DOM.apiStatusBadge.querySelector('.status-indicator').classList.add('offline'); }
     finally { showLoading(false); }
@@ -1076,6 +1112,70 @@ async function loadActivations() {
     }).join('');
 }
 
+async function loadResellers() {
+    if (!DOM.resellersTableBody) return;
+    const r = await apiCall('/api/resellers');
+    state.resellers = r.resellers || [];
+    if (state.resellers.length === 0) {
+        DOM.resellersTableBody.innerHTML = `<tr><td colspan="10" class="empty-state">${t('no_resellers')}</td></tr>`;
+        return;
+    }
+    DOM.resellersTableBody.innerHTML = state.resellers.map(k => {
+        const client = k.username ? `@${escapeHtml(k.username)}` : escapeHtml(k.first_name || k.user_telegram_id);
+        const active = Number(k.is_active) === 1;
+        const status = active ? `<span class="status-badge completed">${t('active')}</span>` : `<span class="status-badge cancelled">${t('inactive')}</span>`;
+        const created = k.created_at ? parseUTCDate(k.created_at).toLocaleDateString() : '';
+        const action = active
+            ? `<button class="btn-table-action delete" onclick="revokeResellerKey(${k.id})" title="${t('reseller_revoke')}"><i class="fa-solid fa-ban"></i></button>`
+            : '—';
+        return `<tr>
+            <td><strong>#${k.id}</strong></td>
+            <td>${client}<br><code>${k.user_telegram_id}</code></td>
+            <td>${escapeHtml(k.name || '')}</td>
+            <td><code>${escapeHtml(k.key_prefix || '')}</code></td>
+            <td>$${parseFloat(k.wallet_balance || 0).toFixed(2)}</td>
+            <td>${k.order_count || 0}</td>
+            <td>$${parseFloat(k.total_spent || 0).toFixed(2)}</td>
+            <td>${status}</td>
+            <td>${created}</td>
+            <td>${action}</td>
+        </tr>`;
+    }).join('');
+}
+
+async function createResellerKey() {
+    const userId = DOM.resellerUserId ? DOM.resellerUserId.value.trim() : '';
+    const name = DOM.resellerKeyName ? DOM.resellerKeyName.value.trim() : '';
+    if (!userId) { alert(t('reseller_user_id')); return; }
+    showLoading(true);
+    try {
+        const r = await apiCall('/api/resellers/keys', 'POST', { user_telegram_id: userId, name });
+        if (DOM.resellerNewKey && DOM.resellerKeyOutput) {
+            DOM.resellerNewKey.textContent = r.key.api_key;
+            DOM.resellerKeyOutput.classList.remove('hidden');
+        }
+        if (DOM.resellerKeyName) DOM.resellerKeyName.value = '';
+        await loadResellers();
+    } catch(e) {
+        alert(e.message);
+    } finally {
+        showLoading(false);
+    }
+}
+
+window.revokeResellerKey = async function(id) {
+    if (!confirm(t('reseller_revoke') + ` #${id} ?`)) return;
+    showLoading(true);
+    try {
+        await apiCall(`/api/resellers/keys/${id}`, 'DELETE');
+        await loadResellers();
+    } catch(e) {
+        alert(e.message);
+    } finally {
+        showLoading(false);
+    }
+};
+
 async function loadWalletHistory() {
     const type = state.whFilter === 'all' ? '' : `&tx_type=${state.whFilter}`;
     let data;
@@ -1381,6 +1481,7 @@ window.openEditProduct = function(productId) {
     if ($('edit-prod-image-url')) $('edit-prod-image-url').value = p.image_url || '';
     if ($('edit-prod-custom-emoji-id')) $('edit-prod-custom-emoji-id').value = p.custom_emoji_id || '';
     if ($('edit-prod-delivery-type')) $('edit-prod-delivery-type').value = p.delivery_type || 'stock';
+    toggleActivationFields('edit');
 
     if ($('edit-prod-act-msg')) $('edit-prod-act-msg').value = p.activation_message || '';
     if ($('edit-prod-act-msg-fr')) $('edit-prod-act-msg-fr').value = p.activation_message_fr || '';
@@ -1603,7 +1704,7 @@ async function handleSaveCryptoSettings(e) {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // Category select removed — not needed
 
-const tabKeys = { 'dashboard-tab':'tab_dashboard','stats-tab':'tab_stats','inventory-tab':'tab_inventory','orders-tab':'tab_orders','activations-tab':'nav_activations','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
+const tabKeys = { 'dashboard-tab':'tab_dashboard','stats-tab':'tab_stats','inventory-tab':'tab_inventory','orders-tab':'tab_orders','activations-tab':'nav_activations','resellers-tab':'nav_resellers','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
 
 function escapeHtml(str) {
     if (!str) return '';

@@ -63,6 +63,8 @@
                 <a href="#" class="menu-item" data-tab="orders-tab"><i class="fa-solid fa-receipt"></i> <span data-i18n="nav_orders">Commandes</span><span id="badge-orders" class="badge hidden">0</span></a>
                 <a href="#" class="menu-item" data-tab="activations-tab"><i class="fa-solid fa-bolt"></i> <span data-i18n="nav_activations">Activations</span><span id="badge-activations" class="badge hidden">0</span></a>
                 <a href="#" class="menu-item" data-tab="users-tab"><i class="fa-solid fa-users"></i> <span data-i18n="nav_users">Utilisateurs</span></a>
+                <a href="#" class="menu-item" data-tab="resellers-tab"><i class="fa-solid fa-handshake"></i> <span data-i18n="nav_resellers">Revendeurs</span></a>
+                <a href="#" class="menu-item" data-external="api-docs"><i class="fa-solid fa-book-open"></i> <span data-i18n="nav_api_docs">Documentation API</span></a>
                 <a href="#" class="menu-item" data-tab="wallet-history-tab"><i class="fa-solid fa-wallet"></i> <span data-i18n="nav_wallet_history">Wallet History</span></a>
                 <a href="#" class="menu-item" data-tab="tickets-tab"><i class="fa-solid fa-ticket"></i> <span data-i18n="nav_tickets">Tickets</span><span id="badge-tickets" class="badge hidden">0</span></a>
                 <a href="#" class="menu-item" data-tab="binance-tab"><i class="fa-brands fa-btc"></i> <span data-i18n="nav_binance">Comptes Binance</span></a>
@@ -454,6 +456,35 @@
                 </div>
             </section>
 
+            <!-- Resellers Tab -->
+            <section id="resellers-tab" class="tab-content">
+                <div class="flex-justify mb-4"><h2><i class="fa-solid fa-handshake" style="color:var(--primary-color)"></i> <span data-i18n="resellers_title">Revendeurs</span></h2></div>
+                <div class="glass-panel" style="padding:1rem; margin-bottom:1rem;">
+                    <div class="form-row">
+                        <div class="form-group col-4">
+                            <label data-i18n="reseller_user_id">ID Telegram du revendeur</label>
+                            <input type="number" id="reseller-user-id" placeholder="123456789">
+                        </div>
+                        <div class="form-group col-5">
+                            <label data-i18n="reseller_key_name">Nom de la clé</label>
+                            <input type="text" id="reseller-key-name" placeholder="Bot partenaire">
+                        </div>
+                        <div class="form-group col-3" style="display:flex;align-items:flex-end;">
+                            <button id="btn-create-reseller-key" class="btn-primary btn-sm" type="button"><i class="fa-solid fa-key"></i> <span data-i18n="btn_create_reseller_key">Créer la clé</span></button>
+                        </div>
+                    </div>
+                    <div id="reseller-key-output" class="hidden" style="margin-top:1rem; padding:0.85rem; border:1px solid var(--border-color); border-radius:8px; background:var(--input-bg);">
+                        <strong data-i18n="reseller_key_created">Clé créée, à copier maintenant :</strong>
+                        <code id="reseller-new-key" style="display:block; margin-top:0.5rem; word-break:break-all;"></code>
+                    </div>
+                </div>
+                <div class="table-responsive glass-panel">
+                    <table><thead><tr>
+                        <th>#</th><th data-i18n="th_client">Client</th><th data-i18n="reseller_key_name">Nom de la clé</th><th>Prefix</th><th>Wallet</th><th data-i18n="th_orders_count">Commandes</th><th data-i18n="th_spent">Dépenses</th><th data-i18n="th_status">Statut</th><th data-i18n="th_date">Date</th><th data-i18n="th_action">Action</th>
+                    </tr></thead><tbody id="resellers-table-body"><tr><td colspan="10" class="empty-state" data-i18n="no_resellers">Aucun revendeur.</td></tr></tbody></table>
+                </div>
+            </section>
+
             <!-- Users Tab -->
             <section id="users-tab" class="tab-content">
                 <div class="flex-justify mb-4"><h2 data-i18n="users_title">Gestion des Utilisateurs</h2></div>
@@ -617,10 +648,10 @@
             <div class="form-group"><label>Description Française</label><textarea id="prod-desc-fr" rows="2" placeholder="Optionnel..."></textarea></div>
             <div class="form-group"><label>Description Arabe</label><textarea id="prod-desc-ar" rows="2" placeholder="Optionnel..."></textarea></div>
             <div class="form-group"><label>Description Chinoise</label><textarea id="prod-desc-zh" rows="2" placeholder="Optionnel..."></textarea></div>
-                <div class="form-group" style="margin-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1rem;"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;"><label style="margin:0;">Message d'activation (Anglais)</label><button type="button" id="btn-translate-act-add" style="padding:4px 8px; font-size:0.8rem; background:var(--color-primary); color:white; border:none; border-radius:4px; cursor:pointer; transition: opacity 0.2s;">✨ Traduire Message</button></div><textarea id="prod-act-msg" rows="2" placeholder="Optionnel. Utilisez {product} et {order_id}"></textarea></div>
+                <div id="prod-act-msg-container" style="display:none;"><div class="form-group" style="margin-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1rem;"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;"><label style="margin:0;">Message d'activation (Anglais)</label><button type="button" id="btn-translate-act-add" style="padding:4px 8px; font-size:0.8rem; background:var(--color-primary); color:white; border:none; border-radius:4px; cursor:pointer; transition: opacity 0.2s;">✨ Traduire Message</button></div><textarea id="prod-act-msg" rows="2" placeholder="Optionnel. Utilisez {product} et {order_id}"></textarea></div>
             <div class="form-group"><label>Message d'activation (Français)</label><textarea id="prod-act-msg-fr" rows="2" placeholder="Optionnel..."></textarea></div>
             <div class="form-group"><label>Message d'activation (Arabe)</label><textarea id="prod-act-msg-ar" rows="2" placeholder="Optionnel..."></textarea></div>
-            <div class="form-group"><label>Message d'activation (Chinois)</label><textarea id="prod-act-msg-zh" rows="2" placeholder="Optionnel..."></textarea></div>
+            <div class="form-group"><label>Message d'activation (Chinois)</label><textarea id="prod-act-msg-zh" rows="2" placeholder="Optionnel..."></textarea></div></div>
                 <div class="form-group" style="margin-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1rem;"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;"><label style="margin:0;">Message de confirmation (Anglais)</label><button type="button" id="btn-translate-conf-add" style="padding:4px 8px; font-size:0.8rem; background:var(--color-primary); color:white; border:none; border-radius:4px; cursor:pointer; transition: opacity 0.2s;">✨ Traduire Message</button></div><textarea id="prod-conf-msg" rows="2" placeholder="Optionnel. Utilisez {product} et {order_id}"></textarea></div>
             <div class="form-group"><label>Message de confirmation (Français)</label><textarea id="prod-conf-msg-fr" rows="2" placeholder="Optionnel..."></textarea></div>
             <div class="form-group"><label>Message de confirmation (Arabe)</label><textarea id="prod-conf-msg-ar" rows="2" placeholder="Optionnel..."></textarea></div>
@@ -767,10 +798,10 @@
                 <div class="form-group"><label>Description Française</label><textarea id="edit-prod-desc-fr" rows="2" style="width:100%;resize:vertical;" placeholder="Optionnel..."></textarea></div>
                 <div class="form-group"><label>Description Arabe</label><textarea id="edit-prod-desc-ar" rows="2" style="width:100%;resize:vertical;" placeholder="Optionnel..."></textarea></div>
                 <div class="form-group"><label>Description Chinoise</label><textarea id="edit-prod-desc-zh" rows="2" style="width:100%;resize:vertical;" placeholder="Optionnel..."></textarea></div>
-                <div class="form-group" style="margin-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1rem;"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;"><label style="margin:0;">Message d'activation (Anglais)</label><button type="button" id="btn-translate-act-edit" style="padding:4px 8px; font-size:0.8rem; background:var(--color-primary); color:white; border:none; border-radius:4px; cursor:pointer; transition: opacity 0.2s;">✨ Traduire Message</button></div><textarea id="edit-prod-act-msg" rows="2" style="width:100%;resize:vertical;" placeholder="Optionnel. Utilisez {product} et {order_id}"></textarea></div>
+                <div id="edit-prod-act-msg-container" style="display:none;"><div class="form-group" style="margin-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1rem;"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;"><label style="margin:0;">Message d'activation (Anglais)</label><button type="button" id="btn-translate-act-edit" style="padding:4px 8px; font-size:0.8rem; background:var(--color-primary); color:white; border:none; border-radius:4px; cursor:pointer; transition: opacity 0.2s;">✨ Traduire Message</button></div><textarea id="edit-prod-act-msg" rows="2" style="width:100%;resize:vertical;" placeholder="Optionnel. Utilisez {product} et {order_id}"></textarea></div>
                 <div class="form-group"><label>Message d'activation (Français)</label><textarea id="edit-prod-act-msg-fr" rows="2" style="width:100%;resize:vertical;" placeholder="Optionnel..."></textarea></div>
                 <div class="form-group"><label>Message d'activation (Arabe)</label><textarea id="edit-prod-act-msg-ar" rows="2" style="width:100%;resize:vertical;" placeholder="Optionnel..."></textarea></div>
-                <div class="form-group"><label>Message d'activation (Chinois)</label><textarea id="edit-prod-act-msg-zh" rows="2" style="width:100%;resize:vertical;" placeholder="Optionnel..."></textarea></div>
+                <div class="form-group"><label>Message d'activation (Chinois)</label><textarea id="edit-prod-act-msg-zh" rows="2" style="width:100%;resize:vertical;" placeholder="Optionnel..."></textarea></div></div>
                 <div class="form-group" style="margin-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1rem;"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;"><label style="margin:0;">Message de confirmation (Anglais)</label><button type="button" id="btn-translate-conf-edit" style="padding:4px 8px; font-size:0.8rem; background:var(--color-primary); color:white; border:none; border-radius:4px; cursor:pointer; transition: opacity 0.2s;">✨ Traduire Message</button></div><textarea id="edit-prod-conf-msg" rows="2" style="width:100%;resize:vertical;" placeholder="Optionnel. Utilisez {product} et {order_id}"></textarea></div>
                 <div class="form-group"><label>Message de confirmation (Français)</label><textarea id="edit-prod-conf-msg-fr" rows="2" style="width:100%;resize:vertical;" placeholder="Optionnel..."></textarea></div>
                 <div class="form-group"><label>Message de confirmation (Arabe)</label><textarea id="edit-prod-conf-msg-ar" rows="2" style="width:100%;resize:vertical;" placeholder="Optionnel..."></textarea></div>

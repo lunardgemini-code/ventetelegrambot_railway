@@ -94,6 +94,9 @@ class _AsyncDB:
     async def commit(self):
         await asyncio.to_thread(self._conn.commit)
 
+    async def rollback(self):
+        await asyncio.to_thread(self._conn.rollback)
+
     async def close(self):
         try:
             self._conn.close()
@@ -157,6 +160,14 @@ class _PooledAsyncDB(_AsyncDB):
     async def commit(self):
         try:
             await super().commit()
+        except Exception as e:
+            if self._is_connection_error(e):
+                self.has_error = True
+            raise
+
+    async def rollback(self):
+        try:
+            await super().rollback()
         except Exception as e:
             if self._is_connection_error(e):
                 self.has_error = True
@@ -389,6 +400,27 @@ async def init_db() -> None:
                 amount REAL,
                 used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )""",
+            """CREATE TABLE IF NOT EXISTS reseller_api_keys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_telegram_id INTEGER NOT NULL,
+                name TEXT DEFAULT '',
+                key_prefix TEXT UNIQUE NOT NULL,
+                key_hash TEXT NOT NULL,
+                is_active INTEGER DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_used_at TIMESTAMP,
+                FOREIGN KEY (user_telegram_id) REFERENCES users(telegram_id)
+            )""",
+            """CREATE TABLE IF NOT EXISTS reseller_order_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER UNIQUE NOT NULL,
+                reseller_user_telegram_id INTEGER NOT NULL,
+                customer_reference TEXT DEFAULT '',
+                idempotency_key TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (order_id) REFERENCES orders(id),
+                UNIQUE(reseller_user_telegram_id, idempotency_key)
+            )""",
         ]
 
         for sql in tables:
@@ -451,6 +483,9 @@ async def init_db() -> None:
             "ALTER TABLE products ADD COLUMN confirmation_message_ar TEXT DEFAULT ''",
             "ALTER TABLE products ADD COLUMN confirmation_message_zh TEXT DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS idx_orders_activation_status ON orders(activation_status, status)",
+            "CREATE INDEX IF NOT EXISTS idx_reseller_keys_user ON reseller_api_keys(user_telegram_id)",
+            "CREATE INDEX IF NOT EXISTS idx_reseller_keys_prefix ON reseller_api_keys(key_prefix)",
+            "CREATE INDEX IF NOT EXISTS idx_reseller_orders_user ON reseller_order_links(reseller_user_telegram_id, created_at)",
         ]
         for sql in migrations:
             try:

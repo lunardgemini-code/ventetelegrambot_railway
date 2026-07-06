@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import secrets
 import uuid
 import logging
 from datetime import datetime, timedelta
@@ -1493,6 +1496,376 @@ async def get_all_wallet_transactions(
 # â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
 # â•‘  TICKETS DE SUPPORT                                              â•‘
 # â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+
+def _hash_reseller_key(raw_key: str) -> str:
+    return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+
+
+def _reseller_key_prefix(raw_key: str) -> str | None:
+    parts = raw_key.split("_")
+    if len(parts) < 4 or parts[0] != "vbr" or parts[1] != "live":
+        return None
+    return parts[2]
+
+
+async def create_reseller_api_key(user_telegram_id: int, name: str = "") -> dict:
+    """Crée une clé API revendeur. La clé brute est retournée une seule fois."""
+    prefix = secrets.token_hex(5)
+    secret = secrets.token_urlsafe(32)
+    raw_key = f"vbr_live_{prefix}_{secret}"
+    key_hash = _hash_reseller_key(raw_key)
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """INSERT INTO reseller_api_keys
+               (user_telegram_id, name, key_prefix, key_hash)
+               VALUES (?, ?, ?, ?)""",
+            (int(user_telegram_id), name.strip(), prefix, key_hash),
+        )
+        await db.commit()
+        return {
+            "id": cursor.lastrowid,
+            "user_telegram_id": int(user_telegram_id),
+            "name": name.strip(),
+            "key_prefix": prefix,
+            "api_key": raw_key,
+        }
+    finally:
+        await db.close()
+
+
+async def rotate_reseller_api_key(user_telegram_id: int, name: str = "Bot API") -> dict:
+    """Create a new self-service reseller key and revoke older active keys for this user."""
+    prefix = secrets.token_hex(5)
+    secret = secrets.token_urlsafe(32)
+    raw_key = f"vbr_live_{prefix}_{secret}"
+    key_hash = _hash_reseller_key(raw_key)
+    db = await get_db()
+    try:
+        await db.execute(
+            "UPDATE reseller_api_keys SET is_active = 0 WHERE user_telegram_id = ? AND is_active = 1",
+            (int(user_telegram_id),),
+        )
+        cursor = await db.execute(
+            """INSERT INTO reseller_api_keys
+               (user_telegram_id, name, key_prefix, key_hash)
+               VALUES (?, ?, ?, ?)""",
+            (int(user_telegram_id), name.strip(), prefix, key_hash),
+        )
+        await db.commit()
+        return {
+            "id": cursor.lastrowid,
+            "user_telegram_id": int(user_telegram_id),
+            "name": name.strip(),
+            "key_prefix": prefix,
+            "api_key": raw_key,
+        }
+    finally:
+        await db.close()
+
+
+async def get_active_reseller_api_key_info(user_telegram_id: int) -> dict | None:
+    """Return metadata for the active reseller key. The raw key is never stored."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT id, user_telegram_id, name, key_prefix, is_active, created_at, last_used_at
+               FROM reseller_api_keys
+               WHERE user_telegram_id = ? AND is_active = 1
+               ORDER BY created_at DESC
+               LIMIT 1""",
+            (int(user_telegram_id),),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def list_reseller_api_keys() -> list[dict]:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT rk.id, rk.user_telegram_id, rk.name, rk.key_prefix, rk.is_active,
+                      rk.created_at, rk.last_used_at,
+                      u.username, u.first_name, COALESCE(u.wallet_balance, 0) as wallet_balance,
+                      COUNT(rol.order_id) as order_count,
+                      COALESCE(SUM(o.amount_usd), 0) as total_spent
+               FROM reseller_api_keys rk
+               LEFT JOIN users u ON u.telegram_id = rk.user_telegram_id
+               LEFT JOIN reseller_order_links rol ON rol.reseller_user_telegram_id = rk.user_telegram_id
+               LEFT JOIN orders o ON o.id = rol.order_id AND o.status = 'COMPLETED'
+               GROUP BY rk.id
+               ORDER BY rk.created_at DESC"""
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def revoke_reseller_api_key(key_id: int) -> bool:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "UPDATE reseller_api_keys SET is_active = 0 WHERE id = ?",
+            (int(key_id),),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+    finally:
+        await db.close()
+
+
+async def get_reseller_by_api_key(raw_key: str) -> dict | None:
+    prefix = _reseller_key_prefix(raw_key)
+    if not prefix:
+        return None
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT rk.*, u.username, u.first_name, COALESCE(u.wallet_balance, 0) as wallet_balance,
+                      COALESCE(u.is_banned, 0) as is_banned
+               FROM reseller_api_keys rk
+               JOIN users u ON u.telegram_id = rk.user_telegram_id
+               WHERE rk.key_prefix = ? AND rk.is_active = 1
+               LIMIT 1""",
+            (prefix,),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        data = dict(row)
+        if not hmac.compare_digest(str(data.get("key_hash") or ""), _hash_reseller_key(raw_key)):
+            return None
+        if data.get("is_banned"):
+            return None
+        await db.execute(
+            "UPDATE reseller_api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (data["id"],),
+        )
+        await db.commit()
+        data.pop("key_hash", None)
+        return data
+    finally:
+        await db.close()
+
+
+async def get_reseller_wallet_transactions(user_telegram_id: int, limit: int = 50, offset: int = 0) -> list[dict]:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT * FROM wallet_transactions
+               WHERE user_telegram_id = ?
+               ORDER BY created_at DESC
+               LIMIT ? OFFSET ?""",
+            (int(user_telegram_id), max(1, min(int(limit), 100)), max(0, int(offset))),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def quote_reseller_order(product_id: int, quantity: int) -> dict:
+    product = await get_product(product_id)
+    if not product or not product.get("is_active", 1) or product.get("is_deleted", 0):
+        raise ValueError("Product unavailable")
+    quantity = max(1, int(quantity))
+    unit_price = await get_effective_price(product_id, quantity)
+    total = round(float(unit_price) * quantity, 2)
+    stock = None
+    if product.get("delivery_type") != "activation":
+        stock = await get_stock_count(product_id)
+        if quantity > stock:
+            raise ValueError("Insufficient stock")
+    return {
+        "product_id": product_id,
+        "quantity": quantity,
+        "unit_price": unit_price,
+        "total": total,
+        "delivery_type": product.get("delivery_type") or "stock",
+        "stock": stock,
+    }
+
+
+async def get_reseller_order(user_telegram_id: int, order_id: int) -> dict | None:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT o.*, rol.customer_reference, rol.idempotency_key,
+                      p.name as product_name, p.emoji as product_emoji, p.delivery_type
+               FROM reseller_order_links rol
+               JOIN orders o ON o.id = rol.order_id
+               LEFT JOIN products p ON p.id = o.product_id
+               WHERE rol.reseller_user_telegram_id = ? AND rol.order_id = ?""",
+            (int(user_telegram_id), int(order_id)),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        order = dict(row)
+        cursor = await db.execute(
+            "SELECT id, account_data FROM stock_items WHERE sold_to_order_id = ? ORDER BY id ASC",
+            (int(order_id),),
+        )
+        items = await cursor.fetchall()
+        order["items"] = [dict(i) for i in items]
+        return order
+    finally:
+        await db.close()
+
+
+async def create_reseller_order(
+    reseller_user_telegram_id: int,
+    product_id: int,
+    quantity: int = 1,
+    activation_identifier: str | None = None,
+    customer_reference: str = "",
+    idempotency_key: str | None = None,
+) -> dict:
+    """Crée et paie une commande revendeur depuis le wallet du revendeur."""
+    reseller_user_telegram_id = int(reseller_user_telegram_id)
+    product_id = int(product_id)
+    quantity = max(1, int(quantity))
+    customer_reference = (customer_reference or "").strip()[:120]
+    idempotency_key = (idempotency_key or "").strip()[:120] or None
+    activation_identifier = (activation_identifier or "").strip()
+
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        if idempotency_key:
+            cursor = await db.execute(
+                """SELECT order_id FROM reseller_order_links
+                   WHERE reseller_user_telegram_id = ? AND idempotency_key = ?""",
+                (reseller_user_telegram_id, idempotency_key),
+            )
+            existing = await cursor.fetchone()
+            if existing:
+                await db.commit()
+                order = await get_reseller_order(reseller_user_telegram_id, existing["order_id"])
+                return {"idempotent": True, "order": order}
+
+        cursor = await db.execute(
+            "SELECT * FROM products WHERE id = ? AND is_active = 1 AND COALESCE(is_deleted, 0) = 0",
+            (product_id,),
+        )
+        product_row = await cursor.fetchone()
+        if not product_row:
+            await db.rollback()
+            raise ValueError("Product unavailable")
+        product = dict(product_row)
+
+        cursor = await db.execute(
+            "SELECT * FROM price_tiers WHERE product_id = ? ORDER BY min_qty ASC",
+            (product_id,),
+        )
+        tiers = [dict(r) for r in await cursor.fetchall()]
+        unit_price = float(product["price_usd"])
+        for tier in tiers:
+            if int(tier["min_qty"]) <= quantity <= int(tier["max_qty"]):
+                unit_price = float(tier["price_usd"])
+                break
+        total = round(unit_price * quantity, 2)
+
+        cursor = await db.execute(
+            "UPDATE users SET wallet_balance = MAX(0.0, COALESCE(wallet_balance, 0) - ?) WHERE telegram_id = ? AND COALESCE(wallet_balance, 0) >= ? RETURNING wallet_balance",
+            (total, reseller_user_telegram_id, total - 1e-5),
+        )
+        balance_row = await cursor.fetchone()
+        if not balance_row:
+            await db.rollback()
+            raise ValueError("Insufficient wallet balance")
+        balance_after = float(balance_row["wallet_balance"])
+
+        delivery_type = product.get("delivery_type") or "stock"
+        status = "COMPLETED"
+        activation_status = None
+        activation_requested_at = None
+        stock_items: list[dict] = []
+
+        if delivery_type == "activation":
+            if activation_identifier:
+                status = "AWAITING_ACTIVATION"
+                activation_status = "pending"
+                activation_requested_at = datetime.utcnow().isoformat()
+            else:
+                status = "AWAITING_ACTIVATION_INFO"
+        else:
+            cursor = await db.execute(
+                "SELECT * FROM stock_items WHERE product_id = ? AND is_sold = 0 ORDER BY added_at ASC LIMIT ?",
+                (product_id, quantity),
+            )
+            stock_items = [dict(r) for r in await cursor.fetchall()]
+            if len(stock_items) < quantity:
+                await db.rollback()
+                raise ValueError("Insufficient stock")
+
+        merchant_trade_no = uuid.uuid4().hex[:12].upper()
+        cursor = await db.execute(
+            """INSERT INTO orders
+               (user_telegram_id, product_id, amount_usd, merchant_trade_no, status,
+                quantity, payment_method, paid_at, activation_identifier,
+                activation_status, activation_requested_at)
+               VALUES (?, ?, ?, ?, ?, ?, 'wallet', CURRENT_TIMESTAMP, ?, ?, ?)""",
+            (
+                reseller_user_telegram_id,
+                product_id,
+                total,
+                merchant_trade_no,
+                status,
+                quantity,
+                activation_identifier or None,
+                activation_status,
+                activation_requested_at,
+            ),
+        )
+        order_id = cursor.lastrowid
+
+        if stock_items:
+            for item in stock_items:
+                cursor = await db.execute(
+                    "UPDATE stock_items SET is_sold = 1, sold_to_order_id = ?, sold_at = CURRENT_TIMESTAMP WHERE id = ? AND is_sold = 0",
+                    (order_id, item["id"]),
+                )
+                if cursor.rowcount <= 0:
+                    await db.rollback()
+                    raise ValueError("Stock conflict, please retry")
+            await db.execute(
+                "UPDATE orders SET stock_item_id = ? WHERE id = ?",
+                (stock_items[0]["id"], order_id),
+            )
+
+        await db.execute(
+            """INSERT INTO reseller_order_links
+               (order_id, reseller_user_telegram_id, customer_reference, idempotency_key)
+               VALUES (?, ?, ?, ?)""",
+            (order_id, reseller_user_telegram_id, customer_reference, idempotency_key),
+        )
+        await db.execute(
+            "INSERT INTO wallet_transactions (user_telegram_id, type, amount, balance_after, description) VALUES (?, 'purchase', ?, ?, ?)",
+            (reseller_user_telegram_id, total, balance_after, f"Reseller API order #{order_id}"),
+        )
+        await db.commit()
+
+        order = await get_reseller_order(reseller_user_telegram_id, order_id)
+        return {
+            "idempotent": False,
+            "order": order,
+            "balance_after": balance_after,
+            "unit_price": unit_price,
+            "total": total,
+        }
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
 
 
 async def create_ticket(telegram_id: int, message: str) -> int:

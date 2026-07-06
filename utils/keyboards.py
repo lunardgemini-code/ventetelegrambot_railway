@@ -91,6 +91,7 @@ def main_menu_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
             make_button("btn_support", lang, callback_data="menu_support"),
             make_button("btn_referral", lang, callback_data="show_referrals"),
         ],
+        [make_button("btn_api", lang, callback_data="menu_api")],
         [make_button("btn_language", lang, callback_data="change_lang")],
     ])
 
@@ -120,6 +121,25 @@ def profile_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [make_button("btn_referral", lang, callback_data="show_referrals", custom_text=ref_btn)],
         [make_button("btn_back", lang, callback_data="back_main")],
+    ])
+
+
+def reseller_api_keyboard(lang: str = "fr", docs_url: str | None = None) -> InlineKeyboardMarkup:
+    """Self-service reseller API menu."""
+    buttons = [
+        [make_button("btn_generate_api_key", lang, callback_data="api_generate_key")],
+    ]
+    if docs_url:
+        buttons.append([make_button("btn_api_docs", lang, url=docs_url)])
+    buttons.append([make_button("btn_back", lang, callback_data="back_main")])
+    return InlineKeyboardMarkup(buttons)
+
+
+def reseller_api_confirm_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
+    """Confirmation before rotating a reseller API key."""
+    return InlineKeyboardMarkup([
+        [make_button("btn_confirm_generate_api_key", lang, callback_data="api_confirm_generate_key")],
+        [make_button("btn_back", lang, callback_data="menu_api")],
     ])
 
 
