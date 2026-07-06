@@ -1095,7 +1095,22 @@ async def submit_activation_identifier(order_id: int, identifier: str) -> None:
         await db.close()
 
 
+_GET_STATS_CACHE = {}
+_GET_STATS_CACHE_TTL = 30
+
 async def get_stats(days: int = 30, method: str = None) -> dict:
+    now = datetime.utcnow().timestamp()
+    cache_key = f"{days}_{method}"
+    if cache_key in _GET_STATS_CACHE:
+        cache_time, cached_data = _GET_STATS_CACHE[cache_key]
+        if now - cache_time < _GET_STATS_CACHE_TTL:
+            return cached_data
+            
+    data = await _get_stats_uncached(days, method)
+    _GET_STATS_CACHE[cache_key] = (now, data)
+    return data
+
+async def _get_stats_uncached(days: int = 30, method: str = None) -> dict:
     """Retourne les statistiques des commandes sur les N derniers jours.
 
     Retourne un dictionnaire avec :

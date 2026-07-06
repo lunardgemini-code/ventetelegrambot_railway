@@ -875,9 +875,11 @@ async def api_reseller_wallet_transactions(limit: int = 50, offset: int = 0, res
 async def api_get_finance(method: str = None):
     from database.models import get_stats, get_setting
     try:
-        stats_1 = await get_stats(days=1)
-        stats_7 = await get_stats(days=7)
-        stats_30 = await get_stats(days=30)
+        stats_1, stats_7, stats_30 = await asyncio.gather(
+            get_stats(days=1),
+            get_stats(days=7),
+            get_stats(days=30)
+        )
         
         balance = 0.0
         if method and method != "all":
@@ -2484,6 +2486,11 @@ def main() -> None:
         async def _setup_and_run():
             """Initialize the bot, set webhook, and run FastAPI with connection retries."""
             global webhook_update_queue, webhook_worker_task
+            
+            loop = asyncio.get_running_loop()
+            from concurrent.futures import ThreadPoolExecutor
+            loop.set_default_executor(ThreadPoolExecutor(max_workers=100))
+
 
             for attempt in range(1, 6):
                 try:
