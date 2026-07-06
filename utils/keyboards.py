@@ -115,13 +115,21 @@ def back_keyboard(callback_data: str, lang: str = "fr") -> InlineKeyboardMarkup:
     ])
 
 
-def profile_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
-    """Profile menu with Referral Program button."""
+def profile_keyboard(lang: str = "fr", is_reseller: bool = False) -> InlineKeyboardMarkup:
+    """Profile menu with Referral Program button and API for resellers."""
     ref_btn = {"fr": "👥 Programme de Parrainage", "en": "👥 Referral Program", "ar": "👥 برنامج الإحالة"}.get(lang, "👥 Programme de Parrainage")
-    return InlineKeyboardMarkup([
-        [make_button("btn_referral", lang, callback_data="show_referrals", custom_text=ref_btn)],
-        [make_button("btn_back", lang, callback_data="back_main")],
-    ])
+    api_btn = {"fr": "🔌 Mon API Revendeur", "en": "🔌 My Reseller API", "ar": "🔌 واجهة برمجة تطبيقات الموزع الخاص بي"}.get(lang, "🔌 Mon API Revendeur")
+    
+    buttons = [
+        [make_button("btn_referral", lang, callback_data="show_referrals", custom_text=ref_btn)]
+    ]
+    
+    if is_reseller:
+        buttons.append([make_button("btn_api", lang, callback_data="menu_api", custom_text=api_btn)])
+        
+    buttons.append([make_button("btn_back", lang, callback_data="back_main")])
+    
+    return InlineKeyboardMarkup(buttons)
 
 
 def reseller_api_keyboard(lang: str = "fr", docs_url: str | None = None) -> InlineKeyboardMarkup:
