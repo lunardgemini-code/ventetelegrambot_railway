@@ -273,6 +273,14 @@ async def api_create_product(data: dict):
             description_ar=data.get("description_ar", ""),
             description_zh=data.get("description_zh", ""),
             delivery_type=data.get("delivery_type", "stock"),
+            activation_message=data.get("activation_message", ""),
+            activation_message_fr=data.get("activation_message_fr", ""),
+            activation_message_ar=data.get("activation_message_ar", ""),
+            activation_message_zh=data.get("activation_message_zh", ""),
+            confirmation_message=data.get("confirmation_message", ""),
+            confirmation_message_fr=data.get("confirmation_message_fr", ""),
+            confirmation_message_ar=data.get("confirmation_message_ar", ""),
+            confirmation_message_zh=data.get("confirmation_message_zh", "")
         )
         return {"id": prod_id, "status": "created"}
     except HTTPException:
@@ -338,7 +346,7 @@ async def api_reorder_products(request: Request):
 async def api_update_product(product_id: int, data: dict):
     from database.models import update_product
     try:
-        allowed = {"name", "price_usd", "emoji", "custom_emoji_id", "warranty_days", "description", "description_fr", "description_ar", "description_zh", "is_active", "binance_account_id", "image_url", "delivery_type"}
+        allowed = {"name", "price_usd", "emoji", "custom_emoji_id", "warranty_days", "description", "description_fr", "description_ar", "description_zh", "is_active", "binance_account_id", "image_url", "delivery_type", "activation_message", "activation_message_fr", "activation_message_ar", "activation_message_zh", "confirmation_message", "confirmation_message_fr", "confirmation_message_ar", "confirmation_message_zh"}
         updates = {k: v for k, v in data.items() if k in allowed}
         if not updates:
             raise HTTPException(status_code=400, detail="No valid fields to update")

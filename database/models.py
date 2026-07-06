@@ -358,6 +358,10 @@ async def add_product(
     activation_message_fr: str = "",
     activation_message_ar: str = "",
     activation_message_zh: str = "",
+    confirmation_message: str = "",
+    confirmation_message_fr: str = "",
+    confirmation_message_ar: str = "",
+    confirmation_message_zh: str = "",
     delivery_type: str = "stock",
 ) -> int:
     """Ajoute un nouveau produit et retourne son identifiant."""
@@ -369,9 +373,9 @@ async def add_product(
     try:
         cursor = await db.execute(
             """INSERT INTO products
-               (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id, description_fr, description_ar, description_zh, activation_message, activation_message_fr, activation_message_ar, activation_message_zh, delivery_type)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id, description_fr, description_ar, description_zh, activation_message, activation_message_fr, activation_message_ar, activation_message_zh, delivery_type),
+               (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id, description_fr, description_ar, description_zh, activation_message, activation_message_fr, activation_message_ar, activation_message_zh, confirmation_message, confirmation_message_fr, confirmation_message_ar, confirmation_message_zh, delivery_type)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id, description_fr, description_ar, description_zh, activation_message, activation_message_fr, activation_message_ar, activation_message_zh, confirmation_message, confirmation_message_fr, confirmation_message_ar, confirmation_message_zh, delivery_type),
         )
         await db.commit()
         return cursor.lastrowid  # type: ignore[return-value]

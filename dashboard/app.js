@@ -1387,6 +1387,14 @@ $('edit-prod-form').addEventListener('submit', async (e) => {
         description_zh: $('edit-prod-desc-zh') ? $('edit-prod-desc-zh').value.trim() : '',
         image_url: $('edit-prod-image-url') && $('edit-prod-image-url').value.trim() ? $('edit-prod-image-url').value.trim() : null,
         delivery_type: $('edit-prod-delivery-type') ? $('edit-prod-delivery-type').value : 'stock',
+        activation_message: $('edit-prod-act-msg') ? $('edit-prod-act-msg').value.trim() : '',
+        activation_message_fr: $('edit-prod-act-msg-fr') ? $('edit-prod-act-msg-fr').value.trim() : '',
+        activation_message_ar: $('edit-prod-act-msg-ar') ? $('edit-prod-act-msg-ar').value.trim() : '',
+        activation_message_zh: $('edit-prod-act-msg-zh') ? $('edit-prod-act-msg-zh').value.trim() : '',
+        confirmation_message: $('edit-prod-conf-msg') ? $('edit-prod-conf-msg').value.trim() : '',
+        confirmation_message_fr: $('edit-prod-conf-msg-fr') ? $('edit-prod-conf-msg-fr').value.trim() : '',
+        confirmation_message_ar: $('edit-prod-conf-msg-ar') ? $('edit-prod-conf-msg-ar').value.trim() : '',
+        confirmation_message_zh: $('edit-prod-conf-msg-zh') ? $('edit-prod-conf-msg-zh').value.trim() : ''
     };
     if (!data.name || isNaN(data.price_usd) || data.price_usd < 0) {
         alert('Vérifiez le nom et le prix.'); return;
@@ -1763,6 +1771,14 @@ window.openEditProdModal = function(id) {
     if (DOM.prodImageUrl) DOM.prodImageUrl.value = p.image_url || '';
     if (DOM.prodBinanceAccount) DOM.prodBinanceAccount.value = p.binance_account_id || '';
     if (DOM.prodDeliveryType) DOM.prodDeliveryType.value = p.delivery_type || 'stock';
+    if ($('prod-act-msg')) $('prod-act-msg').value = p.activation_message || '';
+    if ($('prod-act-msg-fr')) $('prod-act-msg-fr').value = p.activation_message_fr || '';
+    if ($('prod-act-msg-ar')) $('prod-act-msg-ar').value = p.activation_message_ar || '';
+    if ($('prod-act-msg-zh')) $('prod-act-msg-zh').value = p.activation_message_zh || '';
+    if ($('prod-conf-msg')) $('prod-conf-msg').value = p.confirmation_message || '';
+    if ($('prod-conf-msg-fr')) $('prod-conf-msg-fr').value = p.confirmation_message_fr || '';
+    if ($('prod-conf-msg-ar')) $('prod-conf-msg-ar').value = p.confirmation_message_ar || '';
+    if ($('prod-conf-msg-zh')) $('prod-conf-msg-zh').value = p.confirmation_message_zh || '';
     showModal(DOM.prodModal);
 }
 
@@ -1782,7 +1798,15 @@ async function handleAddProduct(e) {
         description_zh: $('prod-desc-zh') ? $('prod-desc-zh').value.trim() : '',
         image_url: DOM.prodImageUrl && DOM.prodImageUrl.value.trim() ? DOM.prodImageUrl.value.trim() : null,
         binance_account_id: DOM.prodBinanceAccount && DOM.prodBinanceAccount.value ? parseInt(DOM.prodBinanceAccount.value) : null,
-        delivery_type: DOM.prodDeliveryType ? DOM.prodDeliveryType.value : 'stock'
+        delivery_type: DOM.prodDeliveryType ? DOM.prodDeliveryType.value : 'stock',
+        activation_message: $('prod-act-msg') ? $('prod-act-msg').value.trim() : '',
+        activation_message_fr: $('prod-act-msg-fr') ? $('prod-act-msg-fr').value.trim() : '',
+        activation_message_ar: $('prod-act-msg-ar') ? $('prod-act-msg-ar').value.trim() : '',
+        activation_message_zh: $('prod-act-msg-zh') ? $('prod-act-msg-zh').value.trim() : '',
+        confirmation_message: $('prod-conf-msg') ? $('prod-conf-msg').value.trim() : '',
+        confirmation_message_fr: $('prod-conf-msg-fr') ? $('prod-conf-msg-fr').value.trim() : '',
+        confirmation_message_ar: $('prod-conf-msg-ar') ? $('prod-conf-msg-ar').value.trim() : '',
+        confirmation_message_zh: $('prod-conf-msg-zh') ? $('prod-conf-msg-zh').value.trim() : ''
     };
     try {
         const id = DOM.prodId.value;
