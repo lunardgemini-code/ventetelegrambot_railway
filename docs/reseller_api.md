@@ -17,6 +17,10 @@ X-Reseller-Key: vbr_live_xxxxx_yyyyyyyy
 Content-Type: application/json
 ```
 
+`X-Reseller-Key` is recommended. For compatibility with common reseller bot integrations, protected reseller endpoints also accept the same reseller key in `X-API-Key`.
+
+The dashboard admin `X-API-Key` is separate and does not authenticate reseller purchases.
+
 The reseller can generate a key directly inside the Telegram bot with **API** then **Generate API key**. The full key is shown only once when it is created.
 
 The admin can also create or revoke keys from the dashboard, in the **Resellers** tab.
@@ -30,6 +34,17 @@ If a reseller generates a new key from the bot, the previous active key is autom
 - To avoid duplicate purchases if your bot retries the same request, always send `idempotency_key`.
 - For `stock` products, delivered accounts are returned in `order.items`.
 - For `activation` products, send `activation_identifier` when creating the order, or later with the dedicated endpoint.
+- If you call the API from a browser website, set `CORS_ORIGINS` on the bot backend to your website domain, for example `https://your-site.com`.
+- If your hosting plan sleeps, ping `GET /health` every few minutes instead of pinging protected reseller endpoints.
+- The default rate limit is `60` requests per `60` seconds per API key. You can adjust it with `RESELLER_API_RATE_LIMIT` and `RESELLER_API_RATE_WINDOW`.
+
+Rate limit headers are returned on protected reseller endpoints:
+
+```http
+X-RateLimit-Limit: 60
+X-RateLimit-Remaining: 59
+X-RateLimit-Reset: 1783333333
+```
 
 ## Test Your Key
 
@@ -42,6 +57,7 @@ Response:
 
 ```json
 {
+  "success": true,
   "user_telegram_id": 123456789,
   "username": "partner",
   "first_name": "Partner",
@@ -64,6 +80,7 @@ Response:
 
 ```json
 {
+  "success": true,
   "products": [
     {
       "id": 10,
@@ -100,6 +117,7 @@ Response:
 
 ```json
 {
+  "success": true,
   "quote": {
     "product_id": 10,
     "quantity": 2,
@@ -131,6 +149,7 @@ Response:
 
 ```json
 {
+  "success": true,
   "status": "ok",
   "idempotent": false,
   "balance_after": 37.5,
@@ -174,6 +193,7 @@ Response:
 
 ```json
 {
+  "success": true,
   "status": "ok",
   "order": {
     "id": 124,
@@ -221,7 +241,30 @@ X-Reseller-Key: YOUR_KEY
 - `400`: unavailable product, insufficient stock, invalid quantity, or missing activation identifier.
 - `402`: insufficient wallet balance.
 - `404`: order not found or outside the reseller account.
+- `422`: invalid request format, for example missing `product_id`, non-numeric `quantity`, or an activation identifier that is too short.
+- `429`: rate limit exceeded.
 - `500`: server error.
+
+Errors return a stable JSON format:
+
+```json
+{
+  "success": false,
+  "code": "INSUFFICIENT_BALANCE",
+  "message": "Insufficient wallet balance"
+}
+```
+
+Validation errors include a `details` array:
+
+```json
+{
+  "success": false,
+  "code": "VALIDATION_ERROR",
+  "message": "Invalid request format.",
+  "details": []
+}
+```
 
 ## JavaScript Example
 
@@ -245,7 +288,7 @@ async function buy(productId, customerId) {
   });
 
   const data = await res.json();
-  if (!res.ok) throw new Error(data.detail || "API error");
+  if (!res.ok || data.success === false) throw new Error(data.message || "API error");
   return data.order;
 }
 ```

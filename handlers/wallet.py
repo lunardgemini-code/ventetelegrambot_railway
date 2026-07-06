@@ -252,7 +252,7 @@ async def _verify_crypto_topup(update: Update, context: ContextTypes.DEFAULT_TYP
                 result = await verify_internal_transfer(tx_hash, amount, api_key=api_key, api_secret=api_secret, lang=lang)
             
             if result.get("verified"):
-                amount = result.get("transaction", {}).get("amount", amount)
+                amount = float(result.get("transaction", {}).get("amount", amount))
                 if not await record_used_bep20_transaction(tx_hash, None, telegram_id, amount):
                     await update.message.reply_text(t("tx_already_used", lang), reply_markup=main_menu_keyboard(lang))
                     return ConversationHandler.END
@@ -294,7 +294,7 @@ async def _verify_crypto_topup(update: Update, context: ContextTypes.DEFAULT_TYP
                 result = await verify_internal_transfer(tx_hash_clean, amount, api_key=api_key, api_secret=api_secret, lang=lang)
             
             if result.get("verified"):
-                amount = result.get("transaction", {}).get("amount", amount)
+                amount = float(result.get("transaction", {}).get("amount", amount))
                 if not await record_used_trc20_transaction(tx_hash_clean, None, telegram_id, amount):
                     await update.message.reply_text(t("tx_already_used", lang), reply_markup=main_menu_keyboard(lang))
                     return ConversationHandler.END
@@ -373,7 +373,7 @@ async def wallet_verify_payment(update: Update, context: ContextTypes.DEFAULT_TY
         if result.get("verified"):
             # Anti-replay: check if this transaction was already used
             tx = result.get("transaction", {})
-            amount = tx.get("amount", amount)
+            amount = float(tx.get("amount", amount))
             tx_id = str(tx.get("transactionId", "")) or str(tx.get("orderId", "")) or client_order_id
             from database.models import record_used_transaction
             telegram_id = update.effective_user.id
