@@ -1726,21 +1726,42 @@ def main() -> None:
         import asyncio
 
         async def _setup_and_run():
-            """Initialize the bot, set webhook, and run FastAPI."""
+            """Initialize the bot, set webhook, and run FastAPI with connection retries."""
             global webhook_update_queue, webhook_worker_task
-            await app.initialize()
-            await post_init(app)
-            await app.start()
+
+            for attempt in range(1, 6):
+                try:
+                    logger.info("⚡ Initializing Telegram bot (attempt %d/5)...", attempt)
+                    await app.initialize()
+                    await post_init(app)
+                    await app.start()
+                    break
+                except Exception as err:
+                    if attempt == 5:
+                        logger.error("❌ Failed to initialize Telegram bot after 5 attempts: %s", err)
+                        raise
+                    logger.warning("⚠️ Bot initialization failed (%s). Retrying in 4s...", err)
+                    await asyncio.sleep(4)
+
             webhook_update_queue = asyncio.Queue()
             webhook_worker_task = asyncio.create_task(_webhook_update_worker(app))
 
             wh = f"{webhook_url}/webhook"
-            await app.bot.set_webhook(
-                url=wh,
-                secret_token=WEBHOOK_SECRET or None,
-                drop_pending_updates=True,
-            )
-            logger.info("🔗 Webhook set: %s", wh)
+            for attempt in range(1, 6):
+                try:
+                    await app.bot.set_webhook(
+                        url=wh,
+                        secret_token=WEBHOOK_SECRET or None,
+                        drop_pending_updates=True,
+                    )
+                    logger.info("🔗 Webhook set successfully: %s", wh)
+                    break
+                except Exception as err:
+                    if attempt == 5:
+                        logger.error("❌ Failed to set webhook after 5 attempts: %s", err)
+                        raise
+                    logger.warning("⚠️ Webhook setup failed (%s). Retrying in 4s...", err)
+                    await asyncio.sleep(4)
 
             config = uvicorn.Config(api, host="0.0.0.0", port=port, log_level="warning")
             server = uvicorn.Server(config)
