@@ -1641,11 +1641,14 @@ async def get_reseller_by_api_key(raw_key: str) -> dict | None:
             return None
         if data.get("is_banned"):
             return None
-        await db.execute(
-            "UPDATE reseller_api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (data["id"],),
-        )
-        await db.commit()
+        try:
+            await db.execute(
+                "UPDATE reseller_api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (data["id"],),
+            )
+            await db.commit()
+        except Exception as exc:
+            logger.warning("Failed to update last_used_at for reseller API key %d: %s", data["id"], exc)
         data.pop("key_hash", None)
         return data
     finally:
