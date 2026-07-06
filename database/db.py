@@ -446,6 +446,10 @@ async def init_db() -> None:
             "ALTER TABLE products ADD COLUMN activation_message_fr TEXT DEFAULT ''",
             "ALTER TABLE products ADD COLUMN activation_message_ar TEXT DEFAULT ''",
             "ALTER TABLE products ADD COLUMN activation_message_zh TEXT DEFAULT ''",
+            "ALTER TABLE products ADD COLUMN confirmation_message TEXT DEFAULT ''",
+            "ALTER TABLE products ADD COLUMN confirmation_message_fr TEXT DEFAULT ''",
+            "ALTER TABLE products ADD COLUMN confirmation_message_ar TEXT DEFAULT ''",
+            "ALTER TABLE products ADD COLUMN confirmation_message_zh TEXT DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS idx_orders_activation_status ON orders(activation_status, status)",
         ]
         for sql in migrations:

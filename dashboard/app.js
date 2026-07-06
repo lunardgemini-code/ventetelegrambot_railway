@@ -267,7 +267,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function setupEvents() {
     DOM.loginForm.addEventListener('submit', e => {
         e.preventDefault();
-        let u = DOM.botUrlInput.value.trim().replace(/\/$/,'');
+        let u = DOM.botUrlInput.value.trim().replace(/\/$/, '');
         if (u && !u.startsWith('http://') && !u.startsWith('https://')) u = 'https://' + u;
         state.apiKey = DOM.apiKeyInput.value.trim();
         state.botUrl = u || '';
@@ -287,6 +287,55 @@ function setupEvents() {
     }
 
     $$('.sub-tab').forEach(t => t.addEventListener('click', () => {
+        t.closest('.action-bar').querySelectorAll('.sub-tab').forEach(s => s.classList.remove('active'));
+        t.closest('section').querySelectorAll('.sub-tab-content').forEach(c => c.classList.remove('active'));
+        t.classList.add('active'); 
+        let targetContent = document.querySelector(t.getAttribute('data-sub'));
+        if (targetContent) targetContent.classList.add('active');
+    }));
+
+    $('btn-open-prod-modal').addEventListener('click', () => { 
+        DOM.addProdForm.reset(); 
+        DOM.prodId.value=''; 
+        if (DOM.prodDeliveryType) DOM.prodDeliveryType.value='stock'; 
+        
+        if ($('prod-act-msg')) $('prod-act-msg').value = "Your activation is complete.\n\nProduct: {product}\nOrder: #{order_id}";
+        if ($('prod-act-msg-fr')) $('prod-act-msg-fr').value = "Votre activation est terminée.\n\nProduit : {product}\nCommande : #{order_id}";
+        if ($('prod-act-msg-ar')) $('prod-act-msg-ar').value = "اكتمل التفعيل.\n\nالمنتج: {product}\nالطلب: #{order_id}";
+        if ($('prod-act-msg-zh')) $('prod-act-msg-zh').value = "您的激活已完成。\n\n产品：{product}\n订单：#{order_id}";
+
+        if ($('prod-conf-msg')) $('prod-conf-msg').value = "Thank you for your purchase! 🙏";
+        if ($('prod-conf-msg-fr')) $('prod-conf-msg-fr').value = "Merci pour votre achat ! 🙏";
+        if ($('prod-conf-msg-ar')) $('prod-conf-msg-ar').value = "شكرا لشرائك! 🙏";
+        if ($('prod-conf-msg-zh')) $('prod-conf-msg-zh').value = "感谢您的购买！🙏";
+
+        showModal(DOM.prodModal); 
+    });
+    const btnMassTranslate = $('btn-mass-translate');
+    if (btnMassTranslate) btnMassTranslate.addEventListener('click', massTranslate);
+    $('btn-open-promo-modal').addEventListener('click', () => {
+        const sel = $('promo-products');
+        sel.innerHTML = '';
+        state.products.forEach(p => {
+            const lbl = document.createElement('label');
+            lbl.style.display = 'flex';
+            lbl.style.alignItems = 'center';
+            lbl.style.gap = '8px';
+            lbl.style.cursor = 'pointer';
+            lbl.style.margin = '0';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.value = p.id;
+            cb.className = 'promo-product-cb';
+            lbl.appendChild(cb);
+            lbl.appendChild(document.createTextNode(' ' + p.name));
+            sel.appendChild(lbl);
+        });
+        showModal(DOM.promoModal);
+    });
+    $('btn-open-binance-modal').addEventListener('click', openBinanceModal);
+    $$('.btn-close-modal').forEach(b => b.addEventListener('click', () => { [DOM.prodModal,DOM.stockModal,DOM.promoModal,DOM.tiersModal,DOM.orderDetailModal,DOM.viewStockModal,DOM.editProdModal,DOM.revenueModal,DOM.binanceModal,$('banModal'),$('finance-withdraw-modal'),$('finance-adjust-modal'), $('exportModal')].forEach(m => { if (m) hideModal(m); }); }));
+
     DOM.addProdForm.addEventListener('submit', handleAddProduct);
     DOM.addPromoForm.addEventListener('submit', handleAddPromo);
     DOM.settingsForm.addEventListener('submit', handleSaveSettings);
@@ -294,7 +343,7 @@ function setupEvents() {
 
     $$('.order-filter-btn').forEach(b => b.addEventListener('click', () => {
         $$('.order-filter-btn').forEach(x => x.classList.remove('active')); b.classList.add('active');
-    state.orderFilter = b.getAttribute('data-status'); state.orderPage = 0; loadAllOrders();
+        state.orderFilter = b.getAttribute('data-status'); state.orderPage = 0; loadAllOrders();
     }));
     DOM.ordersPrev.addEventListener('click', () => { if (state.orderPage > 0) { state.orderPage--; loadAllOrders(); }});
     DOM.ordersNext.addEventListener('click', () => { if (state.orderPage < Math.ceil(state.orderTotal/20)-1) { state.orderPage++; loadAllOrders(); }});
@@ -343,10 +392,18 @@ function setupEvents() {
     $$('.lang-btn').forEach(b => b.addEventListener('click', () => setLang(b.getAttribute('data-lang'))));
 
     const btnTranslateAdd = $('btn-translate-add');
-    if (btnTranslateAdd) btnTranslateAdd.addEventListener('click', () => autoTranslate('add'));
-    
+    const btnTranslateActAdd = $('btn-translate-act-add');
+    const btnTranslateConfAdd = $('btn-translate-conf-add');
     const btnTranslateEdit = $('btn-translate-edit');
-    if (btnTranslateEdit) btnTranslateEdit.addEventListener('click', () => autoTranslate('edit'));
+    const btnTranslateActEdit = $('btn-translate-act-edit');
+    const btnTranslateConfEdit = $('btn-translate-conf-edit');
+
+    if (btnTranslateAdd) btnTranslateAdd.addEventListener('click', () => autoTranslate('add', 'desc'));
+    if (btnTranslateActAdd) btnTranslateActAdd.addEventListener('click', () => autoTranslate('add', 'act'));
+    if (btnTranslateConfAdd) btnTranslateConfAdd.addEventListener('click', () => autoTranslate('add', 'conf'));
+    if (btnTranslateEdit) btnTranslateEdit.addEventListener('click', () => autoTranslate('edit', 'desc'));
+    if (btnTranslateActEdit) btnTranslateActEdit.addEventListener('click', () => autoTranslate('edit', 'act'));
+    if (btnTranslateConfEdit) btnTranslateConfEdit.addEventListener('click', () => autoTranslate('edit', 'conf'));
 
     // Turbo Mode toggle listener
     const turboModeToggle = $('settings-turbo-mode');
@@ -366,8 +423,8 @@ function setupEvents() {
             const rect = el.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
-            el.style.setProperty('--mx', `${x}px`);
-            el.style.setProperty('--my', `${y}px`);
+            el.style.setProperty('--mouse-x', `${x}px`);
+            el.style.setProperty('--mouse-y', `${y}px`);
         });
     });
 

@@ -53,7 +53,7 @@ from database.models import (
 )
 from services.delivery import deliver_order
 from utils.helpers import format_price, is_admin, escape_html
-from utils.locales import t
+from utils.locales import t, get_confirmation_message
 from utils.keyboards import (
     admin_categories_keyboard,
     admin_category_detail_keyboard,
@@ -1381,7 +1381,7 @@ async def admin_confirm_payment(update: Update, context: ContextTypes.DEFAULT_TY
                     f"{accounts_text}\n\n"
                     f"{t('warranty_lbl', user_lang).format(days=warranty_days)}\n"
                     f"{t('save_info', user_lang)}\n\n"
-                    f"{t('thank_you', user_lang)}",
+                    f"{get_confirmation_message(product, user_lang, order_id)}",
                     parse_mode="HTML",
                 )
             except Exception as exc:

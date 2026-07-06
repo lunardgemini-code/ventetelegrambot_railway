@@ -217,111 +217,6 @@ async def get_categories() -> list[dict]:
         except Exception:
             # Fallback if is_deleted column does not exist yet
             cursor = await db.execute(
-                "SELECT * FROM categories WHERE is_active = 1 ORDER BY sort_order ASC, id ASC"
-            )
-            rows = await cursor.fetchall()
-        _CATEGORIES_CACHE = [dict(r) for r in rows]
-        return _CATEGORIES_CACHE
-    finally:
-        await db.close()
-
-
-async def get_category(category_id: int) -> dict | None:
-    """RÃ©cupÃ¨re une catÃ©gorie par son identifiant."""
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            "SELECT * FROM categories WHERE id = ?", (category_id,)
-        )
-        row = await cursor.fetchone()
-        return dict(row) if row else None
-    finally:
-        await db.close()
-
-
-async def add_category(
-    name: str,
-    emoji: str = "ðŸ“‚",
-    description: str = "",
-) -> int:
-    """Ajoute une nouvelle catÃ©gorie et retourne son identifiant."""
-    global _CATEGORIES_CACHE
-    _CATEGORIES_CACHE = None
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            "INSERT INTO categories (name, emoji, description) VALUES (?, ?, ?)",
-            (name, emoji, description),
-        )
-        await db.commit()
-        return cursor.lastrowid  # type: ignore[return-value]
-    finally:
-        await db.close()
-
-
-ALLOWED_CATEGORY_COLUMNS = {"name", "emoji", "description", "is_active", "sort_order"}
-
-
-async def update_category(category_id: int, **kwargs) -> None:
-    """Met Ã  jour une catÃ©gorie avec les champs fournis en kwargs."""
-    global _CATEGORIES_CACHE
-    _CATEGORIES_CACHE = None
-    safe_kwargs = {k: v for k, v in kwargs.items() if k in ALLOWED_CATEGORY_COLUMNS}
-    if not safe_kwargs:
-        return
-    columns = ", ".join(f"{k} = ?" for k in safe_kwargs)
-    values = list(safe_kwargs.values()) + [category_id]
-    db = await get_db()
-    try:
-        await db.execute(
-            f"UPDATE categories SET {columns} WHERE id = ?", values
-        )
-        await db.commit()
-    finally:
-        await db.close()
-
-
-async def delete_category(category_id: int) -> None:
-    """Marque une catÃ©gorie comme supprimÃ©e, ainsi que ses produits, et supprime leur stock non vendu."""
-    global _CATEGORIES_CACHE, _PRODUCTS_CACHE, _PRODUCT_BY_ID_CACHE
-    _CATEGORIES_CACHE = None
-    _PRODUCTS_CACHE = None
-    _PRODUCT_BY_ID_CACHE.clear()
-    db = await get_db()
-    try:
-        # Ne pas toucher aux commandes.
-        # Supprimer uniquement le stock non vendu pour les produits de cette catÃ©gorie
-        await db.execute(
-            "DELETE FROM stock_items WHERE product_id IN (SELECT id FROM products WHERE category_id = ?) AND is_sold = 0",
-            (category_id,),
-        )
-        # Soft delete les produits associÃ©s (is_deleted = 1, is_active = 0)
-        await db.execute("UPDATE products SET is_deleted = 1, is_active = 0 WHERE category_id = ?", (category_id,))
-        # Soft delete la catÃ©gorie (is_deleted = 1, is_active = 0)
-        await db.execute("UPDATE categories SET is_deleted = 1, is_active = 0 WHERE id = ?", (category_id,))
-        await db.commit()
-    finally:
-        await db.close()
-
-
-# â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
-# â•‘  PRODUITS                                                        â•‘
-# â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-
-
-async def get_products_by_category(category_id: int) -> list[dict]:
-    """Retourne les produits actifs d'une catÃ©gorie donnÃ©e."""
-    db = await get_db()
-    try:
-        try:
-            cursor = await db.execute(
-                "SELECT * FROM products WHERE category_id = ? AND is_active = 1 AND is_deleted = 0 ORDER BY sort_order ASC, id ASC",
-                (category_id,),
-            )
-            rows = await cursor.fetchall()
-        except Exception:
-            # Fallback if is_deleted column does not exist yet
-            cursor = await db.execute(
                 "SELECT * FROM products WHERE category_id = ? AND is_active = 1 ORDER BY id ASC",
                 (category_id,),
             )
@@ -332,7 +227,7 @@ async def get_products_by_category(category_id: int) -> list[dict]:
 
 
 async def get_product(product_id: int) -> dict | None:
-    """RÃ©cupÃ¨re un produit par son identifiant."""
+    """Récupère un produit par son identifiant."""
     if product_id in _PRODUCT_BY_ID_CACHE:
         return _PRODUCT_BY_ID_CACHE[product_id]
     db = await get_db()
@@ -350,7 +245,7 @@ async def get_product(product_id: int) -> dict | None:
 
 
 async def get_all_products() -> list[dict]:
-    """Retourne la liste de tous les produits (actifs et inactifs, non supprimÃ©s)."""
+    """Retourne la liste de tous les produits (actifs et inactifs, non supprimés)."""
     global _PRODUCTS_CACHE
     if _PRODUCTS_CACHE is not None:
         return _PRODUCTS_CACHE
@@ -407,7 +302,7 @@ async def add_product(
         await db.close()
 
 
-ALLOWED_PRODUCT_COLUMNS = {"category_id", "name", "description", "description_fr", "description_ar", "description_zh", "activation_message", "activation_message_fr", "activation_message_ar", "activation_message_zh", "price_usd", "warranty_days", "emoji", "custom_emoji_id", "image_url", "is_active", "binance_account_id", "delivery_type"}
+ALLOWED_PRODUCT_COLUMNS = {"category_id", "name", "description", "description_fr", "description_ar", "description_zh", "activation_message", "activation_message_fr", "activation_message_ar", "activation_message_zh", "confirmation_message", "confirmation_message_fr", "confirmation_message_ar", "confirmation_message_zh", "price_usd", "warranty_days", "emoji", "custom_emoji_id", "image_url", "is_active", "binance_account_id", "delivery_type"}
 
 
 async def update_product(product_id: int, **kwargs) -> None:

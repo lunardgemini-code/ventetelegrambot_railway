@@ -40,7 +40,7 @@ from utils.keyboards import (
     payment_method_keyboard,
     quantity_keyboard,
 )
-from utils.locales import t
+from utils.locales import t, get_confirmation_message
 
 logger = logging.getLogger(__name__)
 
@@ -668,10 +668,11 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"{wallet_msg}\n\n✅ Préparation de votre commande...", parse_mode="HTML")
 
             header = f"{wallet_msg}"
+            conf_msg = get_confirmation_message(product, lang, order_id)
             footer = (
                 f"{t('warranty_lbl', lang).format(days=warranty_days)}\n"
                 f"{t('save_info', lang)}\n\n"
-                f"{t('thank_you', lang)}"
+                f"{conf_msg}"
             )
             await send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang)
         else:
@@ -876,10 +877,11 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"✅ {t('payment_confirmed', lang)}\n\nPréparation de votre commande...", parse_mode="HTML")
 
                 header = f"{t('payment_confirmed', lang)}"
+                conf_msg = get_confirmation_message(product, lang, order_id)
                 footer = (
                     f"{t('warranty_lbl', lang).format(days=warranty_days)}\n"
                     f"{t('save_info', lang)}\n\n"
-                    f"{t('thank_you', lang)}"
+                    f"{conf_msg}"
                 )
                 await send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang)
             else:
@@ -1317,10 +1319,11 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                 await update.message.reply_text(f"✅ {t('payment_confirmed', lang)}\n\nPréparation de votre commande...", parse_mode="HTML")
 
                 header = f"{t('payment_confirmed', lang)}"
+                conf_msg = get_confirmation_message(product, lang, order_id)
                 footer = (
                     f"{t('warranty_lbl', lang).format(days=warranty_days)}\n"
                     f"{t('save_info', lang)}\n\n"
-                    f"{t('thank_you', lang)}"
+                    f"{conf_msg}"
                 )
                 await send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang)
             else:
@@ -1597,10 +1600,11 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                 warranty_days = product.get("warranty_days", 0) if product else 0
                 await update.message.reply_text(f"✅ {t('payment_confirmed', lang)}\n\nPréparation de votre commande...", parse_mode="HTML")
                 header = f"{t('payment_confirmed', lang)}"
+                conf_msg = get_confirmation_message(product, lang, order_id)
                 footer = (
                     f"{t('warranty_lbl', lang).format(days=warranty_days)}\n"
                     f"{t('save_info', lang)}\n\n"
-                    f"{t('thank_you', lang)}"
+                    f"{conf_msg}"
                 )
                 await send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang)
             else:
