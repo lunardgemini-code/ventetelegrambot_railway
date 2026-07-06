@@ -8,6 +8,7 @@ import asyncio
 import logging
 
 from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -20,10 +21,12 @@ from telegram.ext import (
 from config import ADMIN_IDS, BINANCE_PAY_ID
 from database.models import (
     create_order,
+    get_pending_activation_order_for_user,
     get_order,
     get_product,
     get_stock_count,
     get_user_lang,
+    submit_activation_identifier,
     update_order_status,
     record_used_transaction,
 )
@@ -47,8 +50,95 @@ WAITING_PAYMENT_METHOD = 202
 WAITING_PROMO_CODE = 203
 WAITING_BEP20_TX_HASH = 204
 WAITING_TRC20_TX_HASH = 205
+WAITING_ACTIVATION_IDENTIFIER = 206
 
 _timeout_tasks = {}
+
+
+def _is_activation_product(product: dict | None) -> bool:
+    return bool(product and product.get("delivery_type") == "activation")
+
+
+def _clear_payment_context(context: ContextTypes.DEFAULT_TYPE) -> None:
+    for key in ("paying_order_id", "paying_amount", "paying_product_id", "pending_order_id", "pending_product_id"):
+        context.user_data.pop(key, None)
+
+
+async def _prompt_activation_identifier(update: Update, context: ContextTypes.DEFAULT_TYPE, order_id: int, product: dict | None, lang: str, payment_method: str, payment_ref: str | None = None):
+    kwargs = {"payment_method": payment_method}
+    if payment_ref:
+        kwargs["binance_order_id"] = payment_ref
+    await update_order_status(order_id, "AWAITING_ACTIVATION_INFO", **kwargs)
+    context.user_data["activation_order_id"] = order_id
+    context.user_data.pop("paying_order_id", None)
+    context.user_data.pop("paying_amount", None)
+    context.user_data.pop("paying_product_id", None)
+
+    product_name = product["name"] if product else f"#{order_id}"
+    text = (
+        f"{t('payment_confirmed', lang)}\n\n"
+        f"Produit: <b>{escape_html(product_name)}</b>\n"
+        "Veuillez entrer l'identifiant a activer.\n"
+        "Exemple: @username Telegram, email, ID Grok, ou autre identifiant du service."
+    )
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, parse_mode="HTML")
+    else:
+        await update.effective_message.reply_text(text, parse_mode="HTML")
+    return WAITING_ACTIVATION_IDENTIFIER
+
+
+async def receive_activation_identifier(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Receive the identifier for a paid manual activation order."""
+    if not update.message or not update.message.text:
+        return ConversationHandler.END
+
+    lang = await get_user_lang(update.effective_user.id)
+    identifier = update.message.text.strip()
+    if len(identifier) < 2:
+        if context.user_data.get("activation_order_id"):
+            await update.message.reply_text("Identifiant trop court. Envoyez l'identifiant a activer.")
+            return WAITING_ACTIVATION_IDENTIFIER
+        return ConversationHandler.END
+
+    order_id = context.user_data.get("activation_order_id")
+    order = await get_order(order_id) if order_id else None
+    if not order or order.get("user_telegram_id") != update.effective_user.id or order.get("status") != "AWAITING_ACTIVATION_INFO":
+        order = await get_pending_activation_order_for_user(update.effective_user.id)
+        if not order:
+            return ConversationHandler.END
+        order_id = order["id"]
+
+    await submit_activation_identifier(order_id, identifier)
+    context.user_data.pop("activation_order_id", None)
+
+    product = await get_product(order["product_id"])
+    product_name = product["name"] if product else f"#{order['product_id']}"
+    username = f"@{update.effective_user.username}" if update.effective_user.username else escape_html(update.effective_user.first_name or str(update.effective_user.id))
+
+    try:
+        from bot import notify_admins
+        markup = InlineKeyboardMarkup([[
+            InlineKeyboardButton("Marquer active", callback_data=f"adm_activate_order:{order_id}")
+        ]])
+        await notify_admins(
+            "<b>Nouvelle activation a faire</b>\n\n"
+            f"Commande: #{order_id}\n"
+            f"Client: {username} (<code>{update.effective_user.id}</code>)\n"
+            f"Produit: {escape_html(product_name)} x{order.get('quantity', 1)}\n"
+            f"Montant: {format_price(order.get('amount_usd', 0))}\n"
+            f"Identifiant: <code>{escape_html(identifier)}</code>",
+            reply_markup=markup,
+        )
+    except Exception:
+        pass
+
+    await update.message.reply_text(
+        "Merci. Votre demande d'activation a ete envoyee a l'admin.\n"
+        "Vous recevrez un message quand l'activation sera terminee.",
+        reply_markup=main_menu_keyboard(lang),
+    )
+    return ConversationHandler.END
 
 async def send_delivery_messages(bot, chat_id: int, header: str, items: list, footer: str, lang: str, order_id: int = None):
     """Sends delivery messages. Uses a single .txt document if the total delivery is very long."""
@@ -123,8 +213,9 @@ async def initiate_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return ConversationHandler.END
 
+        is_activation = _is_activation_product(product)
         stock = await get_stock_count(product_id)
-        if stock <= 0:
+        if not is_activation and stock <= 0:
             try:
                 await query.message.delete()
             except Exception:
@@ -152,6 +243,9 @@ async def initiate_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             context.user_data.pop("pending_order_id", None)
             context.user_data.pop("pending_product_id", None)
+
+        if is_activation:
+            return await _process_quantity(update, context, product_id, 1, lang, is_callback=True)
 
         text = t("choose_quantity", lang).format(stock=stock)
         markup = quantity_keyboard(product_id, stock, lang)
@@ -235,8 +329,9 @@ async def _process_quantity(
             await update.message.reply_text(msg)
         return ConversationHandler.END
 
+    is_activation = _is_activation_product(product)
     stock = await get_stock_count(product_id)
-    if quantity > stock:
+    if not is_activation and quantity > stock:
         msg = t("insufficient_stock", lang).format(stock=stock)
         if is_callback:
             await update.callback_query.edit_message_text(
@@ -562,11 +657,14 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ConversationHandler.END
 
         # Payment successful â€” deliver first, then complete
+        product = await get_product(product_id)
+        if _is_activation_product(product):
+            return await _prompt_activation_identifier(update, context, order_id, product, lang, "wallet")
+
         delivered = await deliver_order(order_id, product_id)
 
         if delivered:
             await update_order_status(order_id, "COMPLETED", payment_method="wallet")
-            product = await get_product(product_id)
             warranty_days = product.get("warranty_days", 0) if product else 0
 
             wallet_msg = t("wallet_paid", lang) \
@@ -771,11 +869,14 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
             binance_order_id_val = tx.get("orderId", "")
             display_id = binance_order_id_val or binance_tx_id or client_order_id
 
+            product = await get_product(product_id)
+            if _is_activation_product(product):
+                return await _prompt_activation_identifier(update, context, order_id, product, lang, "binance", display_id)
+
             delivered = await deliver_order(order_id, product_id)
 
             if delivered:
                 await update_order_status(order_id, "COMPLETED", payment_method="binance", binance_order_id=display_id)
-                product = await get_product(product_id)
                 warranty_days = product.get("warranty_days", 0) if product else 0
 
                 await update.message.reply_text(f"✅ {t('payment_confirmed', lang)}\n\nPréparation de votre commande...", parse_mode="HTML")
@@ -1208,12 +1309,15 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                 await update_order_status(order_id, "PENDING", payment_method="bep20")
                 logger.info("Order #%d reactivated: BEP20 payment confirmed on-chain after timeout", order_id)
 
+            product = await get_product(product_id)
+            if _is_activation_product(product):
+                return await _prompt_activation_identifier(update, context, order_id, product, lang, "bep20", tx_hash)
+
             # Deliver order
             delivered = await deliver_order(order_id, product_id)
 
             if delivered:
                 await update_order_status(order_id, "COMPLETED", payment_method="bep20", binance_order_id=tx_hash)
-                product = await get_product(product_id)
                 warranty_days = product.get("warranty_days", 0) if product else 0
                 
                 await update.message.reply_text(f"✅ {t('payment_confirmed', lang)}\n\nPréparation de votre commande...", parse_mode="HTML")
@@ -1488,11 +1592,14 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                 await update_order_status(order_id, "PENDING", payment_method="trc20")
                 logger.info("Order #%d reactivated: TRC20 payment confirmed on-chain after timeout", order_id)
 
+            product = await get_product(product_id)
+            if _is_activation_product(product):
+                return await _prompt_activation_identifier(update, context, order_id, product, lang, "trc20", tx_hash_clean)
+
             delivered = await deliver_order(order_id, product_id)
 
             if delivered:
                 await update_order_status(order_id, "COMPLETED", payment_method="trc20", binance_order_id=tx_hash_clean)
-                product = await get_product(product_id)
                 warranty_days = product.get("warranty_days", 0) if product else 0
                 await update.message.reply_text(f"✅ {t('payment_confirmed', lang)}\n\nPréparation de votre commande...", parse_mode="HTML")
                 header = f"{t('payment_confirmed', lang)}"
@@ -1584,6 +1691,9 @@ def get_payment_conversation_handler() -> ConversationHandler:
             WAITING_TRC20_TX_HASH: [
                 CallbackQueryHandler(check_trc20_payment, pattern=r"^check_trc20:"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_trc20_tx_hash),
+            ],
+            WAITING_ACTIVATION_IDENTIFIER: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_activation_identifier),
             ],
         },
         fallbacks=[

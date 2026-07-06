@@ -265,6 +265,7 @@ async def init_db() -> None:
                 emoji TEXT DEFAULT '📦',
                 custom_emoji_id TEXT DEFAULT NULL,
                 image_url TEXT DEFAULT NULL,
+                delivery_type TEXT DEFAULT 'stock',
                 is_active INTEGER DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 is_deleted INTEGER DEFAULT 0,
@@ -303,6 +304,10 @@ async def init_db() -> None:
                 payment_method TEXT DEFAULT 'binance',
                 promo_code_id INTEGER,
                 promo_discount REAL DEFAULT 0.0,
+                activation_identifier TEXT,
+                activation_status TEXT DEFAULT NULL,
+                activation_requested_at TIMESTAMP,
+                activated_at TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 paid_at TIMESTAMP,
                 FOREIGN KEY (product_id) REFERENCES products(id)
@@ -431,6 +436,13 @@ async def init_db() -> None:
             "ALTER TABLE products ADD COLUMN description_fr TEXT DEFAULT ''",
             "ALTER TABLE products ADD COLUMN description_ar TEXT DEFAULT ''",
             "ALTER TABLE products ADD COLUMN description_zh TEXT DEFAULT ''",
+            "ALTER TABLE wallet_transactions ADD COLUMN tx_hash TEXT DEFAULT NULL",
+            "ALTER TABLE products ADD COLUMN delivery_type TEXT DEFAULT 'stock'",
+            "ALTER TABLE orders ADD COLUMN activation_identifier TEXT",
+            "ALTER TABLE orders ADD COLUMN activation_status TEXT DEFAULT NULL",
+            "ALTER TABLE orders ADD COLUMN activation_requested_at TIMESTAMP",
+            "ALTER TABLE orders ADD COLUMN activated_at TIMESTAMP",
+            "CREATE INDEX IF NOT EXISTS idx_orders_activation_status ON orders(activation_status, status)",
         ]
         for sql in migrations:
             try:

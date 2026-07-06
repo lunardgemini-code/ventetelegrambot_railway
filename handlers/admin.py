@@ -14,6 +14,7 @@ All routes are restricted to ADMIN_IDS.
 """
 
 import logging
+from datetime import datetime
 
 from telegram import Update
 from telegram.ext import (
@@ -1240,6 +1241,27 @@ async def admin_confirm_payment(update: Update, context: ContextTypes.DEFAULT_TY
             await query.edit_message_text("❌ Commande introuvable.")
             return
 
+        product = await get_product(order.get("product_id"))
+        if product and product.get("delivery_type") == "activation":
+            await update_order_status(order_id, "AWAITING_ACTIVATION_INFO", payment_method=order.get("payment_method") or "manual", binance_order_id="MANUAL")
+            try:
+                await context.bot.send_message(
+                    order["user_telegram_id"],
+                    "Paiement confirme.\n\n"
+                    f"Produit: <b>{escape_html(product['name'])}</b>\n"
+                    "Veuillez envoyer l'identifiant a activer.",
+                    parse_mode="HTML",
+                )
+            except Exception as exc:
+                logger.warning("Could not notify activation user: %s", exc)
+
+            await query.edit_message_text(
+                f"Commande #{order_id} confirmee.\n"
+                "Le client doit maintenant envoyer son identifiant a activer.",
+                reply_markup=admin_menu_keyboard(),
+            )
+            return
+
         # Mark as completed
         await update_order_status(order_id, "COMPLETED", binance_order_id="MANUAL")
 
@@ -1286,6 +1308,56 @@ async def admin_confirm_payment(update: Update, context: ContextTypes.DEFAULT_TY
 # ══════════════════════════════════════════════
 #  Fallback
 # ══════════════════════════════════════════════
+
+async def admin_complete_activation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Complete a manual activation order from an admin Telegram button."""
+    query = update.callback_query
+    if not _admin_check(update):
+        await _not_admin(update)
+        return
+    await query.answer()
+
+    try:
+        order_id = int(query.data.split(":")[1])
+        order = await get_order(order_id)
+        if not order:
+            await query.edit_message_text("Commande introuvable.")
+            return
+        if order.get("status") == "COMPLETED":
+            await query.edit_message_text(f"Commande #{order_id} deja terminee.")
+            return
+        if order.get("status") != "AWAITING_ACTIVATION":
+            await query.edit_message_text("Cette commande n'attend pas une activation.")
+            return
+
+        await update_order_status(
+            order_id,
+            "COMPLETED",
+            activation_status="done",
+            activated_at=datetime.utcnow().isoformat(),
+        )
+
+        product = await get_product(order.get("product_id"))
+        product_name = product["name"] if product else f"#{order.get('product_id')}"
+        try:
+            await context.bot.send_message(
+                order["user_telegram_id"],
+                "Votre activation est terminee.\n\n"
+                f"Produit: <b>{escape_html(product_name)}</b>\n"
+                f"Commande: #{order_id}",
+                parse_mode="HTML",
+            )
+        except Exception as exc:
+            logger.warning("Could not notify activated user: %s", exc)
+
+        await query.edit_message_text(
+            f"Activation terminee pour la commande #{order_id}.",
+            reply_markup=admin_menu_keyboard(),
+        )
+    except Exception as exc:
+        logger.error("admin_complete_activation: %s", exc, exc_info=True)
+        await query.edit_message_text("Erreur lors de l'activation.")
+
 
 async def _admin_start_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Fallback: end admin conversation and go to /start."""

@@ -140,13 +140,17 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Format 2: <tg-emoji emoji-id="ID">char</tg-emoji> (unescape it)
         desc_parsed = re.sub(r'&lt;tg-emoji emoji-id=(?:&quot;|")(\d+)(?:&quot;|")&gt;(.*?)&lt;/tg-emoji&gt;', r'<tg-emoji emoji-id="\1">\2</tg-emoji>', desc_parsed)
 
+        display_stock = stock
+        if product.get("delivery_type") == "activation":
+            display_stock = {"fr": "Activation manuelle", "en": "Manual activation", "ar": "تفعيل يدوي", "zh": "人工激活"}.get(lang, "Activation manuelle")
+
         text = t("product_detail", lang).format(
             emoji=p_emoji,
             name=escape_html(product["name"]),
             description=desc_parsed,
             price=format_price(product["price_usd"]),
             warranty=product.get("warranty_days", 0),
-            stock=stock,
+            stock=display_stock,
             sold=sold_count,
         )
 

@@ -145,9 +145,16 @@ def products_keyboard(products: list[dict], stock_counts: dict, lang: str = "fr"
     buttons = []
     for prod in products:
         stock = stock_counts.get(prod["id"], 0)
+        is_activation = prod.get("delivery_type") == "activation"
         
         custom_id = prod.get("custom_emoji_id")
-        if stock > 0:
+        if is_activation:
+            activation_txt = {"en": "Activation", "fr": "Activation", "ar": "تفعيل", "zh": "激活"}.get(lang, "Activation")
+            if custom_id:
+                label = f"{prod['name']} | ${prod['price_usd']:.2f} | {activation_txt}"
+            else:
+                label = f"{prod['emoji']} {prod['name']} | ${prod['price_usd']:.2f} | {activation_txt}"
+        elif stock > 0:
             if custom_id:
                 label = f"{prod['name']} | ${prod['price_usd']:.2f} | 📦 {stock}"
             else:
@@ -163,7 +170,7 @@ def products_keyboard(products: list[dict], stock_counts: dict, lang: str = "fr"
         if custom_id:
             btn_kwargs["icon_custom_emoji_id"] = custom_id
 
-        if stock > 0:
+        if is_activation or stock > 0:
             btn_kwargs["style"] = KeyboardButtonStyle.SUCCESS
         else:
             btn_kwargs["style"] = KeyboardButtonStyle.DANGER

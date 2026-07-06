@@ -15,7 +15,7 @@ _stats_cache_ttl = 60  # Cache for 60 seconds
 '''
 
 if '_stats_cache' not in content:
-    content = content.replace('app = FastAPI(title="DZ Products API")', 'app = FastAPI(title="DZ Products API")\n' + cache_code)
+    content = content.replace('api = FastAPI(title="VenteBot Admin API", version="1.0.0")', 'api = FastAPI(title="VenteBot Admin API", version="1.0.0")\n' + cache_code)
 
 def replace_stats_api(c):
     start = c.find('async def api_get_stats():')

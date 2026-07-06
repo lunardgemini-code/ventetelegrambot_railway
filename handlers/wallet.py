@@ -252,6 +252,7 @@ async def _verify_crypto_topup(update: Update, context: ContextTypes.DEFAULT_TYP
                 result = await verify_internal_transfer(tx_hash, amount, api_key=api_key, api_secret=api_secret, lang=lang)
             
             if result.get("verified"):
+                amount = result.get("transaction", {}).get("amount", amount)
                 if not await record_used_bep20_transaction(tx_hash, None, telegram_id, amount):
                     await update.message.reply_text(t("tx_already_used", lang), reply_markup=main_menu_keyboard(lang))
                     return ConversationHandler.END
@@ -293,6 +294,7 @@ async def _verify_crypto_topup(update: Update, context: ContextTypes.DEFAULT_TYP
                 result = await verify_internal_transfer(tx_hash_clean, amount, api_key=api_key, api_secret=api_secret, lang=lang)
             
             if result.get("verified"):
+                amount = result.get("transaction", {}).get("amount", amount)
                 if not await record_used_trc20_transaction(tx_hash_clean, None, telegram_id, amount):
                     await update.message.reply_text(t("tx_already_used", lang), reply_markup=main_menu_keyboard(lang))
                     return ConversationHandler.END
@@ -302,7 +304,8 @@ async def _verify_crypto_topup(update: Update, context: ContextTypes.DEFAULT_TYP
                 return WALLET_TOPUP_TRC20_TX
 
         # If verified, credit wallet
-        new_balance = await topup_wallet(telegram_id, amount, f"Topup via {crypto_type}")
+        final_hash = tx_hash_clean if crypto_type == "TRC20" else tx_hash
+        new_balance = await topup_wallet(telegram_id, amount, f"Topup via {crypto_type}", tx_hash=final_hash)
         
         await update.message.reply_text(
             f"✅ <b>Rechargement réussi !</b>\n\n"
@@ -370,6 +373,7 @@ async def wallet_verify_payment(update: Update, context: ContextTypes.DEFAULT_TY
         if result.get("verified"):
             # Anti-replay: check if this transaction was already used
             tx = result.get("transaction", {})
+            amount = tx.get("amount", amount)
             tx_id = str(tx.get("transactionId", "")) or str(tx.get("orderId", "")) or client_order_id
             from database.models import record_used_transaction
             telegram_id = update.effective_user.id
@@ -385,7 +389,7 @@ async def wallet_verify_payment(update: Update, context: ContextTypes.DEFAULT_TY
 
             binance_order_id_val = tx.get("orderId", "")
             desc_id = binance_order_id_val or tx_id or client_order_id
-            new_balance = await topup_wallet(telegram_id, amount, f"Binance Pay: {desc_id}")
+            new_balance = await topup_wallet(telegram_id, amount, f"Binance Pay: {desc_id}", tx_hash=tx_id)
 
             text = t("wallet_credited", lang) \
                 .replace("${amount}", format_price(amount)) \

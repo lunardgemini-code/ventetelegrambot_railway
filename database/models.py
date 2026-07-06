@@ -382,18 +382,20 @@ async def add_product(
     description_fr: str = "",
     description_ar: str = "",
     description_zh: str = "",
+    delivery_type: str = "stock",
 ) -> int:
     """Ajoute un nouveau produit et retourne son identifiant."""
     global _PRODUCTS_CACHE
     _PRODUCTS_CACHE = None
     _PRODUCT_BY_ID_CACHE.clear()
+    delivery_type = "activation" if delivery_type == "activation" else "stock"
     db = await get_db()
     try:
         cursor = await db.execute(
             """INSERT INTO products
-               (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id, description_fr, description_ar, description_zh)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id, description_fr, description_ar, description_zh),
+               (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id, description_fr, description_ar, description_zh, delivery_type)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id, description_fr, description_ar, description_zh, delivery_type),
         )
         await db.commit()
         return cursor.lastrowid  # type: ignore[return-value]
@@ -401,7 +403,7 @@ async def add_product(
         await db.close()
 
 
-ALLOWED_PRODUCT_COLUMNS = {"category_id", "name", "description", "description_fr", "description_ar", "description_zh", "price_usd", "warranty_days", "emoji", "custom_emoji_id", "image_url", "is_active", "binance_account_id"}
+ALLOWED_PRODUCT_COLUMNS = {"category_id", "name", "description", "description_fr", "description_ar", "description_zh", "price_usd", "warranty_days", "emoji", "custom_emoji_id", "image_url", "is_active", "binance_account_id", "delivery_type"}
 
 
 async def update_product(product_id: int, **kwargs) -> None:
@@ -410,6 +412,8 @@ async def update_product(product_id: int, **kwargs) -> None:
     _PRODUCTS_CACHE = None
     _PRODUCT_BY_ID_CACHE.clear()
     safe_kwargs = {k: v for k, v in kwargs.items() if k in ALLOWED_PRODUCT_COLUMNS}
+    if "delivery_type" in safe_kwargs:
+        safe_kwargs["delivery_type"] = "activation" if safe_kwargs["delivery_type"] == "activation" else "stock"
     if not safe_kwargs:
         return
     columns = ", ".join(f"{safe_k} = ?" for safe_k in safe_kwargs)
@@ -918,6 +922,10 @@ ALLOWED_ORDER_COLUMNS = {
     "amount_usd",
     "promo_code_id",
     "promo_discount",
+    "activation_identifier",
+    "activation_status",
+    "activation_requested_at",
+    "activated_at",
 }
 
 
@@ -1058,10 +1066,48 @@ async def get_pending_orders() -> list[dict]:
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT * FROM orders WHERE status = 'PENDING' ORDER BY created_at ASC"
+            "SELECT * FROM orders WHERE status IN ('PENDING', 'AWAITING_ACTIVATION_INFO', 'AWAITING_ACTIVATION') ORDER BY created_at ASC"
         )
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_pending_activation_order_for_user(user_telegram_id: int) -> dict | None:
+    """Return the latest paid activation order waiting for the user's identifier."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT o.*, p.name as product_name, p.emoji as product_emoji
+               FROM orders o
+               LEFT JOIN products p ON o.product_id = p.id
+               WHERE o.user_telegram_id = ?
+                 AND o.status = 'AWAITING_ACTIVATION_INFO'
+               ORDER BY o.created_at DESC
+               LIMIT 1""",
+            (user_telegram_id,),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def submit_activation_identifier(order_id: int, identifier: str) -> None:
+    """Store the customer identifier and move the order to admin activation."""
+    db = await get_db()
+    try:
+        await db.execute(
+            """UPDATE orders
+               SET status = 'AWAITING_ACTIVATION',
+                   activation_identifier = ?,
+                   activation_status = 'pending',
+                   activation_requested_at = ?
+               WHERE id = ?""",
+            (identifier, datetime.utcnow().isoformat(), order_id),
+        )
+        await db.commit()
     finally:
         await db.close()
 
@@ -1244,7 +1290,7 @@ async def get_all_topups_filtered(
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[dict], int]:
-    """Retourne les wallet topups formatÃ©s comme des commandes pour le dashboard."""
+    """Retourne les wallet topups formatés comme des commandes pour le dashboard."""
     db = await get_db()
     try:
         # Count total topups (exclude admin credits & refunds)
@@ -1310,7 +1356,7 @@ async def get_wallet_balance(telegram_id: int) -> float:
         await db.close()
 
 
-async def topup_wallet(telegram_id: int, amount: float, description: str = "") -> float:
+async def topup_wallet(telegram_id: int, amount: float, description: str = "", tx_hash: str = None) -> float:
     """CrÃ©dite le wallet et enregistre la transaction. Retourne le nouveau solde."""
     db = await get_db()
     try:
@@ -1324,8 +1370,8 @@ async def topup_wallet(telegram_id: int, amount: float, description: str = "") -
         
         # Record transaction
         await db.execute(
-            "INSERT INTO wallet_transactions (user_telegram_id, type, amount, balance_after, description) VALUES (?, 'topup', ?, ?, ?)",
-            (telegram_id, amount, new_balance, description),
+            "INSERT INTO wallet_transactions (user_telegram_id, type, amount, balance_after, description, tx_hash) VALUES (?, 'topup', ?, ?, ?, ?)",
+            (telegram_id, amount, new_balance, description, tx_hash),
         )
         # Increment finance_bot_balance if it's a real topup
         if not description.startswith("Admin") and not description.startswith("Refund"):

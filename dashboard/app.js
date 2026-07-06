@@ -6,7 +6,7 @@
 const LANG = {
 fr: {
     login_subtitle:"Console de Gestion Administrateur",login_url_label:"URL de l'API (optionnel)",login_url_hint:"Laissez vide pour le proxy Netlify",login_key_label:"Clé d'API Administrateur",login_btn:"Se connecter",
-    nav_dashboard:"Dashboard",nav_stats:"Statistiques",nav_inventory:"Catalogue & Stock",nav_orders:"Commandes",nav_users:"Utilisateurs",nav_tickets:"Tickets",nav_broadcast:"Broadcast",nav_settings:"Paramètres",nav_ventedz:"Vente DZ",tab_ventedz:"Gestion Vente DZ",
+    nav_dashboard:"Dashboard",nav_stats:"Statistiques",nav_inventory:"Catalogue & Stock",nav_orders:"Commandes",nav_users:"Utilisateurs",nav_tickets:"Tickets",nav_broadcast:"Broadcast",nav_settings:"Paramètres",
     admin_title:"Administrateur",status_connected:"Connecté",btn_logout:"Déconnexion",
     tab_dashboard:"Tableau de Bord",tab_stats:"Analyses & Statistiques",tab_inventory:"Catalogue & Stock",tab_orders:"Suivi des Commandes",tab_users:"Gestion des Utilisateurs",tab_tickets:"Tickets Support",tab_broadcast:"Broadcast",tab_settings:"Paramètres",
     metric_revenue:"Revenus (30J)",metric_sales:"Ventes (30J)",metric_clients:"Clients",metric_initiated:"Commandes (30J)",
@@ -37,7 +37,7 @@ fr: {
 },
 en: {
     login_subtitle:"Admin Management Console",login_url_label:"API URL (optional)",login_url_hint:"Leave empty for Netlify proxy",login_key_label:"Admin API Key",login_btn:"Connect",
-    nav_dashboard:"Dashboard",nav_stats:"Statistics",nav_inventory:"Catalog & Stock",nav_orders:"Orders",nav_users:"Users",nav_tickets:"Tickets",nav_broadcast:"Broadcast",nav_settings:"Settings",nav_ventedz:"Vente DZ",tab_ventedz:"Vente DZ Management",
+    nav_dashboard:"Dashboard",nav_stats:"Statistics",nav_inventory:"Catalog & Stock",nav_orders:"Orders",nav_users:"Users",nav_tickets:"Tickets",nav_broadcast:"Broadcast",nav_settings:"Settings",
     admin_title:"Administrator",status_connected:"Connected",btn_logout:"Logout",
     tab_dashboard:"Dashboard",tab_stats:"Analytics & Statistics",tab_inventory:"Catalog & Stock",tab_orders:"Order Tracking",tab_users:"User Management",tab_tickets:"Support Tickets",tab_broadcast:"Broadcast",tab_settings:"Settings",
     metric_revenue:"Revenue (30D)",metric_sales:"Sales (30D)",metric_clients:"Clients",metric_initiated:"Orders (30D)",
@@ -68,7 +68,7 @@ en: {
 },
 ar: {
     login_subtitle:"Ù„Ùˆحة إدارة Ø§Ù„Ù…Ø´Ø±Ù",login_url_label:"رابط API (اختياري)",login_url_hint:"Ø§ØªØ±Ùƒه ÙØ§Ø±ØºØ§Ù‹ Ù„Ø¨Ø±ÙˆÙƒسي Netlify",login_key_label:"Ù…ÙØªØ§Ø­ API Ù„Ù„Ù…Ø´Ø±Ù",login_btn:"اتصال",
-    nav_dashboard:"Ù„Ùˆحة Ø§Ù„ØªØ­Ùƒم",nav_inventory:"Ø§Ù„ÙƒØªØ§Ù„Ùˆج ÙˆØ§Ù„Ù…Ø®Ø²Ùˆن",nav_orders:"الطلبات",nav_users:"المستخدمين",nav_tickets:"Ø§Ù„ØªØ°Ø§Ùƒر",nav_broadcast:"البث",nav_settings:"الإعدادات",nav_ventedz:"Vente DZ",tab_ventedz:"إدارة Vente DZ",
+    nav_dashboard:"Ù„Ùˆحة Ø§Ù„ØªØ­Ùƒم",nav_inventory:"Ø§Ù„ÙƒØªØ§Ù„Ùˆج ÙˆØ§Ù„Ù…Ø®Ø²Ùˆن",nav_orders:"الطلبات",nav_users:"المستخدمين",nav_tickets:"Ø§Ù„ØªØ°Ø§Ùƒر",nav_broadcast:"البث",nav_settings:"الإعدادات",
     admin_title:"Ø§Ù„Ù…Ø´Ø±Ù",status_connected:"متصل",btn_logout:"Ø®Ø±Ùˆج",
     tab_dashboard:"Ù„Ùˆحة Ø§Ù„ØªØ­Ùƒم",tab_inventory:"Ø§Ù„ÙƒØªØ§Ù„Ùˆج ÙˆØ§Ù„Ù…Ø®Ø²Ùˆن",tab_orders:"تتبع الطلبات",tab_users:"إدارة المستخدمين",tab_tickets:"ØªØ°Ø§Ùƒر الدعم",tab_broadcast:"البث",tab_settings:"الإعدادات",
     metric_revenue:"الإيرادات (30 ÙŠÙˆم)",metric_sales:"المبيعات (30 ÙŠÙˆم)",metric_clients:"العملاء",metric_initiated:"الطلبات (30 ÙŠÙˆم)",
@@ -103,7 +103,6 @@ ar: {
 //  STATE & DOM
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 const state = {
-    dzProducts: [], dz_usd_to_dzd: 250, dz_profit_per_usd: 100, dz_oneclick_api_key: '',
     botUrl:'', apiKey:'', currentLang:'fr', currentTab:'dashboard-tab',
     categories:[], products:[], orders:[], users:[], promos:[], tickets:[], walletHistory:[], binanceAccounts:[],
     orderFilter:'all', orderPage:0, orderTotal:0,
@@ -150,7 +149,7 @@ const DOM = {
     prodModal:$('prod-modal'), stockModal:$('stock-modal'), promoModal:$('promo-modal'), tiersModal:$('tiers-modal'),
     orderDetailModal:$('order-detail-modal'), viewStockModal:$('view-stock-modal'), editProdModal:$('edit-prod-modal'),
     addProdForm:$('add-prod-form'), addPromoForm:$('add-promo-form'), prodId:$('prod-id'),
-    prodName:$('prod-name'), prodPrice:$('prod-price'), prodWarranty:$('prod-warranty'), prodEmoji:$('prod-emoji'), prodCustomEmojiId:$('prod-custom-emoji-id'), prodDesc:$('prod-desc'), prodImageUrl:$('prod-image-url'),
+    prodName:$('prod-name'), prodPrice:$('prod-price'), prodWarranty:$('prod-warranty'), prodEmoji:$('prod-emoji'), prodCustomEmojiId:$('prod-custom-emoji-id'), prodDesc:$('prod-desc'), prodImageUrl:$('prod-image-url'), prodDeliveryType:$('prod-delivery-type'),
     stockTextarea:$('stock-textarea'), stockLineCount:$('stock-line-count'), btnAddStock:$('btn-add-stock'),
     stockItemsList:$('stock-items-list'), stockExistingCount:$('stock-existing-count'), stockModalTitle:$('stock-modal-title'),
     stockFileInput:$('stock-file-input'),
@@ -287,7 +286,7 @@ function setupEvents() {
         t.classList.add('active'); $(t.getAttribute('data-sub')).classList.add('active');
     }));
 
-    $('btn-open-prod-modal').addEventListener('click', () => { DOM.addProdForm.reset(); DOM.prodId.value=''; showModal(DOM.prodModal); });
+    $('btn-open-prod-modal').addEventListener('click', () => { DOM.addProdForm.reset(); DOM.prodId.value=''; if (DOM.prodDeliveryType) DOM.prodDeliveryType.value='stock'; showModal(DOM.prodModal); });
     const btnMassTranslate = $('btn-mass-translate');
     if (btnMassTranslate) btnMassTranslate.addEventListener('click', massTranslate);
     $('btn-open-promo-modal').addEventListener('click', () => {
@@ -872,7 +871,7 @@ async function loadProducts() {
             <td class="drag-handle" style="cursor: grab; text-align: center;"><i class="fas fa-bars" style="color:var(--color-primary);"></i></td>
             <td><div class="prod-badge"><span class="prod-emoji">${p.emoji||'📦'}</span><strong>${p.name}</strong></div></td>
             <td>$${parseFloat(p.price_usd).toFixed(2)}</td><td>${p.warranty_days||0} ${t('days')}</td>
-            <td><span class="stock-count-badge ${p.stock===0?'empty':p.stock<3?'low':'ok'}">${p.stock}</span></td>
+            <td>${p.delivery_type === 'activation' ? '<span class="stock-count-badge ok">Activation</span>' : `<span class="stock-count-badge ${p.stock===0?'empty':p.stock<3?'low':'ok'}">${p.stock}</span>`}</td>
             <td><span class="status-dot ${p.is_active?'online':''}"></span> ${p.is_active?t('active'):t('inactive')}</td>
             <td><button class="btn-table-action" onclick="openEditProduct(${p.id})" title="Modifier" style="color:#3b82f6;"><i class="fa-solid fa-pen"></i></button><button class="btn-table-action" onclick="viewProductStock(${p.id},'${(p.emoji||'📦').replace(/'/g,'\\\'')}','${p.name.replace(/'/g,'\\\'')}')" title="Voir stock" style="color:#f59e0b;"><i class="fa-solid fa-eye"></i></button><button class="btn-table-action stock" onclick="openStockModal(${p.id},'${(p.emoji||'📦').replace(/'/g,'\\\'')}','${p.name.replace(/'/g,'\\\'')}')" title="${t('stock_manage')}"><i class="fa-solid fa-warehouse"></i></button><button class="btn-table-action" onclick="openTiersModal(${p.id},'${p.name.replace(/'/g,'\\\'')}',${parseFloat(p.price_usd).toFixed(2)})" title="Tarifs" style="color:#a78bfa;"><i class="fa-solid fa-tags"></i></button><button class="btn-table-action delete" onclick="deleteProduct(${p.id})"><i class="fa-solid fa-trash-can"></i></button></td>
         </tr>`).join('');
@@ -944,12 +943,19 @@ async function loadAllOrders() {
                 actions = `<span style="font-size:0.78rem;color:var(--color-text-muted);">Balance: $${parseFloat(o.balance_after||0).toFixed(2)}</span>`;
             } else if (o.status === 'PENDING' || o.status === 'AWAITING_PAYMENT') {
                 actions = `<button class="btn-table-action" onclick="confirmOrderPayment(${o.id})" title="Confirmer" style="color:#22c55e;"><i class="fa-solid fa-check"></i></button> <button class="btn-table-action" onclick="cancelOrder(${o.id})" title="Annuler" style="color:#ef4444;"><i class="fa-solid fa-xmark"></i></button>`;
+            } else if (o.status === 'AWAITING_ACTIVATION') {
+                actions = `<button class="btn-table-action" onclick="completeActivation(${o.id})" title="Marquer active" style="color:#22c55e;"><i class="fa-solid fa-bolt"></i></button> <button class="btn-table-action" onclick="cancelOrder(${o.id})" title="Annuler" style="color:#ef4444;"><i class="fa-solid fa-xmark"></i></button>`;
+            } else if (o.status === 'AWAITING_ACTIVATION_INFO') {
+                actions = `<button class="btn-table-action" onclick="cancelOrder(${o.id})" title="Annuler" style="color:#ef4444;"><i class="fa-solid fa-xmark"></i></button>`;
             } else if (o.status === 'COMPLETED') {
                 actions = `<button class="btn-table-action" onclick="openOrderDetail(${o.id})" title="Voir les articles livrés" style="color:#22c55e;"><i class="fa-solid fa-eye"></i></button>`;
             } else {
                 actions = '—';
             }
             let statusHtml = o.status;
+            if (!isTopup && o.activation_identifier) {
+                statusHtml += `<br><span style="font-size:0.72rem; color:var(--color-text-muted); display:block; margin-top:4px;">ID: ${String(o.activation_identifier).replace(/</g,'&lt;').replace(/>/g,'&gt;')}</span>`;
+            }
             if (!isTopup && (o.status === 'PENDING' || o.status === 'AWAITING_PAYMENT')) {
                 const elapsed = Math.floor((Date.now() - parseUTCDate(o.created_at).getTime()) / 1000);
                 const left = 300 - elapsed;
@@ -1099,6 +1105,7 @@ async function handleAddPromo(e) { e.preventDefault(); showLoading(true); try { 
 window.deleteProduct = async function(id) { if(!confirm(t('confirm_delete'))) return; showLoading(true); try{await apiCall(`/api/products/${id}`,'DELETE'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
 window.deletePromo = async function(id) { showLoading(true); try{await apiCall(`/api/promos/${id}`,'DELETE'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
 window.confirmOrderPayment = async function(id) { if(!confirm(`${t('confirm_order')}${id}?`)) return; showLoading(true); try{await apiCall(`/api/orders/${id}/confirm`,'POST'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
+window.completeActivation = async function(id) { if(!confirm(`Marquer la commande #${id} comme activee ?`)) return; showLoading(true); try{await apiCall(`/api/orders/${id}/activate`,'POST'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
 window.cancelOrder = async function(id) { if(!confirm(`Annuler la commande #${id} ?`)) return; showLoading(true); try{await apiCall(`/api/orders/${id}/cancel`,'POST'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -1285,6 +1292,7 @@ window.openEditProduct = function(productId) {
     if ($('edit-prod-desc-zh')) $('edit-prod-desc-zh').value = p.description_zh || '';
     if ($('edit-prod-image-url')) $('edit-prod-image-url').value = p.image_url || '';
     if ($('edit-prod-custom-emoji-id')) $('edit-prod-custom-emoji-id').value = p.custom_emoji_id || '';
+    if ($('edit-prod-delivery-type')) $('edit-prod-delivery-type').value = p.delivery_type || 'stock';
     $('edit-prod-title').textContent = `Modifier — ${p.emoji || '📦'} ${p.name}`;
     showModal(DOM.editProdModal);
 };
@@ -1303,6 +1311,7 @@ $('edit-prod-form').addEventListener('submit', async (e) => {
         description_ar: $('edit-prod-desc-ar') ? $('edit-prod-desc-ar').value.trim() : '',
         description_zh: $('edit-prod-desc-zh') ? $('edit-prod-desc-zh').value.trim() : '',
         image_url: $('edit-prod-image-url') && $('edit-prod-image-url').value.trim() ? $('edit-prod-image-url').value.trim() : null,
+        delivery_type: $('edit-prod-delivery-type') ? $('edit-prod-delivery-type').value : 'stock',
     };
     if (!data.name || isNaN(data.price_usd) || data.price_usd < 0) {
         alert('Vérifiez le nom et le prix.'); return;
@@ -1487,7 +1496,7 @@ async function handleSaveCryptoSettings(e) {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // Category select removed — not needed
 
-const tabKeys = { 'ventedz-tab':'tab_ventedz', 'dashboard-tab':'tab_dashboard','stats-tab':'tab_stats','inventory-tab':'tab_inventory','orders-tab':'tab_orders','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
+const tabKeys = { 'dashboard-tab':'tab_dashboard','stats-tab':'tab_stats','inventory-tab':'tab_inventory','orders-tab':'tab_orders','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
 
 function escapeHtml(str) {
     if (!str) return '';
@@ -1678,6 +1687,7 @@ window.openEditProdModal = function(id) {
     if ($('prod-desc-zh')) $('prod-desc-zh').value = p.description_zh || '';
     if (DOM.prodImageUrl) DOM.prodImageUrl.value = p.image_url || '';
     if (DOM.prodBinanceAccount) DOM.prodBinanceAccount.value = p.binance_account_id || '';
+    if (DOM.prodDeliveryType) DOM.prodDeliveryType.value = p.delivery_type || 'stock';
     showModal(DOM.prodModal);
 }
 
@@ -1696,7 +1706,8 @@ async function handleAddProduct(e) {
         description_ar: $('prod-desc-ar') ? $('prod-desc-ar').value.trim() : '',
         description_zh: $('prod-desc-zh') ? $('prod-desc-zh').value.trim() : '',
         image_url: DOM.prodImageUrl && DOM.prodImageUrl.value.trim() ? DOM.prodImageUrl.value.trim() : null,
-        binance_account_id: DOM.prodBinanceAccount && DOM.prodBinanceAccount.value ? parseInt(DOM.prodBinanceAccount.value) : null
+        binance_account_id: DOM.prodBinanceAccount && DOM.prodBinanceAccount.value ? parseInt(DOM.prodBinanceAccount.value) : null,
+        delivery_type: DOM.prodDeliveryType ? DOM.prodDeliveryType.value : 'stock'
     };
     try {
         const id = DOM.prodId.value;

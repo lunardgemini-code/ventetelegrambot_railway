@@ -10,9 +10,11 @@ from telegram.warnings import PTBUserWarning
 warnings.filterwarnings("ignore", category=PTBUserWarning)
 
 import hmac
+import asyncio
 import logging
 import os
 import threading
+from datetime import datetime
 from fastapi import FastAPI, Header, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -38,12 +40,13 @@ from telegram.ext import (
 
 from config import BOT_TOKEN, ADMIN_IDS
 from database import init_db
-from handlers.admin import get_admin_conversation_handler
+from handlers.admin import admin_complete_activation, get_admin_conversation_handler
 from handlers.history import show_history, show_order_detail
 from handlers.payment import (
     get_payment_conversation_handler,
     initiate_purchase,
     download_txt_delivery,
+    receive_activation_identifier,
 )
 from handlers.products import (
     refresh_products,
@@ -268,6 +271,7 @@ async def api_create_product(data: dict):
             description_fr=data.get("description_fr", ""),
             description_ar=data.get("description_ar", ""),
             description_zh=data.get("description_zh", ""),
+            delivery_type=data.get("delivery_type", "stock"),
         )
         return {"id": prod_id, "status": "created"}
     except HTTPException:
@@ -306,6 +310,7 @@ async def api_set_product_tiers(product_id: int, data: dict):
 async def api_reorder_products(request: Request):
     from database.db import get_db
     from database.models import clear_products_cache
+    db = None
     try:
         data = await request.json()
         orders = data.get("orders", [])
@@ -324,12 +329,15 @@ async def api_reorder_products(request: Request):
     except Exception as exc:
         logger.error("API error reorder products: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
+    finally:
+        if db is not None:
+            await db.close()
 
 @api.put("/api/products/{product_id}", dependencies=[Depends(verify_api_key)])
 async def api_update_product(product_id: int, data: dict):
     from database.models import update_product
     try:
-        allowed = {"name", "price_usd", "emoji", "custom_emoji_id", "warranty_days", "description", "description_fr", "description_ar", "description_zh", "is_active", "binance_account_id", "image_url"}
+        allowed = {"name", "price_usd", "emoji", "custom_emoji_id", "warranty_days", "description", "description_fr", "description_ar", "description_zh", "is_active", "binance_account_id", "image_url", "delivery_type"}
         updates = {k: v for k, v in data.items() if k in allowed}
         if not updates:
             raise HTTPException(status_code=400, detail="No valid fields to update")
@@ -547,6 +555,27 @@ async def api_confirm_order(order_id: int):
         order = await get_order(order_id)
         if not order:
             raise HTTPException(status_code=404, detail="Order not found")
+
+        product = await get_product(order.get("product_id"))
+        if product and product.get("delivery_type") == "activation":
+            await update_order_status(order_id, "AWAITING_ACTIVATION_INFO", payment_method=order.get("payment_method") or "manual")
+            try:
+                user_lang = await get_user_lang(order["user_telegram_id"])
+                text = {
+                    "fr": "Paiement confirme. Veuillez envoyer l'identifiant a activer.",
+                    "en": "Payment confirmed. Please send the identifier to activate.",
+                    "ar": "تم تأكيد الدفع. يرجى إرسال المعرف للتفعيل.",
+                    "zh": "付款已确认。请发送需要激活的标识。",
+                }.get(user_lang, "Paiement confirme. Veuillez envoyer l'identifiant a activer.")
+                if tg_app:
+                    await tg_app.bot.send_message(
+                        chat_id=order["user_telegram_id"],
+                        text=f"{text}\n\nProduit: {escape_html(product['name'])}\nCommande: #{order_id}",
+                        parse_mode="HTML",
+                    )
+            except Exception as notify_exc:
+                logger.warning("Failed to notify activation user via API: %s", notify_exc)
+            return {"status": "awaiting_activation_identifier"}
             
         await update_order_status(order_id, "COMPLETED")
         delivered = await deliver_order(order_id, order.get("product_id"))
@@ -561,7 +590,6 @@ async def api_confirm_order(order_id: int):
                 user_lang = await get_user_lang(order["user_telegram_id"])
                 accounts_text = "\n".join(f"🔑 <code>{escape_html(item['account_data'])}</code>" for item in delivered)
                 
-                global tg_app
                 if tg_app:
                     await tg_app.bot.send_message(
                         chat_id=order["user_telegram_id"],
@@ -695,7 +723,7 @@ async def api_get_all_orders(order_status: str = _Q(None, alias="status"), limit
     from database.models import get_all_orders_filtered, get_all_topups_filtered
     try:
         # Validate & bound inputs
-        VALID_STATUSES = {"PENDING", "COMPLETED", "CANCELLED", "AWAITING_PAYMENT", "TOPUP"}
+        VALID_STATUSES = {"PENDING", "COMPLETED", "CANCELLED", "AWAITING_PAYMENT", "AWAITING_ACTIVATION_INFO", "AWAITING_ACTIVATION", "TOPUP"}
         if order_status and order_status.upper() not in VALID_STATUSES:
             raise HTTPException(status_code=400, detail=f"Invalid status. Valid: {', '.join(VALID_STATUSES)}")
         limit = max(1, min(limit, 200))  # Cap between 1-200
@@ -739,6 +767,52 @@ async def api_cancel_order(order_id: int):
         return {"status": "cancelled"}
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/orders/{order_id}/activate", dependencies=[Depends(verify_api_key)])
+async def api_activate_order(order_id: int):
+    from database.models import get_order, get_product, get_user_lang, update_order_status
+    try:
+        order = await get_order(order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        if order.get("status") == "COMPLETED":
+            return {"status": "already_completed"}
+        if order.get("status") != "AWAITING_ACTIVATION":
+            raise HTTPException(status_code=400, detail="Order is not awaiting activation")
+
+        await update_order_status(
+            order_id,
+            "COMPLETED",
+            activation_status="done",
+            activated_at=datetime.utcnow().isoformat(),
+        )
+
+        if tg_app and tg_app.bot:
+            try:
+                lang = await get_user_lang(order["user_telegram_id"])
+                product = await get_product(order["product_id"])
+                product_name = product["name"] if product else f"#{order['product_id']}"
+                done_text = {
+                    "fr": "Votre activation est terminee.",
+                    "en": "Your activation is complete.",
+                    "ar": "تم تفعيل طلبك.",
+                    "zh": "您的激活已完成。",
+                }.get(lang, "Votre activation est terminee.")
+                await tg_app.bot.send_message(
+                    chat_id=order["user_telegram_id"],
+                    text=f"{done_text}\n\nProduit: {escape_html(product_name)}\nCommande: #{order_id}",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
+
+        return {"status": "activated"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("API error activate order: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1076,97 +1150,17 @@ async def api_set_payment_settings(data: dict):
 
 
 # ── Admin notifications utility ──
-async def notify_admins(text: str):
+async def notify_admins(text: str, reply_markup=None):
     """Send a notification message to all admin Telegram IDs."""
     if not tg_app or not tg_app.bot:
         return
     for admin_id in ADMIN_IDS:
         try:
-            await tg_app.bot.send_message(chat_id=admin_id, text=text, parse_mode="HTML")
+            await tg_app.bot.send_message(chat_id=admin_id, text=text, parse_mode="HTML", reply_markup=reply_markup)
         except Exception:
             pass
 
 
-# ──────────────────────────────────────────────
-#  Vente DZ — Public API routes (no auth)
-# ──────────────────────────────────────────────
-
-@api.get("/dz/api/products")
-async def dz_get_products():
-    """Public: list all visible DZ products with stock count, categories, and settings."""
-    from database.models import get_visible_dz_products, get_dz_settings, get_categories
-    try:
-        products = await get_visible_dz_products()
-        settings = await get_dz_settings()
-        categories = await get_categories()
-
-        usd_to_dzd = float(settings.get("dz_usd_to_dzd", 250))
-        profit_per_usd = float(settings.get("dz_profit_per_usd", 100))
-
-        product_list = []
-        for p in products:
-            price_usd = float(p["price_usd"])
-            price_dzd = int(price_usd * (usd_to_dzd + profit_per_usd))
-            product_list.append({
-                "id": p["id"],
-                "name": p["name"],
-                "description": p.get("description", ""),
-                "dz_description": p.get("dz_description", ""),
-                "price_usd": price_usd,
-                "price_dzd": price_dzd,
-                "image_url": p.get("dz_image_url") or p.get("image_url") or "",
-                "emoji": p.get("emoji", "📦"),
-                "category_id": p.get("category_id"),
-                "stock_count": p.get("stock_count", 0),
-                "warranty_days": p.get("warranty_days", 0),
-            })
-
-        return {
-            "products": product_list,
-            "categories": [{"id": c["id"], "name": c["name"], "emoji": c.get("emoji", "📂")} for c in categories],
-            "settings": {
-                "usd_to_dzd": usd_to_dzd,
-                "profit_per_usd": profit_per_usd,
-            }
-        }
-    except Exception as exc:
-        logger.error("DZ API error: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@api.get("/dz/api/products/{product_id}")
-async def dz_get_product(product_id: int):
-    """Public: get single product detail with stock count."""
-    from database.models import get_visible_dz_product, get_dz_settings
-    try:
-        product = await get_visible_dz_product(product_id)
-        if not product:
-            raise HTTPException(status_code=404, detail="Product not found")
-
-        settings = await get_dz_settings()
-        usd_to_dzd = float(settings.get("dz_usd_to_dzd", 250))
-        profit_per_usd = float(settings.get("dz_profit_per_usd", 100))
-        price_usd = float(product["price_usd"])
-        price_dzd = int(price_usd * (usd_to_dzd + profit_per_usd))
-
-        return {
-            "id": product["id"],
-            "name": product["name"],
-            "description": product.get("description", ""),
-            "dz_description": product.get("dz_description", ""),
-            "price_usd": price_usd,
-            "price_dzd": price_dzd,
-            "image_url": product.get("dz_image_url") or product.get("image_url") or "",
-            "emoji": product.get("emoji", "📦"),
-            "category_id": product.get("category_id"),
-            "stock_count": product.get("stock_count", 0),
-            "warranty_days": product.get("warranty_days", 0),
-        }
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error("DZ API error: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
 tg_app = None
 
 
@@ -1207,10 +1201,9 @@ async def post_init(application: Application) -> None:
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
 
 from starlette.requests import Request as StarletteRequest
-from fastapi import BackgroundTasks
 
 @api.post("/webhook")
-async def telegram_webhook(request: StarletteRequest, background_tasks: BackgroundTasks):
+async def telegram_webhook(request: StarletteRequest):
     """Receive Telegram updates via webhook — zero polling, zero wasted CPU."""
     try:
         # Verify webhook secret if configured
@@ -1224,7 +1217,8 @@ async def telegram_webhook(request: StarletteRequest, background_tasks: Backgrou
         logger.info("📨 Webhook received update: %s", data.get("update_id", "?"))
         if tg_app:
             update = Update.de_json(data, tg_app.bot)
-            background_tasks.add_task(tg_app.process_update, update)
+            task = asyncio.create_task(tg_app.process_update(update))
+            task.add_done_callback(_log_update_task_result)
         else:
             logger.error("❌ tg_app is None — cannot process update")
         return {"ok": True}
@@ -1233,6 +1227,15 @@ async def telegram_webhook(request: StarletteRequest, background_tasks: Backgrou
     except Exception as exc:
         logger.error("❌ Webhook error: %s", exc, exc_info=True)
         return {"ok": False}
+
+
+def _log_update_task_result(task: asyncio.Task) -> None:
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        logger.warning("Webhook update task was cancelled")
+    except Exception as exc:
+        logger.error("Webhook update task failed: %s", exc, exc_info=True)
 
 
 async def get_emoji_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1322,6 +1325,11 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
         ("ALTER TABLE products ADD COLUMN image_url TEXT DEFAULT NULL", "Column 'products.image_url'"),
         ("ALTER TABLE products ADD COLUMN custom_emoji_id TEXT DEFAULT NULL", "Column 'products.custom_emoji_id'"),
         ("ALTER TABLE products ADD COLUMN sort_order INTEGER DEFAULT 0", "Column 'products.sort_order'"),
+        ("ALTER TABLE products ADD COLUMN delivery_type TEXT DEFAULT 'stock'", "Column 'products.delivery_type'"),
+        ("ALTER TABLE orders ADD COLUMN activation_identifier TEXT", "Column 'orders.activation_identifier'"),
+        ("ALTER TABLE orders ADD COLUMN activation_status TEXT DEFAULT NULL", "Column 'orders.activation_status'"),
+        ("ALTER TABLE orders ADD COLUMN activation_requested_at TIMESTAMP", "Column 'orders.activation_requested_at'"),
+        ("ALTER TABLE orders ADD COLUMN activated_at TIMESTAMP", "Column 'orders.activated_at'"),
         ("CREATE TABLE IF NOT EXISTS binance_accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT NOT NULL, uid TEXT NOT NULL, api_key TEXT DEFAULT '', api_secret TEXT DEFAULT '', is_default INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)", "Table 'binance_accounts'"),
         ("UPDATE orders SET binance_order_id = (SELECT transaction_id FROM used_binance_transactions WHERE used_binance_transactions.order_id = orders.id) WHERE binance_order_id IS NULL AND id IN (SELECT order_id FROM used_binance_transactions WHERE order_id IS NOT NULL)", "Retroactive Binance Pay IDs"),
         ("UPDATE orders SET binance_order_id = (SELECT tx_hash FROM used_bep20_transactions WHERE used_bep20_transactions.order_id = orders.id) WHERE binance_order_id IS NULL AND id IN (SELECT order_id FROM used_bep20_transactions WHERE order_id IS NOT NULL)", "Retroactive BEP20 Tx Hashes"),
@@ -1420,11 +1428,6 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text(f"❌ Completed with some errors, check logs.")
 
 
-
-# ── Serve Vente DZ static files ──
-_ventedz_dir = pathlib.Path(__file__).parent / "ventedz"
-if _ventedz_dir.is_dir():
-    api.mount("/dz", StaticFiles(directory=str(_ventedz_dir), html=True), name="ventedz")
 
 
 # ──────────────────────────────────────────────
@@ -1647,6 +1650,7 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(support_menu, pattern=r"^menu_support$"))
     app.add_handler(CallbackQueryHandler(show_my_tickets, pattern=r"^my_tickets$"))
     app.add_handler(CallbackQueryHandler(show_ticket_detail, pattern=r"^ticket:"))
+    app.add_handler(CallbackQueryHandler(admin_complete_activation, pattern=r"^adm_activate_order:"))
     app.add_handler(CallbackQueryHandler(wallet_menu, pattern=r"^menu_wallet$"))
     app.add_handler(CallbackQueryHandler(wallet_menu, pattern=r"^back_wallet$"))
     app.add_handler(CallbackQueryHandler(wallet_history, pattern=r"^wallet_history$"))
@@ -1658,6 +1662,8 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.Regex(r"(?i)(Commencer|Start|ابدأ|开始)"), start_command))
     app.add_handler(MessageHandler(filters.Regex(r"(?i)(Langue|Language|اللغة|语言)"), change_language))
 
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_activation_identifier), group=4)
+
     # ── Decide: Webhook (production) or Polling (local dev) ──────
     port = int(os.environ.get("PORT", 8000))
 
@@ -1668,6 +1674,7 @@ def main() -> None:
         async def _setup_and_run():
             """Initialize the bot, set webhook, and run FastAPI."""
             await app.initialize()
+            await post_init(app)
             await app.start()
 
             wh = f"{webhook_url}/webhook"
