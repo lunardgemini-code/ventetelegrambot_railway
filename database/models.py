@@ -203,7 +203,7 @@ async def set_user_language(telegram_id: int, language: str) -> None:
 
 
 async def get_categories() -> list[dict]:
-    """Retourne les catÃ©gories actives, triÃ©es par sort_order."""
+    """Retourne les catégories actives, triées par sort_order."""
     global _CATEGORIES_CACHE
     if _CATEGORIES_CACHE is not None:
         return _CATEGORIES_CACHE
@@ -217,11 +217,11 @@ async def get_categories() -> list[dict]:
         except Exception:
             # Fallback if is_deleted column does not exist yet
             cursor = await db.execute(
-                "SELECT * FROM products WHERE category_id = ? AND is_active = 1 ORDER BY id ASC",
-                (category_id,),
+                "SELECT * FROM categories WHERE is_active = 1 ORDER BY sort_order ASC, id ASC"
             )
             rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
+        _CATEGORIES_CACHE = [dict(r) for r in rows]
+        return _CATEGORIES_CACHE
     finally:
         await db.close()
 
@@ -280,6 +280,28 @@ async def delete_category(category_id: int) -> None:
     finally:
         await db.close()
 
+
+
+async def get_products_by_category(category_id: int) -> list[dict]:
+    """Retourne les produits actifs d'une catégorie."""
+    db = await get_db()
+    try:
+        try:
+            cursor = await db.execute(
+                "SELECT * FROM products WHERE category_id = ? AND is_active = 1 AND is_deleted = 0 ORDER BY sort_order ASC, id ASC",
+                (category_id,),
+            )
+            rows = await cursor.fetchall()
+        except Exception:
+            # Fallback if is_deleted column does not exist yet
+            cursor = await db.execute(
+                "SELECT * FROM products WHERE category_id = ? AND is_active = 1 ORDER BY id ASC",
+                (category_id,),
+            )
+            rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
 
 async def get_product(product_id: int) -> dict | None:
     """Récupère un produit par son identifiant."""
@@ -2181,3 +2203,24 @@ async def get_products_sales_stats() -> list[dict]:
 
 
 # â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
+
+async def get_products_by_category(category_id: int) -> list[dict]:
+    """Retourne les produits actifs d'une catégorie."""
+    db = await get_db()
+    try:
+        try:
+            cursor = await db.execute(
+                "SELECT * FROM products WHERE category_id = ? AND is_active = 1 AND is_deleted = 0 ORDER BY sort_order ASC, id ASC",
+                (category_id,),
+            )
+            rows = await cursor.fetchall()
+        except Exception:
+            # Fallback if is_deleted column does not exist yet
+            cursor = await db.execute(
+                "SELECT * FROM products WHERE category_id = ? AND is_active = 1 ORDER BY id ASC",
+                (category_id,),
+            )
+            rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
