@@ -129,8 +129,16 @@ def _env_int(name: str, default: int, minimum: int = 1) -> int:
         return default
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 RESELLER_API_RATE_LIMIT = _env_int("RESELLER_API_RATE_LIMIT", 60)
 RESELLER_API_RATE_WINDOW = _env_int("RESELLER_API_RATE_WINDOW", 60)
+THREAD_WORKERS = _env_int("THREAD_WORKERS", 32, minimum=4)
 _reseller_rate_buckets: dict[str, dict[str, int]] = {}
 
 
@@ -1315,8 +1323,15 @@ async def api_confirm_order(order_id: int):
         if not order:
             raise HTTPException(status_code=404, detail="Order not found")
 
+        order_status = order.get("status")
         product = await get_product(order.get("product_id"))
         if product and product.get("delivery_type") == "activation":
+            if order_status == "COMPLETED":
+                return {"status": "already_completed"}
+            if order_status == "AWAITING_ACTIVATION_INFO":
+                return {"status": "already_awaiting_activation_identifier"}
+            if order_status not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED"):
+                raise HTTPException(status_code=409, detail=f"Order cannot be confirmed from status {order_status}")
             await update_order_status(order_id, "AWAITING_ACTIVATION_INFO", payment_method=order.get("payment_method") or "manual")
             try:
                 user_lang = await get_user_lang(order["user_telegram_id"])
@@ -1332,10 +1347,23 @@ async def api_confirm_order(order_id: int):
             except Exception as notify_exc:
                 logger.warning("Failed to notify activation user via API: %s", notify_exc)
             return {"status": "awaiting_activation_identifier"}
-            
-        await update_order_status(order_id, "COMPLETED")
+
+        if order_status == "COMPLETED":
+            delivered = await deliver_order(order_id, order.get("product_id"))
+            if delivered:
+                return {"status": "already_confirmed_and_delivered"}
+            return {"status": "already_completed"}
+
+        if order_status not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED"):
+            raise HTTPException(status_code=409, detail=f"Order cannot be confirmed from status {order_status}")
+
         delivered = await deliver_order(order_id, order.get("product_id"))
-        
+
+        if not delivered:
+            raise HTTPException(status_code=409, detail="Insufficient stock for this order")
+
+        await update_order_status(order_id, "COMPLETED")
+
         if delivered:
             product = await get_product(order.get("product_id"))
             warranty_days = product.get("warranty_days", 0) if product else 0
@@ -1359,10 +1387,10 @@ async def api_confirm_order(order_id: int):
                     )
             except Exception as notify_exc:
                 logger.warning("Failed to notify user via API: %s", notify_exc)
-                
+
             return {"status": "confirmed_and_delivered"}
-        else:
-            return {"status": "confirmed_but_no_stock"}
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -1937,16 +1965,22 @@ async def notify_admins(text: str, reply_markup=None):
     """Send a notification message to all admin Telegram IDs."""
     if not tg_app or not tg_app.bot:
         return
-    for admin_id in ADMIN_IDS:
+
+    async def _send(admin_id: int) -> None:
         try:
             await tg_app.bot.send_message(chat_id=admin_id, text=text, parse_mode="HTML", reply_markup=reply_markup)
         except Exception:
             pass
 
+    await asyncio.gather(*(_send(admin_id) for admin_id in ADMIN_IDS), return_exceptions=True)
+
 
 tg_app = None
 webhook_update_queue: asyncio.Queue | None = None
-webhook_worker_task: asyncio.Task | None = None
+webhook_worker_tasks: list[asyncio.Task] = []
+WEBHOOK_WORKERS = _env_int("WEBHOOK_WORKERS", 4, minimum=1)
+WEBHOOK_LOCK_STRIPES = _env_int("WEBHOOK_LOCK_STRIPES", 1024, minimum=8)
+webhook_user_locks: list[asyncio.Lock] = [asyncio.Lock() for _ in range(WEBHOOK_LOCK_STRIPES)]
 
 
 # ──────────────────────────────────────────────
@@ -1984,6 +2018,7 @@ async def post_init(application: Application) -> None:
 # ──────────────────────────────────────────────
 
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
+DROP_PENDING_UPDATES = _env_bool("DROP_PENDING_UPDATES", False)
 
 from starlette.requests import Request as StarletteRequest
 
@@ -1999,7 +2034,7 @@ async def telegram_webhook(request: StarletteRequest):
                 raise HTTPException(status_code=403, detail="Forbidden")
 
         data = await request.json()
-        logger.info("📨 Webhook received update: %s", data.get("update_id", "?"))
+        logger.debug("Webhook received update: %s", data.get("update_id", "?"))
         if tg_app:
             update = Update.de_json(data, tg_app.bot)
             if webhook_update_queue is not None:
@@ -2026,7 +2061,22 @@ def _log_update_task_result(task: asyncio.Task) -> None:
         logger.error("Webhook update task failed: %s", exc, exc_info=True)
 
 
-async def _webhook_update_worker(application: Application) -> None:
+def _webhook_lock_key(update: Update) -> str:
+    user = update.effective_user
+    if user:
+        return f"user:{user.id}"
+    chat = update.effective_chat
+    if chat:
+        return f"chat:{chat.id}"
+    return f"update:{update.update_id}"
+
+
+def _webhook_user_lock(update: Update) -> asyncio.Lock:
+    key = _webhook_lock_key(update)
+    return webhook_user_locks[abs(hash(key)) % len(webhook_user_locks)]
+
+
+async def _webhook_update_worker(application: Application, worker_id: int) -> None:
     global webhook_update_queue
     if webhook_update_queue is None:
         webhook_update_queue = asyncio.Queue()
@@ -2034,9 +2084,11 @@ async def _webhook_update_worker(application: Application) -> None:
     while True:
         update = await webhook_update_queue.get()
         try:
-            await application.process_update(update)
+            lock = _webhook_user_lock(update)
+            async with lock:
+                await application.process_update(update)
         except Exception as exc:
-            logger.error("Webhook queued update failed: %s", exc, exc_info=True)
+            logger.error("Webhook worker %s update failed: %s", worker_id, exc, exc_info=True)
         finally:
             webhook_update_queue.task_done()
 
@@ -2244,7 +2296,7 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
 
 def main() -> None:
     """Build the Application, register handlers, and start in webhook or polling mode."""
-    global tg_app, webhook_update_queue, webhook_worker_task
+    global tg_app, webhook_update_queue, webhook_worker_tasks
 
     webhook_url = os.environ.get("WEBHOOK_URL", "").strip()
 
@@ -2485,11 +2537,11 @@ def main() -> None:
 
         async def _setup_and_run():
             """Initialize the bot, set webhook, and run FastAPI with connection retries."""
-            global webhook_update_queue, webhook_worker_task
+            global webhook_update_queue, webhook_worker_tasks
             
             loop = asyncio.get_running_loop()
             from concurrent.futures import ThreadPoolExecutor
-            loop.set_default_executor(ThreadPoolExecutor(max_workers=100))
+            loop.set_default_executor(ThreadPoolExecutor(max_workers=THREAD_WORKERS))
 
 
             for attempt in range(1, 6):
@@ -2507,7 +2559,11 @@ def main() -> None:
                     await asyncio.sleep(4)
 
             webhook_update_queue = asyncio.Queue()
-            webhook_worker_task = asyncio.create_task(_webhook_update_worker(app))
+            webhook_worker_tasks = [
+                asyncio.create_task(_webhook_update_worker(app, worker_id))
+                for worker_id in range(1, WEBHOOK_WORKERS + 1)
+            ]
+            logger.info("Webhook update workers started: %d", len(webhook_worker_tasks))
 
             wh = f"{webhook_url}/webhook"
             for attempt in range(1, 6):
@@ -2515,7 +2571,7 @@ def main() -> None:
                     await app.bot.set_webhook(
                         url=wh,
                         secret_token=WEBHOOK_SECRET or None,
-                        drop_pending_updates=True,
+                        drop_pending_updates=DROP_PENDING_UPDATES,
                     )
                     logger.info("🔗 Webhook set successfully: %s", wh)
                     break
@@ -2533,8 +2589,10 @@ def main() -> None:
             finally:
                 # Do NOT delete the webhook on shutdown. In a rolling deployment,
                 # the old container shutting down would delete the webhook set by the new container.
-                if webhook_worker_task:
-                    webhook_worker_task.cancel()
+                for task in webhook_worker_tasks:
+                    task.cancel()
+                if webhook_worker_tasks:
+                    await asyncio.gather(*webhook_worker_tasks, return_exceptions=True)
                 await app.stop()
                 await app.shutdown()
 
@@ -2552,7 +2610,7 @@ def main() -> None:
         _start_api_bg()
         logger.info("🚀 Bot starting in POLLING mode (local dev)…")
         logger.info("💡 Set WEBHOOK_URL env var for production webhook mode")
-        app.run_polling(drop_pending_updates=True)
+        app.run_polling(drop_pending_updates=DROP_PENDING_UPDATES)
 
 
 @api.get("/api/export/transactions", dependencies=[Depends(verify_api_key)])

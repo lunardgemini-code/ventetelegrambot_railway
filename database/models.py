@@ -8,6 +8,7 @@ import hmac
 import secrets
 import uuid
 import logging
+import time
 from datetime import datetime, timedelta
 
 from .db import get_db
@@ -22,6 +23,22 @@ _CATEGORIES_CACHE: list[dict] | None = None
 _PRODUCTS_CACHE: list[dict] | None = None
 _PRODUCT_BY_ID_CACHE: dict[int, dict | None] = {}
 _TIERS_CACHE: dict[int, list[dict]] = {}
+_STOCK_COUNTS_CACHE: tuple[float, dict[int, int]] | None = None
+_STOCK_COUNTS_CACHE_TTL = 2.0
+_SETTINGS_CACHE: dict[str, str | None] = {}
+_DEFAULT_BINANCE_ACCOUNT_CACHE: dict | None = None
+_DEFAULT_BINANCE_ACCOUNT_LOADED = False
+
+
+def _clear_stock_cache() -> None:
+    global _STOCK_COUNTS_CACHE
+    _STOCK_COUNTS_CACHE = None
+
+
+def _clear_binance_account_cache() -> None:
+    global _DEFAULT_BINANCE_ACCOUNT_CACHE, _DEFAULT_BINANCE_ACCOUNT_LOADED
+    _DEFAULT_BINANCE_ACCOUNT_CACHE = None
+    _DEFAULT_BINANCE_ACCOUNT_LOADED = False
 
 
 # â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
@@ -438,6 +455,9 @@ async def get_binance_account(account_id: int) -> dict | None:
 
 async def get_default_binance_account() -> dict | None:
     """Return the default Binance account (is_default=1), or the first one."""
+    global _DEFAULT_BINANCE_ACCOUNT_CACHE, _DEFAULT_BINANCE_ACCOUNT_LOADED
+    if _DEFAULT_BINANCE_ACCOUNT_LOADED:
+        return dict(_DEFAULT_BINANCE_ACCOUNT_CACHE) if _DEFAULT_BINANCE_ACCOUNT_CACHE else None
     try:
         db = await get_db()
         try:
@@ -448,7 +468,9 @@ async def get_default_binance_account() -> dict | None:
             if not row:
                 cursor = await db.execute("SELECT * FROM binance_accounts ORDER BY id ASC LIMIT 1")
                 row = await cursor.fetchone()
-            return dict(row) if row else None
+            _DEFAULT_BINANCE_ACCOUNT_CACHE = dict(row) if row else None
+            _DEFAULT_BINANCE_ACCOUNT_LOADED = True
+            return dict(_DEFAULT_BINANCE_ACCOUNT_CACHE) if _DEFAULT_BINANCE_ACCOUNT_CACHE else None
         finally:
             await db.close()
     except Exception as exc:
@@ -458,6 +480,7 @@ async def get_default_binance_account() -> dict | None:
 
 async def add_binance_account(label: str, uid: str, api_key: str = "", api_secret: str = "", is_default: int = 0) -> int:
     """Add a new Binance account. If is_default=1, unset other defaults first."""
+    _clear_binance_account_cache()
     db = await get_db()
     try:
         if is_default:
@@ -474,6 +497,7 @@ async def add_binance_account(label: str, uid: str, api_key: str = "", api_secre
 
 async def update_binance_account(account_id: int, **kwargs) -> None:
     """Update a Binance account."""
+    _clear_binance_account_cache()
     allowed = {"label", "uid", "api_key", "api_secret", "is_default"}
     fields = {k: v for k, v in kwargs.items() if k in allowed}
     if not fields:
@@ -492,6 +516,7 @@ async def update_binance_account(account_id: int, **kwargs) -> None:
 
 async def delete_binance_account(account_id: int) -> None:
     """Delete a Binance account."""
+    _clear_binance_account_cache()
     db = await get_db()
     try:
         await db.execute("DELETE FROM binance_accounts WHERE id = ?", (account_id,))
@@ -518,6 +543,7 @@ async def toggle_product(product_id: int) -> None:
 
 
 async def delete_product(product_id: int) -> None:
+    _clear_stock_cache()
     """Marque un produit comme supprimÃ© et supprime uniquement son stock non vendu."""
     global _PRODUCTS_CACHE
     _PRODUCTS_CACHE = None
@@ -609,6 +635,13 @@ async def get_all_stock_counts() -> dict[int, int]:
     Returns:
         Dictionnaire {product_id: count}
     """
+    global _STOCK_COUNTS_CACHE
+    now = time.monotonic()
+    if _STOCK_COUNTS_CACHE is not None:
+        cached_at, cached_counts = _STOCK_COUNTS_CACHE
+        if now - cached_at < _STOCK_COUNTS_CACHE_TTL:
+            return dict(cached_counts)
+
     db = await get_db()
     try:
         # 1. Obtenir le stock total non vendu pour chaque produit
@@ -634,6 +667,7 @@ async def get_all_stock_counts() -> dict[int, int]:
         for p_id, total in stocks.items():
             reserved = reservations.get(p_id, 0)
             result[p_id] = max(0, total - reserved)
+        _STOCK_COUNTS_CACHE = (now, dict(result))
         return result
     finally:
         await db.close()
@@ -725,6 +759,7 @@ async def get_stock_count(product_id: int) -> int:
 
 
 async def add_stock_items(product_id: int, items: list[str]) -> int:
+    _clear_stock_cache()
     """Ajoute plusieurs articles en stock et retourne le nombre ajoutÃ©."""
     db = await get_db()
     try:
@@ -767,6 +802,7 @@ async def get_available_stock_items(product_id: int, limit: int = 1) -> list[dic
 
 
 async def mark_stock_sold(stock_id: int, order_id: int) -> bool:
+    _clear_stock_cache()
     """Marque un article comme vendu de maniÃ¨re atomique.
     
     Utilise WHERE is_sold = 0 pour Ã©viter la double-livraison en cas de requÃªtes concurrentes.
@@ -785,6 +821,7 @@ async def mark_stock_sold(stock_id: int, order_id: int) -> bool:
 
 
 async def release_stock_item(stock_id: int) -> None:
+    _clear_stock_cache()
     """RelÃ¢che un article (annule la vente). UtilisÃ© en cas de livraison partielle Ã©chouÃ©e."""
     db = await get_db()
     try:
@@ -793,6 +830,74 @@ async def release_stock_item(stock_id: int) -> None:
             (stock_id,),
         )
         await db.commit()
+    finally:
+        await db.close()
+
+
+async def reserve_stock_items_for_order(
+    order_id: int,
+    product_id: int,
+    allowed_statuses: tuple[str, ...] = ("PENDING", "AWAITING_PAYMENT", "CANCELLED"),
+) -> list[dict] | None:
+    """Reserve stock for an order once, returning the same items on retries."""
+    _clear_stock_cache()
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute(
+            "SELECT id, quantity, status FROM orders WHERE id = ? AND product_id = ?",
+            (order_id, product_id),
+        )
+        order = await cursor.fetchone()
+        if not order:
+            await db.rollback()
+            return None
+
+        quantity = max(1, int(order["quantity"] or 1))
+
+        cursor = await db.execute(
+            "SELECT id, account_data FROM stock_items WHERE sold_to_order_id = ? ORDER BY sold_at ASC, id ASC",
+            (order_id,),
+        )
+        existing_items = [dict(r) for r in await cursor.fetchall()]
+        if existing_items:
+            await db.commit()
+            return existing_items
+
+        if order["status"] not in allowed_statuses:
+            await db.rollback()
+            return None
+
+        cursor = await db.execute(
+            "SELECT id, account_data FROM stock_items WHERE product_id = ? AND is_sold = 0 ORDER BY added_at ASC LIMIT ?",
+            (product_id, quantity),
+        )
+        stock_items = [dict(r) for r in await cursor.fetchall()]
+        if len(stock_items) < quantity:
+            await db.rollback()
+            return None
+
+        for item in stock_items:
+            cursor = await db.execute(
+                "UPDATE stock_items SET is_sold = 1, sold_to_order_id = ?, sold_at = CURRENT_TIMESTAMP WHERE id = ? AND is_sold = 0",
+                (order_id, item["id"]),
+            )
+            if cursor.rowcount <= 0:
+                await db.rollback()
+                return None
+
+        await db.execute(
+            "UPDATE orders SET stock_item_id = ? WHERE id = ?",
+            (stock_items[0]["id"], order_id),
+        )
+        await db.commit()
+        return stock_items
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
     finally:
         await db.close()
 
@@ -826,6 +931,7 @@ async def get_stock_items_for_order(order_id: int) -> list[dict]:
 
 
 async def delete_stock_item(stock_id: int) -> None:
+    _clear_stock_cache()
     """Supprime un article du stock (uniquement si non vendu)."""
     db = await get_db()
     try:
@@ -849,6 +955,7 @@ async def create_order(
     amount_usd: float,
     quantity: int = 1,
 ) -> dict:
+    _clear_stock_cache()
     """CrÃ©e une nouvelle commande avec un merchant_trade_no unique et une quantitÃ©."""
     merchant_trade_no = uuid.uuid4().hex[:12].upper()
     db = await get_db()
@@ -913,6 +1020,7 @@ ALLOWED_ORDER_COLUMNS = {
 
 
 async def update_order_status(order_id: int, status: str, **kwargs) -> None:
+    _clear_stock_cache()
     """Met Ã  jour le statut d'une commande avec des champs optionnels."""
     set_parts = ["status = ?"]
     values: list = [status]
@@ -969,6 +1077,7 @@ async def update_order_status(order_id: int, status: str, **kwargs) -> None:
 
 
 async def cancel_all_pending_orders(user_telegram_id: int) -> int:
+    _clear_stock_cache()
     """Cancel all PENDING and AWAITING_PAYMENT orders for a user. Returns count cancelled."""
     db = await get_db()
     try:
@@ -2417,25 +2526,31 @@ async def record_used_bep20_transaction(
 # â”€â”€ settings CRUD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async def get_setting(key: str) -> str | None:
+    if key in _SETTINGS_CACHE:
+        return _SETTINGS_CACHE[key]
     """Retourne la valeur d'un paramÃ¨tre ou None."""
     db = await get_db()
     try:
         cursor = await db.execute("SELECT value FROM settings WHERE key = ?", (key,))
         row = await cursor.fetchone()
-        return row["value"] if row else None
+        value = row["value"] if row else None
+        _SETTINGS_CACHE[key] = value
+        return value
     finally:
         await db.close()
 
 
 async def set_setting(key: str, value: str) -> None:
+    clean_value = value.strip()
     """Enregistre ou met Ã  jour un paramÃ¨tre."""
     db = await get_db()
     try:
         await db.execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-            (key, value.strip()),
+            (key, clean_value),
         )
         await db.commit()
+        _SETTINGS_CACHE[key] = clean_value
     finally:
         await db.close()
 

@@ -17,6 +17,14 @@ USDT_CONTRACT_TRON_HEX = "41a614f803b6fd780986a42c78ec9c7f77e6ded13c"
 TRANSFER_TOPIC = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
 BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+_HTTP_CLIENT: httpx.AsyncClient | None = None
+
+
+async def _get_http_client() -> httpx.AsyncClient:
+    global _HTTP_CLIENT
+    if _HTTP_CLIENT is None or _HTTP_CLIENT.is_closed:
+        _HTTP_CLIENT = httpx.AsyncClient(timeout=10.0)
+    return _HTTP_CLIENT
 
 
 def base58_to_hex(base58_str: str) -> str:
@@ -73,27 +81,28 @@ async def verify_trc20_payment(
     import asyncio
 
     # Connect to TronGrid API to fetch transaction receipt
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        # Retry up to 4 times (max ~12 seconds) to allow network indexing
-        for attempt in range(4):
-            try:
-                resp = await client.post(
-                    "https://api.trongrid.io/wallet/gettransactioninfobyid",
-                    json={"value": tx_hash}
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    # If empty {} is returned, it means not found yet
-                    if data and "id" in data:
-                        tx_info = data
-                        break
-            except Exception as e:
-                rpc_error = str(e)
-                logger.warning("Error querying TronGrid API: %s", e)
-            
-            # Wait before next attempt
-            if attempt < 3:
-                await asyncio.sleep(3)
+    client = await _get_http_client()
+    # Retry up to 4 times (max ~12 seconds) to allow network indexing
+    for attempt in range(4):
+        try:
+            resp = await client.post(
+                "https://api.trongrid.io/wallet/gettransactioninfobyid",
+                json={"value": tx_hash},
+                timeout=10.0,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                # If empty {} is returned, it means not found yet
+                if data and "id" in data:
+                    tx_info = data
+                    break
+        except Exception as e:
+            rpc_error = str(e)
+            logger.warning("Error querying TronGrid API: %s", e)
+        
+        # Wait before next attempt
+        if attempt < 3:
+            await asyncio.sleep(3)
 
     if not tx_info:
         result["error"] = f"Transaction not found on-chain. It might still be confirming. Please wait a few seconds and try again. (API error: {rpc_error})"

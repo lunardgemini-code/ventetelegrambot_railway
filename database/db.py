@@ -110,6 +110,7 @@ class _AsyncDB:
 
 _libsql_pool = []
 _pool_lock = None
+_sqlite_wal_configured = False
 
 def get_pool_lock():
     global _pool_lock
@@ -227,9 +228,15 @@ async def get_db():
                 pass
         return wrapper
     else:
+        global _sqlite_wal_configured
         import aiosqlite
         db = await aiosqlite.connect(os.environ.get("DB_PATH", "bot_data.db"))
         db.row_factory = aiosqlite.Row
+        if not _sqlite_wal_configured:
+            await db.execute("PRAGMA journal_mode = WAL")
+            _sqlite_wal_configured = True
+        await db.execute("PRAGMA synchronous = NORMAL")
+        await db.execute("PRAGMA busy_timeout = 5000")
         await db.execute("PRAGMA foreign_keys = ON")
         return db
 

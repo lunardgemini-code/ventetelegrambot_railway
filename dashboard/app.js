@@ -341,7 +341,14 @@ function setupEvents() {
     });
     const btnMassTranslate = $('btn-mass-translate');
     if (btnMassTranslate) btnMassTranslate.addEventListener('click', massTranslate);
-    $('btn-open-promo-modal').addEventListener('click', () => {
+    $('btn-open-promo-modal').addEventListener('click', async () => {
+        if (!state.products || state.products.length === 0) {
+            try {
+                await loadProducts();
+            } catch (e) {
+                console.warn('Could not load products for promo modal', e);
+            }
+        }
         const sel = $('promo-products');
         sel.innerHTML = '';
         state.products.forEach(p => {
@@ -685,11 +692,39 @@ async function testConnectionAndStart() {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  REFRESH ALL
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-async function refreshData() {
+const tabRefreshLoaders = {
+    'dashboard-tab': [loadStats, loadFinance, loadCharts],
+    'stats-tab': [loadStats, loadCharts, loadProductStats],
+    'inventory-tab': [loadProducts, loadBinanceAccounts],
+    'orders-tab': [loadProducts, loadAllOrders],
+    'activations-tab': [loadProducts, loadActivations],
+    'resellers-tab': [loadResellers],
+    'users-tab': [loadUsers],
+    'tickets-tab': [loadTickets],
+    'settings-tab': [loadProducts, loadPromos, loadPaymentSettings],
+    'wallet-history-tab': [loadWalletHistory],
+    'finance-tab': [loadFinance],
+    'binance-tab': [loadBinanceAccounts],
+};
+
+const fullRefreshLoaders = [
+    loadStats, loadFinance, loadProducts, loadAllOrders, loadActivations, loadResellers,
+    loadTickets, loadUsers, loadPromos, loadCharts, loadWalletHistory, loadBinanceAccounts,
+    loadPaymentSettings, loadProductStats
+];
+
+function uniqueLoaders(loaders) {
+    return [...new Set(loaders.filter(Boolean))];
+}
+
+async function refreshData(options={}) {
     showLoading(true);
     DOM.apiStatusBadge.querySelector('.status-indicator').className = 'status-indicator';
     try {
-        await Promise.all([loadStats(), loadFinance(), loadProducts(), loadAllOrders(), loadActivations(), loadResellers(), loadTickets(), loadUsers(), loadPromos(), loadCharts(), loadWalletHistory(), loadBinanceAccounts(), loadPaymentSettings(), loadProductStats()]);
+        const loaders = options.full
+            ? fullRefreshLoaders
+            : uniqueLoaders([loadStats, ...(tabRefreshLoaders[state.currentTab] || tabRefreshLoaders['dashboard-tab'])]);
+        await Promise.all(loaders.map(loader => loader()));
         DOM.apiStatusBadge.querySelector('.status-indicator').classList.add('online');
     } catch(e) { console.error(e); DOM.apiStatusBadge.querySelector('.status-indicator').classList.add('offline'); }
     finally { showLoading(false); }
@@ -1725,6 +1760,7 @@ function switchTab(tabId) {
     const ac = $(tabId); if(ac) ac.classList.add('active');
     DOM.currentTabTitle.textContent = t(tabKeys[tabId]||'tab_dashboard');
     state.currentTab = tabId;
+    if (!DOM.appContainer.classList.contains('hidden')) refreshData();
 }
 
 function showModal(m) { m.classList.remove('hidden'); }

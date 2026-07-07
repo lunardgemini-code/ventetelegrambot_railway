@@ -185,6 +185,27 @@ async def send_delivery_messages(bot, chat_id: int, header: str, items: list, fo
     else:
         await bot.send_message(chat_id=chat_id, text=footer, parse_mode="HTML", reply_markup=reply_markup)
 
+
+async def safe_send_delivery_messages(bot, chat_id: int, header: str, items: list, footer: str, lang: str, order_id: int = None) -> bool:
+    try:
+        await send_delivery_messages(bot, chat_id, header, items, footer, lang, order_id=order_id)
+        return True
+    except Exception as exc:
+        logger.error("Delivery message failed for order #%s: %s", order_id, exc, exc_info=True)
+        alert = (
+            "<b>Delivery message failed</b>\n\n"
+            f"Order: #{order_id}\n"
+            f"Client: <code>{chat_id}</code>\n"
+            "Stock is reserved and the order is completed. Ask the client to open purchase history."
+        )
+        for admin_id in ADMIN_IDS:
+            try:
+                await bot.send_message(chat_id=admin_id, text=alert, parse_mode="HTML")
+            except Exception:
+                pass
+        return False
+
+
 async def initiate_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle 'buy:{product_id}' callback â€” entry point for purchase conversation. Ask for quantity."""
     query = update.callback_query
@@ -674,7 +695,7 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"{t('save_info', lang)}\n\n"
                 f"{conf_msg}"
             )
-            await send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang)
+            await safe_send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang, order_id)
         else:
             # Refund: delivery failed, return funds to wallet
             from database.models import topup_wallet as _topup_refund
@@ -883,7 +904,7 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"{t('save_info', lang)}\n\n"
                     f"{conf_msg}"
                 )
-                await send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang)
+                await safe_send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang, order_id)
             else:
                 await update_order_status(order_id, "FAILED", payment_method="binance", binance_order_id=display_id)
                 await update.message.reply_text(
@@ -1325,7 +1346,7 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                     f"{t('save_info', lang)}\n\n"
                     f"{conf_msg}"
                 )
-                await send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang)
+                await safe_send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang, order_id)
             else:
                 await update_order_status(order_id, "FAILED", payment_method="bep20", binance_order_id=tx_hash)
                 await update.message.reply_text(
@@ -1606,7 +1627,7 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                     f"{t('save_info', lang)}\n\n"
                     f"{conf_msg}"
                 )
-                await send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang)
+                await safe_send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang, order_id)
             else:
                 await update_order_status(order_id, "FAILED", payment_method="trc20", binance_order_id=tx_hash_clean)
                 await update.message.reply_text(

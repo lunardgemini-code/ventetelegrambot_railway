@@ -21,6 +21,14 @@ RECV_WINDOW = 5000
 AMOUNT_TOLERANCE = 0.01
 # Fenêtre de recherche des transactions (en millisecondes) : 2 heures
 SEARCH_WINDOW_MS = 2 * 60 * 60 * 1000
+_HTTP_CLIENT: httpx.AsyncClient | None = None
+
+
+async def _get_http_client() -> httpx.AsyncClient:
+    global _HTTP_CLIENT
+    if _HTTP_CLIENT is None or _HTTP_CLIENT.is_closed:
+        _HTTP_CLIENT = httpx.AsyncClient(timeout=10.0)
+    return _HTTP_CLIENT
 
 
 def _generate_signature(query_string: str, secret: str) -> str:
@@ -68,8 +76,8 @@ async def verify_payment(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(full_url, headers=headers)
+        client = await _get_http_client()
+        response = await client.get(full_url, headers=headers, timeout=5.0)
 
         # Vérifier le code HTTP
         if response.status_code != 200:
@@ -189,8 +197,8 @@ async def verify_internal_transfer(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(full_url, headers=headers)
+        client = await _get_http_client()
+        response = await client.get(full_url, headers=headers, timeout=10.0)
 
         if response.status_code != 200:
             result["error"] = f"Erreur API Binance — HTTP {response.status_code} : {response.text[:200]}"
@@ -238,4 +246,3 @@ async def verify_internal_transfer(
         result["error"] = f"Erreur inattendue lors de la vérification interne : {exc}"
         logger.exception(result["error"])
         return result
-

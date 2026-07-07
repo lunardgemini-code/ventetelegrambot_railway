@@ -1341,8 +1341,27 @@ async def admin_confirm_payment(update: Update, context: ContextTypes.DEFAULT_TY
             await query.edit_message_text("❌ Commande introuvable.")
             return
 
+        order_status = order.get("status")
         product = await get_product(order.get("product_id"))
         if product and product.get("delivery_type") == "activation":
+            if order_status == "COMPLETED":
+                await query.edit_message_text(
+                    f"Commande #{order_id} deja terminee.",
+                    reply_markup=admin_menu_keyboard(admin_lang),
+                )
+                return
+            if order_status == "AWAITING_ACTIVATION_INFO":
+                await query.edit_message_text(
+                    t("admin_activation_user_must_send", admin_lang).format(order_id=order_id),
+                    reply_markup=admin_menu_keyboard(admin_lang),
+                )
+                return
+            if order_status not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED"):
+                await query.edit_message_text(
+                    f"Commande #{order_id} non confirmable depuis le statut {order_status}.",
+                    reply_markup=admin_menu_keyboard(admin_lang),
+                )
+                return
             await update_order_status(order_id, "AWAITING_ACTIVATION_INFO", payment_method=order.get("payment_method") or "manual", binance_order_id="MANUAL")
             try:
                 user_lang = await get_user_lang(order["user_telegram_id"])
@@ -1360,13 +1379,24 @@ async def admin_confirm_payment(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return
 
-        # Mark as completed
-        await update_order_status(order_id, "COMPLETED", binance_order_id="MANUAL")
+        if order_status == "COMPLETED":
+            await query.edit_message_text(
+                f"Commande #{order_id} deja terminee.",
+                reply_markup=admin_menu_keyboard(admin_lang),
+            )
+            return
 
-        # Deliver product
+        if order_status not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED"):
+            await query.edit_message_text(
+                f"Commande #{order_id} non confirmable depuis le statut {order_status}.",
+                reply_markup=admin_menu_keyboard(admin_lang),
+            )
+            return
+
         delivered = await deliver_order(order_id, order.get("product_id"))
 
         if delivered:
+            await update_order_status(order_id, "COMPLETED", binance_order_id="MANUAL")
             product = await get_product(order.get("product_id"))
             warranty_days = product.get("warranty_days", 0) if product else 0
 
@@ -1393,6 +1423,12 @@ async def admin_confirm_payment(update: Update, context: ContextTypes.DEFAULT_TY
                 reply_markup=admin_menu_keyboard(),
             )
         else:
+            await query.edit_message_text(
+                f"Commande #{order_id} non confirmee.\n"
+                "Livraison automatique impossible: stock insuffisant.",
+                reply_markup=admin_menu_keyboard(admin_lang),
+            )
+            return
             await query.edit_message_text(
                 f"✅ Commande #{order_id} confirmée.\n"
                 "⚠️ Livraison automatique impossible (stock vide ?).",

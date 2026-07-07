@@ -17,6 +17,14 @@ BSC_RPC_NODES = [
 
 # USDT Contract Address on BNB Chain
 USDT_CONTRACT_BSC = "0x55d398326f99059ff775485246999027b3197955"
+_HTTP_CLIENT: httpx.AsyncClient | None = None
+
+
+async def _get_http_client() -> httpx.AsyncClient:
+    global _HTTP_CLIENT
+    if _HTTP_CLIENT is None or _HTTP_CLIENT.is_closed:
+        _HTTP_CLIENT = httpx.AsyncClient(timeout=10.0)
+    return _HTTP_CLIENT
 
 
 async def verify_bep20_payment(
@@ -54,53 +62,53 @@ async def verify_bep20_payment(
 
     import asyncio
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        # Retry up to 4 times (max ~12 seconds) to allow network indexing
-        for attempt in range(4):
-            for node in BSC_RPC_NODES:
-                try:
-                    # Query transaction details
-                    tx_payload = {
-                        "jsonrpc": "2.0",
-                        "method": "eth_getTransactionByHash",
-                        "params": [tx_hash],
-                        "id": 1
-                    }
-                    tx_resp = await client.post(node, json=tx_payload)
-                    if tx_resp.status_code != 200:
-                        continue
-                    tx_res = tx_resp.json()
-                    if "error" in tx_res or not tx_res.get("result"):
-                        continue
-                    tx_data = tx_res["result"]
-
-                    # Query transaction receipt (to verify status)
-                    receipt_payload = {
-                        "jsonrpc": "2.0",
-                        "method": "eth_getTransactionReceipt",
-                        "params": [tx_hash],
-                        "id": 2
-                    }
-                    receipt_resp = await client.post(node, json=receipt_payload)
-                    if receipt_resp.status_code != 200:
-                        continue
-                    receipt_res = receipt_resp.json()
-                    if "error" in receipt_res or not receipt_res.get("result"):
-                        continue
-                    receipt_data = receipt_res["result"]
-
-                    break  # Successful fetch from this node
-                except Exception as e:
-                    rpc_error = str(e)
-                    logger.warning("Error querying BSC node %s: %s", node, e)
+    client = await _get_http_client()
+    # Retry up to 4 times (max ~12 seconds) to allow network indexing
+    for attempt in range(4):
+        for node in BSC_RPC_NODES:
+            try:
+                # Query transaction details
+                tx_payload = {
+                    "jsonrpc": "2.0",
+                    "method": "eth_getTransactionByHash",
+                    "params": [tx_hash],
+                    "id": 1
+                }
+                tx_resp = await client.post(node, json=tx_payload, timeout=10.0)
+                if tx_resp.status_code != 200:
                     continue
-            
-            if tx_data and receipt_data:
-                break
-            
-            # Wait before next attempt
-            if attempt < 3:
-                await asyncio.sleep(3)
+                tx_res = tx_resp.json()
+                if "error" in tx_res or not tx_res.get("result"):
+                    continue
+                tx_data = tx_res["result"]
+
+                # Query transaction receipt (to verify status)
+                receipt_payload = {
+                    "jsonrpc": "2.0",
+                    "method": "eth_getTransactionReceipt",
+                    "params": [tx_hash],
+                    "id": 2
+                }
+                receipt_resp = await client.post(node, json=receipt_payload, timeout=10.0)
+                if receipt_resp.status_code != 200:
+                    continue
+                receipt_res = receipt_resp.json()
+                if "error" in receipt_res or not receipt_res.get("result"):
+                    continue
+                receipt_data = receipt_res["result"]
+
+                break  # Successful fetch from this node
+            except Exception as e:
+                rpc_error = str(e)
+                logger.warning("Error querying BSC node %s: %s", node, e)
+                continue
+        
+        if tx_data and receipt_data:
+            break
+        
+        # Wait before next attempt
+        if attempt < 3:
+            await asyncio.sleep(3)
 
     if not tx_data or not receipt_data:
         result["error"] = f"Transaction not found on-chain. It might still be confirming. Please wait a few seconds and try again. (RPC error: {rpc_error})"
