@@ -1167,22 +1167,45 @@ async def api_translate(data: dict):
     
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            response = None
-            for model_name in models_to_try:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
-                response = await client.post(
-                    url,
-                    json=payload,
-                    headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
-                )
-                if response.status_code == 200:
-                    break
-                logger.warning("Gemini API HTTP %d for %s: %s", response.status_code, model_name, response.text)
+            response = await client.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent",
+                json=payload,
+                headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+            )
+            
+            if response.status_code != 200:
+                logger.warning("Gemini 3.5 Flash failed (HTTP %d). Attempting dynamic fallback.", response.status_code)
+                try:
+                    models_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+                    models_resp = await client.get(models_url)
+                    if models_resp.status_code == 200:
+                        available_models = models_resp.json().get("models", [])
+                        flash_models = [
+                            m["name"].split("/")[-1] for m in available_models 
+                            if "flash" in m.get("name", "").lower() and "generateContent" in m.get("supportedGenerationMethods", [])
+                        ]
+                        if flash_models:
+                            # Sort to prioritize newer versions (e.g. 3.x over 2.x)
+                            flash_models.sort(reverse=True)
+                            for fallback_model in flash_models:
+                                if fallback_model == "gemini-3.5-flash": 
+                                    continue
+                                logger.info("Trying fallback model: %s", fallback_model)
+                                fallback_url = f"https://generativelanguage.googleapis.com/v1beta/models/{fallback_model}:generateContent"
+                                response = await client.post(
+                                    fallback_url,
+                                    json=payload,
+                                    headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+                                )
+                                if response.status_code == 200:
+                                    break
+                except Exception as e:
+                    logger.error("Dynamic fallback failed: %s", e)
 
             if response is None or response.status_code != 200:
                 error_body = response.text if response else "No response"
                 logger.error("All Gemini models failed. Last HTTP %s: %s", getattr(response, 'status_code', 'N/A'), error_body)
-                raise HTTPException(status_code=502, detail=f"Erreur de traduction (serveurs surchargés): {error_body}")
+                raise HTTPException(status_code=502, detail=f"Erreur API Gemini: {error_body}")
             
             result_json = response.json()
             
