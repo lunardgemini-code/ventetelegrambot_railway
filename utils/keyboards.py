@@ -71,6 +71,8 @@ def language_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🇫🇷 Français", callback_data="lang:fr")],
         [InlineKeyboardButton("🇸🇦 العربية", callback_data="lang:ar")],
         [InlineKeyboardButton("🇨🇳 简体中文", callback_data="lang:zh")],
+        [InlineKeyboardButton("🇻🇳 Tiếng Việt", callback_data="lang:vi")],
+        [InlineKeyboardButton("🇷🇺 Русский", callback_data="lang:ru")],
     ])
 
 
@@ -117,8 +119,8 @@ def back_keyboard(callback_data: str, lang: str = "fr") -> InlineKeyboardMarkup:
 
 def profile_keyboard(lang: str = "fr", is_reseller: bool = False) -> InlineKeyboardMarkup:
     """Profile menu with Referral Program button and API for resellers."""
-    ref_btn = {"fr": "👥 Programme de Parrainage", "en": "👥 Referral Program", "ar": "👥 برنامج الإحالة"}.get(lang, "👥 Programme de Parrainage")
-    api_btn = {"fr": "🔌 Mon API Revendeur", "en": "🔌 My Reseller API", "ar": "🔌 واجهة برمجة تطبيقات الموزع الخاص بي"}.get(lang, "🔌 Mon API Revendeur")
+    ref_btn = {"fr": "👥 Programme de Parrainage", "en": "👥 Referral Program", "ar": "👥 برنامج الإحالة", "zh": "👥 推荐计划", "vi": "👥 Chương trình giới thiệu", "ru": "👥 Реферальная программа"}.get(lang, "👥 Programme de Parrainage")
+    api_btn = {"fr": "🔌 Mon API Revendeur", "en": "🔌 My Reseller API", "ar": "🔌 واجهة برمجة تطبيقات الموزع الخاص بي", "zh": "🔌 我的经销商 API", "vi": "🔌 API đại lý của tôi", "ru": "🔌 Мой API реселлера"}.get(lang, "🔌 Mon API Revendeur")
     
     buttons = [
         [make_button("btn_referral", lang, callback_data="show_referrals", custom_text=ref_btn)]
@@ -177,7 +179,7 @@ def products_keyboard(products: list[dict], stock_counts: dict, lang: str = "fr"
         
         custom_id = prod.get("custom_emoji_id")
         if is_activation:
-            activation_txt = {"en": "Activation", "fr": "Activation", "ar": "تفعيل", "zh": "激活"}.get(lang, "Activation")
+            activation_txt = {"en": "Activation", "fr": "Activation", "ar": "تفعيل", "zh": "激活", "vi": "Kích hoạt", "ru": "Активация"}.get(lang, "Activation")
             if custom_id:
                 label = f"{prod['name']} | ${prod['price_usd']:.2f} | {activation_txt}"
             else:
@@ -188,7 +190,7 @@ def products_keyboard(products: list[dict], stock_counts: dict, lang: str = "fr"
             else:
                 label = f"{prod['emoji']} {prod['name']} | ${prod['price_usd']:.2f} | 📦 {stock}"
         else:
-            rupture_txt = {"en": "Out of stock", "fr": "Rupture", "ar": "نفذت الكمية"}.get(lang, "Rupture")
+            rupture_txt = {"en": "Out of stock", "fr": "Rupture", "ar": "نفذت الكمية", "zh": "缺货", "vi": "Hết hàng", "ru": "Нет в наличии"}.get(lang, "Rupture")
             if custom_id:
                 label = f"{prod['name']} | ${prod['price_usd']:.2f} | {rupture_txt}"
             else:
@@ -411,14 +413,14 @@ def admin_menu_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
     """Admin dashboard."""
     from utils.locales import t as _t
     # Short labels with icons — using simple inline translations
-    _prods = {"fr": "📦 Produits", "en": "📦 Products", "ar": "📦 المنتجات"}.get(lang, "📦 Produits")
-    _cats = {"fr": "📂 Catégories", "en": "📂 Categories", "ar": "📂 الفئات"}.get(lang, "📂 Catégories")
-    _stock = {"fr": "📥 Stock", "en": "📥 Stock", "ar": "📥 المخزون"}.get(lang, "📥 Stock")
-    _stats = {"fr": "📊 Stats", "en": "📊 Stats", "ar": "📊 إحصائيات"}.get(lang, "📊 Stats")
+    _prods = {"fr": "📦 Produits", "en": "📦 Products", "ar": "📦 المنتجات", "zh": "📦 产品", "vi": "📦 Sản phẩm", "ru": "📦 Товары"}.get(lang, "📦 Produits")
+    _cats = {"fr": "📂 Catégories", "en": "📂 Categories", "ar": "📂 الفئات", "zh": "📂 分类", "vi": "📂 Danh mục", "ru": "📂 Категории"}.get(lang, "📂 Catégories")
+    _stock = {"fr": "📥 Stock", "en": "📥 Stock", "ar": "📥 المخزون", "zh": "📥 库存", "vi": "📥 Kho", "ru": "📥 Склад"}.get(lang, "📥 Stock")
+    _stats = {"fr": "📊 Stats", "en": "📊 Stats", "ar": "📊 إحصائيات", "zh": "📊 统计", "vi": "📊 Thống kê", "ru": "📊 Статистика"}.get(lang, "📊 Stats")
     _bcast = "📢 Broadcast"
-    _tickets = {"fr": "🎫 Tickets", "en": "🎫 Tickets", "ar": "🎫 التذاكر"}.get(lang, "🎫 Tickets")
-    _orders = {"fr": "📋 Commandes", "en": "📋 Orders", "ar": "📋 الطلبات"}.get(lang, "📋 Commandes")
-    _activations = {"fr": "⚡ Activations", "en": "⚡ Activations", "ar": "⚡ التفعيلات", "zh": "⚡ 激活"}.get(lang, "⚡ Activations")
+    _tickets = {"fr": "🎫 Tickets", "en": "🎫 Tickets", "ar": "🎫 التذاكر", "zh": "🎫 工单", "vi": "🎫 Ticket", "ru": "🎫 Тикеты"}.get(lang, "🎫 Tickets")
+    _orders = {"fr": "📋 Commandes", "en": "📋 Orders", "ar": "📋 الطلبات", "zh": "📋 订单", "vi": "📋 Đơn hàng", "ru": "📋 Заказы"}.get(lang, "📋 Commandes")
+    _activations = {"fr": "⚡ Activations", "en": "⚡ Activations", "ar": "⚡ التفعيلات", "zh": "⚡ 激活", "vi": "⚡ Kích hoạt", "ru": "⚡ Активации"}.get(lang, "⚡ Activations")
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(_prods, callback_data="adm_prods"), InlineKeyboardButton(_cats, callback_data="adm_cats")],
         [InlineKeyboardButton(_stock, callback_data="adm_stock"), InlineKeyboardButton(_stats, callback_data="adm_stats")],

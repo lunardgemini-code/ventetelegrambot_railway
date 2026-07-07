@@ -528,7 +528,7 @@ def _reseller_openapi_schema() -> dict:
                         {
                             "name": "lang",
                             "in": "query",
-                            "schema": {"type": "string", "enum": ["en", "fr", "ar", "zh"], "default": "en"},
+                            "schema": {"type": "string", "enum": ["en", "fr", "ar", "zh", "vi", "ru"], "default": "en"},
                             "description": "Product description language.",
                         }
                     ],
@@ -736,14 +736,14 @@ async def api_reseller_me(reseller: dict = Depends(verify_reseller_key)):
 async def api_reseller_products(lang: str = "en", reseller: dict = Depends(verify_reseller_key)):
     from database.models import get_all_products, get_all_stock_counts, get_price_tiers
     try:
-        lang = lang if lang in {"en", "fr", "ar", "zh"} else "en"
+        lang = lang if lang in {"en", "fr", "ar", "zh", "vi", "ru"} else "en"
         products = await get_all_products()
         stock_counts = await get_all_stock_counts()
         result = []
         for p in products:
             if not p.get("is_active", 1) or p.get("is_deleted", 0):
                 continue
-            desc = p.get(f"description_{lang}") if lang in {"fr", "ar", "zh"} else p.get("description")
+            desc = p.get(f"description_{lang}") if lang in {"fr", "ar", "zh", "vi", "ru"} else p.get("description")
             if not desc:
                 desc = p.get("description", "")
             tiers = await get_price_tiers(p["id"])
@@ -1030,15 +1030,21 @@ async def api_create_product(data: dict):
             description_fr=data.get("description_fr", ""),
             description_ar=data.get("description_ar", ""),
             description_zh=data.get("description_zh", ""),
+            description_vi=data.get("description_vi", ""),
+            description_ru=data.get("description_ru", ""),
             delivery_type=data.get("delivery_type", "stock"),
             activation_message=data.get("activation_message", ""),
             activation_message_fr=data.get("activation_message_fr", ""),
             activation_message_ar=data.get("activation_message_ar", ""),
             activation_message_zh=data.get("activation_message_zh", ""),
+            activation_message_vi=data.get("activation_message_vi", ""),
+            activation_message_ru=data.get("activation_message_ru", ""),
             confirmation_message=data.get("confirmation_message", ""),
             confirmation_message_fr=data.get("confirmation_message_fr", ""),
             confirmation_message_ar=data.get("confirmation_message_ar", ""),
-            confirmation_message_zh=data.get("confirmation_message_zh", "")
+            confirmation_message_zh=data.get("confirmation_message_zh", ""),
+            confirmation_message_vi=data.get("confirmation_message_vi", ""),
+            confirmation_message_ru=data.get("confirmation_message_ru", "")
         )
         return {"id": prod_id, "status": "created"}
     except HTTPException:
@@ -1104,7 +1110,7 @@ async def api_reorder_products(request: Request):
 async def api_update_product(product_id: int, data: dict):
     from database.models import update_product
     try:
-        allowed = {"name", "price_usd", "emoji", "custom_emoji_id", "warranty_days", "description", "description_fr", "description_ar", "description_zh", "is_active", "binance_account_id", "image_url", "delivery_type", "activation_message", "activation_message_fr", "activation_message_ar", "activation_message_zh", "confirmation_message", "confirmation_message_fr", "confirmation_message_ar", "confirmation_message_zh"}
+        allowed = {"name", "price_usd", "emoji", "custom_emoji_id", "warranty_days", "description", "description_fr", "description_ar", "description_zh", "description_vi", "description_ru", "is_active", "binance_account_id", "image_url", "delivery_type", "activation_message", "activation_message_fr", "activation_message_ar", "activation_message_zh", "activation_message_vi", "activation_message_ru", "confirmation_message", "confirmation_message_fr", "confirmation_message_ar", "confirmation_message_zh", "confirmation_message_vi", "confirmation_message_ru"}
         updates = {k: v for k, v in data.items() if k in allowed}
         if not updates:
             raise HTTPException(status_code=400, detail="No valid fields to update")
@@ -1148,8 +1154,8 @@ async def api_translate(data: dict):
         
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent"
     prompt = (
-        "Translate the following product description into French, Arabic, and Chinese. "
-        "Return a valid JSON object with the exact keys: 'fr', 'ar', 'zh'. "
+        "Translate the following product description into French, Arabic, Chinese, Vietnamese, and Russian. "
+        "Return a valid JSON object with the exact keys: 'fr', 'ar', 'zh', 'vi', 'ru'. "
         "Do not return markdown, just the raw JSON object.\n\n"
         f"Text to translate: {text}"
     )
@@ -1197,7 +1203,12 @@ async def api_fix_db():
     from database.db import get_db
     db = await get_db()
     results = []
-    cols = ["description_fr", "description_ar", "description_zh"]
+    cols = [
+        "description_fr", "description_ar", "description_zh", "description_vi", "description_ru",
+        "activation_message", "activation_message_fr", "activation_message_ar", "activation_message_zh",
+        "activation_message_vi", "activation_message_ru", "confirmation_message", "confirmation_message_fr",
+        "confirmation_message_ar", "confirmation_message_zh", "confirmation_message_vi", "confirmation_message_ru",
+    ]
     for col in cols:
         try:
             await db.execute(f"ALTER TABLE products ADD COLUMN {col} TEXT DEFAULT ''")
@@ -1594,12 +1605,9 @@ async def api_activate_order(order_id: int):
                 
                 custom_msg = ""
                 if product:
-                    if lang == "fr" and product.get("activation_message_fr"):
-                        custom_msg = product["activation_message_fr"]
-                    elif lang == "ar" and product.get("activation_message_ar"):
-                        custom_msg = product["activation_message_ar"]
-                    elif lang == "zh" and product.get("activation_message_zh"):
-                        custom_msg = product["activation_message_zh"]
+                    lang_msg = product.get(f"activation_message_{lang}") if lang != "en" else ""
+                    if lang_msg:
+                        custom_msg = lang_msg
                     elif product.get("activation_message"):
                         custom_msg = product["activation_message"]
                 

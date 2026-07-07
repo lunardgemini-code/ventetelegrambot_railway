@@ -98,7 +98,7 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang_code = query.data.split(":")[1]
 
     # Validate language code against allowed values
-    if lang_code not in ("en", "fr", "ar", "zh"):
+    if lang_code not in ("en", "fr", "ar", "zh", "vi", "ru"):
         lang_code = "fr"
 
     telegram_id = update.effective_user.id

@@ -1480,12 +1480,9 @@ async def admin_complete_activation(update: Update, context: ContextTypes.DEFAUL
             
             custom_msg = ""
             if product:
-                if user_lang == "fr" and product.get("activation_message_fr"):
-                    custom_msg = product["activation_message_fr"]
-                elif user_lang == "ar" and product.get("activation_message_ar"):
-                    custom_msg = product["activation_message_ar"]
-                elif user_lang == "zh" and product.get("activation_message_zh"):
-                    custom_msg = product["activation_message_zh"]
+                lang_msg = product.get(f"activation_message_{user_lang}") if user_lang != "en" else ""
+                if lang_msg:
+                    custom_msg = lang_msg
                 elif product.get("activation_message"):
                     custom_msg = product["activation_message"]
             

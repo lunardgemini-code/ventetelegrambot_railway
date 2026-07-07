@@ -142,7 +142,7 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         display_stock = stock
         if product.get("delivery_type") == "activation":
-            display_stock = {"fr": "Activation manuelle", "en": "Manual activation", "ar": "تفعيل يدوي", "zh": "人工激活"}.get(lang, "Activation manuelle")
+            display_stock = {"fr": "Activation manuelle", "en": "Manual activation", "ar": "تفعيل يدوي", "zh": "人工激活", "vi": "Kích hoạt thủ công", "ru": "Ручная активация"}.get(lang, "Activation manuelle")
 
         text = t("product_detail", lang).format(
             emoji=p_emoji,
