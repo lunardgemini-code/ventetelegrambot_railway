@@ -1152,7 +1152,7 @@ async def api_translate(data: dict):
     if not api_key:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY non configurée")
         
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent"
+    models_to_try = ["gemini-3.5-flash", "gemini-3.1-flash"]
     prompt = (
         "Translate the following product description into French, Arabic, Chinese, Vietnamese, and Russian. "
         "Return a valid JSON object with the exact keys: 'fr', 'ar', 'zh', 'vi', 'ru'. "
@@ -1167,15 +1167,22 @@ async def api_translate(data: dict):
     
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(
-                url,
-                json=payload,
-                headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
-            )
-            if response.status_code != 200:
-                error_body = response.text
-                logger.error("Gemini API HTTP %d: %s", response.status_code, error_body)
-                raise HTTPException(status_code=502, detail=f"Erreur de traduction (service indisponible): {error_body}")
+            response = None
+            for model_name in models_to_try:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+                response = await client.post(
+                    url,
+                    json=payload,
+                    headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+                )
+                if response.status_code == 200:
+                    break
+                logger.warning("Gemini API HTTP %d for %s: %s", response.status_code, model_name, response.text)
+
+            if response is None or response.status_code != 200:
+                error_body = response.text if response else "No response"
+                logger.error("All Gemini models failed. Last HTTP %s: %s", getattr(response, 'status_code', 'N/A'), error_body)
+                raise HTTPException(status_code=502, detail=f"Erreur de traduction (serveurs surchargés): {error_body}")
             
             result_json = response.json()
             
