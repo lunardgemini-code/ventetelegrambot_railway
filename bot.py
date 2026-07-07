@@ -1173,8 +1173,9 @@ async def api_translate(data: dict):
                 headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
             )
             if response.status_code != 200:
-                logger.error("Gemini API HTTP %d", response.status_code)
-                raise HTTPException(status_code=502, detail="Erreur de traduction (service indisponible)")
+                error_body = response.text
+                logger.error("Gemini API HTTP %d: %s", response.status_code, error_body)
+                raise HTTPException(status_code=502, detail=f"Erreur de traduction (service indisponible): {error_body}")
             
             result_json = response.json()
             
