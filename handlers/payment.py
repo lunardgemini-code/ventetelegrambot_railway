@@ -144,7 +144,7 @@ async def send_delivery_messages(bot, chat_id: int, header: str, items: list, fo
     
     base_markup = main_menu_keyboard(lang)
     if order_id and total_length <= 1500 and len(items) <= 10:
-        new_kb = [[InlineKeyboardButton("📥 Download as TXT", callback_data=f"dl_txt:{order_id}")]] + base_markup.inline_keyboard
+        new_kb = [[InlineKeyboardButton("📥 Download as TXT", callback_data=f"dl_txt:{order_id}")]] + list(base_markup.inline_keyboard)
         reply_markup = InlineKeyboardMarkup(new_kb)
     else:
         reply_markup = base_markup
