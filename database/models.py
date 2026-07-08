@@ -28,6 +28,8 @@ _STOCK_COUNTS_CACHE_TTL = 2.0
 _SETTINGS_CACHE: dict[str, str | None] = {}
 _DEFAULT_BINANCE_ACCOUNT_CACHE: dict | None = None
 _DEFAULT_BINANCE_ACCOUNT_LOADED = False
+_RESELLER_LAST_USED_TOUCH_CACHE: dict[int, float] = {}
+_RESELLER_LAST_USED_TOUCH_INTERVAL = 60.0
 
 
 def _clear_stock_cache() -> None:
@@ -1748,6 +1750,37 @@ async def revoke_reseller_api_key(key_id: int) -> bool:
         await db.close()
 
 
+async def _touch_reseller_api_key_last_used(key_id: int) -> None:
+    """Best-effort timestamp update, isolated from reseller auth reads."""
+    now = time.time()
+    last_touch = _RESELLER_LAST_USED_TOUCH_CACHE.get(key_id, 0.0)
+    if now - last_touch < _RESELLER_LAST_USED_TOUCH_INTERVAL:
+        return
+    _RESELLER_LAST_USED_TOUCH_CACHE[key_id] = now
+
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        db = None
+        try:
+            db = await get_db()
+            await db.execute(
+                "UPDATE reseller_api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (key_id,),
+            )
+            await db.commit()
+            return
+        except Exception as exc:
+            last_exc = exc
+        finally:
+            if db is not None:
+                try:
+                    await db.close()
+                except Exception:
+                    pass
+
+    logger.warning("Failed to update last_used_at for reseller API key %d after retry: %s", key_id, last_exc)
+
+
 async def get_reseller_by_api_key(raw_key: str) -> dict | None:
     prefix = _reseller_key_prefix(raw_key)
     if not prefix:
@@ -1771,14 +1804,7 @@ async def get_reseller_by_api_key(raw_key: str) -> dict | None:
             return None
         if data.get("is_banned"):
             return None
-        try:
-            await db.execute(
-                "UPDATE reseller_api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (data["id"],),
-            )
-            await db.commit()
-        except Exception as exc:
-            logger.warning("Failed to update last_used_at for reseller API key %d: %s", data["id"], exc)
+        await _touch_reseller_api_key_last_used(data["id"])
         data.pop("key_hash", None)
         return data
     finally:
