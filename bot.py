@@ -15,7 +15,6 @@ import logging
 import os
 import threading
 from datetime import datetime
-from urllib.parse import urlparse
 from fastapi import FastAPI, Header, HTTPException, Depends, status, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
@@ -96,45 +95,36 @@ api = FastAPI(
     openapi_url=None,
 )
 
-# Enable CORS for browser access.
-# Set CORS_ORIGINS=https://your-site.com,https://another-site.com when a browser site calls the API.
-def _cors_origin_from_url(value: str) -> str | None:
-    value = (value or "").strip()
-    if not value:
-        return None
-    if "://" not in value:
-        value = f"https://{value}"
-    parsed = urlparse(value)
-    if not parsed.scheme or not parsed.netloc:
-        return None
-    return f"{parsed.scheme}://{parsed.netloc}"
-
-
+# Enable CORS for browser dashboard access.
+# Admin routes still require ADMIN_API_KEY. Optionally lock origins with:
+#   CORS_ORIGINS=https://your-dashboard.com,https://your-app.up.railway.app
 def _build_cors_origins() -> list[str]:
     raw = os.environ.get("CORS_ORIGINS", "").strip()
     if raw:
         origins = [o.strip() for o in raw.split(",") if o.strip()]
         if "*" in origins:
             logger.warning("CORS_ORIGINS contains '*'. Restrict it to trusted domains in production.")
+            return ["*"]
         return origins
 
-    origins: set[str] = set()
-    for env_name in ("PUBLIC_BASE_URL", "WEBHOOK_URL", "RAILWAY_PUBLIC_DOMAIN"):
-        origin = _cors_origin_from_url(os.environ.get(env_name, ""))
-        if origin:
-            origins.add(origin)
-    if os.environ.get("ENV", "").lower() in {"dev", "development", "local"}:
-        origins.update({"http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"})
-    return sorted(origins)
+    # No CORS_ORIGINS set. An empty allow_origins list breaks browser dashboards
+    # on Netlify / another host with "Failed to fetch". Default open CORS;
+    # admin routes still need ADMIN_API_KEY.
+    logger.warning(
+        "CORS_ORIGINS not set — allowing all origins so the admin dashboard can connect. "
+        "Set CORS_ORIGINS=https://your-dashboard.com to lock this down."
+    )
+    return ["*"]
 
 
 _cors_origins = _build_cors_origins()
+logger.info("CORS allow_origins=%s", _cors_origins)
 api.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["X-API-Key", "X-Reseller-Key", "Content-Type"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["*"],
     expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After"],
 )
 

@@ -31,9 +31,9 @@
             </div>
             <form id="login-form">
                 <div class="form-group">
-                    <label for="bot-url"><i class="fa-solid fa-link"></i> <span data-i18n="login_url_label">URL de l'API (optionnel)</span></label>
+                    <label for="bot-url"><i class="fa-solid fa-link"></i> <span data-i18n="login_url_label">URL de l'API</span></label>
                     <input type="text" id="bot-url" value="" placeholder="https://your-app.up.railway.app">
-                    <span class="field-hint" data-i18n="login_url_hint">Laissez vide pour le proxy Netlify</span>
+                    <span class="field-hint" data-i18n="login_url_hint">Laissez vide si vous êtes déjà sur /dashboard du bot ; sinon collez l'URL Railway</span>
                 </div>
                 <div class="form-group">
                     <label for="api-key"><i class="fa-solid fa-key"></i> <span data-i18n="login_key_label">Clé d'API Administrateur</span></label>
@@ -600,7 +600,7 @@
                         <p data-i18n="settings_desc">Synchronisation entre cette interface et votre bot.</p>
                     </div>
                     <form id="settings-form">
-                        <div class="form-group"><label for="settings-bot-url"><i class="fa-solid fa-link"></i> URL API</label><input type="url" id="settings-bot-url" value="https://botstore1.onrender.com" required></div>
+                        <div class="form-group"><label for="settings-bot-url"><i class="fa-solid fa-link"></i> URL API</label><input type="url" id="settings-bot-url" value="" placeholder="https://your-app.up.railway.app" required></div>
                         <div class="form-group"><label for="settings-api-key"><i class="fa-solid fa-key"></i> <span data-i18n="login_key_label">Clé API</span></label><input type="password" id="settings-api-key" placeholder="••••••••" required></div>
                         <button type="submit" class="btn-primary"><i class="fa-solid fa-save"></i> <span data-i18n="btn_save">Enregistrer</span></button>
                     </form>

@@ -18,7 +18,7 @@ function toggleActivationFields(type) {
 // —————————————————————————————————————————————————————
 const LANG = {
 fr: {
-    login_subtitle:"Console de Gestion Administrateur",login_url_label:"URL de l'API (optionnel)",login_url_hint:"Laissez vide pour le proxy Netlify",login_key_label:"Clé d'API Administrateur",login_btn:"Se connecter",
+    login_subtitle:"Console de Gestion Administrateur",login_url_label:"URL de l'API",login_url_hint:"Laissez vide si vous êtes déjà sur /dashboard du bot ; sinon collez l'URL Railway",login_key_label:"Clé d'API Administrateur",login_btn:"Se connecter",
     nav_dashboard:"Dashboard",nav_stats:"Statistiques",nav_inventory:"Catalogue & Stock",nav_orders:"Commandes",nav_users:"Utilisateurs",nav_tickets:"Tickets",nav_broadcast:"Broadcast",nav_settings:"Paramètres",
     admin_title:"Administrateur",status_connected:"Connecté",btn_logout:"Déconnexion",
     tab_dashboard:"Tableau de Bord",tab_stats:"Analyses & Statistiques",tab_inventory:"Catalogue & Stock",tab_orders:"Suivi des Commandes",tab_users:"Gestion des Utilisateurs",tab_tickets:"Tickets Support",tab_broadcast:"Broadcast",tab_settings:"Paramètres",
@@ -52,7 +52,7 @@ fr: {
     nav_resellers:"Revendeurs",nav_api_docs:"Documentation API",resellers_title:"Revendeurs",no_resellers:"Aucun revendeur.",reseller_user_id:"ID Telegram du revendeur",reseller_key_name:"Nom de la clé",btn_create_reseller_key:"Créer la clé",reseller_key_created:"Clé créée, à copier maintenant :",reseller_revoke:"Révoquer"
 },
 en: {
-    login_subtitle:"Admin Management Console",login_url_label:"API URL (optional)",login_url_hint:"Leave empty for Netlify proxy",login_key_label:"Admin API Key",login_btn:"Connect",
+    login_subtitle:"Admin Management Console",login_url_label:"API URL",login_url_hint:"Leave empty if already on the bot /dashboard; otherwise paste your Railway URL",login_key_label:"Admin API Key",login_btn:"Connect",
     nav_dashboard:"Dashboard",nav_stats:"Statistics",nav_inventory:"Catalog & Stock",nav_orders:"Orders",nav_users:"Users",nav_tickets:"Tickets",nav_broadcast:"Broadcast",nav_settings:"Settings",
     admin_title:"Administrator",status_connected:"Connected",btn_logout:"Logout",
     tab_dashboard:"Dashboard",tab_stats:"Analytics & Statistics",tab_inventory:"Catalog & Stock",tab_orders:"Order Tracking",tab_users:"User Management",tab_tickets:"Support Tickets",tab_broadcast:"Broadcast",tab_settings:"Settings",
@@ -275,11 +275,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const savedUrl = localStorage.getItem('ventebot_url') || '';
     const savedKey = localStorage.getItem('ventebot_key');
     if (savedKey) {
-        state.botUrl = savedUrl; state.apiKey = savedKey;
-        DOM.settingsBotUrl.value = savedUrl || '';
+        state.botUrl = resolveBotUrl(savedUrl);
+        state.apiKey = savedKey;
+        DOM.settingsBotUrl.value = state.botUrl || '';
+        if (DOM.botUrlInput) DOM.botUrlInput.value = state.botUrl || '';
         DOM.settingsApiKey.value = savedKey;
         testConnectionAndStart();
-    } else showScreen('login');
+    } else {
+        // Prefill API URL with current origin when opened from Railway /dashboard
+        const origin = window.location.origin || '';
+        if (origin && !origin.startsWith('file:')) {
+            if (DOM.botUrlInput && !DOM.botUrlInput.value) DOM.botUrlInput.placeholder = origin;
+        }
+        showScreen('login');
+    }
 
     setupEvents();
 });
@@ -290,10 +299,8 @@ document.addEventListener('DOMContentLoaded', () => {
 function setupEvents() {
     DOM.loginForm.addEventListener('submit', e => {
         e.preventDefault();
-        let u = DOM.botUrlInput.value.trim().replace(/\/$/, '');
-        if (u && !u.startsWith('http://') && !u.startsWith('https://')) u = 'https://' + u;
         state.apiKey = DOM.apiKeyInput.value.trim();
-        state.botUrl = u || '';
+        state.botUrl = resolveBotUrl(DOM.botUrlInput.value);
         testConnectionAndStart();
     });
     $$('.menu-item').forEach(i => i.addEventListener('click', e => {
@@ -518,8 +525,17 @@ function createParticleBurst(x, y) {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  API CALL
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+function resolveBotUrl(raw) {
+    let u = (raw || '').trim().replace(/\/$/, '');
+    if (u && !u.startsWith('http://') && !u.startsWith('https://')) u = 'https://' + u;
+    // Empty URL → same origin (Railway /dashboard or a reverse proxy)
+    if (!u) u = (typeof window !== 'undefined' && window.location?.origin) ? window.location.origin : '';
+    return u.replace(/\/$/, '');
+}
+
 async function apiCall(endpoint, method='GET', body=null) {
-    const url = `${state.botUrl}${endpoint}`;
+    const base = resolveBotUrl(state.botUrl);
+    const url = `${base}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
     const headers = { 'X-API-Key': state.apiKey };
     if (body) headers['Content-Type'] = 'application/json';
     const ctrl = new AbortController(); const tid = setTimeout(() => ctrl.abort(), 60000);
@@ -532,12 +548,20 @@ async function apiCall(endpoint, method='GET', body=null) {
             let errDetail = `API ${res.status}`;
             try {
                 const errBody = await res.json();
-                if (errBody && errBody.detail) errDetail = errBody.detail;
+                if (errBody && errBody.detail) errDetail = typeof errBody.detail === 'string' ? errBody.detail : JSON.stringify(errBody.detail);
             } catch(e) {}
             throw new Error(errDetail); 
         }
         return await res.json();
-    } catch(e) { clearTimeout(tid); if (e.name==='AbortError') throw new Error('TIMEOUT'); throw e; }
+    } catch(e) {
+        clearTimeout(tid);
+        if (e.name==='AbortError') throw new Error('TIMEOUT');
+        // Browser network/CORS failures surface as TypeError: Failed to fetch
+        if (e instanceof TypeError || /failed to fetch|networkerror|load failed/i.test(e.message || '')) {
+            throw new Error('UNREACHABLE');
+        }
+        throw e;
+    }
 }
 
 async function autoTranslate(type, field) {
@@ -696,18 +720,57 @@ async function massTranslate() {
 async function testConnectionAndStart() {
     showLoading(true); DOM.loginError.classList.add('hidden');
     try {
-        const ctrl = new AbortController(); const tid = setTimeout(() => ctrl.abort(), 60000);
-        try { const r = await fetch(`${state.botUrl}/health`, {mode:'cors',signal:ctrl.signal}); clearTimeout(tid); const h = await r.json(); if (!h||h.status!=='ok') throw new Error('BAD'); }
-        catch(e) { clearTimeout(tid); if (e.name==='AbortError') throw new Error('TIMEOUT'); throw new Error('UNREACHABLE'); }
-        try { await apiCall('/api/stats'); } catch(e) { if (e.message==='API_KEY_INVALID') throw e; throw e; }
-        localStorage.setItem('ventebot_url', state.botUrl); localStorage.setItem('ventebot_key', state.apiKey);
-        DOM.settingsBotUrl.value = state.botUrl; DOM.settingsApiKey.value = state.apiKey;
-        showScreen('app'); refreshData(); startAutoRefresh();
-    } catch(e) {
-        showScreen('login'); DOM.botUrlInput.value = state.botUrl; DOM.loginError.classList.remove('hidden');
-        let msg = e.message==='TIMEOUT' ? 'â± Timeout — réessayez dans 30s' : e.message==='API_KEY_INVALID' ? '🔑 Clé API invalide' : `âŒ ${e.message}`;
+        state.botUrl = resolveBotUrl(state.botUrl);
+        if (!state.apiKey) throw new Error('MISSING_KEY');
+
+        const healthUrl = `${state.botUrl}/health`;
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 60000);
+        try {
+            const r = await fetch(healthUrl, { mode: 'cors', signal: ctrl.signal, cache: 'no-store' });
+            clearTimeout(tid);
+            if (!r.ok) throw new Error(`HEALTH_${r.status}`);
+            const h = await r.json();
+            if (!h || h.status !== 'ok') throw new Error('BAD_HEALTH');
+        } catch (e) {
+            clearTimeout(tid);
+            if (e.name === 'AbortError') throw new Error('TIMEOUT');
+            if (e.message === 'BAD_HEALTH' || String(e.message || '').startsWith('HEALTH_')) throw e;
+            // CORS / wrong URL / bot offline → browser "Failed to fetch"
+            throw new Error('UNREACHABLE');
+        }
+
+        await apiCall('/api/stats');
+
+        localStorage.setItem('ventebot_url', state.botUrl);
+        localStorage.setItem('ventebot_key', state.apiKey);
+        DOM.settingsBotUrl.value = state.botUrl;
+        DOM.settingsApiKey.value = state.apiKey;
+        showScreen('app');
+        refreshData();
+        startAutoRefresh();
+    } catch (e) {
+        showScreen('login');
+        if (DOM.botUrlInput) DOM.botUrlInput.value = state.botUrl || '';
+        DOM.loginError.classList.remove('hidden');
+        let msg;
+        if (e.message === 'TIMEOUT') {
+            msg = '⏱ Timeout — le bot met trop longtemps à répondre (cold start Railway ?). Réessayez dans 30s.';
+        } else if (e.message === 'API_KEY_INVALID') {
+            msg = '🔑 Clé API invalide — utilisez la variable <code>ADMIN_API_KEY</code> de Railway.';
+        } else if (e.message === 'MISSING_KEY') {
+            msg = '🔑 Entrez la clé API administrateur (<code>ADMIN_API_KEY</code>).';
+        } else if (e.message === 'UNREACHABLE' || e.message === 'BAD_HEALTH' || String(e.message || '').startsWith('HEALTH_')) {
+            msg = `❌ Impossible de joindre l'API (<code>${escapeHtml(state.botUrl || '?')}/health</code>).<br>`
+                + `<small style="opacity:.85">Vérifiez : URL Railway correcte (https://….up.railway.app), bot démarré, et CORS. `
+                + `Ouvrez le dashboard sur <code>${escapeHtml(state.botUrl || '')}/dashboard/</code> ou entrez cette URL ci-dessus.</small>`;
+        } else {
+            msg = `❌ ${escapeHtml(e.message || 'Erreur de connexion')}`;
+        }
         DOM.loginError.innerHTML = msg;
-    } finally { showLoading(false); }
+    } finally {
+        showLoading(false);
+    }
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -2001,7 +2064,12 @@ async function handleBroadcast() {
 }
 
 // Settings
-function handleSaveSettings(e) { e.preventDefault(); let u=DOM.settingsBotUrl.value.trim().replace(/\/$/,''); if(u&&!u.startsWith('http://')&&!u.startsWith('https://'))u='https://'+u; state.apiKey=DOM.settingsApiKey.value.trim(); state.botUrl=u||''; testConnectionAndStart(); }
+function handleSaveSettings(e) {
+    e.preventDefault();
+    state.apiKey = DOM.settingsApiKey.value.trim();
+    state.botUrl = resolveBotUrl(DOM.settingsBotUrl.value);
+    testConnectionAndStart();
+}
 
 async function loadPaymentSettings() {
     try {
