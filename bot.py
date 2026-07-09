@@ -1743,6 +1743,24 @@ async def api_get_products_stats():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@api.get("/api/stats/products/momentum", dependencies=[Depends(verify_api_key)])
+async def api_get_products_momentum(days: int = 30):
+    days = max(1, min(days, 90))
+    cache_key = f"products_momentum_{days}"
+    current_time = time.time()
+    if cache_key in _stats_cache and current_time - _stats_cache[cache_key]["time"] < _stats_cache_ttl:
+        return _stats_cache[cache_key]["data"]
+
+    from database.models import get_product_sales_momentum
+    try:
+        data = await get_product_sales_momentum(days=days)
+        _stats_cache[cache_key] = {"time": current_time, "data": data}
+        return data
+    except Exception as exc:
+        logger.error("API error products momentum: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @api.post("/api/broadcast", dependencies=[Depends(verify_api_key)])
 async def api_broadcast(data: dict):
     from database.models import get_all_users

@@ -184,6 +184,20 @@
                     </div>
                 </div>
 
+                <div class="glass-panel mb-4" style="padding: 1.5rem;">
+                    <div class="flex-justify mb-4" style="gap:1rem; flex-wrap:wrap;">
+                        <div>
+                            <h3><i class="fa-solid fa-wave-square"></i> Momentum des ventes par produit</h3>
+                            <p style="color:var(--color-text-muted); font-size:0.9rem; margin-top:0.35rem;">Ventes quotidiennes sur 30 jours. Cliquez sur un produit pour l'afficher ou le masquer.</p>
+                        </div>
+                        <span id="product-momentum-yesterday" class="status-badge neutral">Hier: -</span>
+                    </div>
+                    <div id="product-momentum-controls" style="display:flex; flex-wrap:wrap; gap:0.6rem; margin-bottom:1rem;"></div>
+                    <div class="chart-wrapper" style="height: 340px; position: relative;">
+                        <canvas id="chart-product-momentum"></canvas>
+                    </div>
+                </div>
+
                 <div class="glass-panel" style="padding: 1.5rem;">
                     <div class="flex-justify mb-4" style="flex-wrap: wrap; gap: 1rem;">
                         <h3><i class="fa-solid fa-table-list"></i> Performances des Produits</h3>

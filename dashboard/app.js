@@ -131,8 +131,8 @@ const state = {
     whFilter:'all', whPage:0, whTotal:0,
     usersPage:0, usersPerPage:20, usersSearch:'', usersTotal:0,
     currentStockProductId:null, autoRefresh:false, autoRefreshTimer:null,
-    revenueChart:null, ordersChart:null, productSalesChart:null,
-    productStats:[]
+    revenueChart:null, ordersChart:null, productSalesChart:null, productMomentumChart:null,
+    productStats:[], productMomentum:null, productMomentumSelected:[]
 };
 
 function $(id) { return document.getElementById(id); }
@@ -156,6 +156,9 @@ const DOM = {
     statsKpiTotalRevenue:$('stats-kpi-total-revenue'),
     statsKpiStockAlerts:$('stats-kpi-stock-alerts'),
     chartProductSales:$('chart-product-sales'),
+    chartProductMomentum:$('chart-product-momentum'),
+    productMomentumControls:$('product-momentum-controls'),
+    productMomentumYesterday:$('product-momentum-yesterday'),
     promosTableBody:$('promos-table-body'),
     ordersTableBody:$('orders-table-body'), activationsTableBody:$('activations-table-body'), ordersPagination:$('orders-pagination'),
     ordersPrev:$('orders-prev'), ordersNext:$('orders-next'), ordersPageInfo:$('orders-page-info'),
@@ -710,7 +713,7 @@ async function testConnectionAndStart() {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 const tabRefreshLoaders = {
     'dashboard-tab': [loadStats, loadFinance, loadCharts],
-    'stats-tab': [loadStats, loadCharts, loadProductStats],
+    'stats-tab': [loadStats, loadCharts, loadProductStats, loadProductMomentum],
     'inventory-tab': [loadProducts, loadBinanceAccounts],
     'orders-tab': [loadProducts, loadAllOrders],
     'activations-tab': [loadProducts, loadActivations],
@@ -726,7 +729,7 @@ const tabRefreshLoaders = {
 const fullRefreshLoaders = [
     loadStats, loadFinance, loadProducts, loadAllOrders, loadActivations, loadResellers,
     loadTickets, loadUsers, loadPromos, loadCharts, loadWalletHistory, loadBinanceAccounts,
-    loadPaymentSettings, loadProductStats
+    loadPaymentSettings, loadProductStats, loadProductMomentum
 ];
 
 function uniqueLoaders(loaders) {
@@ -943,6 +946,126 @@ function renderProductSalesChart(stats) {
                 }
             },
             cutout: '60%'
+        }
+    });
+}
+
+async function loadProductMomentum() {
+    if (!DOM.chartProductMomentum) return;
+    try {
+        const data = await apiCall('/api/stats/products/momentum?days=30');
+        state.productMomentum = data;
+        const productsWithSales = (data.products || []).filter(p => (p.total_sold || 0) > 0);
+        const validSelected = new Set(productsWithSales.map(p => p.id));
+        state.productMomentumSelected = state.productMomentumSelected.filter(id => validSelected.has(id));
+        if (state.productMomentumSelected.length === 0) {
+            state.productMomentumSelected = productsWithSales.slice(0, 5).map(p => p.id);
+        }
+        renderProductMomentumControls();
+        renderProductMomentumChart();
+    } catch (e) {
+        console.error("Failed to load product momentum:", e);
+        if (DOM.productMomentumControls) {
+            DOM.productMomentumControls.innerHTML = '<span class="empty-state">Impossible de charger le momentum.</span>';
+        }
+    }
+}
+
+function renderProductMomentumControls() {
+    if (!DOM.productMomentumControls || !state.productMomentum) return;
+    const products = (state.productMomentum.products || []).filter(p => (p.total_sold || 0) > 0);
+    if (products.length === 0) {
+        DOM.productMomentumControls.innerHTML = '<span class="empty-state">Aucune vente produit sur la période.</span>';
+        if (DOM.productMomentumYesterday) DOM.productMomentumYesterday.textContent = 'Hier: 0 vente';
+        return;
+    }
+
+    const selected = new Set(state.productMomentumSelected);
+    const yesterdayTotal = products.reduce((sum, p) => sum + (p.yesterday_sold || 0), 0);
+    if (DOM.productMomentumYesterday) {
+        DOM.productMomentumYesterday.textContent = `Hier: ${yesterdayTotal} vente${yesterdayTotal > 1 ? 's' : ''}`;
+    }
+
+    DOM.productMomentumControls.innerHTML = products.map(p => {
+        const active = selected.has(p.id);
+        const activeStyle = active
+            ? 'background:rgba(99,102,241,0.18); border-color:var(--primary-color); color:var(--color-text-main);'
+            : 'opacity:0.68;';
+        return `
+            <button type="button" class="btn-secondary btn-sm" style="${activeStyle}" onclick="toggleMomentumProduct(${p.id})" title="Afficher / masquer ${escapeHtml(p.name)}">
+                ${escapeHtml(p.emoji || '📦')} ${escapeHtml(p.name)}
+                <small style="display:block; color:var(--color-text-muted); margin-top:2px;">Hier: ${p.yesterday_sold || 0} · 30j: ${p.total_sold || 0}</small>
+            </button>
+        `;
+    }).join('');
+}
+
+window.toggleMomentumProduct = function(productId) {
+    const id = Number(productId);
+    const selected = new Set(state.productMomentumSelected);
+    if (selected.has(id)) {
+        selected.delete(id);
+    } else {
+        selected.add(id);
+    }
+    state.productMomentumSelected = [...selected];
+    renderProductMomentumControls();
+    renderProductMomentumChart();
+};
+
+function renderProductMomentumChart() {
+    if (!DOM.chartProductMomentum || !state.productMomentum) return;
+    const labels = (state.productMomentum.days || []).map(d => d.slice(5));
+    const selected = new Set(state.productMomentumSelected);
+    const products = (state.productMomentum.products || []).filter(p => selected.has(p.id));
+    const colors = ['#6366f1', '#10b981', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6', '#ef4444', '#84cc16', '#06b6d4'];
+    const gridColor = getComputedStyle(document.documentElement).getPropertyValue('--chart-grid').trim() || 'rgba(255,255,255,0.05)';
+    const textColor = getComputedStyle(document.documentElement).getPropertyValue('--color-text-muted').trim() || '#9f9baa';
+
+    const datasets = products.map((p, idx) => {
+        const color = colors[idx % colors.length];
+        return {
+            label: `${p.emoji || '📦'} ${p.name}`,
+            data: p.series || [],
+            borderColor: color,
+            backgroundColor: color + '22',
+            pointBackgroundColor: color,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+            borderWidth: 2,
+            tension: 0.32,
+            fill: false,
+        };
+    });
+
+    if (state.productMomentumChart) state.productMomentumChart.destroy();
+    state.productMomentumChart = new Chart(DOM.chartProductMomentum, {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { color: textColor, boxWidth: 12, padding: 14 }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const p = products[context.datasetIndex];
+                            const qty = context.raw || 0;
+                            const revenue = p && p.revenue_series ? (p.revenue_series[context.dataIndex] || 0) : 0;
+                            return ` ${context.dataset.label}: ${qty} vente${qty > 1 ? 's' : ''} · $${revenue.toFixed(2)}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: { ticks: { color: textColor, maxTicksLimit: 12 }, grid: { color: gridColor } },
+                y: { beginAtZero: true, ticks: { color: textColor, precision: 0 }, grid: { color: gridColor } }
+            }
         }
     });
 }
