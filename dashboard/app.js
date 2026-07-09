@@ -132,7 +132,7 @@ const state = {
     usersPage:0, usersPerPage:20, usersSearch:'', usersTotal:0,
     currentStockProductId:null, autoRefresh:false, autoRefreshTimer:null,
     revenueChart:null, ordersChart:null, productSalesChart:null, productMomentumChart:null,
-    productStats:[], productMomentum:null, productMomentumSelected:[]
+    productStats:[], productMomentum:null, productMomentumSelected:[], deadProductAlerts:[]
 };
 
 function $(id) { return document.getElementById(id); }
@@ -159,6 +159,8 @@ const DOM = {
     chartProductMomentum:$('chart-product-momentum'),
     productMomentumControls:$('product-momentum-controls'),
     productMomentumYesterday:$('product-momentum-yesterday'),
+    productMomentumRange:$('product-momentum-range'),
+    deadProductsAlerts:$('dead-products-alerts'),
     promosTableBody:$('promos-table-body'),
     ordersTableBody:$('orders-table-body'), activationsTableBody:$('activations-table-body'), ordersPagination:$('orders-pagination'),
     ordersPrev:$('orders-prev'), ordersNext:$('orders-next'), ordersPageInfo:$('orders-page-info'),
@@ -713,7 +715,7 @@ async function testConnectionAndStart() {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 const tabRefreshLoaders = {
     'dashboard-tab': [loadStats, loadFinance, loadCharts],
-    'stats-tab': [loadStats, loadCharts, loadProductStats, loadProductMomentum],
+    'stats-tab': [loadStats, loadCharts, loadProductStats, loadProductMomentum, loadDeadProductAlerts],
     'inventory-tab': [loadProducts, loadBinanceAccounts],
     'orders-tab': [loadProducts, loadAllOrders],
     'activations-tab': [loadProducts, loadActivations],
@@ -729,7 +731,7 @@ const tabRefreshLoaders = {
 const fullRefreshLoaders = [
     loadStats, loadFinance, loadProducts, loadAllOrders, loadActivations, loadResellers,
     loadTickets, loadUsers, loadPromos, loadCharts, loadWalletHistory, loadBinanceAccounts,
-    loadPaymentSettings, loadProductStats, loadProductMomentum
+    loadPaymentSettings, loadProductStats, loadProductMomentum, loadDeadProductAlerts
 ];
 
 function uniqueLoaders(loaders) {
@@ -797,8 +799,16 @@ async function loadStats() {
     if (DOM.statReturningUsers) DOM.statReturningUsers.textContent = s.returning_users || 0;
     if (s.stock_summary?.length > 0) {
         DOM.stockSummaryList.innerHTML = s.stock_summary.map(i => {
-            const c = i.stock===0?'empty':i.stock<3?'low':'ok';
-            return `<div class="stock-status-item"><div class="prod-badge"><span class="prod-emoji">${i.emoji}</span><span class="prod-name-lbl">${i.name}</span></div><span class="stock-count-badge ${c}">${i.stock} ${t('stock_in')}</span></div>`;
+            const isActivation = i.delivery_type === 'activation';
+            const c = isActivation ? 'ok' : (i.stock===0?'empty':(i.stock_risk === 'soon' || i.stock<3)?'low':'ok');
+            const daysLeft = isActivation
+                ? 'Activation'
+                : i.days_left === null || i.days_left === undefined
+                ? 'Rupture: -'
+                : `Rupture: ~${Number(i.days_left).toFixed(i.days_left < 10 ? 1 : 0)}j`;
+            const velocity = Number(i.avg_daily_sales_7d || 0);
+            const stockLabel = isActivation ? 'Manuel' : `${i.stock} ${t('stock_in')}`;
+            return `<div class="stock-status-item"><div class="prod-badge"><span class="prod-emoji">${escapeHtml(i.emoji || '📦')}</span><span class="prod-name-lbl">${escapeHtml(i.name)}</span></div><div style="display:flex; gap:0.45rem; align-items:center; flex-wrap:wrap; justify-content:flex-end;"><span class="status-badge neutral" title="Ventes moyennes sur 7 jours">${velocity.toFixed(1)}/j</span><span class="stock-count-badge ${c}">${daysLeft}</span><span class="stock-count-badge ${c}">${stockLabel}</span></div></div>`;
         }).join('');
     } else DOM.stockSummaryList.innerHTML = `<p class="empty-state">${t('no_products')}</p>`;
 }
@@ -847,7 +857,7 @@ async function loadProductStats() {
                 maxSold = p.total_sold;
                 topProduct = p;
             }
-            if (p.stock < 3) {
+            if (p.delivery_type !== 'activation' && p.stock < 3) {
                 stockAlerts++;
             }
         });
@@ -965,10 +975,78 @@ async function loadProductMomentum() {
         renderProductMomentumChart();
     } catch (e) {
         console.error("Failed to load product momentum:", e);
-        if (DOM.productMomentumControls) {
-            DOM.productMomentumControls.innerHTML = '<span class="empty-state">Impossible de charger le momentum.</span>';
+        try {
+            state.productMomentum = await buildProductMomentumFromOrders(30);
+            const productsWithSales = (state.productMomentum.products || []).filter(p => (p.total_sold || 0) > 0);
+            state.productMomentumSelected = productsWithSales.slice(0, 5).map(p => p.id);
+            renderProductMomentumControls();
+            renderProductMomentumChart();
+        } catch (fallbackError) {
+            console.error("Product momentum fallback failed:", fallbackError);
+            if (DOM.productMomentumControls) {
+                DOM.productMomentumControls.innerHTML = '<span class="empty-state">Impossible de charger le momentum.</span>';
+            }
         }
     }
+}
+
+async function buildProductMomentumFromOrders(days = 30) {
+    const response = await apiCall(`/api/orders/all?status=COMPLETED&limit=200&offset=0`);
+    const orders = response.orders || [];
+    const today = new Date();
+    const start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+    start.setUTCDate(start.getUTCDate() - (days - 1));
+    const dayLabels = Array.from({ length: days }, (_, i) => {
+        const d = new Date(start);
+        d.setUTCDate(start.getUTCDate() + i);
+        return d.toISOString().slice(0, 10);
+    });
+    const yesterdayDate = new Date();
+    yesterdayDate.setUTCDate(yesterdayDate.getUTCDate() - 1);
+    const yesterday = yesterdayDate.toISOString().slice(0, 10);
+    const dayIndex = new Map(dayLabels.map((day, idx) => [day, idx]));
+    const products = new Map();
+
+    orders.forEach(order => {
+        if (order.status !== 'COMPLETED' || !order.product_id || !order.created_at) return;
+        const day = parseUTCDate(order.created_at).toISOString().slice(0, 10);
+        const idx = dayIndex.get(day);
+        if (idx === undefined) return;
+
+        const productId = Number(order.product_id);
+        if (!products.has(productId)) {
+            const prod = state.products.find(p => Number(p.id) === productId);
+            products.set(productId, {
+                id: productId,
+                name: order.product_name || (prod ? prod.name : `Product #${productId}`),
+                emoji: order.product_emoji || (prod ? prod.emoji : '📦'),
+                series: Array(days).fill(0),
+                revenue_series: Array(days).fill(0),
+                total_sold: 0,
+                total_revenue: 0,
+                yesterday_sold: 0,
+                yesterday_revenue: 0,
+            });
+        }
+
+        const product = products.get(productId);
+        const qty = Math.max(1, Number(order.quantity || 1));
+        const revenue = Number(order.amount_usd || 0);
+        product.series[idx] += qty;
+        product.revenue_series[idx] += revenue;
+        product.total_sold += qty;
+        product.total_revenue += revenue;
+        if (day === yesterday) {
+            product.yesterday_sold += qty;
+            product.yesterday_revenue += revenue;
+        }
+    });
+
+    return {
+        days: dayLabels,
+        yesterday,
+        products: [...products.values()].sort((a, b) => (b.total_sold - a.total_sold) || (b.total_revenue - a.total_revenue)),
+    };
 }
 
 function renderProductMomentumControls() {
@@ -1015,9 +1093,34 @@ window.toggleMomentumProduct = function(productId) {
 
 function renderProductMomentumChart() {
     if (!DOM.chartProductMomentum || !state.productMomentum) return;
-    const labels = (state.productMomentum.days || []).map(d => d.slice(5));
+    const rawDays = state.productMomentum.days || [];
     const selected = new Set(state.productMomentumSelected);
     const products = (state.productMomentum.products || []).filter(p => selected.has(p.id));
+    let firstSaleIndex = rawDays.length > 0 ? rawDays.length - 1 : 0;
+    let lastSaleIndex = 0;
+    let hasVisibleSale = false;
+
+    products.forEach(product => {
+        (product.series || []).forEach((qty, idx) => {
+            if ((qty || 0) > 0) {
+                hasVisibleSale = true;
+                firstSaleIndex = Math.min(firstSaleIndex, idx);
+                lastSaleIndex = Math.max(lastSaleIndex, idx);
+            }
+        });
+    });
+
+    const startIndex = hasVisibleSale ? Math.max(0, firstSaleIndex - 1) : 0;
+    const endIndex = hasVisibleSale ? Math.min(rawDays.length - 1, lastSaleIndex + 1) : rawDays.length - 1;
+    const visibleDays = rawDays.slice(startIndex, endIndex + 1);
+    const labels = visibleDays.map(d => d.slice(5));
+
+    if (DOM.productMomentumRange) {
+        DOM.productMomentumRange.textContent = hasVisibleSale && rawDays[startIndex] && rawDays[endIndex]
+            ? `Vue: ${rawDays[startIndex].slice(5)} -> ${rawDays[endIndex].slice(5)}`
+            : 'Vue: 30 jours';
+    }
+
     const colors = ['#6366f1', '#10b981', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6', '#ef4444', '#84cc16', '#06b6d4'];
     const gridColor = getComputedStyle(document.documentElement).getPropertyValue('--chart-grid').trim() || 'rgba(255,255,255,0.05)';
     const textColor = getComputedStyle(document.documentElement).getPropertyValue('--color-text-muted').trim() || '#9f9baa';
@@ -1026,7 +1129,7 @@ function renderProductMomentumChart() {
         const color = colors[idx % colors.length];
         return {
             label: `${p.emoji || '📦'} ${p.name}`,
-            data: p.series || [],
+            data: (p.series || []).slice(startIndex, endIndex + 1),
             borderColor: color,
             backgroundColor: color + '22',
             pointBackgroundColor: color,
@@ -1056,7 +1159,8 @@ function renderProductMomentumChart() {
                         label: function(context) {
                             const p = products[context.datasetIndex];
                             const qty = context.raw || 0;
-                            const revenue = p && p.revenue_series ? (p.revenue_series[context.dataIndex] || 0) : 0;
+                            const sourceIndex = startIndex + context.dataIndex;
+                            const revenue = p && p.revenue_series ? (p.revenue_series[sourceIndex] || 0) : 0;
                             return ` ${context.dataset.label}: ${qty} vente${qty > 1 ? 's' : ''} · $${revenue.toFixed(2)}`;
                         }
                     }
@@ -1068,6 +1172,44 @@ function renderProductMomentumChart() {
             }
         }
     });
+}
+
+async function loadDeadProductAlerts() {
+    if (!DOM.deadProductsAlerts) return;
+    try {
+        const data = await apiCall('/api/stats/products/dead-alerts?days=7&min_views=10&max_conversion=0.05');
+        state.deadProductAlerts = data.alerts || [];
+        renderDeadProductAlerts();
+    } catch (e) {
+        console.warn('Dead product alerts failed:', e);
+        DOM.deadProductsAlerts.innerHTML = '<p class="empty-state">Impossible de charger les alertes produits.</p>';
+    }
+}
+
+function renderDeadProductAlerts() {
+    if (!DOM.deadProductsAlerts) return;
+    const alerts = state.deadProductAlerts || [];
+    if (alerts.length === 0) {
+        DOM.deadProductsAlerts.innerHTML = '<p class="empty-state">Aucune alerte: pas encore assez de vues faibles en conversion.</p>';
+        return;
+    }
+
+    DOM.deadProductsAlerts.innerHTML = alerts.map(item => {
+        const conversion = Number(item.conversion || 0) * 100;
+        return `
+            <div class="stock-status-item">
+                <div class="prod-badge">
+                    <span class="prod-emoji">${escapeHtml(item.emoji || '📦')}</span>
+                    <span class="prod-name-lbl">${escapeHtml(item.name || `Produit #${item.id}`)}</span>
+                </div>
+                <div style="display:flex; gap:0.45rem; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
+                    <span class="status-badge info">${item.views || 0} vues</span>
+                    <span class="status-badge neutral">${item.sold || 0} ventes</span>
+                    <span class="stock-count-badge low">${conversion.toFixed(1)}%</span>
+                </div>
+            </div>
+        `;
+    }).join('');
 }
 
 function renderStatsTable() {
@@ -1197,9 +1339,9 @@ async function loadAllOrders() {
             } else if (o.status === 'PENDING' || o.status === 'AWAITING_PAYMENT') {
                 actions = `<button class="btn-table-action" onclick="confirmOrderPayment(${o.id})" title="Confirmer" style="color:#22c55e;"><i class="fa-solid fa-check"></i></button> <button class="btn-table-action" onclick="cancelOrder(${o.id})" title="Annuler" style="color:#ef4444;"><i class="fa-solid fa-xmark"></i></button>`;
             } else if (o.status === 'AWAITING_ACTIVATION') {
-                actions = `<button class="btn-table-action" onclick="completeActivation(${o.id})" title="${t('activation_mark_done')}" style="color:#22c55e;"><i class="fa-solid fa-bolt"></i></button> <button class="btn-table-action" onclick="cancelOrder(${o.id})" title="Annuler" style="color:#ef4444;"><i class="fa-solid fa-xmark"></i></button>`;
+                actions = `<button class="btn-table-action" onclick="completeActivation(${o.id})" title="${t('activation_mark_done')}" style="color:#22c55e;"><i class="fa-solid fa-bolt"></i></button>`;
             } else if (o.status === 'AWAITING_ACTIVATION_INFO') {
-                actions = `<button class="btn-table-action" onclick="cancelOrder(${o.id})" title="Annuler" style="color:#ef4444;"><i class="fa-solid fa-xmark"></i></button>`;
+                actions = '—';
             } else if (o.status === 'COMPLETED') {
                 actions = `<button class="btn-table-action" onclick="openOrderDetail(${o.id})" title="Voir les articles livrés" style="color:#22c55e;"><i class="fa-solid fa-eye"></i></button>`;
             } else {

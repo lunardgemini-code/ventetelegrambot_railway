@@ -26,6 +26,8 @@ from database.models import (
     get_product,
     get_stock_count,
     get_user_lang,
+    claim_order_for_wallet_payment,
+    restore_order_after_failed_wallet_claim,
     submit_activation_identifier,
     update_order_status,
     record_used_transaction,
@@ -621,6 +623,8 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     lang = await get_user_lang(update.effective_user.id)
+    claimed_order = None
+    wallet_debited = False
 
     try:
         order_id = int(query.data.split(":")[1])
@@ -644,12 +648,34 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer(t("payment_confirmed", lang), show_alert=True)
             return ConversationHandler.END
         elif order.get("status") not in ("PENDING", "AWAITING_PAYMENT"):
+            if order.get("status") == "PROCESSING":
+                await query.answer(t("payment_processing", lang), show_alert=True)
+                return ConversationHandler.END
             await query.edit_message_text(
                 t("order_cancelled", lang),
                 parse_mode="HTML",
                 reply_markup=main_menu_keyboard(lang),
             )
             return ConversationHandler.END
+
+        claimed_order = await claim_order_for_wallet_payment(order_id, telegram_id)
+        if not claimed_order:
+            latest_order = await get_order(order_id)
+            if latest_order and latest_order.get("status") == "COMPLETED":
+                await query.answer(t("payment_confirmed", lang), show_alert=True)
+            elif latest_order and latest_order.get("status") == "PROCESSING":
+                await query.answer(t("payment_processing", lang), show_alert=True)
+            else:
+                await query.edit_message_text(
+                    t("order_cancelled", lang),
+                    parse_mode="HTML",
+                    reply_markup=main_menu_keyboard(lang),
+                )
+            return ConversationHandler.END
+
+        order = claimed_order
+        amount = order["amount_usd"]
+        product_id = order.get("product_id")
 
         # Try to deduct from wallet
         from database.models import deduct_wallet, get_wallet_balance
@@ -658,7 +684,9 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 telegram_id, amount,
                 f"Order #{order_id}"
             )
+            wallet_debited = True
         except ValueError:
+            await restore_order_after_failed_wallet_claim(order_id, claimed_order)
             # Insufficient balance
             balance = await get_wallet_balance(telegram_id)
             text = t("wallet_insufficient", lang) \
@@ -700,6 +728,7 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Refund: delivery failed, return funds to wallet
             from database.models import topup_wallet as _topup_refund
             await _topup_refund(telegram_id, amount, f"Refund: delivery failed for order #{order_id}")
+            await update_order_status(order_id, "CANCELLED", payment_method="wallet")
             refund_balance = await get_wallet_balance(telegram_id)
             await query.edit_message_text(
                 t("delivery_failed", lang) + f"\n\n💰 {format_price(amount)} refunded.",
@@ -725,6 +754,11 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as exc:
         logger.error("pay_with_wallet: %s", exc, exc_info=True)
+        if claimed_order and not wallet_debited:
+            try:
+                await restore_order_after_failed_wallet_claim(claimed_order["id"], claimed_order)
+            except Exception:
+                logger.warning("Could not restore wallet-claimed order #%s", claimed_order.get("id"), exc_info=True)
         await query.edit_message_text(t("pay_error", lang))
         return ConversationHandler.END
 

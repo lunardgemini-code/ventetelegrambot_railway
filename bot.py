@@ -15,6 +15,7 @@ import logging
 import os
 import threading
 from datetime import datetime
+from urllib.parse import urlparse
 from fastapi import FastAPI, Header, HTTPException, Depends, status, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
@@ -29,7 +30,7 @@ import httpx
 import time
 
 _stats_cache = {}
-_stats_cache_ttl = 60
+_stats_cache_ttl = 10
 
 from telegram import Update
 from telegram.ext import (
@@ -52,8 +53,10 @@ from handlers.payment import (
     initiate_purchase,
     download_txt_delivery,
     receive_activation_identifier,
+    safe_send_delivery_messages,
 )
 from handlers.products import (
+    notify_product_restock,
     refresh_products,
     show_product_detail,
     show_products_list,
@@ -71,7 +74,7 @@ from handlers.support import (
 from handlers.wallet import wallet_conversation_handler, wallet_menu, wallet_history, wallet_noop
 
 from utils.helpers import escape_html
-from utils.locales import t
+from utils.locales import t, get_confirmation_message
 
 # ── Logging ──
 logging.basicConfig(
@@ -93,10 +96,39 @@ api = FastAPI(
     openapi_url=None,
 )
 
-# Enable CORS for browser access — restrict origins in production
-_cors_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()]
-if not _cors_origins:
-    _cors_origins = ["*"]
+# Enable CORS for browser access.
+# Set CORS_ORIGINS=https://your-site.com,https://another-site.com when a browser site calls the API.
+def _cors_origin_from_url(value: str) -> str | None:
+    value = (value or "").strip()
+    if not value:
+        return None
+    if "://" not in value:
+        value = f"https://{value}"
+    parsed = urlparse(value)
+    if not parsed.scheme or not parsed.netloc:
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def _build_cors_origins() -> list[str]:
+    raw = os.environ.get("CORS_ORIGINS", "").strip()
+    if raw:
+        origins = [o.strip() for o in raw.split(",") if o.strip()]
+        if "*" in origins:
+            logger.warning("CORS_ORIGINS contains '*'. Restrict it to trusted domains in production.")
+        return origins
+
+    origins: set[str] = set()
+    for env_name in ("PUBLIC_BASE_URL", "WEBHOOK_URL", "RAILWAY_PUBLIC_DOMAIN"):
+        origin = _cors_origin_from_url(os.environ.get(env_name, ""))
+        if origin:
+            origins.add(origin)
+    if os.environ.get("ENV", "").lower() in {"dev", "development", "local"}:
+        origins.update({"http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"})
+    return sorted(origins)
+
+
+_cors_origins = _build_cors_origins()
 api.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -122,6 +154,11 @@ if not ADMIN_API_KEY:
     ADMIN_API_KEY = secrets.token_urlsafe(32)
     logger.critical("⚠️ ADMIN_API_KEY not set! Generated temporary key. Set ADMIN_API_KEY env var in production! (Key starts with %s)", ADMIN_API_KEY[:4])
 
+
+def _clear_api_stats_cache() -> None:
+    _stats_cache.clear()
+
+
 def _env_int(name: str, default: int, minimum: int = 1) -> int:
     try:
         return max(minimum, int(os.environ.get(name, str(default))))
@@ -140,6 +177,7 @@ RESELLER_API_RATE_LIMIT = _env_int("RESELLER_API_RATE_LIMIT", 60)
 RESELLER_API_RATE_WINDOW = _env_int("RESELLER_API_RATE_WINDOW", 60)
 THREAD_WORKERS = _env_int("THREAD_WORKERS", 32, minimum=4)
 _reseller_rate_buckets: dict[str, dict[str, int]] = {}
+_reseller_rate_last_cleanup = 0
 
 
 def _is_reseller_api_path(path: str) -> bool:
@@ -202,7 +240,14 @@ def _reseller_rate_headers(remaining: int, reset_at: int) -> dict:
 
 
 def _check_reseller_rate_limit(bucket_key: str) -> dict:
+    global _reseller_rate_last_cleanup
     now = int(time.time())
+    if now - _reseller_rate_last_cleanup >= 60:
+        expired = [key for key, value in _reseller_rate_buckets.items() if now >= value.get("reset_at", 0)]
+        for key in expired:
+            _reseller_rate_buckets.pop(key, None)
+        _reseller_rate_last_cleanup = now
+
     bucket = _reseller_rate_buckets.get(bucket_key)
     if not bucket or now >= bucket["reset_at"]:
         bucket = {"count": 0, "reset_at": now + RESELLER_API_RATE_WINDOW}
@@ -734,19 +779,22 @@ async def api_reseller_me(reseller: dict = Depends(verify_reseller_key)):
 
 @api.get("/api/reseller/products")
 async def api_reseller_products(lang: str = "en", reseller: dict = Depends(verify_reseller_key)):
-    from database.models import get_all_products, get_all_stock_counts, get_price_tiers
+    from database.models import get_all_products, get_all_stock_counts, get_price_tiers_for_products
     try:
         lang = lang if lang in {"en", "fr", "ar", "zh", "vi", "ru"} else "en"
         products = await get_all_products()
         stock_counts = await get_all_stock_counts()
+        active_products = [
+            p for p in products
+            if p.get("is_active", 1) and not p.get("is_deleted", 0)
+        ]
+        tiers_by_product = await get_price_tiers_for_products([p["id"] for p in active_products])
         result = []
-        for p in products:
-            if not p.get("is_active", 1) or p.get("is_deleted", 0):
-                continue
+        for p in active_products:
             desc = p.get(f"description_{lang}") if lang in {"fr", "ar", "zh", "vi", "ru"} else p.get("description")
             if not desc:
                 desc = p.get("description", "")
-            tiers = await get_price_tiers(p["id"])
+            tiers = tiers_by_product.get(p["id"], [])
             result.append({
                 "id": p["id"],
                 "name": p["name"],
@@ -937,6 +985,7 @@ async def api_adjust_finance(data: dict):
             new_balance = 0.0
             
         await set_setting(setting_key, str(new_balance))
+        _clear_api_stats_cache()
         return {"status": "success", "new_balance": new_balance}
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
@@ -949,19 +998,33 @@ async def api_get_stats():
     if "stats" in _stats_cache and current_time - _stats_cache["stats"]["time"] < _stats_cache_ttl:
         return _stats_cache["stats"]["data"]
 
-    from database.models import get_stats, get_all_users, get_all_products, get_all_stock_counts
+    from database.models import get_stats, get_all_users, get_all_products, get_all_stock_counts, get_stock_forecast
     try:
-        stats_30 = await get_stats(days=30)
-        users = await get_all_users()
-        products = await get_all_products()
-        stock_counts = await get_all_stock_counts()
+        stats_30, users, products, stock_counts, forecast = await asyncio.gather(
+            get_stats(days=30),
+            get_all_users(),
+            get_all_products(),
+            get_all_stock_counts(),
+            get_stock_forecast(days=7),
+        )
 
-        stock_summary = [{
-            "id": p["id"],
-            "name": p["name"],
-            "emoji": p["emoji"],
-            "stock": stock_counts.get(p["id"], 0)
-        } for p in products]
+        stock_summary = []
+        for p in products:
+            is_activation = p.get("delivery_type") == "activation"
+            stock = int(stock_counts.get(p["id"], 0) or 0)
+            velocity = forecast.get(p["id"], {})
+            avg_daily = float(velocity.get("avg_daily_sales") or 0)
+            days_left = None if is_activation or avg_daily <= 0 else round(stock / avg_daily, 1)
+            stock_summary.append({
+                "id": p["id"],
+                "name": p["name"],
+                "emoji": p["emoji"],
+                "stock": stock,
+                "delivery_type": p.get("delivery_type") or "stock",
+                "avg_daily_sales_7d": avg_daily,
+                "days_left": days_left,
+                "stock_risk": "activation" if is_activation else ("out" if stock <= 0 else ("soon" if days_left is not None and days_left <= 3 else ("watch" if days_left is not None and days_left <= 7 else "ok"))),
+            })
 
         response_data = {
             "total_users": len(users),
@@ -1046,6 +1109,7 @@ async def api_create_product(data: dict):
             confirmation_message_vi=data.get("confirmation_message_vi", ""),
             confirmation_message_ru=data.get("confirmation_message_ru", "")
         )
+        _clear_api_stats_cache()
         return {"id": prod_id, "status": "created"}
     except HTTPException:
         raise
@@ -1071,6 +1135,7 @@ async def api_set_product_tiers(product_id: int, data: dict):
     try:
         tiers = data.get("tiers", [])
         await set_price_tiers(product_id, tiers)
+        _clear_api_stats_cache()
         return {"status": "updated", "count": len(tiers)}
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
@@ -1098,6 +1163,7 @@ async def api_reorder_products(request: Request):
                 await db.execute("UPDATE products SET sort_order = ? WHERE id = ?", (sort_order, prod_id))
         await db.commit()
         clear_products_cache()
+        _clear_api_stats_cache()
         return {"status": "reordered"}
     except Exception as exc:
         logger.error("API error reorder products: %s", exc, exc_info=True)
@@ -1119,6 +1185,7 @@ async def api_update_product(product_id: int, data: dict):
         if "warranty_days" in updates:
             updates["warranty_days"] = int(updates["warranty_days"])
         await update_product(product_id, **updates)
+        _clear_api_stats_cache()
         return {"status": "updated"}
     except HTTPException:
         raise
@@ -1132,6 +1199,7 @@ async def api_delete_product(product_id: int):
     from database.models import delete_product
     try:
         await delete_product(product_id)
+        _clear_api_stats_cache()
         return {"status": "deleted"}
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
@@ -1375,6 +1443,7 @@ async def api_confirm_order(order_id: int):
             if order_status not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED"):
                 raise HTTPException(status_code=409, detail=f"Order cannot be confirmed from status {order_status}")
             await update_order_status(order_id, "AWAITING_ACTIVATION_INFO", payment_method=order.get("payment_method") or "manual")
+            _clear_api_stats_cache()
             try:
                 user_lang = await get_user_lang(order["user_telegram_id"])
                 text = t("activation_manual_payment_prompt", user_lang).format(
@@ -1405,32 +1474,36 @@ async def api_confirm_order(order_id: int):
             raise HTTPException(status_code=409, detail="Insufficient stock for this order")
 
         await update_order_status(order_id, "COMPLETED")
+        _clear_api_stats_cache()
 
         if delivered:
             product = await get_product(order.get("product_id"))
             warranty_days = product.get("warranty_days", 0) if product else 0
             
             # Notify user
+            delivery_message_sent = False
             try:
-                from utils.locales import t
                 user_lang = await get_user_lang(order["user_telegram_id"])
-                accounts_text = "\n".join(f"🔑 <code>{escape_html(item['account_data'])}</code>" for item in delivered)
-                
                 if tg_app:
-                    await tg_app.bot.send_message(
-                        chat_id=order["user_telegram_id"],
-                        text=f"{t('payment_confirmed', user_lang)}\n\n"
-                             f"{t('your_account', user_lang)}\n"
-                             f"{accounts_text}\n\n"
-                             f"{t('warranty_lbl', user_lang).format(days=warranty_days)}\n"
-                             f"{t('save_info', user_lang)}\n\n"
-                             f"{t('thank_you', user_lang)}",
-                        parse_mode="HTML"
+                    conf_msg = get_confirmation_message(product, user_lang, order_id)
+                    footer = (
+                        f"{t('warranty_lbl', user_lang).format(days=warranty_days)}\n"
+                        f"{t('save_info', user_lang)}\n\n"
+                        f"{conf_msg}"
+                    )
+                    delivery_message_sent = await safe_send_delivery_messages(
+                        tg_app.bot,
+                        order["user_telegram_id"],
+                        t("payment_confirmed", user_lang),
+                        delivered,
+                        footer,
+                        user_lang,
+                        order_id,
                     )
             except Exception as notify_exc:
                 logger.warning("Failed to notify user via API: %s", notify_exc)
 
-            return {"status": "confirmed_and_delivered"}
+            return {"status": "confirmed_and_delivered", "delivery_message_sent": delivery_message_sent}
     except HTTPException:
         raise
     except Exception as exc:
@@ -1499,6 +1572,13 @@ async def api_add_product_stock(product_id: int, data: dict):
         if not items:
             raise HTTPException(status_code=400, detail="No items provided")
         count = await add_stock_items(product_id, items)
+        _clear_api_stats_cache()
+        if tg_app and tg_app.bot:
+            try:
+                from handlers.products import notify_restock_subscribers
+                asyncio.create_task(notify_restock_subscribers(tg_app.bot, product_id))
+            except Exception:
+                logger.warning("Could not schedule restock subscriber notifications", exc_info=True)
         
         broadcast = data.get("broadcast_restock", False)
         if broadcast:
@@ -1517,7 +1597,6 @@ async def api_add_product_stock(product_id: int, data: dict):
                     InlineKeyboardButton("🛒 Buy now", callback_data=f"buy:{product_id}")
                 ]])
                 from handlers.admin import _execute_broadcast
-                global tg_app
                 if tg_app and tg_app.bot:
                     # Run in background tasks to not block API response
                     import asyncio
@@ -1536,6 +1615,7 @@ async def api_delete_stock_item(stock_id: int):
     from database.models import delete_stock_item
     try:
         await delete_stock_item(stock_id)
+        _clear_api_stats_cache()
         return {"status": "deleted"}
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
@@ -1549,7 +1629,7 @@ async def api_get_all_orders(order_status: str = _Q(None, alias="status"), limit
     from database.models import get_all_orders_filtered, get_all_topups_filtered
     try:
         # Validate & bound inputs
-        VALID_STATUSES = {"PENDING", "COMPLETED", "CANCELLED", "AWAITING_PAYMENT", "AWAITING_ACTIVATION_INFO", "AWAITING_ACTIVATION", "TOPUP"}
+        VALID_STATUSES = {"PENDING", "PROCESSING", "COMPLETED", "CANCELLED", "AWAITING_PAYMENT", "AWAITING_ACTIVATION_INFO", "AWAITING_ACTIVATION", "TOPUP"}
         if order_status and order_status.upper() not in VALID_STATUSES:
             raise HTTPException(status_code=400, detail=f"Invalid status. Valid: {', '.join(VALID_STATUSES)}")
         limit = max(1, min(limit, 200))  # Cap between 1-200
@@ -1587,10 +1667,17 @@ async def api_get_order_items(order_id: int):
 
 @api.post("/api/orders/{order_id}/cancel", dependencies=[Depends(verify_api_key)])
 async def api_cancel_order(order_id: int):
-    from database.models import update_order_status
+    from database.models import cancel_order_if_allowed
     try:
-        await update_order_status(order_id, "CANCELLED")
-        return {"status": "cancelled"}
+        order = await cancel_order_if_allowed(order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        _clear_api_stats_cache()
+        return {"status": "cancelled" if order.get("status") == "CANCELLED" else order.get("status")}
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -1627,6 +1714,7 @@ async def api_activate_order(order_id: int):
             activation_status="done",
             activated_at=datetime.utcnow().isoformat(),
         )
+        _clear_api_stats_cache()
 
         if tg_app and tg_app.bot:
             try:
@@ -1758,6 +1846,26 @@ async def api_get_products_momentum(days: int = 30):
         return data
     except Exception as exc:
         logger.error("API error products momentum: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/api/stats/products/dead-alerts", dependencies=[Depends(verify_api_key)])
+async def api_get_dead_product_alerts(days: int = 7, min_views: int = 10, max_conversion: float = 0.05):
+    days = max(1, min(days, 90))
+    min_views = max(1, min(min_views, 1000))
+    max_conversion = max(0.0, min(max_conversion, 1.0))
+    cache_key = f"dead_product_alerts_{days}_{min_views}_{max_conversion}"
+    current_time = time.time()
+    if cache_key in _stats_cache and current_time - _stats_cache[cache_key]["time"] < _stats_cache_ttl:
+        return _stats_cache[cache_key]["data"]
+
+    from database.models import get_dead_product_alerts
+    try:
+        data = {"alerts": await get_dead_product_alerts(days=days, min_views=min_views, max_conversion=max_conversion)}
+        _stats_cache[cache_key] = {"time": current_time, "data": data}
+        return data
+    except Exception as exc:
+        logger.error("API error dead product alerts: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1942,6 +2050,7 @@ async def api_wallet_topup(telegram_id: int, data: dict):
         if amount <= 0:
             raise HTTPException(status_code=400, detail="Amount must be > 0")
         new_balance = await topup_wallet(telegram_id, amount, "Admin credit")
+        _clear_api_stats_cache()
         return {"status": "credited", "new_balance": new_balance}
     except HTTPException:
         raise
@@ -1958,6 +2067,7 @@ async def api_wallet_deduct(telegram_id: int, data: dict):
         if amount <= 0:
             raise HTTPException(status_code=400, detail="Amount must be > 0")
         new_balance = await deduct_wallet(telegram_id, amount, "Admin debit")
+        _clear_api_stats_cache()
         return {"status": "debited", "new_balance": new_balance}
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
@@ -2559,6 +2669,7 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(show_products_list, pattern=r"^menu_buy$"))
     app.add_handler(CallbackQueryHandler(show_products_list, pattern=r"^back_products$"))
     app.add_handler(CallbackQueryHandler(show_product_detail, pattern=r"^prod:"))
+    app.add_handler(CallbackQueryHandler(notify_product_restock, pattern=r"^notify_stock:"))
     app.add_handler(CallbackQueryHandler(show_profile, pattern=r"^menu_profile$"))
     app.add_handler(CallbackQueryHandler(show_referrals, pattern=r"^show_referrals$"))
     app.add_handler(CallbackQueryHandler(show_history, pattern=r"^menu_history$"))

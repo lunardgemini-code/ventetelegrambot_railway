@@ -30,11 +30,18 @@ _DEFAULT_BINANCE_ACCOUNT_CACHE: dict | None = None
 _DEFAULT_BINANCE_ACCOUNT_LOADED = False
 _RESELLER_LAST_USED_TOUCH_CACHE: dict[int, float] = {}
 _RESELLER_LAST_USED_TOUCH_INTERVAL = 60.0
+_GET_STATS_CACHE = {}
+_GET_STATS_CACHE_TTL = 30
 
 
 def _clear_stock_cache() -> None:
     global _STOCK_COUNTS_CACHE
     _STOCK_COUNTS_CACHE = None
+
+
+def invalidate_stats_cache() -> None:
+    """Clear cached dashboard/statistics values after business data changes."""
+    _GET_STATS_CACHE.clear()
 
 
 def _clear_binance_account_cache() -> None:
@@ -187,6 +194,7 @@ def clear_products_cache():
     global _PRODUCTS_CACHE, _PRODUCT_BY_ID_CACHE
     _PRODUCTS_CACHE = None
     _PRODUCT_BY_ID_CACHE.clear()
+    invalidate_stats_cache()
 
 async def get_user_lang(telegram_id: int) -> str:
     """Retourne la langue prÃ©fÃ©rÃ©e de l'utilisateur (par dÃ©faut 'fr')."""
@@ -304,6 +312,271 @@ async def delete_category(category_id: int) -> None:
 
 
 
+async def get_product_sales_momentum(days: int = 30) -> dict:
+    """Return daily completed sales quantities and revenue per product."""
+    days = max(1, min(int(days), 365))
+    start_date = (datetime.utcnow() - timedelta(days=days - 1)).date()
+    day_labels = [
+        (start_date + timedelta(days=i)).strftime("%Y-%m-%d")
+        for i in range(days)
+    ]
+    yesterday = (datetime.utcnow() - timedelta(days=1)).date().strftime("%Y-%m-%d")
+
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """
+            SELECT
+                o.product_id as id,
+                p.name,
+                p.emoji,
+                DATE(o.created_at) as day,
+                COALESCE(SUM(CASE WHEN o.quantity IS NULL OR o.quantity < 1 THEN 1 ELSE o.quantity END), 0) as qty_sold,
+                COALESCE(SUM(o.amount_usd), 0) as revenue
+            FROM orders o
+            LEFT JOIN products p ON p.id = o.product_id
+            WHERE o.status = 'COMPLETED'
+              AND o.product_id IS NOT NULL
+              AND DATE(o.created_at) >= ?
+            GROUP BY o.product_id, p.name, p.emoji, DATE(o.created_at)
+            ORDER BY day ASC, qty_sold DESC
+            """,
+            (day_labels[0],),
+        )
+        rows = await cursor.fetchall()
+
+        products: dict[int, dict] = {}
+        day_index = {day: idx for idx, day in enumerate(day_labels)}
+
+        for row in rows:
+            product_id = row["id"]
+            if product_id is None:
+                continue
+
+            product = products.setdefault(
+                int(product_id),
+                {
+                    "id": int(product_id),
+                    "name": row["name"] or f"Product #{product_id}",
+                    "emoji": row["emoji"] or "📦",
+                    "series": [0 for _ in day_labels],
+                    "revenue_series": [0.0 for _ in day_labels],
+                    "total_sold": 0,
+                    "total_revenue": 0.0,
+                    "yesterday_sold": 0,
+                    "yesterday_revenue": 0.0,
+                },
+            )
+
+            day = row["day"]
+            idx = day_index.get(day)
+            if idx is None:
+                continue
+
+            qty = int(row["qty_sold"] or 0)
+            revenue = float(row["revenue"] or 0)
+            product["series"][idx] = qty
+            product["revenue_series"][idx] = revenue
+            product["total_sold"] += qty
+            product["total_revenue"] += revenue
+            if day == yesterday:
+                product["yesterday_sold"] = qty
+                product["yesterday_revenue"] = revenue
+
+        return {
+            "days": day_labels,
+            "yesterday": yesterday,
+            "products": sorted(
+                products.values(),
+                key=lambda p: (p["total_sold"], p["total_revenue"]),
+                reverse=True,
+            ),
+        }
+    finally:
+        await db.close()
+
+
+async def get_stock_forecast(days: int = 7) -> dict[int, dict]:
+    """Return recent sales velocity per product for stock runway estimates."""
+    days = max(1, min(int(days), 90))
+    since = (datetime.utcnow() - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT product_id,
+                      COALESCE(SUM(CASE WHEN quantity IS NULL OR quantity < 1 THEN 1 ELSE quantity END), 0) as sold
+               FROM orders
+               WHERE status = 'COMPLETED'
+                 AND product_id IS NOT NULL
+                 AND DATE(created_at) >= ?
+               GROUP BY product_id""",
+            (since,),
+        )
+        rows = await cursor.fetchall()
+        result: dict[int, dict] = {}
+        for row in rows:
+            sold = int(row["sold"] or 0)
+            avg_daily = sold / days
+            result[int(row["product_id"])] = {
+                "sold": sold,
+                "avg_daily_sales": avg_daily,
+            }
+        return result
+    finally:
+        await db.close()
+
+
+async def record_product_view(product_id: int, user_telegram_id: int) -> None:
+    """Best-effort product view tracking for conversion alerts."""
+    db = await get_db()
+    try:
+        await db.execute(
+            "INSERT INTO product_views (product_id, user_telegram_id) VALUES (?, ?)",
+            (int(product_id), int(user_telegram_id)),
+        )
+        await db.commit()
+    except Exception as exc:
+        logger.debug("Could not record product view for product %s: %s", product_id, exc)
+    finally:
+        await db.close()
+
+
+async def get_dead_product_alerts(days: int = 7, min_views: int = 10, max_conversion: float = 0.05) -> list[dict]:
+    """Products with many views but weak sales conversion."""
+    days = max(1, min(int(days), 90))
+    min_views = max(1, int(min_views))
+    max_conversion = max(0.0, float(max_conversion))
+    since = (datetime.utcnow() - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """WITH views AS (
+                   SELECT product_id, COUNT(*) as view_count
+                   FROM product_views
+                   WHERE DATE(viewed_at) >= ?
+                   GROUP BY product_id
+               ),
+               sales AS (
+                   SELECT product_id,
+                          COALESCE(SUM(CASE WHEN quantity IS NULL OR quantity < 1 THEN 1 ELSE quantity END), 0) as sold_count
+                   FROM orders
+                   WHERE status = 'COMPLETED'
+                     AND product_id IS NOT NULL
+                     AND DATE(created_at) >= ?
+                   GROUP BY product_id
+               )
+               SELECT p.id, p.name, p.emoji,
+                      COALESCE(v.view_count, 0) as views,
+                      COALESCE(s.sold_count, 0) as sold
+               FROM products p
+               JOIN views v ON v.product_id = p.id
+               LEFT JOIN sales s ON s.product_id = p.id
+               WHERE COALESCE(p.is_active, 1) = 1
+                 AND COALESCE(p.is_deleted, 0) = 0
+                 AND COALESCE(v.view_count, 0) >= ?
+               ORDER BY v.view_count DESC""",
+            (since, since, min_views),
+        )
+        rows = await cursor.fetchall()
+        alerts = []
+        for row in rows:
+            views = int(row["views"] or 0)
+            sold = int(row["sold"] or 0)
+            conversion = (sold / views) if views else 0.0
+            if conversion <= max_conversion:
+                alerts.append({
+                    "id": int(row["id"]),
+                    "name": row["name"],
+                    "emoji": row["emoji"] or "📦",
+                    "views": views,
+                    "sold": sold,
+                    "conversion": conversion,
+                    "days": days,
+                })
+        return alerts
+    except Exception as exc:
+        logger.warning("Could not load dead product alerts: %s", exc)
+        return []
+    finally:
+        await db.close()
+
+
+async def add_product_stock_alert(user_telegram_id: int, product_id: int) -> bool:
+    """Subscribe a user to one restock notification. Returns True if newly added."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT id FROM product_stock_alerts
+               WHERE product_id = ?
+                 AND user_telegram_id = ?
+                 AND notified_at IS NULL
+               LIMIT 1""",
+            (int(product_id), int(user_telegram_id)),
+        )
+        existing = await cursor.fetchone()
+        if existing:
+            return False
+
+        try:
+            await db.execute(
+                """INSERT INTO product_stock_alerts (product_id, user_telegram_id)
+                   VALUES (?, ?)""",
+                (int(product_id), int(user_telegram_id)),
+            )
+            await db.commit()
+            return True
+        except Exception as exc:
+            if "UNIQUE" in str(exc).upper():
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+                return False
+            raise
+    finally:
+        await db.close()
+
+
+async def get_pending_stock_alerts(product_id: int) -> list[dict]:
+    """Return users waiting for a restock notification on a product."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT a.product_id, a.user_telegram_id,
+                      COALESCE(u.language, 'fr') as language,
+                      COALESCE(u.is_banned, 0) as is_banned,
+                      u.username, u.first_name
+               FROM product_stock_alerts a
+               LEFT JOIN users u ON u.telegram_id = a.user_telegram_id
+               WHERE a.product_id = ?
+                 AND a.notified_at IS NULL""",
+            (int(product_id),),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows if not r["is_banned"]]
+    finally:
+        await db.close()
+
+
+async def mark_stock_alerts_notified(product_id: int, user_ids: list[int]) -> None:
+    if not user_ids:
+        return
+    placeholders = ",".join("?" for _ in user_ids)
+    db = await get_db()
+    try:
+        await db.execute(
+            f"""UPDATE product_stock_alerts
+                SET notified_at = CURRENT_TIMESTAMP
+                WHERE product_id = ?
+                  AND user_telegram_id IN ({placeholders})
+                  AND notified_at IS NULL""",
+            [int(product_id), *[int(uid) for uid in user_ids]],
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
 async def get_products_by_category(category_id: int) -> list[dict]:
     """Retourne les produits actifs d'une catégorie."""
     db = await get_db()
@@ -396,6 +669,7 @@ async def add_product(
     global _PRODUCTS_CACHE
     _PRODUCTS_CACHE = None
     _PRODUCT_BY_ID_CACHE.clear()
+    invalidate_stats_cache()
     delivery_type = "activation" if delivery_type == "activation" else "stock"
     db = await get_db()
     try:
@@ -419,6 +693,7 @@ async def update_product(product_id: int, **kwargs) -> None:
     global _PRODUCTS_CACHE
     _PRODUCTS_CACHE = None
     _PRODUCT_BY_ID_CACHE.clear()
+    invalidate_stats_cache()
     safe_kwargs = {k: v for k, v in kwargs.items() if k in ALLOWED_PRODUCT_COLUMNS}
     if "delivery_type" in safe_kwargs:
         safe_kwargs["delivery_type"] = "activation" if safe_kwargs["delivery_type"] == "activation" else "stock"
@@ -539,6 +814,7 @@ async def toggle_product(product_id: int) -> None:
     global _PRODUCTS_CACHE
     _PRODUCTS_CACHE = None
     _PRODUCT_BY_ID_CACHE.clear()
+    invalidate_stats_cache()
     db = await get_db()
     try:
         await db.execute(
@@ -590,6 +866,42 @@ async def get_price_tiers(product_id: int) -> list[dict]:
         return res
     finally:
         await db.close()
+
+
+async def get_price_tiers_for_products(product_ids: list[int]) -> dict[int, list[dict]]:
+    """Return price tiers for many products in one query."""
+    ids = sorted({int(pid) for pid in product_ids if pid})
+    if not ids:
+        return {}
+
+    result: dict[int, list[dict]] = {}
+    missing = [pid for pid in ids if pid not in _TIERS_CACHE]
+    for pid in ids:
+        if pid in _TIERS_CACHE:
+            result[pid] = list(_TIERS_CACHE[pid])
+
+    if missing:
+        placeholders = ",".join("?" for _ in missing)
+        db = await get_db()
+        try:
+            cursor = await db.execute(
+                f"""SELECT * FROM price_tiers
+                    WHERE product_id IN ({placeholders})
+                    ORDER BY product_id ASC, min_qty ASC""",
+                missing,
+            )
+            rows = [dict(r) for r in await cursor.fetchall()]
+        finally:
+            await db.close()
+
+        grouped = {pid: [] for pid in missing}
+        for row in rows:
+            grouped.setdefault(int(row["product_id"]), []).append(row)
+        for pid, tiers in grouped.items():
+            _TIERS_CACHE[pid] = tiers
+            result[pid] = list(tiers)
+
+    return result
 
 
 async def set_price_tiers(product_id: int, tiers: list[dict]) -> None:
@@ -663,7 +975,7 @@ async def get_all_stock_counts() -> dict[int, int]:
         cursor = await db.execute(
             """SELECT product_id, COALESCE(SUM(quantity), 0) as reserved 
                FROM orders 
-               WHERE status IN ('PENDING', 'AWAITING_PAYMENT') 
+               WHERE status IN ('PENDING', 'AWAITING_PAYMENT', 'PROCESSING') 
                  AND created_at >= datetime('now', '-300 seconds')
                GROUP BY product_id"""
         )
@@ -699,7 +1011,7 @@ async def get_product_full_details(product_id: int) -> tuple[dict | None, int, l
 
         # Stock rÃ©servÃ© (derniÃ¨res 5 minutes)
         cursor = await db.execute(
-            "SELECT COALESCE(SUM(quantity), 0) as reserved FROM orders WHERE product_id = ? AND status IN ('PENDING', 'AWAITING_PAYMENT') AND created_at >= datetime('now', '-300 seconds')",
+            "SELECT COALESCE(SUM(quantity), 0) as reserved FROM orders WHERE product_id = ? AND status IN ('PENDING', 'AWAITING_PAYMENT', 'PROCESSING') AND created_at >= datetime('now', '-300 seconds')",
             (product_id,),
         )
         row = await cursor.fetchone()
@@ -754,7 +1066,7 @@ async def get_stock_count(product_id: int) -> int:
             """SELECT COALESCE(SUM(quantity), 0) as reserved 
                FROM orders 
                WHERE product_id = ? 
-                 AND status IN ('PENDING', 'AWAITING_PAYMENT') 
+                 AND status IN ('PENDING', 'AWAITING_PAYMENT', 'PROCESSING') 
                  AND created_at >= datetime('now', '-300 seconds')""",
             (product_id,),
         )
@@ -768,6 +1080,7 @@ async def get_stock_count(product_id: int) -> int:
 
 async def add_stock_items(product_id: int, items: list[str]) -> int:
     _clear_stock_cache()
+    invalidate_stats_cache()
     """Ajoute plusieurs articles en stock et retourne le nombre ajoutÃ©."""
     db = await get_db()
     try:
@@ -845,10 +1158,11 @@ async def release_stock_item(stock_id: int) -> None:
 async def reserve_stock_items_for_order(
     order_id: int,
     product_id: int,
-    allowed_statuses: tuple[str, ...] = ("PENDING", "AWAITING_PAYMENT", "CANCELLED"),
+    allowed_statuses: tuple[str, ...] = ("PENDING", "AWAITING_PAYMENT", "PROCESSING", "CANCELLED"),
 ) -> list[dict] | None:
     """Reserve stock for an order once, returning the same items on retries."""
     _clear_stock_cache()
+    invalidate_stats_cache()
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
@@ -940,6 +1254,7 @@ async def get_stock_items_for_order(order_id: int) -> list[dict]:
 
 async def delete_stock_item(stock_id: int) -> None:
     _clear_stock_cache()
+    invalidate_stats_cache()
     """Supprime un article du stock (uniquement si non vendu)."""
     db = await get_db()
     try:
@@ -964,6 +1279,7 @@ async def create_order(
     quantity: int = 1,
 ) -> dict:
     _clear_stock_cache()
+    invalidate_stats_cache()
     """CrÃ©e une nouvelle commande avec un merchant_trade_no unique et une quantitÃ©."""
     merchant_trade_no = uuid.uuid4().hex[:12].upper()
     db = await get_db()
@@ -1012,6 +1328,98 @@ async def get_order_by_merchant_id(merchant_trade_no: str) -> dict | None:
         await db.close()
 
 
+async def claim_order_for_wallet_payment(order_id: int, user_telegram_id: int) -> dict | None:
+    """Atomically mark a payable order as PROCESSING before debiting wallet."""
+    _clear_stock_cache()
+    invalidate_stats_cache()
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute(
+            "SELECT * FROM orders WHERE id = ? AND user_telegram_id = ?",
+            (int(order_id), int(user_telegram_id)),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            await db.rollback()
+            return None
+
+        order = dict(row)
+        if order.get("status") not in ("PENDING", "AWAITING_PAYMENT"):
+            await db.rollback()
+            return None
+
+        order["_previous_status"] = order.get("status")
+        order["_previous_payment_method"] = order.get("payment_method")
+        cursor = await db.execute(
+            """UPDATE orders
+               SET status = 'PROCESSING', payment_method = 'wallet'
+               WHERE id = ? AND user_telegram_id = ? AND status IN ('PENDING', 'AWAITING_PAYMENT')""",
+            (int(order_id), int(user_telegram_id)),
+        )
+        if cursor.rowcount <= 0:
+            await db.rollback()
+            return None
+
+        await db.commit()
+        order["status"] = "PROCESSING"
+        order["payment_method"] = "wallet"
+        return order
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def restore_order_after_failed_wallet_claim(order_id: int, claimed_order: dict | None = None) -> None:
+    """Put a PROCESSING order back to its previous payable state after wallet failure."""
+    previous_status = (claimed_order or {}).get("_previous_status") or "PENDING"
+    previous_payment_method = (claimed_order or {}).get("_previous_payment_method")
+    if previous_status not in ("PENDING", "AWAITING_PAYMENT"):
+        previous_status = "PENDING"
+    await update_order_status(order_id, previous_status, payment_method=previous_payment_method)
+
+
+async def cancel_order_if_allowed(order_id: int, allowed_statuses: tuple[str, ...] = ("PENDING", "AWAITING_PAYMENT")) -> dict | None:
+    """Cancel only unpaid/payable orders. Returns the cancelled order or None."""
+    _clear_stock_cache()
+    invalidate_stats_cache()
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute("SELECT * FROM orders WHERE id = ?", (int(order_id),))
+        row = await cursor.fetchone()
+        if not row:
+            await db.rollback()
+            return None
+        order = dict(row)
+        if order.get("status") == "CANCELLED":
+            await db.commit()
+            return order
+        if order.get("status") not in allowed_statuses:
+            await db.rollback()
+            raise ValueError(f"Order cannot be cancelled from status {order.get('status')}")
+        await db.execute(
+            "UPDATE orders SET status = 'CANCELLED' WHERE id = ?",
+            (int(order_id),),
+        )
+        await db.commit()
+        order["status"] = "CANCELLED"
+        return order
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
 ALLOWED_ORDER_COLUMNS = {
     "binance_order_id",
     "paid_at",
@@ -1029,6 +1437,7 @@ ALLOWED_ORDER_COLUMNS = {
 
 async def update_order_status(order_id: int, status: str, **kwargs) -> None:
     _clear_stock_cache()
+    invalidate_stats_cache()
     """Met Ã  jour le statut d'une commande avec des champs optionnels."""
     set_parts = ["status = ?"]
     values: list = [status]
@@ -1086,6 +1495,7 @@ async def update_order_status(order_id: int, status: str, **kwargs) -> None:
 
 async def cancel_all_pending_orders(user_telegram_id: int) -> int:
     _clear_stock_cache()
+    invalidate_stats_cache()
     """Cancel all PENDING and AWAITING_PAYMENT orders for a user. Returns count cancelled."""
     db = await get_db()
     try:
@@ -1196,6 +1606,7 @@ async def get_pending_activation_order_for_user(user_telegram_id: int) -> dict |
 
 async def submit_activation_identifier(order_id: int, identifier: str) -> None:
     """Store the customer identifier and move the order to admin activation."""
+    invalidate_stats_cache()
     db = await get_db()
     try:
         await db.execute(
@@ -1211,9 +1622,6 @@ async def submit_activation_identifier(order_id: int, identifier: str) -> None:
     finally:
         await db.close()
 
-
-_GET_STATS_CACHE = {}
-_GET_STATS_CACHE_TTL = 30
 
 async def get_stats(days: int = 30, method: str = None) -> dict:
     now = datetime.utcnow().timestamp()
@@ -1504,6 +1912,7 @@ async def get_wallet_balance(telegram_id: int) -> float:
 
 async def topup_wallet(telegram_id: int, amount: float, description: str = "", tx_hash: str = None) -> float:
     """CrÃ©dite le wallet et enregistre la transaction. Retourne le nouveau solde."""
+    invalidate_stats_cache()
     db = await get_db()
     try:
         # Atomic update and fetch new balance
@@ -1541,6 +1950,7 @@ async def topup_wallet(telegram_id: int, amount: float, description: str = "", t
 
 async def deduct_wallet(telegram_id: int, amount: float, description: str = "") -> float:
     """DÃ©bite le wallet. LÃ¨ve ValueError si solde insuffisant. Retourne le nouveau solde."""
+    invalidate_stats_cache()
     db = await get_db()
     try:
         # Check current balance first to give a specific error message if user does not exist or has insufficient funds
@@ -1885,6 +2295,7 @@ async def create_reseller_order(
     idempotency_key: str | None = None,
 ) -> dict:
     """Crée et paie une commande revendeur depuis le wallet du revendeur."""
+    invalidate_stats_cache()
     reseller_user_telegram_id = int(reseller_user_telegram_id)
     product_id = int(product_id)
     quantity = max(1, int(quantity))
@@ -2115,7 +2526,13 @@ async def close_ticket(ticket_id: int) -> None:
 async def get_daily_stats(days: int = 30) -> list[dict]:
     """Retourne les revenus et commandes par jour sur les N derniers jours.
     Revenue includes completed orders + wallet topups - admin deductions."""
-    since = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
+    days = max(1, min(int(days), 365))
+    start_date = (datetime.utcnow() - timedelta(days=days - 1)).date()
+    day_labels = [
+        (start_date + timedelta(days=i)).strftime("%Y-%m-%d")
+        for i in range(days)
+    ]
+    since = day_labels[0]
     db = await get_db()
     try:
         # Order stats per day
@@ -2146,12 +2563,24 @@ async def get_daily_stats(days: int = 30) -> list[dict]:
         )
         topup_rows = {r["day"]: float(r["topup_rev"]) for r in await cursor.fetchall()}
 
-        # Merge all days
-        all_days = sorted(set(list(order_rows.keys()) + list(topup_rows.keys())))
+        cursor = await db.execute(
+            """SELECT DATE(created_at) as day,
+                      COALESCE(SUM(amount), 0) as admin_debit
+               FROM wallet_transactions
+               WHERE type = 'purchase'
+                 AND description LIKE 'Admin debit%'
+                 AND created_at >= ?
+               GROUP BY DATE(created_at)""",
+            (since,),
+        )
+        admin_debit_rows = {r["day"]: float(r["admin_debit"]) for r in await cursor.fetchall()}
+
         result = []
-        for day in all_days:
-            od = order_rows.get(day, {"day": day, "orders": 0, "revenue": 0, "completed": 0})
-            od["revenue"] = float(od["revenue"]) + topup_rows.get(day, 0)
+        for day in day_labels:
+            od = dict(order_rows.get(day, {"day": day, "orders": 0, "revenue": 0, "completed": 0}))
+            od["orders"] = int(od.get("orders") or 0)
+            od["completed"] = int(od.get("completed") or 0)
+            od["revenue"] = float(od.get("revenue") or 0) + topup_rows.get(day, 0.0) - admin_debit_rows.get(day, 0.0)
             result.append(od)
         return result
     finally:
@@ -2715,7 +3144,8 @@ async def get_products_sales_stats() -> list[dict]:
                 p.name, 
                 p.emoji, 
                 p.price_usd,
-                COUNT(o.id) as total_qty_sold,
+                p.delivery_type,
+                COALESCE(SUM(CASE WHEN o.quantity IS NULL OR o.quantity < 1 THEN 1 ELSE o.quantity END), 0) as total_qty_sold,
                 COALESCE(SUM(o.amount_usd), 0) as total_revenue_usd
             FROM products p
             LEFT JOIN orders o ON o.product_id = p.id AND o.status = 'COMPLETED'
@@ -2735,9 +3165,10 @@ async def get_products_sales_stats() -> list[dict]:
                 "name": r["name"],
                 "emoji": r["emoji"] or '📦',
                 "price_usd": float(r["price_usd"]),
+                "delivery_type": r["delivery_type"] or "stock",
                 "total_sold": int(r["total_qty_sold"]),
                 "total_revenue": float(r["total_revenue_usd"]),
-                "stock": stock_counts.get(r["id"], 0)
+                "stock": None if r["delivery_type"] == "activation" else stock_counts.get(r["id"], 0)
             })
         return stats
     finally:

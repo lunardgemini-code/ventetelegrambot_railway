@@ -4,7 +4,7 @@ Product browsing handlers — direct product list (no categories), product detai
 
 import logging
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from database.models import (
@@ -13,6 +13,7 @@ from database.models import (
     get_stock_count,
     get_user_lang,
     get_all_stock_counts,
+    record_product_view,
 )
 from utils.helpers import format_price, escape_html
 from utils.keyboards import (
@@ -120,6 +121,7 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
                 reply_markup=back_keyboard("back_products", lang),
             )
             return
+        await record_product_view(product_id, update.effective_user.id)
 
         p_emoji = product["emoji"]
         if product.get("custom_emoji_id"):
@@ -164,7 +166,8 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
             tiers_label = {"fr": "💰 <b>Tarifs par quantité :</b>", "en": "💰 <b>Bulk pricing:</b>", "ar": "💰 <b>:تسعير بالجملة</b>"}.get(lang, "💰 <b>Tarifs par quantité :</b>")
             text += f"\n\n{tiers_label}\n" + "\n".join(tier_lines)
 
-        markup = product_detail_keyboard(product_id, lang)
+        can_buy = product.get("delivery_type") == "activation" or stock > 0
+        markup = product_detail_keyboard(product_id, lang, can_buy=can_buy)
         image_url = product.get("image_url")
 
         if image_url:
@@ -222,3 +225,72 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def refresh_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle 'refresh_prods' callback — reload product list."""
     return await show_products_list(update, context)
+
+
+async def notify_product_restock(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Subscribe the user to a one-time restock notification."""
+    query = update.callback_query
+    lang = await get_user_lang(update.effective_user.id)
+
+    try:
+        product_id = int(query.data.split(":")[1])
+        product = await get_product(product_id)
+        if not product:
+            await query.answer(t("product_not_found", lang), show_alert=True)
+            return
+
+        stock = await get_stock_count(product_id)
+        if product.get("delivery_type") == "activation" or stock > 0:
+            await query.answer(t("restock_notification", lang).format(
+                product=product["name"],
+                stock=stock,
+            ), show_alert=True)
+            return
+
+        from database.models import add_product_stock_alert
+        added = await add_product_stock_alert(update.effective_user.id, product_id)
+        await query.answer(
+            t("restock_alert_saved" if added else "restock_alert_existing", lang),
+            show_alert=True,
+        )
+    except Exception as exc:
+        logger.error("notify_product_restock: %s", exc, exc_info=True)
+        await query.answer(t("error_generic", lang), show_alert=True)
+
+
+async def notify_restock_subscribers(bot, product_id: int) -> int:
+    """Notify users who asked to be alerted when a product is restocked."""
+    from database.models import get_pending_stock_alerts, mark_stock_alerts_notified
+
+    product = await get_product(product_id)
+    if not product:
+        return 0
+    stock = await get_stock_count(product_id)
+    if stock <= 0:
+        return 0
+
+    alerts = await get_pending_stock_alerts(product_id)
+    sent_user_ids: list[int] = []
+    for alert in alerts:
+        lang = alert.get("language") or "fr"
+        product_label = f"{product.get('emoji') or '📦'} <b>{escape_html(product['name'])}</b>"
+        text = t("restock_notification", lang).format(
+            product=product_label,
+            stock=stock,
+        )
+        markup = InlineKeyboardMarkup([[
+            InlineKeyboardButton(t("btn_buy_now", lang), callback_data=f"buy:{product_id}")
+        ]])
+        try:
+            await bot.send_message(
+                chat_id=alert["user_telegram_id"],
+                text=text,
+                parse_mode="HTML",
+                reply_markup=markup,
+            )
+            sent_user_ids.append(int(alert["user_telegram_id"]))
+        except Exception as exc:
+            logger.warning("Could not notify restock subscriber %s: %s", alert["user_telegram_id"], exc)
+
+    await mark_stock_alerts_notified(product_id, sent_user_ids)
+    return len(sent_user_ids)

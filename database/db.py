@@ -430,6 +430,24 @@ async def init_db() -> None:
                 FOREIGN KEY (order_id) REFERENCES orders(id),
                 UNIQUE(reseller_user_telegram_id, idempotency_key)
             )""",
+            """CREATE TABLE IF NOT EXISTS product_stock_alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER NOT NULL,
+                user_telegram_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                notified_at TIMESTAMP,
+                FOREIGN KEY (product_id) REFERENCES products(id),
+                FOREIGN KEY (user_telegram_id) REFERENCES users(telegram_id),
+                UNIQUE(product_id, user_telegram_id, notified_at)
+            )""",
+            """CREATE TABLE IF NOT EXISTS product_views (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER NOT NULL,
+                user_telegram_id INTEGER NOT NULL,
+                viewed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (product_id) REFERENCES products(id),
+                FOREIGN KEY (user_telegram_id) REFERENCES users(telegram_id)
+            )""",
         ]
 
         for sql in tables:
@@ -501,6 +519,12 @@ async def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_reseller_keys_user ON reseller_api_keys(user_telegram_id)",
             "CREATE INDEX IF NOT EXISTS idx_reseller_keys_prefix ON reseller_api_keys(key_prefix)",
             "CREATE INDEX IF NOT EXISTS idx_reseller_orders_user ON reseller_order_links(reseller_user_telegram_id, created_at)",
+            "CREATE TABLE IF NOT EXISTS product_stock_alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL, user_telegram_id INTEGER NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, notified_at TIMESTAMP, UNIQUE(product_id, user_telegram_id, notified_at))",
+            "CREATE TABLE IF NOT EXISTS product_views (id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL, user_telegram_id INTEGER NOT NULL, viewed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_alerts_unique_pending ON product_stock_alerts(product_id, user_telegram_id) WHERE notified_at IS NULL",
+            "CREATE INDEX IF NOT EXISTS idx_stock_alerts_product_pending ON product_stock_alerts(product_id, notified_at)",
+            "CREATE INDEX IF NOT EXISTS idx_product_views_product_date ON product_views(product_id, viewed_at)",
+            "CREATE INDEX IF NOT EXISTS idx_orders_product_date_status ON orders(product_id, created_at, status)",
         ]
         for sql in migrations:
             try:

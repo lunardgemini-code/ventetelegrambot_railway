@@ -13,6 +13,7 @@ A single ConversationHandler manages all admin multi-step flows:
 All routes are restricted to ADMIN_IDS.
 """
 
+import asyncio
 import logging
 from datetime import datetime
 
@@ -52,6 +53,7 @@ from database.models import (
     update_order_status,
 )
 from services.delivery import deliver_order
+from handlers.payment import safe_send_delivery_messages
 from utils.helpers import format_price, is_admin, escape_html
 from utils.locales import t, get_confirmation_message
 from utils.keyboards import (
@@ -625,6 +627,11 @@ async def admin_add_stock_receive(update: Update, context: ContextTypes.DEFAULT_
 
         count = await add_stock_items(prod_id, items)
         new_stock = await get_stock_count(prod_id)
+        try:
+            from handlers.products import notify_restock_subscribers
+            asyncio.create_task(notify_restock_subscribers(context.bot, prod_id))
+        except Exception:
+            logger.warning("Could not schedule restock subscriber notifications", exc_info=True)
 
         # Store stock info in user_data for potential broadcast
         ud = context.user_data
@@ -1403,16 +1410,19 @@ async def admin_confirm_payment(update: Update, context: ContextTypes.DEFAULT_TY
             # Notify user
             try:
                 user_lang = await get_user_lang(order["user_telegram_id"])
-                accounts_text = "\n".join(f"🔑 <code>{escape_html(item['account_data'])}</code>" for item in delivered)
-                await context.bot.send_message(
-                    order["user_telegram_id"],
-                    f"{t('payment_confirmed', user_lang)}\n\n"
-                    f"{t('your_account', user_lang)}\n"
-                    f"{accounts_text}\n\n"
+                footer = (
                     f"{t('warranty_lbl', user_lang).format(days=warranty_days)}\n"
                     f"{t('save_info', user_lang)}\n\n"
-                    f"{get_confirmation_message(product, user_lang, order_id)}",
-                    parse_mode="HTML",
+                    f"{get_confirmation_message(product, user_lang, order_id)}"
+                )
+                await safe_send_delivery_messages(
+                    context.bot,
+                    order["user_telegram_id"],
+                    t("payment_confirmed", user_lang),
+                    delivered,
+                    footer,
+                    user_lang,
+                    order_id,
                 )
             except Exception as exc:
                 logger.warning("Could not notify user: %s", exc)
@@ -1429,11 +1439,6 @@ async def admin_confirm_payment(update: Update, context: ContextTypes.DEFAULT_TY
                 reply_markup=admin_menu_keyboard(admin_lang),
             )
             return
-            await query.edit_message_text(
-                f"✅ Commande #{order_id} confirmée.\n"
-                "⚠️ Livraison automatique impossible (stock vide ?).",
-                reply_markup=admin_menu_keyboard(),
-            )
     except Exception as exc:
         logger.error("admin_confirm_payment: %s", exc, exc_info=True)
         await query.edit_message_text("⚠️ Erreur lors de la confirmation.")
