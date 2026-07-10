@@ -351,10 +351,14 @@ async def _process_quantity(
     if not is_activation and quantity > stock:
         msg = t("insufficient_stock", lang).format(stock=stock)
         if is_callback:
-            await update.callback_query.edit_message_text(
-                msg,
-                reply_markup=quantity_keyboard(product_id, stock, lang),
-            )
+            try:
+                await update.callback_query.edit_message_text(
+                    msg,
+                    reply_markup=quantity_keyboard(product_id, stock, lang),
+                )
+            except Exception as exc:
+                if "Message is not modified" not in str(exc):
+                    raise
         else:
             await update.message.reply_text(msg)
         return WAITING_QUANTITY
@@ -462,11 +466,15 @@ async def show_payment_method_screen(
     markup = await payment_method_keyboard(order["id"], lang, wallet_balance=wallet_balance, has_promo=has_promo)
 
     if is_callback and update.callback_query:
-        await update.callback_query.edit_message_text(
-            summary,
-            parse_mode="HTML",
-            reply_markup=markup,
-        )
+        try:
+            await update.callback_query.edit_message_text(
+                summary,
+                parse_mode="HTML",
+                reply_markup=markup,
+            )
+        except Exception as exc:
+            if "Message is not modified" not in str(exc):
+                raise
     else:
         await update.effective_message.reply_text(
             summary,
@@ -764,7 +772,7 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def pay_with_binance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle 'pay_binance:{order_id}' callback â€” show Binance Pay instructions."""
+    """Handle 'pay_binance:{order_id}' callback — show Binance Pay instructions."""
     query = update.callback_query
     await query.answer()
     lang = await get_user_lang(update.effective_user.id)
@@ -826,8 +834,13 @@ async def pay_with_binance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return WAITING_ORDER_ID
 
     except Exception as exc:
+        if "Message is not modified" in str(exc):
+            return WAITING_ORDER_ID
         logger.error("pay_with_binance: %s", exc, exc_info=True)
-        await query.edit_message_text(t("pay_error", lang))
+        try:
+            await query.edit_message_text(t("pay_error", lang))
+        except Exception:
+            pass
         return ConversationHandler.END
 
 
@@ -901,7 +914,7 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.warning("REPLAY ATTACK BLOCKED: User %s tried to reuse transaction %s for order %d",
                              update.effective_user.id, tx_id, order_id)
                 await update.message.reply_text(
-                    "âŒ This transaction has already been used for another order.",
+                    "â Œ This transaction has already been used for another order.",
                     reply_markup=main_menu_keyboard(lang),
                 )
                 return ConversationHandler.END
@@ -964,7 +977,7 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
             error_msg = result.get("error", t("payment_not_detected", lang))
             await update.message.reply_text(
                 f"{t('payment_not_detected', lang)}\n\n"
-                f"âŒ {error_msg}\n\n"
+                f"â Œ {error_msg}\n\n"
                 f"{t('retry_order_id', lang)}\n\n"
                 f"{t('contact_support', lang)}",
                 parse_mode="HTML",
@@ -1125,7 +1138,7 @@ async def _notify_admins_low_stock(context, product_id):
     prod_name = escape_html(product["name"]) if product else f"ID {product_id}"
     stock = await get_stock_count(product_id)
     text = (
-        "âš ï¸ <b>Stock faible !</b>\n"
+        "âš ï¸  <b>Stock faible !</b>\n"
         f"📦 {prod_name}\n"
         f"📉 Restant : {stock}"
     )
@@ -1172,7 +1185,7 @@ async def pay_with_bep20(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from database.models import get_setting
         bep20_address = await get_setting("bep20_address")
         if not bep20_address:
-            await query.edit_message_text("âŒ BEP20 USDT payment is not configured by admin.")
+            await query.edit_message_text("â Œ BEP20 USDT payment is not configured by admin.")
             return ConversationHandler.END
 
         await update_order_status(order_id, "AWAITING_PAYMENT")
@@ -1210,8 +1223,13 @@ async def pay_with_bep20(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return WAITING_BEP20_TX_HASH
 
     except Exception as exc:
+        if "Message is not modified" in str(exc):
+            return WAITING_BEP20_TX_HASH
         logger.error("pay_with_bep20: %s", exc, exc_info=True)
-        await query.edit_message_text(t("pay_error", lang))
+        try:
+            await query.edit_message_text(t("pay_error", lang))
+        except Exception:
+            pass
         return ConversationHandler.END
 
 
@@ -1313,7 +1331,7 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
 
         bep20_address = await get_setting("bep20_address")
         if not bep20_address:
-            await update.message.reply_text("âŒ BEP20 payment address is not configured by the administrator.")
+            await update.message.reply_text("â Œ BEP20 payment address is not configured by the administrator.")
             return ConversationHandler.END
 
         from services.blockchain_verify import verify_bep20_payment
@@ -1370,17 +1388,15 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
             if delivered:
                 await update_order_status(order_id, "COMPLETED", payment_method="bep20", binance_order_id=tx_hash)
                 warranty_days = product.get("warranty_days", 0) if product else 0
-                
                 await update.message.reply_text(f"✅ {t('payment_confirmed', lang)}\n\nPréparation de votre commande...", parse_mode="HTML")
 
                 header = f"{t('payment_confirmed', lang)}"
-                conf_msg = get_confirmation_message(product, lang, order_id)
                 footer = (
                     f"{t('warranty_lbl', lang).format(days=warranty_days)}\n"
                     f"{t('save_info', lang)}\n\n"
-                    f"{conf_msg}"
+                    f"{t('thank_you', lang)}"
                 )
-                await safe_send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang, order_id)
+                await send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang)
             else:
                 await update_order_status(order_id, "FAILED", payment_method="bep20", binance_order_id=tx_hash)
                 await update.message.reply_text(
@@ -1391,34 +1407,14 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                 )
 
             # Notify admins of BSC BEP20 sale
-            try:
-                from bot import notify_admins
-                product = await get_product(product_id)
-                pname = product["name"] if product else "?"
-                await notify_admins(
-                    f"💸 <b>BEP20 Sale!</b>\n"
-                    f"👤 {escape_html(update.effective_user.first_name)}\n"
-                    f"📦 {pname} x{db_order.get('quantity', 1)}\n"
-                    f"💰 {format_price(expected_amount)}"
-                )
-            except Exception:
-                pass
-
-            if product_id:
-                low = await check_low_stock(product_id)
-                if low:
-                    await _notify_admins_low_stock(context, product_id)
-
-            context.user_data.pop("paying_order_id", None)
-            context.user_data.pop("paying_amount", None)
-            context.user_data.pop("paying_product_id", None)
+            await _notify_admins_sale(context, order_id, product_id, expected_amount)
             return ConversationHandler.END
 
         else:
             error_msg = result.get("error", t("payment_not_detected", lang))
             await update.message.reply_text(
                 f"{t('payment_not_detected', lang)}\n\n"
-                f"âŒ {error_msg}\n\n"
+                f"⚠️ {error_msg}\n\n"
                 f"{t('retry_order_id', lang)}\n\n"
                 f"{t('support_hint', lang)}",
                 parse_mode="HTML",
@@ -1434,7 +1430,7 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def pay_with_trc20(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle 'pay_trc20:{order_id}' callback â€” show TRC20 deposit instructions."""
+    """Handle 'pay_trc20:{order_id}' callback — show TRC20 deposit instructions."""
     query = update.callback_query
     await query.answer()
     lang = await get_user_lang(update.effective_user.id)
@@ -1456,7 +1452,7 @@ async def pay_with_trc20(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from database.models import get_setting
         trc20_address = await get_setting("trc20_address")
         if not trc20_address:
-            await query.edit_message_text("âŒ TRC20 USDT payment is not configured by admin.")
+            await query.edit_message_text("⚠️ TRC20 USDT payment is not configured by admin.")
             return ConversationHandler.END
 
         await update_order_status(order_id, "AWAITING_PAYMENT")
@@ -1474,7 +1470,7 @@ async def pay_with_trc20(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{t('amount_lbl', lang)} {format_price(order['amount_usd'])}\n\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
             f"{t('trc20_instructions', lang)}\n\n"
-            f"👉 <b>{t('trc20_send_tx_hash', lang)}</b>",
+            f"📥 <b>{t('trc20_send_tx_hash', lang)}</b>",
             parse_mode="HTML",
             reply_markup=payment_check_keyboard(order_id, lang),
         )
@@ -1494,13 +1490,18 @@ async def pay_with_trc20(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return WAITING_TRC20_TX_HASH
 
     except Exception as exc:
+        if "Message is not modified" in str(exc):
+            return WAITING_TRC20_TX_HASH
         logger.error("pay_with_trc20: %s", exc, exc_info=True)
-        await query.edit_message_text(t("pay_error", lang))
+        try:
+            await query.edit_message_text(t("pay_error", lang))
+        except Exception:
+            pass
         return ConversationHandler.END
 
 
 async def check_trc20_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle 'check_trc20:{order_id}' callback â€” prompt user to send Tx Hash."""
+    """Handle 'check_trc20:{order_id}' callback — prompt user to send Tx Hash."""
     query = update.callback_query
     await query.answer()
     lang = await get_user_lang(update.effective_user.id)

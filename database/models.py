@@ -428,7 +428,11 @@ async def get_stock_forecast(days: int = 7) -> dict[int, dict]:
 
 async def record_product_view(product_id: int, user_telegram_id: int) -> None:
     """Best-effort product view tracking for conversion alerts."""
-    db = await get_db()
+    try:
+        db = await get_db()
+    except Exception as exc:
+        logger.debug("Could not open DB for product view %s: %s", product_id, exc)
+        return
     try:
         await db.execute(
             "INSERT INTO product_views (product_id, user_telegram_id) VALUES (?, ?)",
@@ -438,7 +442,10 @@ async def record_product_view(product_id: int, user_telegram_id: int) -> None:
     except Exception as exc:
         logger.debug("Could not record product view for product %s: %s", product_id, exc)
     finally:
-        await db.close()
+        try:
+            await db.close()
+        except Exception:
+            pass
 
 
 async def get_dead_product_alerts(days: int = 7, min_views: int = 10, max_conversion: float = 0.05) -> list[dict]:
@@ -992,6 +999,24 @@ async def get_all_stock_counts() -> dict[int, int]:
     finally:
         await db.close()
 
+def _row_int(row, *keys, default: int = 0) -> int:
+    """Safely extract an int from a DB row (dict / sqlite3.Row / tuple)."""
+    if row is None:
+        return default
+    for key in keys:
+        try:
+            val = row[key]
+            if val is None:
+                return default
+            return int(val)
+        except Exception:
+            continue
+    try:
+        return int(row[0])
+    except Exception:
+        return default
+
+
 async def get_product_full_details(product_id: int) -> tuple[dict | None, int, list[dict], int]:
     """Retourne (product, stock_count, tiers, sold_count) avec une seule connexion pour optimiser la latence."""
     db = await get_db()
@@ -1005,17 +1030,27 @@ async def get_product_full_details(product_id: int) -> tuple[dict | None, int, l
             return None, 0, [], 0
 
         # 2. Stock non vendu
-        cursor = await db.execute("SELECT COUNT(*) as cnt FROM stock_items WHERE product_id = ? AND is_sold = 0", (product_id,))
-        row = await cursor.fetchone()
-        total_unsold = row["cnt"] if row else 0
-
-        # Stock rÃ©servÃ© (derniÃ¨res 5 minutes)
         cursor = await db.execute(
-            "SELECT COALESCE(SUM(quantity), 0) as reserved FROM orders WHERE product_id = ? AND status IN ('PENDING', 'AWAITING_PAYMENT', 'PROCESSING') AND created_at >= datetime('now', '-300 seconds')",
+            "SELECT COUNT(*) as cnt FROM stock_items WHERE product_id = ? AND is_sold = 0",
             (product_id,),
         )
         row = await cursor.fetchone()
-        reserved = row["reserved"] if row else 0
+        total_unsold = _row_int(row, "cnt")
+
+        # Stock réservé (dernières 5 minutes)
+        reserved = 0
+        try:
+            cursor = await db.execute(
+                "SELECT COALESCE(SUM(quantity), 0) as reserved FROM orders "
+                "WHERE product_id = ? AND status IN ('PENDING', 'AWAITING_PAYMENT', 'PROCESSING') "
+                "AND created_at >= datetime('now', '-300 seconds')",
+                (product_id,),
+            )
+            row = await cursor.fetchone()
+            reserved = _row_int(row, "reserved")
+        except Exception as exc:
+            logger.warning("Reserved stock query failed for product %s: %s", product_id, exc)
+            reserved = 0
         stock_count = max(0, total_unsold - reserved)
 
         # 3. Paliers de prix (Tiers) via cache si possible
@@ -1023,15 +1058,28 @@ async def get_product_full_details(product_id: int) -> tuple[dict | None, int, l
         if product_id in _TIERS_CACHE:
             tiers = _TIERS_CACHE[product_id]
         else:
-            cursor = await db.execute("SELECT * FROM price_tiers WHERE product_id = ? ORDER BY min_qty ASC", (product_id,))
-            rows = await cursor.fetchall()
-            tiers = [dict(r) for r in rows]
+            try:
+                cursor = await db.execute(
+                    "SELECT * FROM price_tiers WHERE product_id = ? ORDER BY min_qty ASC",
+                    (product_id,),
+                )
+                rows = await cursor.fetchall()
+                tiers = [dict(r) for r in rows]
+            except Exception:
+                tiers = []
             _TIERS_CACHE[product_id] = tiers
 
         # 4. Nombre de ventes
-        cursor = await db.execute("SELECT COUNT(id) as cnt FROM stock_items WHERE product_id = ? AND is_sold = 1", (product_id,))
-        row = await cursor.fetchone()
-        sold_count = row["cnt"] if row else 0
+        sold_count = 0
+        try:
+            cursor = await db.execute(
+                "SELECT COUNT(id) as cnt FROM stock_items WHERE product_id = ? AND is_sold = 1",
+                (product_id,),
+            )
+            row = await cursor.fetchone()
+            sold_count = _row_int(row, "cnt")
+        except Exception:
+            sold_count = 0
 
         return product, stock_count, tiers, sold_count
     finally:

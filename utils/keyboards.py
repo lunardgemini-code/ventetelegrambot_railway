@@ -172,29 +172,37 @@ def categories_keyboard(categories: list[dict], lang: str = "fr") -> InlineKeybo
 
 def products_keyboard(products: list[dict], stock_counts: dict, lang: str = "fr") -> InlineKeyboardMarkup:
     """One button per product showing name, price and stock count or ❌."""
+    from utils.helpers import format_price
     buttons = []
     for prod in products:
         stock = stock_counts.get(prod["id"], 0)
         is_activation = prod.get("delivery_type") == "activation"
+        price_lbl = format_price(prod.get("price_usd")).lstrip("$")
+        name = prod.get("name") or "?"
+        emoji = prod.get("emoji") or "📦"
         
-        custom_id = prod.get("custom_emoji_id")
+        custom_id = (prod.get("custom_emoji_id") or "").strip()
+        # icon_custom_emoji_id must be numeric; invalid IDs break the whole keyboard
+        if custom_id and not custom_id.isdigit():
+            custom_id = ""
+
         if is_activation:
             activation_txt = {"en": "Activation", "fr": "Activation", "ar": "تفعيل", "zh": "激活", "vi": "Kích hoạt", "ru": "Активация"}.get(lang, "Activation")
             if custom_id:
-                label = f"{prod['name']} | ${prod['price_usd']:.2f} | {activation_txt}"
+                label = f"{name} | ${price_lbl} | {activation_txt}"
             else:
-                label = f"{prod['emoji']} {prod['name']} | ${prod['price_usd']:.2f} | {activation_txt}"
+                label = f"{emoji} {name} | ${price_lbl} | {activation_txt}"
         elif stock > 0:
             if custom_id:
-                label = f"{prod['name']} | ${prod['price_usd']:.2f} | 📦 {stock}"
+                label = f"{name} | ${price_lbl} | 📦 {stock}"
             else:
-                label = f"{prod['emoji']} {prod['name']} | ${prod['price_usd']:.2f} | 📦 {stock}"
+                label = f"{emoji} {name} | ${price_lbl} | 📦 {stock}"
         else:
             rupture_txt = {"en": "Out of stock", "fr": "Rupture", "ar": "نفذت الكمية", "zh": "缺货", "vi": "Hết hàng", "ru": "Нет в наличии"}.get(lang, "Rupture")
             if custom_id:
-                label = f"{prod['name']} | ${prod['price_usd']:.2f} | {rupture_txt}"
+                label = f"{name} | ${price_lbl} | {rupture_txt}"
             else:
-                label = f"⚠️ {prod['name']} | ${prod['price_usd']:.2f} | {rupture_txt}"
+                label = f"⚠️ {name} | ${price_lbl} | {rupture_txt}"
             
         btn_kwargs = {}
         if custom_id:
@@ -205,6 +213,10 @@ def products_keyboard(products: list[dict], stock_counts: dict, lang: str = "fr"
         else:
             btn_kwargs["style"] = KeyboardButtonStyle.DANGER
 
+        # Telegram button text max ~64 chars
+        if len(label) > 64:
+            label = label[:61] + "…"
+
         buttons.append([InlineKeyboardButton(label, callback_data=f"prod:{prod['id']}", **btn_kwargs)])
 
     buttons.append([
@@ -214,12 +226,15 @@ def products_keyboard(products: list[dict], stock_counts: dict, lang: str = "fr"
     return InlineKeyboardMarkup(buttons)
 
 
-def product_detail_keyboard(product_id: int, lang: str = "fr") -> InlineKeyboardMarkup:
-    """Buy now + back to product list."""
-    return InlineKeyboardMarkup([
-        [make_button("btn_buy_now", lang, callback_data=f"buy:{product_id}", style=KeyboardButtonStyle.SUCCESS)],
-        [make_button("btn_back", lang, callback_data="back_products")],
-    ])
+def product_detail_keyboard(product_id: int, lang: str = "fr", can_buy: bool = True) -> InlineKeyboardMarkup:
+    """Buy/notify + back to product list."""
+    buttons = []
+    if can_buy:
+        buttons.append([make_button("btn_buy_now", lang, callback_data=f"buy:{product_id}", style=KeyboardButtonStyle.SUCCESS)])
+    else:
+        buttons.append([make_button("btn_notify_restock", lang, callback_data=f"notify_stock:{product_id}")])
+    buttons.append([make_button("btn_back", lang, callback_data="back_products")])
+    return InlineKeyboardMarkup(buttons)
 
 
 def quantity_keyboard(product_id: int, stock: int, lang: str = "fr") -> InlineKeyboardMarkup:

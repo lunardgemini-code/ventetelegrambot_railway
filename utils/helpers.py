@@ -20,9 +20,26 @@ def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
 
-def format_price(amount: float) -> str:
-    """Formate un montant en prix lisible : $X.XX"""
-    return f"${amount:.2f}"
+def format_price(amount) -> str:
+    """Formate un montant en prix lisible : $X.XX (robuste si None / str)."""
+    try:
+        if amount is None or amount == "":
+            return "$0.00"
+        return f"${float(amount):.2f}"
+    except (TypeError, ValueError):
+        return "$0.00"
+
+
+def safe_format(template: str, **kwargs) -> str:
+    """Like str.format but never crashes on stray braces in values."""
+    try:
+        return template.format(**kwargs)
+    except (KeyError, ValueError, IndexError):
+        # Fallback: sequential replace of known placeholders only
+        out = template
+        for key, value in kwargs.items():
+            out = out.replace("{" + key + "}", str(value))
+        return out
 
 
 def generate_order_id() -> str:

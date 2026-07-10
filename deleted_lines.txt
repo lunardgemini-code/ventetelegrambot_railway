@@ -1,0 +1,1119 @@
+Created At: 2026-07-10T12:19:22Z
+Completed At: 2026-07-10T12:19:51Z
+The following changes were made by the multi_replace_file_content tool to: N:\geminiopus\ventetelegrambot_railway\handlers\payment.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -820,105 +820,161 @@
+             cancel_order_after_timeout(
+                 context, chat_id, order_id, telegram_id, timeout_seconds=300
+             )
+-        )
+-        _timeout_tasks[order_id] = task
+-
+-        return WAITING_ORDER_ID
+-
+-    except Exception as exc:
+-        logger.error("pay_with_binance: %s", exc, exc_info=True)
+-        await query.edit_message_text(t("pay_error", lang))
+-        return ConversationHandler.END
+-
+-
+-async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+-    """Handle text message in WAITING_ORDER_ID state â€” verify payment."""
+-    client_order_id = update.message.text.strip()
+-    order_id = context.user_data.get("paying_order_id")
+-    expected_amount = context.user_data.get("paying_amount", 0)
+-    product_id = context.user_data.get("paying_product_id")
+-    lang = await get_user_lang(update.effective_user.id)
+-
+-    if not order_id:
+-        await update.message.reply_text(t("no_pending_order", lang))
+-        return ConversationHandler.END
+-
+-    db_order = await get_order(order_id)
+-    if not db_order:
+-        await update.message.reply_text(
+-            t("order_cancelled", lang),
+-            parse_mode="HTML",
+-            reply_markup=main_menu_keyboard(lang),
+-        )
+-        context.user_data.pop("paying_order_id", None)
+-        context.user_data.pop("paying_amount", None)
+-        context.user_data.pop("paying_product_id", None)
+-        return ConversationHandler.END
+-
+-    # Track if order was cancelled by timeout (we still verify on-chain)
+-    order_was_cancelled = db_order.get("status") == "CANCELLED"
+-
+-    try:
+-        await update.message.reply_text(t("verifying", lang))
+-
+-        # Verify order is still in a payable status
+-        if db_order.get("status") == "COMPLETED":
+-            await update.message.reply_text(t("payment_confirmed", lang))
+-            return ConversationHandler.END
+-        elif db_order.get("status") not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED"):
+-            await update.message.reply_text(
+-                t("order_cancelled", lang),
+-                parse_mode="HTML",
+-                reply_markup=main_menu_keyboard(lang),
+-            )
+-            return ConversationHandler.END
+-
+-        # Determine which API credentials to use based on the product
+-        api_key_to_use = None
+-        api_secret_to_use = None
+-        if product_id:
+-            product = await get_product(product_id)
+-            if product and product.get("binance_account_id"):
+-                from database.models import get_binance_account
+-                acc = await get_binance_account(product["binance_account_id"])
+-                if acc:
+-                    api_key_to_use = acc.get("api_key")
+-                    api_secret_to_use = acc.get("api_secret")
+-
+-        result = await verify_payment(
+-            client_order_id, 
+-            expected_amount, 
+-            api_key=api_key_to_use, 
+-            api_secret=api_secret_to_use,
+-            lang=lang
+-        )
+-
+-        if result.get("verified"):
+-            # Anti-replay: check if transaction was already used
+-            tx = result.get("transaction", {})
+-            tx_id = str(tx.get("transactionId", "")) or str(tx.get("orderId", "")) or client_order_id
+-            if not await record_used_transaction(tx_id, order_id, update.effective_user.id, expected_amount):
+-                logger.warning("REPLAY ATTACK BLOCKED: User %s tried to reuse transaction %s for order %d",
+-                             update.effective_user.id, tx_id, order_id)
+-                await update.message.reply_text(
+-                    "âŒ This transaction has already been used for another order.",
+-                    reply_markup=main_menu_keyboard(lang),
+-                )
+-                return ConversationHandler.END
+-
+-            # Cancel any pending timeout task for this order since it's paid
+-            task = _timeout_tasks.pop(order_id, None)
+-            if task and not task.done():
+-                task.cancel()
+-                
+-            # Reactivate order if it was cancelled by timeout but payment is confirmed
+-            if order_was_cancelled:
+-                await update_order_status(order_id, "PENDING", payment_method="binance")
+-                logger.info("Order #%d reactivated: Binance payment confirmed after timeout", order_id)
+-            binance_tx_id = tx.get("transactionId", "")
+-            binance_order_id_val = tx.get("orderId", "")
+-            display_id = binance_order_id_val or binance_tx_id or client_order_id
+-
++    try:
++        order_id = int(query.data.split(":")[1])
++        order = await get_order(order_id)
++
++        if not order:
++            await query.edit_message_text(t("product_not_found", lang))
++            return ConversationHandler.END
++
++        telegram_id = update.effective_user.id
++        if order.get("user_telegram_id") != telegram_id:
++            logger.warning("User %s tried to pay order #%s via Binance which belongs to %s", telegram_id, order_id, order.get("user_telegram_id"))
++            await query.edit_message_text(t("access_denied", lang))
++            return ConversationHandler.END
++
++        await update_order_status(order_id, "AWAITING_PAYMENT")
++
++        context.user_data["paying_order_id"] = order_id
++        context.user_data["paying_amount"] = order["amount_usd"]
++        context.user_data["paying_product_id"] = order.get("product_id")
++
++        # Determine which Binance UID to use
++        uid_to_show = BINANCE_PAY_ID
++        product_id = order.get("product_id")
++        if product_id:
++            product = await get_product(product_id)
++            if product and product.get("binance_account_id"):
++                from database.models import get_binance_account
++                acc = await get_binance_account(product["binance_account_id"])
++                if acc and acc.get("uid"):
++                    uid_to_show = acc["uid"]
++
++        await query.edit_message_text(
++            f"{t('binance_title', lang)}\n\n"
++            f"{t('binance_id_lbl', lang)}\n"
++            f"<code>{uid_to_show}</code>\n\n"
++            f"{t('amount_lbl', lang)} {format_price(order['amount_usd'])}\n\n"
++            "━━━━━━━━━━━━━━━━━━━━\n"
++            f"{t('pay_instructions', lang)}\n"
++            f"{t('pay_step1', lang)}\n"
++            f"{t('pay_step2', lang)}\n\n"
++            f"{t('waiting_payment', lang)}",
++            parse_mode="HTML",
++            reply_markup=payment_check_keyboard(order_id, lang),
++        )
++
++        telegram_id = update.effective_user.id
++        chat_id = query.message.chat_id if query.message else telegram_id
++        task = asyncio.create_task(
++            cancel_order_after_timeout(
++                context, chat_id, order_id, telegram_id, timeout_seconds=300
++            )
++        )
++        _timeout_tasks[order_id] = task
++
++        return WAITING_ORDER_ID
++
++    except Exception as exc:
++        if "Message is not modified" in str(exc):
++            return WAITING_ORDER_ID
++        logger.error("pay_with_binance: %s", exc, exc_info=True)
++        try:
++            await query.edit_message_text(t("pay_error", lang))
++        except Exception:
++            pass
++        return ConversationHandler.END
++
++
++async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
++    """Handle text message in WAITING_ORDER_ID state â€” verify payment."""
++    client_order_id = update.message.text.strip()
++    order_id = context.user_data.get("paying_order_id")
++    expected_amount = context.user_data.get("paying_amount", 0)
++    product_id = context.user_data.get("paying_product_id")
++    lang = await get_user_lang(update.effective_user.id)
++
++    if not order_id:
++        await update.message.reply_text(t("no_pending_order", lang))
++        return ConversationHandler.END
++
++    db_order = await get_order(order_id)
++    if not db_order:
++        await update.message.reply_text(
++            t("order_cancelled", lang),
++            parse_mode="HTML",
++            reply_markup=main_menu_keyboard(lang),
++        )
++        context.user_data.pop("paying_order_id", None)
++        context.user_data.pop("paying_amount", None)
++        context.user_data.pop("paying_product_id", None)
++        return ConversationHandler.END
++
++    # Track if order was cancelled by timeout (we still verify on-chain)
++    order_was_cancelled = db_order.get("status") == "CANCELLED"
++
++    try:
++        await update.message.reply_text(t("verifying", lang))
++
++        # Verify order is still in a payable status
++        if db_order.get("status") == "COMPLETED":
++            await update.message.reply_text(t("payment_confirmed", lang))
++            return ConversationHandler.END
++        elif db_order.get("status") not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED"):
++            await update.message.reply_text(
++                t("order_cancelled", lang),
++                parse_mode="HTML",
++                reply_markup=main_menu_keyboard(lang),
++            )
++            return ConversationHandler.END
++
++        # Determine which API credentials to use based on the product
++        api_key_to_use = None
++        api_secret_to_use = None
++        if product_id:
++            product = await get_product(product_id)
++            if product and product.get("binance_account_id"):
++                from database.models import get_binance_account
++                acc = await get_binance_account(product["binance_account_id"])
++                if acc:
++                    api_key_to_use = acc.get("api_key")
++                    api_secret_to_use = acc.get("api_secret")
++
++        result = await verify_payment(
++            client_order_id, 
++            expected_amount, 
++            api_key=api_key_to_use, 
++            api_secret=api_secret_to_use,
++            lang=lang
++        )
++
++        if result.get("verified"):
++            # Anti-replay: check if transaction was already used
++            tx = result.get("transaction", {})
++            tx_id = str(tx.get("transactionId", "")) or str(tx.get("orderId", "")) or client_order_id
++            if not await record_used_transaction(tx_id, order_id, update.effective_user.id, expected_amount):
++                logger.warning("REPLAY ATTACK BLOCKED: User %s tried to reuse transaction %s for order %d",
++                             update.effective_user.id, tx_id, order_id)
++                await update.message.reply_text(
++                    "â Œ This transaction has already been used for another order.",
++                    reply_markup=main_menu_keyboard(lang),
++                )
++                return ConversationHandler.END
++
++            # Cancel any pending timeout task for this order since it's paid
++            task = _timeout_tasks.pop(order_id, None)
++            if task and not task.done():
++                task.cancel()
++                
++            # Reactivate order if it was cancelled by timeout but payment is confirmed
++            if order_was_cancelled:
++                await update_order_status(order_id, "PENDING", payment_method="binance")
++                logger.info("Order #%d reactivated: Binance payment confirmed after timeout", order_id)
++            binance_tx_id = tx.get("transactionId", "")
++            binance_order_id_val = tx.get("orderId", "")
++            display_id = binance_order_id_val or binance_tx_id or client_order_id
++
+             product = await get_product(product_id)
+             if _is_activation_product(product):
+                 return await _prompt_activation_identifier(update, context, order_id, product, lang, "binance", display_id)
+@@ -927,438 +927,443 @@
+             if delivered:
+                 await update_order_status(order_id, "COMPLETED", payment_method="binance", binance_order_id=display_id)
+                 warranty_days = product.get("warranty_days", 0) if product else 0
+-
+-                await update.message.reply_text(f"✅ {t('payment_confirmed', lang)}\n\nPréparation de votre commande...", parse_mode="HTML")
+-
+-                header = f"{t('payment_confirmed', lang)}"
+-                conf_msg = get_confirmation_message(product, lang, order_id)
+-                footer = (
+-                    f"{t('warranty_lbl', lang).format(days=warranty_days)}\n"
+-                    f"{t('save_info', lang)}\n\n"
+-                    f"{conf_msg}"
+-                )
+-                await safe_send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang, order_id)
+-            else:
+-                await update_order_status(order_id, "FAILED", payment_method="binance", binance_order_id=display_id)
+-                await update.message.reply_text(
+-                    f"{t('payment_confirmed', lang)}\n\n"
+-                    f"{t('delivery_error', lang).replace('{order_id}', str(order_id))}",
+-                    parse_mode="HTML",
+-                    reply_markup=main_menu_keyboard(lang),
+-                )
+-
+-            await _notify_admins_sale(context, order_id, product_id, expected_amount)
+-
+-            if product_id:
+-                low = await check_low_stock(product_id)
+-                if low:
+-                    await _notify_admins_low_stock(context, product_id)
+-
+-            context.user_data.pop("paying_order_id", None)
+-            context.user_data.pop("paying_amount", None)
+-            context.user_data.pop("paying_product_id", None)
+-            return ConversationHandler.END
+-
+-        else:
+-            error_msg = result.get("error", t("payment_not_detected", lang))
+-            await update.message.reply_text(
+-                f"{t('payment_not_detected', lang)}\n\n"
+-                f"âŒ {error_msg}\n\n"
+-                f"{t('retry_order_id', lang)}\n\n"
+-                f"{t('contact_support', lang)}",
+-                parse_mode="HTML",
+-            )
+-            await _notify_admins_manual_check(context, order_id, client_order_id)
+-            return WAITING_ORDER_ID
+-
+-    except Exception as exc:
+-        logger.error("receive_order_id: %s", exc, exc_info=True)
+-        await update.message.reply_text(t("verify_error", lang))
+-        return WAITING_ORDER_ID
+-
+-
+-async def check_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+-    """Handle 'check_pay:{order_id}' callback â€” prompt user to send Order ID."""
+-    query = update.callback_query
+-    await query.answer()
+-    lang = await get_user_lang(update.effective_user.id)
+-
+-    try:
+-        order_id = int(query.data.split(":")[1])
+-        order = await get_order(order_id)
+-
+-        if not order:
+-            await query.edit_message_text(t("product_not_found", lang))
+-            return
+-
+-        telegram_id = update.effective_user.id
+-        if order.get("user_telegram_id") != telegram_id:
+-            logger.warning("User %s tried to check payment of order #%s which belongs to %s", telegram_id, order_id, order.get("user_telegram_id"))
+-            await query.edit_message_text(t("access_denied", lang))
+-            return
+-
+-        await query.edit_message_text(
+-            f"{t('check_title', lang)}\n\n"
+-            f"{t('order_lbl', lang)} #{order_id}\n"
+-            f"{t('amount_lbl', lang)} {format_price(order['amount_usd'])}\n\n"
+-            f"{t('send_order_id', lang)}",
+-            parse_mode="HTML",
+-            reply_markup=payment_check_keyboard(order_id, lang),
+-        )
+-    except Exception as exc:
+-        logger.error("check_payment: %s", exc, exc_info=True)
+-        await query.edit_message_text(t("verify_error", lang))
+-
+-
+-async def cancel_order_after_timeout(
+-    context: ContextTypes.DEFAULT_TYPE,
+-    chat_id: int,
+-    order_id: int,
+-    user_telegram_id: int,
+-    timeout_seconds: int = 300,
+-):
+-    """Wait for timeout_seconds, then cancel order if it is still unpaid."""
+-    await asyncio.sleep(timeout_seconds)
+-    try:
+-        order = await get_order(order_id)
+-        if order and order.get("status") in ("PENDING", "AWAITING_PAYMENT"):
+-            await update_order_status(order_id, "CANCELLED")
+-            lang = await get_user_lang(user_telegram_id)
+-            
+-            await context.bot.send_message(
+-                chat_id=chat_id,
+-                text=t("order_timeout", lang).format(id=order_id),
+-                parse_mode="HTML",
+-                reply_markup=main_menu_keyboard(lang),
+-            )
+-    except Exception as exc:
+-        logger.error("Error in cancel_order_after_timeout: %s", exc, exc_info=True)
+-
+-
+-async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
+-    """Handle 'cancel_order:{order_id}' callback â€” cancel the pending order."""
+-    query = update.callback_query
+-    await query.answer()
+-    lang = await get_user_lang(update.effective_user.id)
+-
+-    try:
+-        order_id = int(query.data.split(":")[1])
+-        order = await get_order(order_id)
+-        if not order:
+-            await query.edit_message_text(t("product_not_found", lang))
+-            return
+-
+-        telegram_id = update.effective_user.id
+-        if order.get("user_telegram_id") != telegram_id:
+-            logger.warning("User %s tried to cancel order #%s which belongs to %s", telegram_id, order_id, order.get("user_telegram_id"))
+-            await query.edit_message_text(t("access_denied", lang))
+-            return
+-
+-        # Only allow cancelling PENDING or AWAITING_PAYMENT orders
+-        if order.get("status") not in ("PENDING", "AWAITING_PAYMENT"):
+-            await query.edit_message_text(
+-                t("cannot_cancel", lang).format(status=order.get("status")),
+-                reply_markup=main_menu_keyboard(lang),
+-            )
+-            return
+-
+-        # Cancel the background timeout task if it exists
+-        task = _timeout_tasks.pop(order_id, None)
+-        if task and not task.done():
+-            task.cancel()
+-
+-        await update_order_status(order_id, "CANCELLED")
+-
+-        context.user_data.pop("paying_order_id", None)
+-        context.user_data.pop("paying_amount", None)
+-        context.user_data.pop("paying_product_id", None)
+-        context.user_data.pop("pending_order_id", None)
+-        context.user_data.pop("pending_product_id", None)
+-
+-        await query.edit_message_text(
+-            t("order_cancelled", lang),
+-            parse_mode="HTML",
+-            reply_markup=main_menu_keyboard(lang),
+-        )
+-    except Exception as exc:
+-        logger.error("cancel_order: %s", exc, exc_info=True)
+-        await query.edit_message_text(
+-            t("cancel_error", lang),
+-            reply_markup=main_menu_keyboard(lang),
+-        )
+-
+-    return ConversationHandler.END
+-
+-
+-async def _start_redirect(update: Update, context: ContextTypes.DEFAULT_TYPE):
+-    """Fallback: end conversation and redirect to /start."""
+-    context.user_data.pop("paying_order_id", None)
+-    context.user_data.pop("paying_amount", None)
+-    context.user_data.pop("paying_product_id", None)
+-
+-    from handlers.start import start_command
+-    await start_command(update, context)
+-    return ConversationHandler.END
+-
+-
+-# ── Admin notification helpers ──
+-
+-async def _notify_admins_sale(context, order_id, product_id, amount):
+-    product = await get_product(product_id) if product_id else None
+-    prod_name = escape_html(product["name"]) if product else "?"
+-    text = (
+-        "🔔 <b>Nouvelle vente !</b>\n"
+-        f"📦 Produit : {prod_name}\n"
+-        f"💰 Montant : {format_price(amount)}\n"
+-        f"🔖 Commande : #{order_id}"
+-    )
+-    for admin_id in ADMIN_IDS:
+-        try:
+-            await context.bot.send_message(admin_id, text, parse_mode="HTML")
+-        except Exception as exc:
+-            logger.warning("Could not notify admin %s: %s", admin_id, exc)
+-
+-
+-async def _notify_admins_low_stock(context, product_id):
+-    product = await get_product(product_id)
+-    prod_name = escape_html(product["name"]) if product else f"ID {product_id}"
+-    stock = await get_stock_count(product_id)
+-    text = (
+-        "âš ï¸ <b>Stock faible !</b>\n"
+-        f"📦 {prod_name}\n"
+-        f"📉 Restant : {stock}"
+-    )
+-    for admin_id in ADMIN_IDS:
+-        try:
+-            await context.bot.send_message(admin_id, text, parse_mode="HTML")
+-        except Exception as exc:
+-            logger.warning("Could not notify admin %s: %s", admin_id, exc)
+-
+-
+-async def _notify_admins_manual_check(context, order_id, client_order_id):
+-    text = (
+-        "🔔 <b>Vérification manuelle requise</b>\n"
+-        f"🔖 Commande : #{order_id}\n"
+-        f"📝 Order ID soumis : <code>{client_order_id}</code>"
+-    )
+-    for admin_id in ADMIN_IDS:
+-        try:
+-            await context.bot.send_message(admin_id, text, parse_mode="HTML")
+-        except Exception as exc:
+-            logger.warning("Could not notify admin %s: %s", admin_id, exc)
+-
+-
+-async def pay_with_bep20(update: Update, context: ContextTypes.DEFAULT_TYPE):
+-    """Handle 'pay_bep20:{order_id}' callback â€” show BEP20 deposit instructions."""
+-    query = update.callback_query
+-    await query.answer()
+-    lang = await get_user_lang(update.effective_user.id)
+-
+-    try:
+-        order_id = int(query.data.split(":")[1])
+-        order = await get_order(order_id)
+-
+-        if not order:
+-            await query.edit_message_text(t("product_not_found", lang))
+-            return ConversationHandler.END
+-
+-        telegram_id = update.effective_user.id
+-        if order.get("user_telegram_id") != telegram_id:
+-            logger.warning("User %s tried to pay order #%s via BEP20 which belongs to %s", telegram_id, order_id, order.get("user_telegram_id"))
+-            await query.edit_message_text(t("access_denied", lang))
+-            return ConversationHandler.END
+-
+-        from database.models import get_setting
+-        bep20_address = await get_setting("bep20_address")
+-        if not bep20_address:
+-            await query.edit_message_text("âŒ BEP20 USDT payment is not configured by admin.")
+-            return ConversationHandler.END
+-
+-        await update_order_status(order_id, "AWAITING_PAYMENT")
+-
+-        context.user_data["paying_order_id"] = order_id
+-        context.user_data["paying_amount"] = order["amount_usd"]
+-        context.user_data["paying_product_id"] = order.get("product_id")
+-
+-        from utils.keyboards import payment_check_keyboard
+-        
+-        await query.edit_message_text(
+-            f"{t('bep20_title', lang)}\n\n"
+-            f"{t('bep20_address_lbl', lang)}\n"
+-            f"<code>{bep20_address}</code>\n\n"
+-            f"{t('amount_lbl', lang)} {format_price(order['amount_usd'])}\n\n"
+-            "━━━━━━━━━━━━━━━━━━━━\n"
+-            f"{t('bep20_instructions', lang)}\n\n"
+-            f"👉 <b>{t('bep20_send_tx_hash', lang)}</b>",
+-            parse_mode="HTML",
+-            reply_markup=payment_check_keyboard(order_id, lang),
+-        )
+-
+-        # Launch a background task to auto-cancel the order if not paid in 5 mins
+-        task = asyncio.create_task(
+-            cancel_order_after_timeout(
+-                context,
+-                chat_id=update.effective_chat.id,
+-                order_id=order_id,
+-                user_telegram_id=update.effective_user.id,
+-                timeout_seconds=300,
+-            )
+-        )
+-        _timeout_tasks[order_id] = task
+-
+-        return WAITING_BEP20_TX_HASH
+-
+-    except Exception as exc:
+-        logger.error("pay_with_bep20: %s", exc, exc_info=True)
+-        await query.edit_message_text(t("pay_error", lang))
+-        return ConversationHandler.END
+-
+-
+-async def check_bep20_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+-    """Handle 'check_bep20:{order_id}' callback â€” prompt user to send Tx Hash."""
+-    query = update.callback_query
+-    await query.answer()
+-    lang = await get_user_lang(update.effective_user.id)
+-
+-    try:
+-        order_id = int(query.data.split(":")[1])
+-        order = await get_order(order_id)
+-
+-        if not order:
+-            await query.edit_message_text(t("product_not_found", lang))
+-            return
+-
+-        telegram_id = update.effective_user.id
+-        if order.get("user_telegram_id") != telegram_id:
+-            logger.warning("User %s tried to check BEP20 payment of order #%s which belongs to %s", telegram_id, order_id, order.get("user_telegram_id"))
+-            await query.edit_message_text(t("access_denied", lang))
+-            return
+-
+-        from utils.keyboards import bep20_payment_check_keyboard
+-        
+-        await query.edit_message_text(
+-            f"{t('bep20_title', lang)}\n\n"
+-            f"{t('order_lbl', lang)} #{order_id}\n"
+-            f"{t('amount_lbl', lang)} {format_price(order['amount_usd'])}\n\n"
+-            f"{t('bep20_send_tx_hash', lang)}",
+-            parse_mode="HTML",
+-            reply_markup=bep20_payment_check_keyboard(order_id, lang),
+-        )
+-    except Exception as exc:
+-        logger.error("check_bep20_payment: %s", exc, exc_info=True)
+-        await query.edit_message_text(t("verify_error", lang))
+-
+-
+-async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
+-    """Handle text message in WAITING_BEP20_TX_HASH state â€” verify BEP20 payment."""
+-    tx_hash = update.message.text.strip()
+-    order_id = context.user_data.get("paying_order_id")
+-    expected_amount = context.user_data.get("paying_amount", 0)
+-    product_id = context.user_data.get("paying_product_id")
+-    lang = await get_user_lang(update.effective_user.id)
+-
+-    if not order_id:
+-        await update.message.reply_text(t("no_pending_order", lang))
+-        return ConversationHandler.END
+-
+-    db_order = await get_order(order_id)
+-    if not db_order:
+-        await update.message.reply_text(
+-            t("order_cancelled", lang),
+-            parse_mode="HTML",
+-            reply_markup=main_menu_keyboard(lang),
+-        )
+-        context.user_data.pop("paying_order_id", None)
+-        context.user_data.pop("paying_amount", None)
+-        context.user_data.pop("paying_product_id", None)
+-        return ConversationHandler.END
+-
+-    # Validation: on-chain hashes start with "0x" and are 66 chars.
+-    # Off-chain Binance transfers can be an ID (often digits) or "Off-chain transfer <ID>"
+-    is_on_chain = tx_hash.startswith("0x") and len(tx_hash) == 66
+-    is_off_chain = tx_hash.isdigit() or "off-chain" in tx_hash.lower() or (not tx_hash.startswith("0x") and len(tx_hash) > 5)
+-
+-    if not is_on_chain and not is_off_chain:
+-        await update.message.reply_text(t("bep20_invalid_tx_hash", lang))
+-        return WAITING_BEP20_TX_HASH
+-
+-    # Track if order was cancelled by timeout (we still verify on-chain)
+-    order_was_cancelled = db_order.get("status") == "CANCELLED"
+-
+-    try:
+-        await update.message.reply_text(t("verifying", lang))
+-
+-        if db_order.get("status") == "COMPLETED":
+-            await update.message.reply_text(t("payment_confirmed", lang))
+-            return ConversationHandler.END
+-        elif db_order.get("status") not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED"):
+-            await update.message.reply_text(
+-                t("order_cancelled", lang),
+-                parse_mode="HTML",
+-                reply_markup=main_menu_keyboard(lang),
+-            )
+-            return ConversationHandler.END
+-
+-        # Anti-replay check
+-        from database.models import is_bep20_transaction_used, record_used_bep20_transaction, get_setting
+-        if await is_bep20_transaction_used(tx_hash):
+-            logger.warning("REPLAY ATTACK BLOCKED (BEP20): User %s tried to reuse tx %s for order %d",
+-                           update.effective_user.id, tx_hash, order_id)
+-            await update.message.reply_text(
+-                t("tx_already_used", lang),
+-                reply_markup=main_menu_keyboard(lang),
+-            )
+-            return ConversationHandler.END
+-
+-        bep20_address = await get_setting("bep20_address")
+-        if not bep20_address:
+-            await update.message.reply_text("âŒ BEP20 payment address is not configured by the administrator.")
+-            return ConversationHandler.END
+-
+-        from services.blockchain_verify import verify_bep20_payment
+-        from services.binance_verify import verify_internal_transfer
+-
+-        result = {"verified": False, "error": "Type de transaction non pris en charge."}
+-
+-        if is_on_chain:
+-            # On-chain verification
+-            result = await verify_bep20_payment(tx_hash, expected_amount, bep20_address)
+-        else:
+-            # Off-chain Binance internal verification
+-            api_key = None
+-            api_secret = None
+-            if product_id:
+-                product = await get_product(product_id)
+-                if product and product.get("binance_account_id"):
+-                    from database.models import get_binance_account
+-                    acc = await get_binance_account(product["binance_account_id"])
+-                    if acc:
+-                        api_key = acc.get("api_key")
+-                        api_secret = acc.get("api_secret")
+-            
+-            result = await verify_internal_transfer(tx_hash, expected_amount, api_key=api_key, api_secret=api_secret, lang=lang)
+-
+-        if result.get("verified"):
+-            # Record hash to prevent double spending
+-            if not await record_used_bep20_transaction(tx_hash, order_id, update.effective_user.id, expected_amount):
+-                logger.warning("REPLAY ATTACK BLOCKED (BEP20 DB constraint): User %s tried to reuse tx %s for order %d",
+-                               update.effective_user.id, tx_hash, order_id)
+-                await update.message.reply_text(
+-                    t("tx_already_used", lang),
+-                    reply_markup=main_menu_keyboard(lang),
+-                )
+-                return ConversationHandler.END
+-
+-            # Cancel any pending timeout task for this order since it's paid
+-            task = _timeout_tasks.pop(order_id, None)
+-            if task and not task.done():
+-                task.cancel()
+-
+-            # Reactivate order if it was cancelled by timeout but payment is confirmed on-chain
+-            if order_was_cancelled:
+-                await update_order_status(order_id, "PENDING", payment_method="bep20")
+-                logger.info("Order #%d reactivated: BEP20 payment confirmed on-chain after timeout", order_id)
+-
++
++                await update.message.reply_text(f"✅ {t('payment_confirmed', lang)}\n\nPréparation de votre commande...", parse_mode="HTML")
++
++                header = f"{t('payment_confirmed', lang)}"
++                conf_msg = get_confirmation_message(product, lang, order_id)
++                footer = (
++                    f"{t('warranty_lbl', lang).format(days=warranty_days)}\n"
++                    f"{t('save_info', lang)}\n\n"
++                    f"{conf_msg}"
++                )
++                await safe_send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang, order_id)
++            else:
++                await update_order_status(order_id, "FAILED", payment_method="binance", binance_order_id=display_id)
++                await update.message.reply_text(
++                    f"{t('payment_confirmed', lang)}\n\n"
++                    f"{t('delivery_error', lang).replace('{order_id}', str(order_id))}",
++                    parse_mode="HTML",
++                    reply_markup=main_menu_keyboard(lang),
++                )
++
++            await _notify_admins_sale(context, order_id, product_id, expected_amount)
++
++            if product_id:
++                low = await check_low_stock(product_id)
++                if low:
++                    await _notify_admins_low_stock(context, product_id)
++
++            context.user_data.pop("paying_order_id", None)
++            context.user_data.pop("paying_amount", None)
++            context.user_data.pop("paying_product_id", None)
++            return ConversationHandler.END
++
++        else:
++            error_msg = result.get("error", t("payment_not_detected", lang))
++            await update.message.reply_text(
++                f"{t('payment_not_detected', lang)}\n\n"
++                f"â Œ {error_msg}\n\n"
++                f"{t('retry_order_id', lang)}\n\n"
++                f"{t('contact_support', lang)}",
++                parse_mode="HTML",
++            )
++            await _notify_admins_manual_check(context, order_id, client_order_id)
++            return WAITING_ORDER_ID
++
++    except Exception as exc:
++        logger.error("receive_order_id: %s", exc, exc_info=True)
++        await update.message.reply_text(t("verify_error", lang))
++        return WAITING_ORDER_ID
++
++
++async def check_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
++    """Handle 'check_pay:{order_id}' callback â€” prompt user to send Order ID."""
++    query = update.callback_query
++    await query.answer()
++    lang = await get_user_lang(update.effective_user.id)
++
++    try:
++        order_id = int(query.data.split(":")[1])
++        order = await get_order(order_id)
++
++        if not order:
++            await query.edit_message_text(t("product_not_found", lang))
++            return
++
++        telegram_id = update.effective_user.id
++        if order.get("user_telegram_id") != telegram_id:
++            logger.warning("User %s tried to check payment of order #%s which belongs to %s", telegram_id, order_id, order.get("user_telegram_id"))
++            await query.edit_message_text(t("access_denied", lang))
++            return
++
++        await query.edit_message_text(
++            f"{t('check_title', lang)}\n\n"
++            f"{t('order_lbl', lang)} #{order_id}\n"
++            f"{t('amount_lbl', lang)} {format_price(order['amount_usd'])}\n\n"
++            f"{t('send_order_id', lang)}",
++            parse_mode="HTML",
++            reply_markup=payment_check_keyboard(order_id, lang),
++        )
++    except Exception as exc:
++        logger.error("check_payment: %s", exc, exc_info=True)
++        await query.edit_message_text(t("verify_error", lang))
++
++
++async def cancel_order_after_timeout(
++    context: ContextTypes.DEFAULT_TYPE,
++    chat_id: int,
++    order_id: int,
++    user_telegram_id: int,
++    timeout_seconds: int = 300,
++):
++    """Wait for timeout_seconds, then cancel order if it is still unpaid."""
++    await asyncio.sleep(timeout_seconds)
++    try:
++        order = await get_order(order_id)
++        if order and order.get("status") in ("PENDING", "AWAITING_PAYMENT"):
++            await update_order_status(order_id, "CANCELLED")
++            lang = await get_user_lang(user_telegram_id)
++            
++            await context.bot.send_message(
++                chat_id=chat_id,
++                text=t("order_timeout", lang).format(id=order_id),
++                parse_mode="HTML",
++                reply_markup=main_menu_keyboard(lang),
++            )
++    except Exception as exc:
++        logger.error("Error in cancel_order_after_timeout: %s", exc, exc_info=True)
++
++
++async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
++    """Handle 'cancel_order:{order_id}' callback â€” cancel the pending order."""
++    query = update.callback_query
++    await query.answer()
++    lang = await get_user_lang(update.effective_user.id)
++
++    try:
++        order_id = int(query.data.split(":")[1])
++        order = await get_order(order_id)
++        if not order:
++            await query.edit_message_text(t("product_not_found", lang))
++            return
++
++        telegram_id = update.effective_user.id
++        if order.get("user_telegram_id") != telegram_id:
++            logger.warning("User %s tried to cancel order #%s which belongs to %s", telegram_id, order_id, order.get("user_telegram_id"))
++            await query.edit_message_text(t("access_denied", lang))
++            return
++
++        # Only allow cancelling PENDING or AWAITING_PAYMENT orders
++        if order.get("status") not in ("PENDING", "AWAITING_PAYMENT"):
++            await query.edit_message_text(
++                t("cannot_cancel", lang).format(status=order.get("status")),
++                reply_markup=main_menu_keyboard(lang),
++            )
++            return
++
++        # Cancel the background timeout task if it exists
++        task = _timeout_tasks.pop(order_id, None)
++        if task and not task.done():
++            task.cancel()
++
++        await update_order_status(order_id, "CANCELLED")
++
++        context.user_data.pop("paying_order_id", None)
++        context.user_data.pop("paying_amount", None)
++        context.user_data.pop("paying_product_id", None)
++        context.user_data.pop("pending_order_id", None)
++        context.user_data.pop("pending_product_id", None)
++
++        await query.edit_message_text(
++            t("order_cancelled", lang),
++            parse_mode="HTML",
++            reply_markup=main_menu_keyboard(lang),
++        )
++    except Exception as exc:
++        logger.error("cancel_order: %s", exc, exc_info=True)
++        await query.edit_message_text(
++            t("cancel_error", lang),
++            reply_markup=main_menu_keyboard(lang),
++        )
++
++    return ConversationHandler.END
++
++
++async def _start_redirect(update: Update, context: ContextTypes.DEFAULT_TYPE):
++    """Fallback: end conversation and redirect to /start."""
++    context.user_data.pop("paying_order_id", None)
++    context.user_data.pop("paying_amount", None)
++    context.user_data.pop("paying_product_id", None)
++
++    from handlers.start import start_command
++    await start_command(update, context)
++    return ConversationHandler.END
++
++
++# ── Admin notification helpers ──
++
++async def _notify_admins_sale(context, order_id, product_id, amount):
++    product = await get_product(product_id) if product_id else None
++    prod_name = escape_html(product["name"]) if product else "?"
++    text = (
++        "🔔 <b>Nouvelle vente !</b>\n"
++        f"📦 Produit : {prod_name}\n"
++        f"💰 Montant : {format_price(amount)}\n"
++        f"🔖 Commande : #{order_id}"
++    )
++    for admin_id in ADMIN_IDS:
++        try:
++            await context.bot.send_message(admin_id, text, parse_mode="HTML")
++        except Exception as exc:
++            logger.warning("Could not notify admin %s: %s", admin_id, exc)
++
++
++async def _notify_admins_low_stock(context, product_id):
++    product = await get_product(product_id)
++    prod_name = escape_html(product["name"]) if product else f"ID {product_id}"
++    stock = await get_stock_count(product_id)
++    text = (
++        "âš ï¸  <b>Stock faible !</b>\n"
++        f"📦 {prod_name}\n"
++        f"📉 Restant : {stock}"
++    )
++    for admin_id in ADMIN_IDS:
++        try:
++            await context.bot.send_message(admin_id, text, parse_mode="HTML")
++        except Exception as exc:
++            logger.warning("Could not notify admin %s: %s", admin_id, exc)
++
++
++async def _notify_admins_manual_check(context, order_id, client_order_id):
++    text = (
++        "🔔 <b>Vérification manuelle requise</b>\n"
++        f"🔖 Commande : #{order_id}\n"
++        f"📝 Order ID soumis : <code>{client_order_id}</code>"
++    )
++    for admin_id in ADMIN_IDS:
++        try:
++            await context.bot.send_message(admin_id, text, parse_mode="HTML")
++        except Exception as exc:
++            logger.warning("Could not notify admin %s: %s", admin_id, exc)
++
++
++async def pay_with_bep20(update: Update, context: ContextTypes.DEFAULT_TYPE):
++    """Handle 'pay_bep20:{order_id}' callback â€” show BEP20 deposit instructions."""
++    query = update.callback_query
++    await query.answer()
++    lang = await get_user_lang(update.effective_user.id)
++
++    try:
++        order_id = int(query.data.split(":")[1])
++        order = await get_order(order_id)
++
++        if not order:
++            await query.edit_message_text(t("product_not_found", lang))
++            return ConversationHandler.END
++
++        telegram_id = update.effective_user.id
++        if order.get("user_telegram_id") != telegram_id:
++            logger.warning("User %s tried to pay order #%s via BEP20 which belongs to %s", telegram_id, order_id, order.get("user_telegram_id"))
++            await query.edit_message_text(t("access_denied", lang))
++            return ConversationHandler.END
++
++        from database.models import get_setting
++        bep20_address = await get_setting("bep20_address")
++        if not bep20_address:
++            await query.edit_message_text("â Œ BEP20 USDT payment is not configured by admin.")
++            return ConversationHandler.END
++
++        await update_order_status(order_id, "AWAITING_PAYMENT")
++
++        context.user_data["paying_order_id"] = order_id
++        context.user_data["paying_amount"] = order["amount_usd"]
++        context.user_data["paying_product_id"] = order.get("product_id")
++
++        from utils.keyboards import payment_check_keyboard
++        
++        await query.edit_message_text(
++            f"{t('bep20_title', lang)}\n\n"
++            f"{t('bep20_address_lbl', lang)}\n"
++            f"<code>{bep20_address}</code>\n\n"
++            f"{t('amount_lbl', lang)} {format_price(order['amount_usd'])}\n\n"
++            "━━━━━━━━━━━━━━━━━━━━\n"
++            f"{t('bep20_instructions', lang)}\n\n"
++            f"👉 <b>{t('bep20_send_tx_hash', lang)}</b>",
++            parse_mode="HTML",
++            reply_markup=payment_check_keyboard(order_id, lang),
++        )
++
++        # Launch a background task to auto-cancel the order if not paid in 5 mins
++        task = asyncio.create_task(
++            cancel_order_after_timeout(
++                context,
++                chat_id=update.effective_chat.id,
++                order_id=order_id,
++                user_telegram_id=update.effective_user.id,
++                timeout_seconds=300,
++            )
++        )
++        _timeout_tasks[order_id] = task
++
++        return WAITING_BEP20_TX_HASH
++
++    except Exception as exc:
++        if "Message is not modified" in str(exc):
++            return WAITING_BEP20_TX_HASH
++        logger.error("pay_with_bep20: %s", exc, exc_info=True)
++        try:
++            await query.edit_message_text(t("pay_error", lang))
++        except Exception:
++            pass
++        return ConversationHandler.END
++
++
++async def check_bep20_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
++    """Handle 'check_bep20:{order_id}' callback â€” prompt user to send Tx Hash."""
++    query = update.callback_query
++    await query.answer()
++    lang = await get_user_lang(update.effective_user.id)
++
++    try:
++        order_id = int(query.data.split(":")[1])
++        order = await get_order(order_id)
++
++        if not order:
++            await query.edit_message_text(t("product_not_found", lang))
++            return
++
++        telegram_id = update.effective_user.id
++        if order.get("user_telegram_id") != telegram_id:
++            logger.warning("User %s tried to check BEP20 payment of order #%s which belongs to %s", telegram_id, order_id, order.get("user_telegram_id"))
++            await query.edit_message_text(t("access_denied", lang))
++            return
++
++        from utils.keyboards import bep20_payment_check_keyboard
++        
++        await query.edit_message_text(
++            f"{t('bep20_title', lang)}\n\n"
++            f"{t('order_lbl', lang)} #{order_id}\n"
++            f"{t('amount_lbl', lang)} {format_price(order['amount_usd'])}\n\n"
++            f"{t('bep20_send_tx_hash', lang)}",
++            parse_mode="HTML",
++            reply_markup=bep20_payment_check_keyboard(order_id, lang),
++        )
++    except Exception as exc:
++        logger.error("check_bep20_payment: %s", exc, exc_info=True)
++        await query.edit_message_text(t("verify_error", lang))
++
++
++async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
++    """Handle text message in WAITING_BEP20_TX_HASH state â€” verify BEP20 payment."""
++    tx_hash = update.message.text.strip()
++    order_id = context.user_data.get("paying_order_id")
++    expected_amount = context.user_data.get("paying_amount", 0)
++    product_id = context.user_data.get("paying_product_id")
++    lang = await get_user_lang(update.effective_user.id)
++
++    if not order_id:
++        await update.message.reply_text(t("no_pending_order", lang))
++        return ConversationHandler.END
++
++    db_order = await get_order(order_id)
++    if not db_order:
++        await update.message.reply_text(
++            t("order_cancelled", lang),
++            parse_mode="HTML",
++            reply_markup=main_menu_keyboard(lang),
++        )
++        context.user_data.pop("paying_order_id", None)
++        context.user_data.pop("paying_amount", None)
++        context.user_data.pop("paying_product_id", None)
++        return ConversationHandler.END
++
++    # Validation: on-chain hashes start with "0x" and are 66 chars.
++    # Off-chain Binance transfers can be an ID (often digits) or "Off-chain transfer <ID>"
++    is_on_chain = tx_hash.startswith("0x") and len(tx_hash) == 66
++    is_off_chain = tx_hash.isdigit() or "off-chain" in tx_hash.lower() or (not tx_hash.startswith("0x") and len(tx_hash) > 5)
++
++    if not is_on_chain and not is_off_chain:
++        await update.message.reply_text(t("bep20_invalid_tx_hash", lang))
++        return WAITING_BEP20_TX_HASH
++
++    # Track if order was cancelled by timeout (we still verify on-chain)
++    order_was_cancelled = db_order.get("status") == "CANCELLED"
++
++    try:
++        await update.message.reply_text(t("verifying", lang))
++
++        if db_order.get("status") == "COMPLETED":
++            await update.message.reply_text(t("payment_confirmed", lang))
++            return ConversationHandler.END
++        elif db_order.get("status") not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED"):
++            await update.message.reply_text(
++                t("order_cancelled", lang),
++                parse_mode="HTML",
++                reply_markup=main_menu_keyboard(lang),
++            )
++            return ConversationHandler.END
++
++        # Anti-replay check
++        from database.models import is_bep20_transaction_used, record_used_bep20_transaction, get_setting
++        if await is_bep20_transaction_used(tx_hash):
++            logger.warning("REPLAY ATTACK BLOCKED (BEP20): User %s tried to reuse tx %s for order %d",
++                           update.effective_user.id, tx_hash, order_id)
++            await update.message.reply_text(
++                t("tx_already_used", lang),
++                reply_markup=main_menu_keyboard(lang),
++            )
++            return ConversationHandler.END
++
++        bep20_address = await get_setting("bep20_address")
++        if not bep20_address:
++            await update.message.reply_text("â Œ BEP20 payment address is not configured by the administrator.")
++            return ConversationHandler.END
++
++        from services.blockchain_verify import verify_bep20_payment
++        from services.binance_verify import verify_internal_transfer
++
++        result = {"verified": False, "error": "Type de transaction non pris en charge."}
++
++        if is_on_chain:
++            # On-chain verification
++            result = await verify_bep20_payment(tx_hash, expected_amount, bep20_address)
++        else:
++            # Off-chain Binance internal verification
++            api_key = None
++            api_secret = None
++            if product_id:
++                product = await get_product(product_id)
++                if product and product.get("binance_account_id"):
++                    from database.models import get_binance_account
++                    acc = await get_binance_account(product["binance_account_id"])
++                    if acc:
++                        api_key = acc.get("api_key")
++                        api_secret = acc.get("api_secret")
++            
++            result = await verify_internal_transfer(tx_hash, expected_amount, api_key=api_key, api_secret=api_secret, lan
+<truncated 8103 bytes>
+
+NOTE: The output was truncated because it was too long. Use a more targeted query or a smaller range to get the information you need.

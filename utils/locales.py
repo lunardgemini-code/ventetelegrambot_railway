@@ -58,6 +58,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "btn_generate_api_key": "🔑 Generate API key",
         "btn_confirm_generate_api_key": "✅ Confirm generation",
         "btn_api_docs": "📘 API documentation",
+        "btn_notify_restock": "🔔 Notify me",
 
         # ── Wallet ──
         "wallet_title": "💰 <b>My Wallet</b>",
@@ -90,6 +91,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "contact_support": "I paid / Contact Support",
         "banned_msg": "⛔ You have been banned from this bot.",
         "out_of_stock": "❌ <b>Out of stock!</b>\nThis product is currently unavailable.",
+        "restock_alert_saved": "🔔 Done. I will notify you when this product is back in stock.",
+        "restock_alert_existing": "🔔 You are already on the restock notification list for this product.",
+        "restock_notification": "🔔 <b>Back in stock!</b>\n\n{product}\nStock available: {stock}",
         "product_detail": (
             "{emoji} <b>{name}</b>\n"
             "💵 <b>Price:</b> {price}\n"
@@ -114,6 +118,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "waiting_payment": "⏳ <i>Waiting for your payment…</i>",
         "verifying": "🔍 Verifying payment…",
         "payment_confirmed": "✅ <b>Payment confirmed!</b>",
+        "payment_processing": "⏳ Payment is already being processed. Please wait a moment.",
         "your_account": "📧 <b>Here is your account:</b>",
         "warranty_lbl": "🛡️ <b>Warranty:</b> {days} days",
         "save_info": "📌 <b>Keep this information safe</b>",
@@ -303,6 +308,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "btn_generate_api_key": "🔑 Générer une clé API",
         "btn_confirm_generate_api_key": "✅ Confirmer la génération",
         "btn_api_docs": "📘 Documentation API",
+        "btn_notify_restock": "🔔 Me prévenir",
 
         # ── Wallet ──
         "wallet_title": "💰 <b>Mon Portefeuille</b>",
@@ -334,6 +340,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "contact_support": "J'ai payé / Contacter le support",
         "banned_msg": "⛔ Vous avez été banni de ce bot.",
         "out_of_stock": "❌ <b>Rupture de stock !</b>\nCe produit n'est plus disponible.",
+        "restock_alert_saved": "🔔 C'est noté. Je vous préviendrai quand ce produit sera de retour en stock.",
+        "restock_alert_existing": "🔔 Vous êtes déjà dans la liste de notification pour ce produit.",
+        "restock_notification": "🔔 <b>De retour en stock !</b>\n\n{product}\nStock disponible : {stock}",
         "product_detail": (
             "{emoji} <b>{name}</b>\n"
             "💵 <b>Prix :</b> {price}\n"
@@ -357,6 +366,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "waiting_payment": "⏳ <i>En attente de votre paiement…</i>",
         "verifying": "🔍 Vérification du paiement en cours…",
         "payment_confirmed": "✅ <b>Paiement confirmé !</b>",
+        "payment_processing": "⏳ Paiement déjà en cours de traitement. Patientez un instant.",
         "your_account": "📧 <b>Voici votre compte :</b>",
         "warranty_lbl": "🛡️ <b>Garantie :</b> {days} jours",
         "save_info": "📌 <b>Conservez ces informations en lieu sûr</b>",
@@ -540,6 +550,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "btn_generate_api_key": "🔑 إنشاء مفتاح API",
         "btn_confirm_generate_api_key": "✅ تأكيد الإنشاء",
         "btn_api_docs": "📘 وثائق API",
+        "btn_notify_restock": "🔔 أعلمني",
 
         # ── Wallet ──
         "wallet_title": "💰 <b>محفظتي</b>",
@@ -571,6 +582,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "contact_support": "لقد دفعت / اتصل بالدعم",
         "banned_msg": "⛔ لقد تم حظرك من هذا البوت.",
         "out_of_stock": "❌ <b>!نفذ المخزون</b>\nهذا المنتج غير متوفر حالياً.",
+        "restock_alert_saved": "🔔 تم. سنخبرك عندما يعود هذا المنتج إلى المخزون.",
+        "restock_alert_existing": "🔔 أنت موجود بالفعل في قائمة إشعارات هذا المنتج.",
+        "restock_notification": "🔔 <b>عاد المنتج إلى المخزون!</b>\n\n{product}\nالمتوفر: {stock}",
         "product_detail": (
             "{emoji} <b>{name}</b>\n"
             "💵 <b>السعر:</b> {price}\n"
@@ -594,6 +608,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "waiting_payment": "⏳ <i>…في انتظار دفعتك</i>",
         "verifying": "🔍 …جاري التحقق من الدفع",
         "payment_confirmed": "✅ <b>!تم تأكيد الدفع</b>",
+        "payment_processing": "⏳ تتم معالجة الدفع بالفعل. يرجى الانتظار قليلاً.",
         "your_account": "📧 <b>:إليك حسابك</b>",
         "warranty_lbl": "🛡️ <b>الضمان:</b> {days} يوم",
         "save_info": "📌 <b>احتفظ بهذه المعلومات في مكان آمن</b>",
@@ -776,6 +791,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "btn_generate_api_key": "🔑 生成 API 密钥",
         "btn_confirm_generate_api_key": "✅ 确认生成",
         "btn_api_docs": "📘 API 文档",
+        "btn_notify_restock": "🔔 到货提醒",
         "wallet_title": "💰 <b>我的钱包</b>",
         "wallet_balance_lbl": "💵 余额：",
         "wallet_topup": "➕ 充值",
@@ -804,6 +820,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "contact_support": "我已支付 / 联系客服",
         "banned_msg": "⛔ 您已被本机器人封禁。",
         "out_of_stock": "❌ <b>缺货！</b>\n此产品目前不可用。",
+        "restock_alert_saved": "🔔 已记录。此产品补货时我会通知您。",
+        "restock_alert_existing": "🔔 您已在此产品的补货提醒列表中。",
+        "restock_notification": "🔔 <b>已补货！</b>\n\n{product}\n可用库存：{stock}",
         "product_detail": (
             "{emoji} <b>{name}</b>\n"
             "💵 <b>价格：</b> {price}\n"
@@ -826,6 +845,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "waiting_payment": "⏳ <i>等待您的付款中…</i>",
         "verifying": "🔍 正在验证付款…",
         "payment_confirmed": "✅ <b>付款已确认！</b>",
+        "payment_processing": "⏳ 付款已在处理中，请稍候。",
         "your_account": "📧 <b>这是您的账号信息：</b>",
         "warranty_lbl": "🛡️ <b>质保：</b> {days} 天",
         "save_info": "📌 <b>请妥善保存此信息</b>",
@@ -989,6 +1009,7 @@ TRANSLATIONS["vi"] = {
     "btn_generate_api_key": "🔑 Tạo khóa API",
     "btn_confirm_generate_api_key": "✅ Xác nhận tạo",
     "btn_api_docs": "📘 Tài liệu API",
+    "btn_notify_restock": "🔔 Báo khi có hàng",
     "wallet_title": "💰 <b>Ví của tôi</b>",
     "wallet_balance_lbl": "💵 Số dư:",
     "wallet_topup": "➕ Nạp tiền",
@@ -1017,6 +1038,9 @@ TRANSLATIONS["vi"] = {
     "contact_support": "Tôi đã thanh toán / Liên hệ hỗ trợ",
     "banned_msg": "⛔ Bạn đã bị cấm sử dụng bot này.",
     "out_of_stock": "❌ <b>Hết hàng!</b>\nSản phẩm này hiện không còn hàng.",
+    "restock_alert_saved": "🔔 Xong. Tôi sẽ báo cho bạn khi sản phẩm này có hàng lại.",
+    "restock_alert_existing": "🔔 Bạn đã nằm trong danh sách thông báo cho sản phẩm này.",
+    "restock_notification": "🔔 <b>Đã có hàng lại!</b>\n\n{product}\nKho hiện có: {stock}",
     "product_detail": "{emoji} <b>{name}</b>\n💵 <b>Giá:</b> {price}\n🛡️ <b>Bảo hành:</b> {warranty} ngày\n📦 <b>Kho:</b> {stock} tài khoản\n📊 <b>Đã bán:</b> {sold} tài khoản\n\n❞ <b>Mô tả:</b>\n{description}",
     "new_order": "🛒 <b>Đơn hàng mới</b>",
     "product_lbl": "📦 <b>Sản phẩm:</b>",
@@ -1032,6 +1056,7 @@ TRANSLATIONS["vi"] = {
     "waiting_payment": "⏳ <i>Đang chờ thanh toán...</i>",
     "verifying": "🔍 Đang xác minh thanh toán...",
     "payment_confirmed": "✅ <b>Thanh toán đã được xác nhận!</b>",
+    "payment_processing": "⏳ Thanh toán đang được xử lý. Vui lòng đợi một chút.",
     "your_account": "📧 <b>Đây là tài khoản của bạn:</b>",
     "warranty_lbl": "🛡️ <b>Bảo hành:</b> {days} ngày",
     "save_info": "📌 <b>Hãy lưu thông tin này cẩn thận</b>",
@@ -1147,6 +1172,7 @@ TRANSLATIONS["ru"] = {
     "btn_generate_api_key": "🔑 Создать API-ключ",
     "btn_confirm_generate_api_key": "✅ Подтвердить создание",
     "btn_api_docs": "📘 Документация API",
+    "btn_notify_restock": "🔔 Сообщить о наличии",
     "wallet_title": "💰 <b>Мой кошелек</b>",
     "wallet_balance_lbl": "💵 Баланс:",
     "wallet_topup": "➕ Пополнить",
@@ -1175,6 +1201,9 @@ TRANSLATIONS["ru"] = {
     "contact_support": "Я оплатил / Связаться с поддержкой",
     "banned_msg": "⛔ Вы заблокированы в этом боте.",
     "out_of_stock": "❌ <b>Нет в наличии!</b>\nЭтот товар сейчас недоступен.",
+    "restock_alert_saved": "🔔 Готово. Я сообщу вам, когда товар снова появится.",
+    "restock_alert_existing": "🔔 Вы уже в списке уведомлений для этого товара.",
+    "restock_notification": "🔔 <b>Снова в наличии!</b>\n\n{product}\nДоступно: {stock}",
     "product_detail": "{emoji} <b>{name}</b>\n💵 <b>Цена:</b> {price}\n🛡️ <b>Гарантия:</b> {warranty} дней\n📦 <b>Наличие:</b> {stock} аккаунтов\n📊 <b>Продано:</b> {sold} аккаунтов\n\n❞ <b>Описание:</b>\n{description}",
     "new_order": "🛒 <b>Новый заказ</b>",
     "product_lbl": "📦 <b>Товар:</b>",
@@ -1190,6 +1219,7 @@ TRANSLATIONS["ru"] = {
     "waiting_payment": "⏳ <i>Ожидаем оплату...</i>",
     "verifying": "🔍 Проверяем оплату...",
     "payment_confirmed": "✅ <b>Оплата подтверждена!</b>",
+    "payment_processing": "⏳ Платеж уже обрабатывается. Пожалуйста, подождите.",
     "your_account": "📧 <b>Ваш аккаунт:</b>",
     "warranty_lbl": "🛡️ <b>Гарантия:</b> {days} дней",
     "save_info": "📌 <b>Сохраните эту информацию</b>",
