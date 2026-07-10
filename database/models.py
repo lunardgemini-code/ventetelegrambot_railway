@@ -1262,14 +1262,19 @@ async def reserve_stock_items_for_order(
             await db.rollback()
             return None
 
-        for item in stock_items:
-            cursor = await db.execute(
-                "UPDATE stock_items SET is_sold = 1, sold_to_order_id = ?, sold_at = CURRENT_TIMESTAMP WHERE id = ? AND is_sold = 0",
-                (order_id, item["id"]),
-            )
-            if cursor.rowcount <= 0:
-                await db.rollback()
-                return None
+        if stock_items:
+            batch_size = 500
+            for i in range(0, len(stock_items), batch_size):
+                batch = stock_items[i:i+batch_size]
+                placeholders = ",".join("?" for _ in batch)
+                params = [order_id] + [item["id"] for item in batch]
+                cursor = await db.execute(
+                    f"UPDATE stock_items SET is_sold = 1, sold_to_order_id = ?, sold_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders}) AND is_sold = 0",
+                    params
+                )
+                if cursor.rowcount < len(batch):
+                    await db.rollback()
+                    return None
 
         await db.execute(
             "UPDATE orders SET stock_item_id = ? WHERE id = ?",
@@ -2458,12 +2463,16 @@ async def create_reseller_order(
         order_id = cursor.lastrowid
 
         if stock_items:
-            for item in stock_items:
+            batch_size = 500
+            for i in range(0, len(stock_items), batch_size):
+                batch = stock_items[i:i+batch_size]
+                placeholders = ",".join("?" for _ in batch)
+                params = [order_id] + [item["id"] for item in batch]
                 cursor = await db.execute(
-                    "UPDATE stock_items SET is_sold = 1, sold_to_order_id = ?, sold_at = CURRENT_TIMESTAMP WHERE id = ? AND is_sold = 0",
-                    (order_id, item["id"]),
+                    f"UPDATE stock_items SET is_sold = 1, sold_to_order_id = ?, sold_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders}) AND is_sold = 0",
+                    params
                 )
-                if cursor.rowcount <= 0:
+                if cursor.rowcount < len(batch):
                     await db.rollback()
                     raise ValueError("Stock conflict, please retry")
             await db.execute(
