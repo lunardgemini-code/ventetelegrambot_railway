@@ -1526,8 +1526,18 @@ async def update_order_status(order_id: int, status: str, **kwargs) -> None:
             f"UPDATE orders SET {', '.join(set_parts)} WHERE id = ?", values
         )
         
-        # If the order is transitioning to COMPLETED, update bot balance
+        # If the order is transitioning to COMPLETED, update bot balance and user stats
         if status == "COMPLETED" and current_order and current_order.get("status") != "COMPLETED":
+            amount_usd = float(current_order.get("amount_usd", 0))
+            telegram_id = current_order.get("user_telegram_id")
+            
+            # Update user stats
+            if telegram_id:
+                await db.execute(
+                    "UPDATE users SET total_orders = total_orders + 1, total_spent = total_spent + ? WHERE telegram_id = ?",
+                    (amount_usd, telegram_id)
+                )
+
             # Increment finance_bot_balance if paid externally
             pay_method = kwargs.get("payment_method") or current_order.get("payment_method")
             if pay_method != "wallet":
