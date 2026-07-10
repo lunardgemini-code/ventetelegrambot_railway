@@ -707,12 +707,16 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return ConversationHandler.END
 
-        # Payment successful â€” deliver first, then complete
+        # Payment successful — deliver first, then complete
         product = await get_product(product_id)
         if _is_activation_product(product):
             return await _prompt_activation_identifier(update, context, order_id, product, lang, "wallet")
 
-        delivered = await deliver_order(order_id, product_id)
+        try:
+            delivered = await deliver_order(order_id, product_id)
+        except Exception as e:
+            logger.error("Error delivering order %s: %s", order_id, e)
+            delivered = None
 
         if delivered:
             await update_order_status(order_id, "COMPLETED", payment_method="wallet")
