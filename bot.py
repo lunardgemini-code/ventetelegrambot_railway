@@ -1196,6 +1196,20 @@ async def api_delete_product(product_id: int):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@api.post("/api/products/{product_id}/toggle-active", dependencies=[Depends(verify_api_key)])
+async def api_toggle_product_active(product_id: int):
+    from database.models import toggle_product_active
+    try:
+        res = await toggle_product_active(product_id)
+        _clear_api_stats_cache()
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as exc:
+        logger.error("API error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @api.post("/api/translate", dependencies=[Depends(verify_api_key)])
 async def api_translate(data: dict):
     import os
@@ -1979,10 +1993,10 @@ async def api_delete_promo(promo_id: int):
 
 
 @api.get("/api/users", dependencies=[Depends(verify_api_key)])
-async def api_get_users(limit: int = 20, offset: int = 0, search: str = ""):
+async def api_get_users(limit: int = 20, offset: int = 0, search: str = "", sort: str = "joined", order: str = "desc"):
     from database.models import get_users_paginated
     try:
-        users, total = await get_users_paginated(limit, offset, search)
+        users, total = await get_users_paginated(limit, offset, search, sort, order)
         return {"users": users, "total": total}
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)

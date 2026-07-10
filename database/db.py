@@ -192,40 +192,25 @@ class _PooledAsyncDB(_AsyncDB):
                 except Exception:
                     pass
 
-
 # ══════════════════════════════════════════════
 #  get_db() — returns async-compatible connection
 # ══════════════════════════════════════════════
 
 async def get_db():
-    """Ouvre et retourne une connexion à la base de données.
-
-    Si TURSO_DATABASE_URL est défini, connecte à Turso (libSQL cloud).
-    Sinon, utilise un fichier SQLite local (fallback pour le dev).
-    """
+    """Ouvre et retourne une connexion à la base de données."""
     if TURSO_URL:
         import libsql_experimental as libsql
         async with get_pool_lock():
             if _libsql_pool:
                 conn = _libsql_pool.pop()
+                wrapper = _PooledAsyncDB(conn)
             else:
                 conn = await asyncio.to_thread(libsql.connect, TURSO_URL, auth_token=TURSO_TOKEN)
-        wrapper = _PooledAsyncDB(conn)
-        try:
-            await wrapper.execute("SELECT 1")
-            await wrapper.execute("PRAGMA foreign_keys = ON")
-        except Exception:
-            # Stale connection from pool failed — close it and establish a fresh connection asynchronously
-            try:
-                await asyncio.to_thread(conn.close)
-            except Exception:
-                pass
-            conn = await asyncio.to_thread(libsql.connect, TURSO_URL, auth_token=TURSO_TOKEN)
-            wrapper = _PooledAsyncDB(conn)
-            try:
-                await wrapper.execute("PRAGMA foreign_keys = ON")
-            except Exception:
-                pass
+                wrapper = _PooledAsyncDB(conn)
+                try:
+                    await wrapper.execute("PRAGMA foreign_keys = ON")
+                except Exception:
+                    pass
         return wrapper
     else:
         global _sqlite_wal_configured

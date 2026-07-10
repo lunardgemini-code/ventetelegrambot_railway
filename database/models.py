@@ -1263,7 +1263,7 @@ async def reserve_stock_items_for_order(
             return None
 
         if stock_items:
-            batch_size = 500
+            batch_size = 50
             for i in range(0, len(stock_items), batch_size):
                 batch = stock_items[i:i+batch_size]
                 placeholders = ",".join("?" for _ in batch)
@@ -1272,7 +1272,7 @@ async def reserve_stock_items_for_order(
                     f"UPDATE stock_items SET is_sold = 1, sold_to_order_id = ?, sold_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders}) AND is_sold = 0",
                     params
                 )
-                if cursor.rowcount < len(batch):
+                if cursor.rowcount != -1 and cursor.rowcount < len(batch):
                     await db.rollback()
                     return None
 
