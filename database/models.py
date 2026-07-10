@@ -152,9 +152,9 @@ async def get_users_paginated(limit: int = 20, offset: int = 0, search: str = ""
         where_clause = ""
         params = []
         if search:
-            where_clause = " WHERE CAST(u.telegram_id AS TEXT) LIKE ? OR u.username LIKE ? OR u.first_name LIKE ?"
+            where_clause = " WHERE CAST(u.telegram_id AS TEXT) LIKE ? OR CAST(u.referred_by AS TEXT) LIKE ? OR u.username LIKE ? OR u.first_name LIKE ?"
             search_param = f"%{search}%"
-            params = [search_param, search_param, search_param]
+            params = [search_param, search_param, search_param, search_param]
         
         count_query = f"SELECT COUNT(*) as cnt FROM users u {where_clause}"
         cursor_count = await db.execute(count_query, params)
@@ -2729,9 +2729,9 @@ async def record_used_transaction(
         await db.close()
 
 
-# â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
+# â•”â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â•—
 # â•‘  CODES PROMO                                                     â•‘
-# â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# â•šâ• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• 
 
 
 async def create_promo(
@@ -2892,6 +2892,20 @@ async def get_referred_users_count(telegram_id: int) -> int:
         return row["cnt"] if row else 0
     finally:
         await db.close()
+
+
+async def get_referred_users_list(telegram_id: int) -> list[dict]:
+    """Retourne la liste des utilisateurs parraines."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT telegram_id, username, first_name, created_at, referral_commission_paid FROM users WHERE referred_by = ? ORDER BY created_at DESC LIMIT 50", (telegram_id,)
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        await db.close()
+
 
 
 async def process_referral_payout(order_id: int) -> None:

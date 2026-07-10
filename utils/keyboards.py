@@ -537,3 +537,14 @@ def admin_orders_keyboard(orders: list[dict]) -> InlineKeyboardMarkup:
     ]
     buttons.append([InlineKeyboardButton("◀️ Retour", callback_data="adm_menu")])
     return InlineKeyboardMarkup(buttons)
+
+
+def referral_dashboard_keyboard(lang: str) -> InlineKeyboardMarkup:
+    """Keyboard for the referral dashboard."""
+    from utils.locales import t
+    btn_text = {"fr": "👥 Voir mes filleuls", "en": "👥 View my referrals", "ar": "👥 عرض الإحالات الخاصة بي"}.get(lang, "👥 Voir mes filleuls")
+    buttons = [
+        [InlineKeyboardButton(btn_text, callback_data="view_referrals_list")],
+        [make_button("btn_back", lang, callback_data="back_main")]
+    ]
+    return InlineKeyboardMarkup(buttons)

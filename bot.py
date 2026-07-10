@@ -60,7 +60,7 @@ from handlers.products import (
     show_product_detail,
     show_products_list,
 )
-from handlers.profile import show_profile, show_referrals
+from handlers.profile import show_profile, show_referrals, view_referrals_list
 from handlers.reseller_api import confirm_generate_reseller_api_key, generate_reseller_api_key, reseller_api_menu
 from handlers.start import change_language, main_menu_callback, set_language, start_command, callback_check_sub
 from handlers.support import (
@@ -2662,6 +2662,7 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(notify_product_restock, pattern=r"^notify_stock:"))
     app.add_handler(CallbackQueryHandler(show_profile, pattern=r"^menu_profile$"))
     app.add_handler(CallbackQueryHandler(show_referrals, pattern=r"^show_referrals$"))
+    app.add_handler(CallbackQueryHandler(view_referrals_list, pattern=r"^view_referrals_list$"))
     app.add_handler(CallbackQueryHandler(show_history, pattern=r"^menu_history$"))
     app.add_handler(CallbackQueryHandler(show_history, pattern=r"^hist_page:"))
     app.add_handler(CallbackQueryHandler(show_order_detail, pattern=r"^order:"))

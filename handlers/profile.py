@@ -87,10 +87,11 @@ async def show_referrals(update: Update, context: ContextTypes.DEFAULT_TYPE):
             .replace("{earnings}", format_price(earnings))
         )
 
+        from utils.keyboards import referral_dashboard_keyboard
         await query.edit_message_text(
             text,
             parse_mode="HTML",
-            reply_markup=back_keyboard("back_main", lang),
+            reply_markup=referral_dashboard_keyboard(lang),
         )
     except Exception as exc:
         logger.error("show_referrals: %s", exc, exc_info=True)
@@ -99,3 +100,42 @@ async def show_referrals(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML",
             reply_markup=back_keyboard("back_main", lang),
         )
+
+async def view_referrals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle 'view_referrals_list' callback - show list of invited users."""
+    query = update.callback_query
+    await query.answer()
+    telegram_id = update.effective_user.id
+    from utils.locales import get_user_lang
+    lang = await get_user_lang(telegram_id)
+    
+    try:
+        from database.models import get_referred_users_list
+        refs = await get_referred_users_list(telegram_id)
+        
+        if not refs:
+            from utils.locales import t
+            msg = {"fr": "Vous n'avez pas encore de filleuls.", "en": "You don't have any referrals yet.", "ar": "ليس لديك أي إحالات بعد."}.get(lang, "Vous n'avez pas encore de filleuls.")
+            from utils.keyboards import back_keyboard
+            await query.edit_message_text(msg, reply_markup=back_keyboard("show_referrals", lang))
+            return
+        
+        title = {"fr": "👥 <b>Vos filleuls récents :</b>\n\n", "en": "👥 <b>Your recent referrals:</b>\n\n", "ar": "👥 <b>إحالاتك الأخيرة:</b>\n\n"}.get(lang, "👥 <b>Vos filleuls récents :</b>\n\n")
+        lines = []
+        import html
+        for r in refs:
+            name = r.get("first_name") or r.get("username") or "Utilisateur"
+            name = html.escape(name)
+            lines.append(f"• {name}")
+            
+        text = title + "\n".join(lines)
+        if len(text) > 4000:
+            text = text[:4000] + "..."
+            
+        from utils.keyboards import back_keyboard
+        await query.edit_message_text(text, parse_mode="HTML", reply_markup=back_keyboard("show_referrals", lang))
+    except Exception as exc:
+        import logging
+        logging.error("view_referrals_list: %s", exc, exc_info=True)
+        from utils.keyboards import back_keyboard
+        await query.edit_message_text("An error occurred.", reply_markup=back_keyboard("show_referrals", lang))
