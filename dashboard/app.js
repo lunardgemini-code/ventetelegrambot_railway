@@ -129,7 +129,7 @@ const state = {
     categories:[], products:[], orders:[], activations:[], resellers:[], users:[], promos:[], tickets:[], walletHistory:[], binanceAccounts:[],
     orderFilter:'all', orderPage:0, orderTotal:0,
     whFilter:'all', whPage:0, whTotal:0,
-    usersPage:0, usersPerPage:20, usersSearch:'', usersTotal:0,
+    usersPage:0, usersPerPage:20, usersSearch:'', usersTotal:0, usersSort:'joined', usersOrder:'desc',
     currentStockProductId:null, autoRefresh:false, autoRefreshTimer:null,
     revenueChart:null, ordersChart:null, productSalesChart:null, productMomentumChart:null,
     productStats:[], productMomentum:null, productMomentumSelected:[], deadProductAlerts:[]
@@ -1618,7 +1618,9 @@ async function loadUsers() {
         const limit = state.usersPerPage || 20;
         const offset = (state.usersPage || 0) * limit;
         const search = encodeURIComponent(state.usersSearch || '');
-        const r = await apiCall(`/api/users?limit=${limit}&offset=${offset}&search=${search}`);
+        const sort = state.usersSort || 'joined';
+        const order = state.usersOrder || 'desc';
+        const r = await apiCall(`/api/users?limit=${limit}&offset=${offset}&search=${search}&sort=${sort}&order=${order}`);
         state.users = r.users;
         state.usersTotal = r.total;
         
@@ -1628,7 +1630,7 @@ async function loadUsers() {
                 const d = u.created_at ? parseUTCDate(u.created_at).toLocaleDateString() : '—';
                 const wb = parseFloat(u.wallet_balance||0).toFixed(2);
                 const refBy = u.referred_by ? `<code>${u.referred_by}</code>` : '—';
-                const refCount = u.referrals_count || 0;
+                const refCount = u.referrals_count > 0 ? `${u.referrals_count} <button class="btn-table-action" onclick="viewUserReferrals(${u.telegram_id})" title="Voir les filleuls" style="margin-left:5px;color:#3b82f6;"><i class="fa-solid fa-users"></i></button>` : 0;
                 const refEarnings = parseFloat(u.referral_earnings||0).toFixed(2);
                 return `<tr><td><code>${u.telegram_id}</code></td><td>${u.username||'—'}</td><td>${u.first_name||'—'}</td><td>${u.language||'fr'}</td><td>${u.total_orders||0}</td><td>$${parseFloat(u.total_spent||0).toFixed(2)}</td><td>💰 $${wb}</td><td>${refBy}</td><td>${refCount}</td><td>💰 $${refEarnings}</td><td>${d}</td><td><button class="btn-table-action" onclick="creditWallet(${u.telegram_id})" title="Créditer" style="color:#22c55e;"><i class="fa-solid fa-circle-plus"></i></button> <button class="btn-table-action" onclick="debitWallet(${u.telegram_id})" title="Retirer" style="color:#ef4444;"><i class="fa-solid fa-circle-minus"></i></button> ${banned?`<span class="status-badge banned">${t('banned')}</span> <button class="btn-table-action unban" onclick="unbanUser(${u.telegram_id})"><i class="fa-solid fa-lock-open"></i></button>`:`<button class="btn-table-action ban" onclick="banUser(${u.telegram_id})"><i class="fa-solid fa-ban"></i></button>`}</td></tr>`;
             }).join('');
@@ -1643,7 +1645,33 @@ async function loadUsers() {
         } else {
             DOM.usersPagination.classList.add('hidden');
         }
+        updateUsersSortIcons();
     } catch(e) { console.warn('loadUsers:', e); }
+}
+
+function sortUsers(field) {
+    if (state.usersSort === field) {
+        state.usersOrder = state.usersOrder === 'asc' ? 'desc' : 'asc';
+    } else {
+        state.usersSort = field;
+        state.usersOrder = 'desc';
+    }
+    state.usersPage = 0;
+    loadUsers();
+}
+
+function updateUsersSortIcons() {
+    const fields = ['telegram_id', 'username', 'orders', 'spent', 'wallet', 'referrals', 'referral_earnings', 'joined'];
+    fields.forEach(f => {
+        const icon = document.getElementById(`sort-${f}`);
+        if (icon) {
+            if (state.usersSort === f) {
+                icon.innerHTML = state.usersOrder === 'asc' ? '<i class="fa-solid fa-sort-up"></i>' : '<i class="fa-solid fa-sort-down"></i>';
+            } else {
+                icon.innerHTML = '<i class="fa-solid fa-sort" style="opacity: 0.3;"></i>';
+            }
+        }
+    });
 }
 
 async function loadPromos() {
@@ -1925,6 +1953,15 @@ $('edit-prod-form').addEventListener('submit', async (e) => {
 });
 
 window.submitTicketReply = async function(e,id) { e.preventDefault(); showLoading(true); const inp=e.target.querySelector('input'); try{await apiCall(`/api/tickets/${id}/reply`,'POST',{reply_text:inp.value.trim()}); inp.value=''; await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
+window.viewUserReferrals = function(tid) {
+    if(DOM.usersSearch) {
+        DOM.usersSearch.value = tid;
+        state.usersSearch = tid.toString();
+        state.usersPage = 0;
+        loadUsers();
+    }
+};
+
 window.banUser = function(tid) {
     $('banUserId').value = tid;
     $('banNotifyUser').checked = false;

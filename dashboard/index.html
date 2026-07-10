@@ -530,7 +530,18 @@
                 </div>
                 <div class="glass-panel overflow-hidden">
                     <table class="data-table"><thead><tr>
-                        <th>Telegram ID</th><th>Username</th><th data-i18n="th_firstname">Prénom</th><th data-i18n="th_lang">Langue</th><th data-i18n="th_orders_count">Commandes</th><th data-i18n="th_spent">Dépenses</th><th>💰 Wallet</th><th data-i18n="th_referrer">Parrain</th><th data-i18n="th_referrals">Filleuls</th><th data-i18n="th_referral_earnings">Gains Parrainage</th><th data-i18n="th_joined">Inscrit</th><th>Action</th>
+                        <th onclick="sortUsers('telegram_id')" style="cursor:pointer; white-space: nowrap;">Telegram ID <span class="sort-icon" id="sort-telegram_id"></span></th>
+                        <th onclick="sortUsers('username')" style="cursor:pointer; white-space: nowrap;">Username <span class="sort-icon" id="sort-username"></span></th>
+                        <th data-i18n="th_firstname">Prénom</th>
+                        <th data-i18n="th_lang">Langue</th>
+                        <th onclick="sortUsers('orders')" style="cursor:pointer; white-space: nowrap;"><span data-i18n="th_orders_count">Commandes</span> <span class="sort-icon" id="sort-orders"></span></th>
+                        <th onclick="sortUsers('spent')" style="cursor:pointer; white-space: nowrap;"><span data-i18n="th_spent">Dépenses</span> <span class="sort-icon" id="sort-spent"></span></th>
+                        <th onclick="sortUsers('wallet')" style="cursor:pointer; white-space: nowrap;">💳 Wallet <span class="sort-icon" id="sort-wallet"></span></th>
+                        <th data-i18n="th_referrer">Parrain</th>
+                        <th onclick="sortUsers('referrals')" style="cursor:pointer; white-space: nowrap;"><span data-i18n="th_referrals">Filleuls</span> <span class="sort-icon" id="sort-referrals"></span></th>
+                        <th onclick="sortUsers('referral_earnings')" style="cursor:pointer; white-space: nowrap;"><span data-i18n="th_referral_earnings">Gains Parrainage</span> <span class="sort-icon" id="sort-referral_earnings"></span></th>
+                        <th onclick="sortUsers('joined')" style="cursor:pointer; white-space: nowrap;"><span data-i18n="th_joined">Inscrit</span> <span class="sort-icon" id="sort-joined"></span></th>
+                        <th>Action</th>
                     </tr></thead><tbody id="users-table-body"><tr><td colspan="12" class="empty-state" data-i18n="no_users">Aucun utilisateur.</td></tr></tbody></table>
                 </div>
                 <div id="users-pagination" class="pagination-bar hidden">

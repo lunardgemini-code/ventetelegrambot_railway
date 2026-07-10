@@ -129,7 +129,7 @@ async def get_user(telegram_id: int) -> dict | None:
 
 
 async def get_all_users() -> list[dict]:
-    """Retourne la liste de tous les utilisateurs enregistrÃ©s avec leur nombre de filleuls."""
+    """Retourne la liste de tous les utilisateurs enregistrés avec leur nombre de filleuls."""
     db = await get_db()
     try:
         cursor = await db.execute("""
@@ -145,8 +145,8 @@ async def get_all_users() -> list[dict]:
         await db.close()
 
 
-async def get_users_paginated(limit: int = 20, offset: int = 0, search: str = "") -> tuple[list[dict], int]:
-    """Retourne la liste des utilisateurs paginÃ©e et filtrÃ©e avec le nombre total."""
+async def get_users_paginated(limit: int = 20, offset: int = 0, search: str = "", sort: str = "joined", order: str = "desc") -> tuple[list[dict], int]:
+    """Retourne la liste des utilisateurs paginée, filtrée et triée avec le nombre total."""
     db = await get_db()
     try:
         where_clause = ""
@@ -161,13 +161,28 @@ async def get_users_paginated(limit: int = 20, offset: int = 0, search: str = ""
         row_count = await cursor_count.fetchone()
         total = row_count["cnt"] if row_count else 0
 
+        # Mapping des colonnes pour le tri
+        sort_mapping = {
+            "telegram_id": "u.telegram_id",
+            "username": "LOWER(u.username)",
+            "orders": "u.total_orders",
+            "spent": "u.total_spent",
+            "wallet": "u.wallet_balance",
+            "referrals": "referrals_count",
+            "joined": "u.created_at",
+            "referral_earnings": "u.referral_earnings"
+        }
+        
+        sort_col = sort_mapping.get(sort, "u.created_at")
+        order_dir = "ASC" if order.lower() == "asc" else "DESC"
+
         paginated_query = f"""
             SELECT u.*, COUNT(f.telegram_id) as referrals_count
             FROM users u
             LEFT JOIN users f ON f.referred_by = u.telegram_id
             {where_clause}
             GROUP BY u.id
-            ORDER BY u.created_at DESC
+            ORDER BY {sort_col} {order_dir}, u.created_at DESC
             LIMIT ? OFFSET ?
         """
         params_paginated = params + [limit, offset]
