@@ -848,6 +848,26 @@ async def toggle_product(product_id: int) -> None:
         await db.close()
 
 
+async def toggle_product_active(product_id: int) -> dict:
+    _clear_stock_cache()
+    global _PRODUCTS_CACHE
+    _PRODUCTS_CACHE = None
+    _PRODUCT_BY_ID_CACHE.clear()
+    
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT is_active FROM products WHERE id = ?", (product_id,))
+        row = await cursor.fetchone()
+        if not row:
+            raise ValueError(f"Product {product_id} not found")
+        
+        new_status = 1 if row[0] == 0 else 0
+        await db.execute("UPDATE products SET is_active = ? WHERE id = ?", (new_status, product_id))
+        await db.commit()
+        return {"status": "success", "is_active": new_status}
+    finally:
+        await db.close()
+
 async def delete_product(product_id: int) -> None:
     _clear_stock_cache()
     """Marque un produit comme supprimÃ© et supprime uniquement son stock non vendu."""
