@@ -515,6 +515,7 @@ async def init_db() -> None:
             "ALTER TABLE products ADD COLUMN confirmation_message_zh TEXT DEFAULT ''",
             "ALTER TABLE products ADD COLUMN confirmation_message_vi TEXT DEFAULT ''",
             "ALTER TABLE products ADD COLUMN confirmation_message_ru TEXT DEFAULT ''",
+            "ALTER TABLE products ADD COLUMN sort_order INTEGER DEFAULT 0",
             "CREATE INDEX IF NOT EXISTS idx_orders_activation_status ON orders(activation_status, status)",
             "CREATE INDEX IF NOT EXISTS idx_reseller_keys_user ON reseller_api_keys(user_telegram_id)",
             "CREATE INDEX IF NOT EXISTS idx_reseller_keys_prefix ON reseller_api_keys(key_prefix)",
