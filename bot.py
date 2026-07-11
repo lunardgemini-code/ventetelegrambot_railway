@@ -13,8 +13,10 @@ import hmac
 import asyncio
 import logging
 import os
+import secrets
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
+from urllib.parse import urlparse
 from fastapi import FastAPI, Header, HTTPException, Depends, status, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
@@ -107,14 +109,28 @@ def _build_cors_origins() -> list[str]:
             return ["*"]
         return origins
 
-    # No CORS_ORIGINS set. An empty allow_origins list breaks browser dashboards
-    # on Netlify / another host with "Failed to fetch". Default open CORS;
-    # admin routes still need ADMIN_API_KEY.
-    logger.warning(
-        "CORS_ORIGINS not set — allowing all origins so the admin dashboard can connect. "
-        "Set CORS_ORIGINS=https://your-dashboard.com to lock this down."
-    )
-    return ["*"]
+    origins: set[str] = set()
+    for env_name in ("PUBLIC_BASE_URL", "WEBHOOK_URL"):
+        value = os.environ.get(env_name, "").strip()
+        if not value:
+            continue
+        parsed = urlparse(value if "://" in value else f"https://{value}")
+        if parsed.scheme and parsed.netloc:
+            origins.add(f"{parsed.scheme}://{parsed.netloc}")
+
+    railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "").strip().strip("/")
+    if railway_domain:
+        origins.add(f"https://{railway_domain}")
+
+    if os.environ.get("ENV", "").lower() in {"dev", "development", "local"}:
+        origins.update({"http://localhost:8000", "http://127.0.0.1:8000"})
+
+    if not origins:
+        logger.warning(
+            "CORS_ORIGINS is empty. Same-origin /dashboard access remains available; "
+            "set CORS_ORIGINS for any external dashboard."
+        )
+    return sorted(origins)
 
 
 _cors_origins = _build_cors_origins()
@@ -140,7 +156,6 @@ if _dashboard_dir.is_dir():
 
 ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "")
 if not ADMIN_API_KEY:
-    import secrets
     ADMIN_API_KEY = secrets.token_urlsafe(32)
     logger.critical("⚠️ ADMIN_API_KEY not set! Generated temporary key. Set ADMIN_API_KEY env var in production! (Key starts with %s)", ADMIN_API_KEY[:4])
 
@@ -166,6 +181,7 @@ def _env_bool(name: str, default: bool = False) -> bool:
 RESELLER_API_RATE_LIMIT = _env_int("RESELLER_API_RATE_LIMIT", 60)
 RESELLER_API_RATE_WINDOW = _env_int("RESELLER_API_RATE_WINDOW", 60)
 THREAD_WORKERS = _env_int("THREAD_WORKERS", 32, minimum=4)
+HEALTHCHECK_REQUIRE_BOT = _env_bool("HEALTHCHECK_REQUIRE_BOT", True)
 _reseller_rate_buckets: dict[str, dict[str, int]] = {}
 _reseller_rate_last_cleanup = 0
 
@@ -286,7 +302,7 @@ async def api_validation_exception_handler(request: Request, exc: RequestValidat
 
 
 async def verify_api_key(x_api_key: str = Header(None)):
-    """Dependency to check the custom X-API-Key header using constant-time comparison."""
+    """Check the admin X-API-Key header using constant-time comparison."""
     if not x_api_key or not hmac.compare_digest(x_api_key, ADMIN_API_KEY):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -353,10 +369,42 @@ class ResellerActivationIdentifierRequest(BaseModel):
     activation_identifier: str = Field(..., min_length=2, max_length=500)
 
 
+@api.get("/health/live")
+async def liveness_check():
+    return {"status": "ok"}
+
+
 @api.get("/health")
 async def health_check():
-    """Anonymous endpoint for Railway health check."""
-    return {"status": "ok", "bot": "running"}
+    """Readiness check for Railway and the dashboard."""
+    db_ready = False
+    db = None
+    try:
+        from database.db import get_db
+        db = await asyncio.wait_for(get_db(), timeout=3)
+        cursor = await asyncio.wait_for(db.execute("SELECT 1 AS ok"), timeout=3)
+        db_ready = bool(await asyncio.wait_for(cursor.fetchone(), timeout=3))
+    except Exception as exc:
+        logger.warning("Healthcheck database failure: %s", exc)
+    finally:
+        if db is not None:
+            try:
+                await db.close()
+            except Exception:
+                pass
+
+    bot_ready = bool(tg_app and getattr(tg_app, "running", False))
+    queue_size = webhook_update_queue.qsize() if webhook_update_queue is not None else 0
+    ready = db_ready and (bot_ready or not HEALTHCHECK_REQUIRE_BOT)
+    payload = {
+        "status": "ok" if ready else "not_ready",
+        "bot": "running" if bot_ready else "starting",
+        "database": "ok" if db_ready else "unavailable",
+        "webhook_queue": queue_size,
+    }
+    if payload["status"] != "ok":
+        return JSONResponse(status_code=503, content=payload)
+    return payload
 
 
 def _reseller_openapi_schema() -> dict:
@@ -888,7 +936,9 @@ async def api_reseller_submit_activation(order_id: int, data: ResellerActivation
             _raise_reseller_error(404, "ORDER_NOT_FOUND", "Order not found")
         if order.get("status") != "AWAITING_ACTIVATION_INFO":
             _raise_reseller_error(400, "INVALID_ORDER_STATUS", "Order is not waiting for an activation identifier")
-        await submit_activation_identifier(order_id, identifier)
+        submitted = await submit_activation_identifier(order_id, identifier)
+        if not submitted:
+            _raise_reseller_error(409, "ORDER_STATE_CHANGED", "Order state changed; reload the order")
         try:
             await notify_admins(
                 "<b>Nouvelle activation revendeur</b>\n\n"
@@ -988,11 +1038,11 @@ async def api_get_stats():
     if "stats" in _stats_cache and current_time - _stats_cache["stats"]["time"] < _stats_cache_ttl:
         return _stats_cache["stats"]["data"]
 
-    from database.models import get_stats, get_all_users, get_all_products, get_all_stock_counts, get_stock_forecast
+    from database.models import get_stats, get_total_users_count, get_all_products, get_all_stock_counts, get_stock_forecast
     try:
-        stats_30, users, products, stock_counts, forecast = await asyncio.gather(
+        stats_30, total_users, products, stock_counts, forecast = await asyncio.gather(
             get_stats(days=30),
-            get_all_users(),
+            get_total_users_count(),
             get_all_products(),
             get_all_stock_counts(),
             get_stock_forecast(days=7),
@@ -1017,7 +1067,7 @@ async def api_get_stats():
             })
 
         response_data = {
-            "total_users": len(users),
+            "total_users": total_users,
             "total_orders": stats_30.get("total_orders", 0),
             "completed_orders": stats_30.get("completed_orders", 0),
             "total_revenue": stats_30.get("total_revenue", 0),
@@ -1325,6 +1375,34 @@ async def api_fix_db():
         pass
     return {"status": "done", "results": results}
 
+@api.get("/api/recalculate-stats", dependencies=[Depends(verify_api_key)])
+async def api_recalculate_stats():
+    from database.db import get_db
+    db = await get_db()
+    try:
+        # Update users stats based on their COMPLETED orders
+        await db.execute("""
+            UPDATE users 
+            SET 
+                total_orders = (
+                    SELECT COUNT(*) FROM orders 
+                    WHERE orders.user_telegram_id = users.telegram_id AND orders.status = 'COMPLETED'
+                ),
+                total_spent = COALESCE((
+                    SELECT SUM(amount_usd) FROM orders 
+                    WHERE orders.user_telegram_id = users.telegram_id AND orders.status = 'COMPLETED'
+                ), 0)
+            WHERE EXISTS (
+                SELECT 1 FROM orders WHERE orders.user_telegram_id = users.telegram_id
+            )
+        """)
+        await db.commit()
+        return {"status": "success", "message": "Statistiques recalculées avec succès"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+    finally:
+        await db.close()
+
 # ── Binance Accounts Endpoints ──
 
 @api.get("/api/binance-accounts", dependencies=[Depends(verify_api_key)])
@@ -1332,7 +1410,18 @@ async def api_get_binance_accounts():
     from database.models import get_binance_accounts
     try:
         accounts = await get_binance_accounts()
-        return accounts
+        return [
+            {
+                "id": account.get("id"),
+                "label": account.get("label"),
+                "uid": account.get("uid"),
+                "is_default": account.get("is_default"),
+                "created_at": account.get("created_at"),
+                "has_api_key": bool(account.get("api_key")),
+                "has_api_secret": bool(account.get("api_secret")),
+            }
+            for account in accounts
+        ]
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -1363,6 +1452,9 @@ async def api_update_binance_account(account_id: int, data: dict):
     try:
         allowed_keys = {"label", "uid", "api_key", "api_secret", "is_default"}
         safe_data = {k: v for k, v in data.items() if k in allowed_keys}
+        for secret_field in ("api_key", "api_secret"):
+            if safe_data.get(secret_field) == "":
+                safe_data.pop(secret_field, None)
         await update_binance_account(account_id, **safe_data)
         return {"status": "updated"}
     except Exception as exc:
@@ -1444,9 +1536,16 @@ async def api_confirm_order(order_id: int):
                 return {"status": "already_completed"}
             if order_status == "AWAITING_ACTIVATION_INFO":
                 return {"status": "already_awaiting_activation_identifier"}
-            if order_status not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED"):
+            if order_status not in ("PENDING", "AWAITING_PAYMENT"):
                 raise HTTPException(status_code=409, detail=f"Order cannot be confirmed from status {order_status}")
-            await update_order_status(order_id, "AWAITING_ACTIVATION_INFO", payment_method=order.get("payment_method") or "manual")
+            transitioned = await update_order_status(
+                order_id,
+                "AWAITING_ACTIVATION_INFO",
+                expected_statuses=("PENDING", "AWAITING_PAYMENT"),
+                payment_method=order.get("payment_method") or "manual",
+            )
+            if not transitioned:
+                return {"status": "already_processing"}
             _clear_api_stats_cache()
             try:
                 user_lang = await get_user_lang(order["user_telegram_id"])
@@ -1469,7 +1568,7 @@ async def api_confirm_order(order_id: int):
                 return {"status": "already_confirmed_and_delivered"}
             return {"status": "already_completed"}
 
-        if order_status not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED"):
+        if order_status not in ("PENDING", "AWAITING_PAYMENT", "PAID_PENDING_DELIVERY"):
             raise HTTPException(status_code=409, detail=f"Order cannot be confirmed from status {order_status}")
 
         delivered = await deliver_order(order_id, order.get("product_id"))
@@ -1477,7 +1576,13 @@ async def api_confirm_order(order_id: int):
         if not delivered:
             raise HTTPException(status_code=409, detail="Insufficient stock for this order")
 
-        await update_order_status(order_id, "COMPLETED")
+        transitioned = await update_order_status(
+            order_id,
+            "COMPLETED",
+            expected_statuses=("PENDING", "AWAITING_PAYMENT", "PAID_PENDING_DELIVERY"),
+        )
+        if not transitioned:
+            return {"status": "already_confirmed_and_delivered"}
         _clear_api_stats_cache()
 
         if delivered:
@@ -1633,7 +1738,7 @@ async def api_get_all_orders(order_status: str = _Q(None, alias="status"), limit
     from database.models import get_all_orders_filtered, get_all_topups_filtered
     try:
         # Validate & bound inputs
-        VALID_STATUSES = {"PENDING", "PROCESSING", "COMPLETED", "CANCELLED", "AWAITING_PAYMENT", "AWAITING_ACTIVATION_INFO", "AWAITING_ACTIVATION", "TOPUP"}
+        VALID_STATUSES = {"PENDING", "PROCESSING", "PAID_PENDING_DELIVERY", "COMPLETED", "CANCELLED", "AWAITING_PAYMENT", "AWAITING_ACTIVATION_INFO", "AWAITING_ACTIVATION", "TOPUP"}
         if order_status and order_status.upper() not in VALID_STATUSES:
             raise HTTPException(status_code=400, detail=f"Invalid status. Valid: {', '.join(VALID_STATUSES)}")
         limit = max(1, min(limit, 200))  # Cap between 1-200
@@ -1712,12 +1817,15 @@ async def api_activate_order(order_id: int):
         if order.get("status") != "AWAITING_ACTIVATION":
             raise HTTPException(status_code=400, detail="Order is not awaiting activation")
 
-        await update_order_status(
+        transitioned = await update_order_status(
             order_id,
             "COMPLETED",
+            expected_statuses=("AWAITING_ACTIVATION",),
             activation_status="done",
-            activated_at=datetime.utcnow().isoformat(),
+            activated_at=datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
         )
+        if not transitioned:
+            return {"status": "already_completed"}
         _clear_api_stats_cache()
 
         if tg_app and tg_app.bot:
@@ -2151,6 +2259,7 @@ webhook_update_queue: asyncio.Queue | None = None
 webhook_worker_tasks: list[asyncio.Task] = []
 WEBHOOK_WORKERS = _env_int("WEBHOOK_WORKERS", 4, minimum=1)
 WEBHOOK_LOCK_STRIPES = _env_int("WEBHOOK_LOCK_STRIPES", 1024, minimum=8)
+WEBHOOK_QUEUE_MAX = _env_int("WEBHOOK_QUEUE_MAX", 1000, minimum=10)
 webhook_user_locks: list[asyncio.Lock] = [asyncio.Lock() for _ in range(WEBHOOK_LOCK_STRIPES)]
 
 
@@ -2162,6 +2271,17 @@ async def post_init(application: Application) -> None:
     """Called after the Application has been initialised — set up the database."""
     await init_db()
     logger.info("✅ Database initialized")
+
+    try:
+        from database.models import cleanup_product_views, recover_stale_processing_wallet_orders
+        recovered = await recover_stale_processing_wallet_orders(age_minutes=5)
+        if any(recovered.values()):
+            logger.warning("Recovered interrupted wallet orders: %s", recovered)
+        deleted_views = await cleanup_product_views(retention_days=90)
+        if deleted_views:
+            logger.info("Deleted %d expired product analytics rows", deleted_views)
+    except Exception as exc:
+        logger.exception("Could not recover interrupted wallet orders: %s", exc)
 
     # Auto-cancel stale PENDING/AWAITING_PAYMENT orders older than 5 minutes
     # This handles orders that were left hanging after a bot restart
@@ -2209,7 +2329,14 @@ async def telegram_webhook(request: StarletteRequest):
         if tg_app:
             update = Update.de_json(data, tg_app.bot)
             if webhook_update_queue is not None:
-                webhook_update_queue.put_nowait(update)
+                try:
+                    webhook_update_queue.put_nowait(update)
+                except asyncio.QueueFull:
+                    logger.error(
+                        "Webhook queue full (%d updates); asking Telegram to retry",
+                        WEBHOOK_QUEUE_MAX,
+                    )
+                    raise HTTPException(status_code=503, detail="Webhook queue is full")
             else:
                 task = asyncio.create_task(tg_app.process_update(update))
                 task.add_done_callback(_log_update_task_result)
@@ -2250,7 +2377,7 @@ def _webhook_user_lock(update: Update) -> asyncio.Lock:
 async def _webhook_update_worker(application: Application, worker_id: int) -> None:
     global webhook_update_queue
     if webhook_update_queue is None:
-        webhook_update_queue = asyncio.Queue()
+        webhook_update_queue = asyncio.Queue(maxsize=WEBHOOK_QUEUE_MAX)
 
     while True:
         update = await webhook_update_queue.get()
@@ -2731,7 +2858,7 @@ def main() -> None:
                     logger.warning("⚠️ Bot initialization failed (%s). Retrying in 4s...", err)
                     await asyncio.sleep(4)
 
-            webhook_update_queue = asyncio.Queue()
+            webhook_update_queue = asyncio.Queue(maxsize=WEBHOOK_QUEUE_MAX)
             webhook_worker_tasks = [
                 asyncio.create_task(_webhook_update_worker(app, worker_id))
                 for worker_id in range(1, WEBHOOK_WORKERS + 1)

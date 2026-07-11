@@ -31,7 +31,7 @@ fr: {
     all_promos:"Codes Promo",btn_add_promo:"Créer un Code",no_promos:"Aucun code promo.",th_type:"Type",th_value:"Valeur",th_uses:"Utilisations",
     orders_title:"Suivi des Commandes",filter_all:"Toutes",filter_pending:"En attente",filter_completed:"Complétées",filter_cancelled:"Annulées",filter_topup:"Top-up",no_orders:"Aucune commande.",th_binance_id:"ID Binance / Tx Hash",th_payment_method:"Méthode",th_client:"Client",th_amount:"Montant",th_qty:"Qté",wallet_topup:"💰 Wallet Top-up",
     users_title:"Gestion des Utilisateurs",no_users:"Aucun utilisateur.",th_firstname:"Prénom",th_lang:"Langue",th_orders_count:"Commandes",th_spent:"Dépenses",th_joined:"Inscrit",th_referrer:"Parrain",th_referrals:"Filleuls",th_referral_earnings:"Gains Parrainage",users_show_count:"Afficher :",users_search_placeholder:"Rechercher par ID ou nom...",
-    tickets_title:"Tickets Support",no_tickets:"Aucun ticket. ðŸ¤",
+    tickets_title:"Tickets Support",no_tickets:"Aucun ticket. 🤝",
     broadcast_title:"Envoyer un Message Broadcast",broadcast_desc:"Ce message sera envoyé à tous les utilisateurs du bot.",broadcast_label:"Message (HTML supporté) :",btn_send_broadcast:"Envoyer à tous",
     settings_title:"Configuration de l'API",settings_desc:"Synchronisation avec votre bot.",btn_save:"Enregistrer",
     modal_add_cat:"Ajouter une Catégorie",modal_add_prod:"Ajouter un Produit",modal_add_promo:"Créer un Code Promo",
@@ -65,7 +65,7 @@ en: {
     all_promos:"Promo Codes",btn_add_promo:"Create Code",no_promos:"No promo codes.",th_type:"Type",th_value:"Value",th_uses:"Uses",
     orders_title:"Order Tracking",filter_all:"All",filter_pending:"Pending",filter_completed:"Completed",filter_cancelled:"Cancelled",filter_topup:"Top-up",no_orders:"No orders.",th_client:"Client",th_amount:"Amount",th_qty:"Qty",wallet_topup:"💰 Wallet Top-up",
     users_title:"User Management",no_users:"No users.",th_firstname:"First Name",th_lang:"Language",th_orders_count:"Orders",th_spent:"Spent",th_joined:"Joined",th_referrer:"Referrer",th_referrals:"Referrals",th_referral_earnings:"Referral Earnings",users_show_count:"Show:",users_search_placeholder:"Search by ID or name...",
-    tickets_title:"Support Tickets",no_tickets:"No pending tickets. ðŸ¤",
+    tickets_title:"Support Tickets",no_tickets:"No pending tickets. 🤝",
     broadcast_title:"Send Broadcast Message",broadcast_desc:"This message will be sent to all bot users.",broadcast_label:"Message (HTML supported):",btn_send_broadcast:"Send to all",
     settings_title:"API Configuration",settings_desc:"Sync with your bot.",btn_save:"Save",
     modal_add_cat:"Add Category",modal_add_prod:"Add Product",modal_add_promo:"Create Promo Code",
@@ -99,7 +99,7 @@ ar: {
     all_promos:"Ø£ÙƒÙˆاد الخصم",btn_add_promo:"إنشاء ÙƒÙˆد",no_promos:"لا ØªÙˆجد Ø£ÙƒÙˆاد خصم.",th_type:"Ø§Ù„Ù†Ùˆع",th_value:"القيمة",th_uses:"الاستخدامات",
     orders_title:"تتبع الطلبات",filter_all:"Ø§Ù„Ùƒل",filter_pending:"قيد الانتظار",filter_completed:"Ù…Ùƒتملة",filter_cancelled:"ملغاة",filter_topup:"شحن",no_orders:"لا ØªÙˆجد طلبات.",th_client:"العميل",th_amount:"المبلغ",th_qty:"Ø§Ù„Ùƒمية",wallet_topup:"💰 شحن Ø§Ù„Ù…Ø­ÙØ¸Ø©",
     users_title:"إدارة المستخدمين",no_users:"لا ÙŠÙˆجد Ù…Ø³ØªØ®Ø¯Ù…Ùˆن.",th_firstname:"الاسم",th_lang:"اللغة",th_orders_count:"الطلبات",th_spent:"Ø§Ù„Ù…ØµØ±ÙˆÙØ§Øª",th_joined:"التسجيل",th_referrer:"المرجع",th_referrals:"الإحالات",th_referral_earnings:"أرباح الإحالة",users_show_count:"عرض:",users_search_placeholder:"بحث Ø¨Ø§Ù„Ù…Ø¹Ø±Ù أو الاسم...",
-    tickets_title:"ØªØ°Ø§Ùƒر الدعم",no_tickets:"لا ØªÙˆجد ØªØ°Ø§Ùƒر معلقة. ðŸ¤",
+    tickets_title:"تذاكر الدعم",no_tickets:"لا توجد تذاكر معلقة. 🤝",
     broadcast_title:"إرسال رسالة بث",broadcast_desc:"Ø³ØªÙØ±Ø³Ù„ هذه الرسالة لجميع مستخدمي Ø§Ù„Ø¨Ùˆت.",broadcast_label:"الرسالة (يدعم HTML):",btn_send_broadcast:"إرسال للجميع",
     settings_title:"إعدادات API",settings_desc:"المزامنة مع Ø§Ù„Ø¨Ùˆت.",btn_save:"Ø­ÙØ¸",
     modal_add_cat:"Ø¥Ø¶Ø§ÙØ© ÙØ¦Ø©",modal_add_prod:"Ø¥Ø¶Ø§ÙØ© منتج",modal_add_promo:"إنشاء ÙƒÙˆد خصم",
@@ -282,10 +282,9 @@ document.addEventListener('DOMContentLoaded', () => {
         DOM.settingsApiKey.value = savedKey;
         testConnectionAndStart();
     } else {
-        // Prefill API URL with current origin when opened from Railway /dashboard
         const origin = window.location.origin || '';
-        if (origin && !origin.startsWith('file:')) {
-            if (DOM.botUrlInput && !DOM.botUrlInput.value) DOM.botUrlInput.placeholder = origin;
+        if (origin && !origin.startsWith('file:') && DOM.botUrlInput && !DOM.botUrlInput.value) {
+            DOM.botUrlInput.placeholder = origin;
         }
         showScreen('login');
     }
@@ -1331,7 +1330,7 @@ async function loadProducts() {
             <td>$${parseFloat(p.price_usd).toFixed(2)}</td><td>${p.warranty_days||0} ${t('days')}</td>
             <td>${p.delivery_type === 'activation' ? '<span class="stock-count-badge ok">Activation</span>' : `<span class="stock-count-badge ${p.stock===0?'empty':p.stock<3?'low':'ok'}">${p.stock}</span>`}</td>
             <td><span class="status-dot ${p.is_active?'online':''}"></span> ${p.is_active?t('active'):t('inactive')}</td>
-            <td><button class="btn-table-action" onclick="openEditProduct(${p.id})" title="Modifier" style="color:#3b82f6;"><i class="fa-solid fa-pen"></i></button><button class="btn-table-action" onclick="viewProductStock(${p.id},'${(p.emoji||'📦').replace(/'/g,'\\\'')}','${p.name.replace(/'/g,'\\\'')}')" title="Voir stock" style="color:#f59e0b;"><i class="fa-solid fa-eye"></i></button><button class="btn-table-action stock" onclick="openStockModal(${p.id},'${(p.emoji||'📦').replace(/'/g,'\\\'')}','${p.name.replace(/'/g,'\\\'')}')" title="${t('stock_manage')}"><i class="fa-solid fa-warehouse"></i></button><button class="btn-table-action" onclick="openTiersModal(${p.id},'${p.name.replace(/'/g,'\\\'')}',${parseFloat(p.price_usd).toFixed(2)})" title="Tarifs" style="color:#a78bfa;"><i class="fa-solid fa-tags"></i></button><button class="btn-table-action delete" onclick="deleteProduct(${p.id})"><i class="fa-solid fa-trash-can"></i></button></td>
+            <td><button class="btn-table-action" onclick="toggleProductVisibility(${p.id})" title="${p.is_active ? 'Désactiver' : 'Activer'}" style="color:${p.is_active ? '#ef4444' : '#22c55e'};"><i class="fa-solid ${p.is_active ? 'fa-xmark' : 'fa-check'}"></i></button><button class="btn-table-action" onclick="openEditProduct(${p.id})" title="Modifier" style="color:#3b82f6;"><i class="fa-solid fa-pen"></i></button><button class="btn-table-action" onclick="viewProductStock(${p.id},'${(p.emoji||'✨').replace(/'/g,'\\\'')}','${p.name.replace(/'/g,'\\\'')}')" title="Voir stock" style="color:#f59e0b;"><i class="fa-solid fa-box-open"></i></button><button class="btn-table-action stock" onclick="openStockModal(${p.id},'${(p.emoji||'✨').replace(/'/g,'\\\'')}','${p.name.replace(/'/g,'\\\'')}')" title="${t('stock_manage')}"><i class="fa-solid fa-warehouse"></i></button><button class="btn-table-action" onclick="openTiersModal(${p.id},'${p.name.replace(/'/g,'\\\'')}',${parseFloat(p.price_usd).toFixed(2)})" title="Tarifs" style="color:#a78bfa;"><i class="fa-solid fa-tags"></i></button><button class="btn-table-action delete" onclick="deleteProduct(${p.id})"><i class="fa-solid fa-trash-can"></i></button></td>
         </tr>`).join('');
         if (DOM.broadcastBtnProductId) {
             DOM.broadcastBtnProductId.innerHTML = prods.map(p => `<option value="${p.id}">${p.emoji||'📦'} ${p.name}</option>`).join('');
@@ -1401,6 +1400,8 @@ async function loadAllOrders() {
                 actions = `<span style="font-size:0.78rem;color:var(--color-text-muted);">Balance: $${parseFloat(o.balance_after||0).toFixed(2)}</span>`;
             } else if (o.status === 'PENDING' || o.status === 'AWAITING_PAYMENT') {
                 actions = `<button class="btn-table-action" onclick="confirmOrderPayment(${o.id})" title="Confirmer" style="color:#22c55e;"><i class="fa-solid fa-check"></i></button> <button class="btn-table-action" onclick="cancelOrder(${o.id})" title="Annuler" style="color:#ef4444;"><i class="fa-solid fa-xmark"></i></button>`;
+            } else if (o.status === 'PAID_PENDING_DELIVERY') {
+                actions = `<button class="btn-table-action" onclick="confirmOrderPayment(${o.id})" title="Relancer la livraison" style="color:#22c55e;"><i class="fa-solid fa-rotate-right"></i></button>`;
             } else if (o.status === 'AWAITING_ACTIVATION') {
                 actions = `<button class="btn-table-action" onclick="completeActivation(${o.id})" title="${t('activation_mark_done')}" style="color:#22c55e;"><i class="fa-solid fa-bolt"></i></button>`;
             } else if (o.status === 'AWAITING_ACTIVATION_INFO') {
@@ -1411,6 +1412,7 @@ async function loadAllOrders() {
                 actions = '—';
             }
             let statusHtml = o.status;
+            if (o.status === 'PAID_PENDING_DELIVERY') statusHtml = 'PAYÉ — LIVRAISON EN ATTENTE';
             if (!isTopup && o.activation_identifier) {
                 statusHtml += `<br><span style="font-size:0.72rem; color:var(--color-text-muted); display:block; margin-top:4px;">ID: ${String(o.activation_identifier).replace(/</g,'&lt;').replace(/>/g,'&gt;')}</span>`;
             }
@@ -1429,7 +1431,7 @@ async function loadAllOrders() {
                 }
 
                 if (o.status === 'AWAITING_PAYMENT' && o.binance_order_id) {
-                    statusHtml += `<span style="font-size:0.7rem; color:var(--color-error); font-weight:bold; display:block; margin-top:2px;">âš ï¸ ID Invalide</span>`;
+                    statusHtml += `<span style="font-size:0.7rem; color:var(--color-error); font-weight:bold; display:block; margin-top:2px;">⚠️ ID Invalide</span>`;
                 }
             }
 
@@ -1963,6 +1965,22 @@ window.viewUserReferrals = function(tid) {
     }
 };
 
+window.recalculateStats = async function() {
+    if (!confirm('Voulez-vous recalculer les statistiques de tous les utilisateurs (Commandes et Dépenses) ? Cela peut prendre quelques secondes.')) return;
+    showLoading(true);
+    try {
+        const res = await apiCall('/api/recalculate-stats');
+        alert(res.message || 'Statistiques recalculées avec succès.');
+        if (state.currentTab === 'tab_users') {
+            await loadUsers();
+        }
+    } catch (err) {
+        alert(err.message);
+    } finally {
+        showLoading(false);
+    }
+};
+
 window.banUser = function(tid) {
     $('banUserId').value = tid;
     $('banNotifyUser').checked = false;
@@ -2097,7 +2115,7 @@ async function handleBroadcast() {
         if (DOM.broadcastBtnType) DOM.broadcastBtnType.value = 'none';
         $('broadcast-buy-group').classList.add('hidden');
         $('broadcast-url-group').classList.add('hidden');
-    } catch(e) { DOM.broadcastResult.textContent = `âŒ ${e.message}`; }
+    } catch(e) { DOM.broadcastResult.textContent = `❌ ${e.message}`; }
     finally { showLoading(false); }
 }
 
@@ -2165,7 +2183,11 @@ function switchTab(tabId) {
 function showModal(m) { m.classList.remove('hidden'); }
 function hideModal(m) { m.classList.add('hidden'); }
 function showLoading(v) { if(v)DOM.loadingOverlay.classList.remove('hidden');else DOM.loadingOverlay.classList.add('hidden'); }
-function logout() { state.botUrl='';state.apiKey='';localStorage.removeItem('ventebot_url');localStorage.removeItem('ventebot_key');DOM.loginForm.reset();showScreen('login');stopAutoRefresh(); }
+function logout() {
+    state.botUrl=''; state.apiKey='';
+    localStorage.removeItem('ventebot_url'); localStorage.removeItem('ventebot_key');
+    DOM.loginForm.reset(); showScreen('login'); stopAutoRefresh();
+}
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  EXCEL EXPORT (SheetJS)
@@ -2261,6 +2283,8 @@ $('exportForm').addEventListener('submit', async (e) => {
 window.openBinanceModal = function() {
     DOM.binanceForm.reset();
     DOM.binanceId.value = '';
+    DOM.binanceApiKey.placeholder = '';
+    DOM.binanceApiSecret.placeholder = '';
     $('binanceModalTitle').textContent = 'Ajouter un compte Binance';
     showModal(DOM.binanceModal);
 };
@@ -2282,6 +2306,8 @@ window.saveBinanceAccount = async function() {
     try {
         const id = DOM.binanceId.value;
         if (id) {
+            if (!payload.api_key) delete payload.api_key;
+            if (!payload.api_secret) delete payload.api_secret;
             await apiCall(`/api/binance-accounts/${id}`, 'PUT', payload);
         } else {
             await apiCall('/api/binance-accounts', 'POST', payload);
@@ -2299,8 +2325,10 @@ window.editBinanceAccount = function(id) {
     DOM.binanceId.value = acc.id;
     DOM.binanceLabel.value = acc.label;
     DOM.binanceUid.value = acc.uid;
-    DOM.binanceApiKey.value = acc.api_key || '';
-    DOM.binanceApiSecret.value = acc.api_secret || '';
+    DOM.binanceApiKey.value = '';
+    DOM.binanceApiSecret.value = '';
+    DOM.binanceApiKey.placeholder = acc.has_api_key ? 'Configurée — laisser vide pour conserver' : '';
+    DOM.binanceApiSecret.placeholder = acc.has_api_secret ? 'Configuré — laisser vide pour conserver' : '';
     DOM.binanceIsDefault.checked = !!acc.is_default;
     $('binanceModalTitle').textContent = 'Modifier le compte Binance';
     showModal(DOM.binanceModal);

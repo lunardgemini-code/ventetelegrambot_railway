@@ -4,6 +4,9 @@
 import os
 import sqlite3
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 # ── Turso config ──
 TURSO_URL = os.environ.get("TURSO_DATABASE_URL", "")
@@ -200,17 +203,20 @@ async def get_db():
     """Ouvre et retourne une connexion à la base de données."""
     if TURSO_URL:
         import libsql_experimental as libsql
+        conn_to_wrap = None
         async with get_pool_lock():
             if _libsql_pool:
-                conn = _libsql_pool.pop()
-                wrapper = _PooledAsyncDB(conn)
-            else:
-                conn = await asyncio.to_thread(libsql.connect, TURSO_URL, auth_token=TURSO_TOKEN)
-                wrapper = _PooledAsyncDB(conn)
-                try:
-                    await wrapper.execute("PRAGMA foreign_keys = ON")
-                except Exception:
-                    pass
+                conn_to_wrap = _libsql_pool.pop()
+                
+        if conn_to_wrap:
+            wrapper = _PooledAsyncDB(conn_to_wrap)
+        else:
+            conn = await asyncio.to_thread(libsql.connect, TURSO_URL, auth_token=TURSO_TOKEN)
+            wrapper = _PooledAsyncDB(conn)
+            try:
+                await wrapper.execute("PRAGMA foreign_keys = ON")
+            except Exception:
+                pass
         return wrapper
     else:
         global _sqlite_wal_configured
@@ -510,13 +516,35 @@ async def init_db() -> None:
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_alerts_unique_pending ON product_stock_alerts(product_id, user_telegram_id) WHERE notified_at IS NULL",
             "CREATE INDEX IF NOT EXISTS idx_stock_alerts_product_pending ON product_stock_alerts(product_id, notified_at)",
             "CREATE INDEX IF NOT EXISTS idx_product_views_product_date ON product_views(product_id, viewed_at)",
+            "CREATE INDEX IF NOT EXISTS idx_product_views_date_product ON product_views(viewed_at, product_id)",
+            "CREATE INDEX IF NOT EXISTS idx_product_views_user_product_date ON product_views(product_id, user_telegram_id, viewed_at)",
             "CREATE INDEX IF NOT EXISTS idx_orders_product_date_status ON orders(product_id, created_at, status)",
         ]
+        table_columns: dict[str, set[str]] = {}
+
+        async def _columns_for(table_name: str) -> set[str]:
+            if table_name not in table_columns:
+                cursor = await db.execute(f"PRAGMA table_info({table_name})")
+                table_columns[table_name] = {
+                    str(row["name"]) for row in await cursor.fetchall()
+                }
+            return table_columns[table_name]
+
         for sql in migrations:
             try:
+                parts = sql.strip().split()
+                if len(parts) >= 6 and parts[:2] == ["ALTER", "TABLE"] and parts[3:5] == ["ADD", "COLUMN"]:
+                    table_name = parts[2]
+                    column_name = parts[5]
+                    columns = await _columns_for(table_name)
+                    if column_name in columns:
+                        continue
+                    await db.execute(sql)
+                    columns.add(column_name)
+                    continue
                 await db.execute(sql)
             except Exception as e:
-                print(f"Migration skip/error for '{sql}': {e}")
+                logger.warning("Migration failed for %s: %s", sql, e)
         await db.commit()
 
     finally:

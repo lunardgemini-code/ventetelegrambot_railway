@@ -9,11 +9,16 @@ import secrets
 import uuid
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from .db import get_db
 
 logger = logging.getLogger(__name__)
+
+
+def _utcnow() -> datetime:
+    """Return naive UTC for compatibility with existing SQLite timestamps."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 # â”€â”€ Caches en mÃ©moire pour optimiser la performance (Ã©viter les appels rÃ©seau Turso rÃ©pÃ©titifs) â”€â”€
@@ -330,12 +335,13 @@ async def delete_category(category_id: int) -> None:
 async def get_product_sales_momentum(days: int = 30) -> dict:
     """Return daily completed sales quantities and revenue per product."""
     days = max(1, min(int(days), 365))
-    start_date = (datetime.utcnow() - timedelta(days=days - 1)).date()
+    start_date = (_utcnow() - timedelta(days=days - 1)).date()
     day_labels = [
         (start_date + timedelta(days=i)).strftime("%Y-%m-%d")
         for i in range(days)
     ]
-    yesterday = (datetime.utcnow() - timedelta(days=1)).date().strftime("%Y-%m-%d")
+    since_timestamp = f"{day_labels[0]} 00:00:00"
+    yesterday = (_utcnow() - timedelta(days=1)).date().strftime("%Y-%m-%d")
 
     db = await get_db()
     try:
@@ -352,11 +358,11 @@ async def get_product_sales_momentum(days: int = 30) -> dict:
             LEFT JOIN products p ON p.id = o.product_id
             WHERE o.status = 'COMPLETED'
               AND o.product_id IS NOT NULL
-              AND DATE(o.created_at) >= ?
+              AND o.created_at >= ?
             GROUP BY o.product_id, p.name, p.emoji, DATE(o.created_at)
             ORDER BY day ASC, qty_sold DESC
             """,
-            (day_labels[0],),
+            (since_timestamp,),
         )
         rows = await cursor.fetchall()
 
@@ -414,7 +420,7 @@ async def get_product_sales_momentum(days: int = 30) -> dict:
 async def get_stock_forecast(days: int = 7) -> dict[int, dict]:
     """Return recent sales velocity per product for stock runway estimates."""
     days = max(1, min(int(days), 90))
-    since = (datetime.utcnow() - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+    since = (_utcnow() - timedelta(days=days - 1)).strftime("%Y-%m-%d 00:00:00")
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -423,7 +429,7 @@ async def get_stock_forecast(days: int = 7) -> dict[int, dict]:
                FROM orders
                WHERE status = 'COMPLETED'
                  AND product_id IS NOT NULL
-                 AND DATE(created_at) >= ?
+                 AND created_at >= ?
                GROUP BY product_id""",
             (since,),
         )
@@ -442,7 +448,7 @@ async def get_stock_forecast(days: int = 7) -> dict[int, dict]:
 
 
 async def record_product_view(product_id: int, user_telegram_id: int) -> None:
-    """Best-effort product view tracking for conversion alerts."""
+    """Record at most one view per user/product in a six-hour window."""
     try:
         db = await get_db()
     except Exception as exc:
@@ -450,8 +456,14 @@ async def record_product_view(product_id: int, user_telegram_id: int) -> None:
         return
     try:
         await db.execute(
-            "INSERT INTO product_views (product_id, user_telegram_id) VALUES (?, ?)",
-            (int(product_id), int(user_telegram_id)),
+            """INSERT INTO product_views (product_id, user_telegram_id)
+               SELECT ?, ?
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM product_views
+                   WHERE product_id = ? AND user_telegram_id = ?
+                     AND viewed_at >= datetime('now', '-6 hours')
+               )""",
+            (int(product_id), int(user_telegram_id), int(product_id), int(user_telegram_id)),
         )
         await db.commit()
     except Exception as exc:
@@ -468,14 +480,14 @@ async def get_dead_product_alerts(days: int = 7, min_views: int = 10, max_conver
     days = max(1, min(int(days), 90))
     min_views = max(1, int(min_views))
     max_conversion = max(0.0, float(max_conversion))
-    since = (datetime.utcnow() - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+    since = (_utcnow() - timedelta(days=days - 1)).strftime("%Y-%m-%d 00:00:00")
     db = await get_db()
     try:
         cursor = await db.execute(
             """WITH views AS (
                    SELECT product_id, COUNT(*) as view_count
                    FROM product_views
-                   WHERE DATE(viewed_at) >= ?
+                   WHERE viewed_at >= ?
                    GROUP BY product_id
                ),
                sales AS (
@@ -484,7 +496,7 @@ async def get_dead_product_alerts(days: int = 7, min_views: int = 10, max_conver
                    FROM orders
                    WHERE status = 'COMPLETED'
                      AND product_id IS NOT NULL
-                     AND DATE(created_at) >= ?
+                     AND created_at >= ?
                    GROUP BY product_id
                )
                SELECT p.id, p.name, p.emoji,
@@ -599,26 +611,6 @@ async def mark_stock_alerts_notified(product_id: int, user_ids: list[int]) -> No
         await db.close()
 
 
-async def get_products_by_category(category_id: int) -> list[dict]:
-    """Retourne les produits actifs d'une catégorie."""
-    db = await get_db()
-    try:
-        try:
-            cursor = await db.execute(
-                "SELECT * FROM products WHERE category_id = ? AND is_active = 1 AND is_deleted = 0 ORDER BY sort_order ASC, id ASC",
-                (category_id,),
-            )
-            rows = await cursor.fetchall()
-        except Exception:
-            # Fallback if is_deleted column does not exist yet
-            cursor = await db.execute(
-                "SELECT * FROM products WHERE category_id = ? AND is_active = 1 ORDER BY id ASC",
-                (category_id,),
-            )
-            rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        await db.close()
 
 async def get_product(product_id: int) -> dict | None:
     """Récupère un produit par son identifiant."""
@@ -1241,7 +1233,12 @@ async def release_stock_item(stock_id: int) -> None:
 async def reserve_stock_items_for_order(
     order_id: int,
     product_id: int,
-    allowed_statuses: tuple[str, ...] = ("PENDING", "AWAITING_PAYMENT", "PROCESSING", "CANCELLED"),
+    allowed_statuses: tuple[str, ...] = (
+        "PENDING",
+        "AWAITING_PAYMENT",
+        "PROCESSING",
+        "PAID_PENDING_DELIVERY",
+    ),
 ) -> list[dict] | None:
     """Reserve stock for an order once, returning the same items on retries."""
     _clear_stock_cache()
@@ -1416,43 +1413,138 @@ async def get_order_by_merchant_id(merchant_trade_no: str) -> dict | None:
         await db.close()
 
 
-async def claim_order_for_wallet_payment(order_id: int, user_telegram_id: int) -> dict | None:
-    """Atomically mark a payable order as PROCESSING before debiting wallet."""
+async def get_total_users_count() -> int:
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT COUNT(*) AS cnt FROM users")
+        row = await cursor.fetchone()
+        return int(row["cnt"] if row else 0)
+    finally:
+        await db.close()
+
+
+async def cleanup_product_views(retention_days: int = 90) -> int:
+    """Delete analytics rows older than the configured retention period."""
+    retention_days = max(7, min(int(retention_days), 3650))
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "DELETE FROM product_views WHERE viewed_at < datetime('now', ?)",
+            (f"-{retention_days} days",),
+        )
+        await db.commit()
+        return max(0, int(cursor.rowcount)) if cursor.rowcount != -1 else 0
+    finally:
+        await db.close()
+
+
+async def purchase_order_with_wallet(order_id: int, user_telegram_id: int) -> dict:
+    """Debit, reserve stock and finalize a wallet order in one transaction."""
     _clear_stock_cache()
     invalidate_stats_cache()
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
         cursor = await db.execute(
-            "SELECT * FROM orders WHERE id = ? AND user_telegram_id = ?",
+            """SELECT o.*, p.delivery_type
+               FROM orders o
+               JOIN products p ON p.id = o.product_id
+               WHERE o.id = ? AND o.user_telegram_id = ?""",
             (int(order_id), int(user_telegram_id)),
         )
         row = await cursor.fetchone()
         if not row:
             await db.rollback()
-            return None
+            raise ValueError("ORDER_NOT_FOUND")
 
         order = dict(row)
         if order.get("status") not in ("PENDING", "AWAITING_PAYMENT"):
             await db.rollback()
-            return None
+            raise ValueError(f"ORDER_NOT_PAYABLE:{order.get('status')}")
 
-        order["_previous_status"] = order.get("status")
-        order["_previous_payment_method"] = order.get("payment_method")
+        amount = round(float(order.get("amount_usd") or 0), 4)
         cursor = await db.execute(
-            """UPDATE orders
-               SET status = 'PROCESSING', payment_method = 'wallet'
-               WHERE id = ? AND user_telegram_id = ? AND status IN ('PENDING', 'AWAITING_PAYMENT')""",
-            (int(order_id), int(user_telegram_id)),
+            """UPDATE users
+               SET wallet_balance = MAX(0.0, COALESCE(wallet_balance, 0) - ?)
+               WHERE telegram_id = ?
+                 AND COALESCE(wallet_balance, 0) >= ?
+               RETURNING wallet_balance""",
+            (amount, int(user_telegram_id), amount - 1e-5),
         )
-        if cursor.rowcount <= 0:
+        balance_row = await cursor.fetchone()
+        if not balance_row:
             await db.rollback()
-            return None
+            raise ValueError("INSUFFICIENT_BALANCE")
+        balance_after = float(balance_row["wallet_balance"])
+
+        quantity = max(1, int(order.get("quantity") or 1))
+        delivery_type = order.get("delivery_type") or "stock"
+        stock_items: list[dict] = []
+
+        if delivery_type == "activation":
+            next_status = "AWAITING_ACTIVATION_INFO"
+        else:
+            cursor = await db.execute(
+                """SELECT id, account_data
+                   FROM stock_items
+                   WHERE product_id = ? AND is_sold = 0
+                   ORDER BY added_at ASC, id ASC
+                   LIMIT ?""",
+                (int(order["product_id"]), quantity),
+            )
+            stock_items = [dict(item) for item in await cursor.fetchall()]
+            if len(stock_items) < quantity:
+                await db.rollback()
+                raise ValueError("INSUFFICIENT_STOCK")
+
+            ids = [int(item["id"]) for item in stock_items]
+            placeholders = ",".join("?" for _ in ids)
+            cursor = await db.execute(
+                f"""UPDATE stock_items
+                    SET is_sold = 1,
+                        sold_to_order_id = ?,
+                        sold_at = CURRENT_TIMESTAMP
+                    WHERE id IN ({placeholders}) AND is_sold = 0""",
+                [int(order_id), *ids],
+            )
+            if cursor.rowcount != -1 and cursor.rowcount != len(ids):
+                await db.rollback()
+                raise ValueError("STOCK_CONFLICT")
+            next_status = "COMPLETED"
+
+        await db.execute(
+            """INSERT INTO wallet_transactions
+               (user_telegram_id, type, amount, balance_after, description)
+               VALUES (?, 'purchase', ?, ?, ?)""",
+            (int(user_telegram_id), amount, balance_after, f"Order #{int(order_id)}"),
+        )
+
+        first_stock_id = stock_items[0]["id"] if stock_items else None
+        await db.execute(
+            """UPDATE orders
+               SET status = ?, payment_method = 'wallet', paid_at = CURRENT_TIMESTAMP,
+                   stock_item_id = COALESCE(?, stock_item_id)
+               WHERE id = ?""",
+            (next_status, first_stock_id, int(order_id)),
+        )
+        if next_status == "COMPLETED":
+            await _apply_completion_effects_tx(
+                db,
+                order,
+                "wallet",
+                enforce_promo_limits=True,
+            )
 
         await db.commit()
-        order["status"] = "PROCESSING"
+        order["status"] = next_status
         order["payment_method"] = "wallet"
-        return order
+        order["stock_item_id"] = first_stock_id
+        return {
+            "order": order,
+            "items": stock_items,
+            "balance_after": balance_after,
+            "delivery_type": delivery_type,
+        }
     except Exception:
         try:
             await db.rollback()
@@ -1461,15 +1553,6 @@ async def claim_order_for_wallet_payment(order_id: int, user_telegram_id: int) -
         raise
     finally:
         await db.close()
-
-
-async def restore_order_after_failed_wallet_claim(order_id: int, claimed_order: dict | None = None) -> None:
-    """Put a PROCESSING order back to its previous payable state after wallet failure."""
-    previous_status = (claimed_order or {}).get("_previous_status") or "PENDING"
-    previous_payment_method = (claimed_order or {}).get("_previous_payment_method")
-    if previous_status not in ("PENDING", "AWAITING_PAYMENT"):
-        previous_status = "PENDING"
-    await update_order_status(order_id, previous_status, payment_method=previous_payment_method)
 
 
 async def cancel_order_if_allowed(order_id: int, allowed_statuses: tuple[str, ...] = ("PENDING", "AWAITING_PAYMENT")) -> dict | None:
@@ -1523,7 +1606,102 @@ ALLOWED_ORDER_COLUMNS = {
 }
 
 
-async def update_order_status(order_id: int, status: str, **kwargs) -> None:
+async def _increment_promo_usage_tx(
+    db,
+    promo_id: int,
+    user_telegram_id: int,
+    *,
+    enforce_limits: bool = False,
+) -> None:
+    cursor = await db.execute(
+        "SELECT max_uses, max_uses_per_user, used_count FROM promo_codes WHERE id = ? AND is_active = 1",
+        (int(promo_id),),
+    )
+    promo = await cursor.fetchone()
+    if not promo:
+        if enforce_limits:
+            raise ValueError("PROMO_UNAVAILABLE")
+        return
+    max_uses = int(promo["max_uses"] or 0)
+    if enforce_limits and max_uses > 0 and int(promo["used_count"] or 0) >= max_uses:
+        raise ValueError("PROMO_GLOBAL_LIMIT_REACHED")
+
+    max_per_user = int(promo["max_uses_per_user"] or 0)
+    cursor = await db.execute(
+        """SELECT usage_count FROM promo_code_usages
+           WHERE promo_code_id = ? AND user_telegram_id = ?""",
+        (int(promo_id), int(user_telegram_id)),
+    )
+    usage = await cursor.fetchone()
+    if enforce_limits and max_per_user > 0 and int(usage["usage_count"] if usage else 0) >= max_per_user:
+        raise ValueError("PROMO_USER_LIMIT_REACHED")
+
+    await db.execute(
+        "UPDATE promo_codes SET used_count = used_count + 1 WHERE id = ?",
+        (int(promo_id),),
+    )
+    await db.execute(
+        """INSERT INTO promo_code_usages
+           (promo_code_id, user_telegram_id, usage_count, last_used_at)
+           VALUES (?, ?, 1, CURRENT_TIMESTAMP)
+           ON CONFLICT(promo_code_id, user_telegram_id)
+           DO UPDATE SET usage_count = usage_count + 1,
+                         last_used_at = CURRENT_TIMESTAMP""",
+        (int(promo_id), int(user_telegram_id)),
+    )
+
+
+async def _apply_completion_effects_tx(
+    db,
+    order: dict,
+    payment_method: str | None,
+    *,
+    enforce_promo_limits: bool = False,
+) -> None:
+    amount_usd = float(order.get("amount_usd") or 0)
+    telegram_id = order.get("user_telegram_id")
+    if telegram_id:
+        await db.execute(
+            """UPDATE users
+               SET total_orders = COALESCE(total_orders, 0) + 1,
+                   total_spent = COALESCE(total_spent, 0) + ?
+               WHERE telegram_id = ?""",
+            (amount_usd, int(telegram_id)),
+        )
+
+    promo_id = order.get("promo_code_id")
+    if promo_id and telegram_id:
+        await _increment_promo_usage_tx(
+            db,
+            int(promo_id),
+            int(telegram_id),
+            enforce_limits=enforce_promo_limits,
+        )
+
+    if payment_method != "wallet":
+        method_suffix = {
+            "bep20": "bep20",
+            "trc20": "trc20",
+            "binance_pay": "binance",
+            "binance": "binance",
+            "manual": "binance",
+        }.get((payment_method or "binance").lower(), "binance")
+        setting_key = f"finance_bot_balance_{method_suffix}"
+        await db.execute(
+            """INSERT INTO settings (key, value) VALUES (?, ?)
+               ON CONFLICT(key) DO UPDATE SET
+                   value = CAST(COALESCE(settings.value, '0') AS REAL) + CAST(excluded.value AS REAL)""",
+            (setting_key, str(amount_usd)),
+        )
+
+
+async def update_order_status(
+    order_id: int,
+    status: str,
+    *,
+    expected_statuses: tuple[str, ...] | None = None,
+    **kwargs,
+) -> bool:
     _clear_stock_cache()
     invalidate_stats_cache()
     """Met Ã  jour le statut d'une commande avec des champs optionnels."""
@@ -1536,59 +1714,171 @@ async def update_order_status(order_id: int, status: str, **kwargs) -> None:
     values.append(order_id)
     db = await get_db()
     try:
-        # Get current order state in the same connection (avoids a second round trip)
-        cursor = await db.execute("SELECT status, amount_usd, payment_method, promo_code_id, user_telegram_id FROM orders WHERE id = ?", (order_id,))
-        current_order = None
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute("SELECT * FROM orders WHERE id = ?", (order_id,))
         row = await cursor.fetchone()
-        if row:
-            current_order = dict(row)
+        if not row:
+            await db.rollback()
+            return False
+        current_order = dict(row)
+        if expected_statuses is not None and current_order.get("status") not in expected_statuses:
+            await db.rollback()
+            return False
+
+        transitioned = current_order.get("status") != status
+        if status == "COMPLETED" and "paid_at" not in safe_kwargs:
+            set_parts.append("paid_at = COALESCE(paid_at, CURRENT_TIMESTAMP)")
         await db.execute(
             f"UPDATE orders SET {', '.join(set_parts)} WHERE id = ?", values
         )
-        
-        # If the order is transitioning to COMPLETED, update bot balance and user stats
-        if status == "COMPLETED" and current_order and current_order.get("status") != "COMPLETED":
-            amount_usd = float(current_order.get("amount_usd", 0))
-            telegram_id = current_order.get("user_telegram_id")
-            
-            # Update user stats
-            if telegram_id:
-                await db.execute(
-                    "UPDATE users SET total_orders = total_orders + 1, total_spent = total_spent + ? WHERE telegram_id = ?",
-                    (amount_usd, telegram_id)
-                )
-
-            # Increment finance_bot_balance if paid externally
+        if status == "COMPLETED" and transitioned:
             pay_method = kwargs.get("payment_method") or current_order.get("payment_method")
-            if pay_method != "wallet":
-                method_suffix = "binance"
-                if pay_method == "bep20":
-                    method_suffix = "bep20"
-                elif pay_method == "trc20":
-                    method_suffix = "trc20"
-                elif pay_method == "binance_pay":
-                    method_suffix = "binance"
-                
-                setting_key = f"finance_bot_balance_{method_suffix}"
-                cursor = await db.execute("SELECT value FROM settings WHERE key = ?", (setting_key,))
-                row = await cursor.fetchone()
-                bal = float(row["value"]) if row else 0.0
-                await db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (setting_key, str(bal + float(current_order.get("amount_usd", 0)))))
+            await _apply_completion_effects_tx(db, current_order, pay_method)
 
         await db.commit()
+        return transitioned
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
     finally:
         await db.close()
 
-    # Trigger referral payout and promo usage outside the DB connection (they open their own)
-    if status == "COMPLETED" and current_order and current_order.get("status") != "COMPLETED":
+
+async def recover_stale_processing_wallet_orders(age_minutes: int = 5) -> dict[str, int]:
+    """Recover wallet orders left in PROCESSING by an older interrupted deployment."""
+    age_minutes = max(1, min(int(age_minutes), 1440))
+    result = {"completed": 0, "activation": 0, "refunded": 0, "cancelled": 0}
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT id FROM orders
+               WHERE status = 'PROCESSING'
+                 AND payment_method = 'wallet'
+                 AND created_at <= datetime('now', ?)""",
+            (f"-{age_minutes} minutes",),
+        )
+        order_ids = [int(row["id"]) for row in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+    for order_id in order_ids:
+        db = await get_db()
         try:
-            promo_id = current_order.get("promo_code_id")
-            if promo_id:
-                await increment_promo_usage(promo_id, current_order.get("user_telegram_id"))
-            # Trigger referral payout
-            await process_referral_payout(order_id)
-        except Exception as e:
-            logger.error("Error in post-completion triggers for order %s: %s", order_id, e)
+            await db.execute("BEGIN IMMEDIATE")
+            cursor = await db.execute(
+                """SELECT o.*, p.delivery_type
+                   FROM orders o
+                   JOIN products p ON p.id = o.product_id
+                   WHERE o.id = ? AND o.status = 'PROCESSING' AND o.payment_method = 'wallet'""",
+                (order_id,),
+            )
+            row = await cursor.fetchone()
+            if not row:
+                await db.rollback()
+                continue
+            order = dict(row)
+
+            cursor = await db.execute(
+                """SELECT id FROM wallet_transactions
+                   WHERE user_telegram_id = ? AND type = 'purchase' AND description = ?
+                   LIMIT 1""",
+                (int(order["user_telegram_id"]), f"Order #{order_id}"),
+            )
+            debit = await cursor.fetchone()
+            if not debit:
+                await db.execute("UPDATE orders SET status = 'CANCELLED' WHERE id = ?", (order_id,))
+                await db.commit()
+                result["cancelled"] += 1
+                continue
+
+            if (order.get("delivery_type") or "stock") == "activation":
+                await db.execute(
+                    "UPDATE orders SET status = 'AWAITING_ACTIVATION_INFO', paid_at = COALESCE(paid_at, CURRENT_TIMESTAMP) WHERE id = ?",
+                    (order_id,),
+                )
+                await db.commit()
+                result["activation"] += 1
+                continue
+
+            quantity = max(1, int(order.get("quantity") or 1))
+            cursor = await db.execute(
+                "SELECT id, account_data FROM stock_items WHERE sold_to_order_id = ? ORDER BY id ASC",
+                (order_id,),
+            )
+            items = [dict(item) for item in await cursor.fetchall()]
+            missing = quantity - len(items)
+            if missing > 0:
+                cursor = await db.execute(
+                    """SELECT id, account_data FROM stock_items
+                       WHERE product_id = ? AND is_sold = 0
+                       ORDER BY added_at ASC, id ASC LIMIT ?""",
+                    (int(order["product_id"]), missing),
+                )
+                available = [dict(item) for item in await cursor.fetchall()]
+                if len(available) == missing:
+                    ids = [int(item["id"]) for item in available]
+                    placeholders = ",".join("?" for _ in ids)
+                    await db.execute(
+                        f"""UPDATE stock_items SET is_sold = 1, sold_to_order_id = ?, sold_at = CURRENT_TIMESTAMP
+                            WHERE id IN ({placeholders}) AND is_sold = 0""",
+                        [order_id, *ids],
+                    )
+                    items.extend(available)
+
+            if len(items) >= quantity:
+                await db.execute(
+                    """UPDATE orders SET status = 'COMPLETED', paid_at = COALESCE(paid_at, CURRENT_TIMESTAMP),
+                              stock_item_id = COALESCE(stock_item_id, ?)
+                       WHERE id = ?""",
+                    (items[0]["id"], order_id),
+                )
+                await _apply_completion_effects_tx(db, order, "wallet")
+                await db.commit()
+                result["completed"] += 1
+                continue
+
+            refund_description = f"Refund: interrupted wallet order #{order_id}"
+            cursor = await db.execute(
+                "SELECT id FROM wallet_transactions WHERE user_telegram_id = ? AND description = ? LIMIT 1",
+                (int(order["user_telegram_id"]), refund_description),
+            )
+            if not await cursor.fetchone():
+                cursor = await db.execute(
+                    """UPDATE users SET wallet_balance = COALESCE(wallet_balance, 0) + ?
+                       WHERE telegram_id = ? RETURNING wallet_balance""",
+                    (float(order["amount_usd"]), int(order["user_telegram_id"])),
+                )
+                balance = await cursor.fetchone()
+                await db.execute(
+                    """INSERT INTO wallet_transactions
+                       (user_telegram_id, type, amount, balance_after, description)
+                       VALUES (?, 'topup', ?, ?, ?)""",
+                    (
+                        int(order["user_telegram_id"]),
+                        float(order["amount_usd"]),
+                        float(balance["wallet_balance"]),
+                        refund_description,
+                    ),
+                )
+            await db.execute("UPDATE orders SET status = 'CANCELLED' WHERE id = ?", (order_id,))
+            await db.commit()
+            result["refunded"] += 1
+        except Exception:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            logger.exception("Could not recover stale wallet order %s", order_id)
+        finally:
+            await db.close()
+
+    if any(result.values()):
+        _clear_stock_cache()
+        invalidate_stats_cache()
+    return result
 
 
 async def cancel_all_pending_orders(user_telegram_id: int) -> int:
@@ -1674,7 +1964,9 @@ async def get_pending_orders() -> list[dict]:
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT * FROM orders WHERE status IN ('PENDING', 'AWAITING_PAYMENT') ORDER BY created_at ASC"
+            """SELECT * FROM orders
+               WHERE status IN ('PENDING', 'AWAITING_PAYMENT', 'PAID_PENDING_DELIVERY')
+               ORDER BY created_at ASC"""
         )
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
@@ -1702,27 +1994,30 @@ async def get_pending_activation_order_for_user(user_telegram_id: int) -> dict |
         await db.close()
 
 
-async def submit_activation_identifier(order_id: int, identifier: str) -> None:
+async def submit_activation_identifier(order_id: int, identifier: str) -> bool:
     """Store the customer identifier and move the order to admin activation."""
     invalidate_stats_cache()
     db = await get_db()
     try:
-        await db.execute(
+        cursor = await db.execute(
             """UPDATE orders
                SET status = 'AWAITING_ACTIVATION',
                    activation_identifier = ?,
                    activation_status = 'pending',
                    activation_requested_at = ?
-               WHERE id = ?""",
-            (identifier, datetime.utcnow().isoformat(), order_id),
+               WHERE id = ? AND status = 'AWAITING_ACTIVATION_INFO'
+               RETURNING id""",
+            (identifier, _utcnow().isoformat(), order_id),
         )
+        updated = await cursor.fetchone()
         await db.commit()
+        return updated is not None
     finally:
         await db.close()
 
 
 async def get_stats(days: int = 30, method: str = None) -> dict:
-    now = datetime.utcnow().timestamp()
+    now = _utcnow().timestamp()
     cache_key = f"{days}_{method}"
     if cache_key in _GET_STATS_CACHE:
         cache_time, cached_data = _GET_STATS_CACHE[cache_key]
@@ -1734,124 +2029,83 @@ async def get_stats(days: int = 30, method: str = None) -> dict:
     return data
 
 async def _get_stats_uncached(days: int = 30, method: str = None) -> dict:
-    """Retourne les statistiques des commandes sur les N derniers jours.
-
-    Retourne un dictionnaire avec :
-    - total_orders : nombre total de commandes
-    - total_revenue : revenu total (commandes complÃ©tÃ©es + wallet topups - admin debits)
-    - completed_orders : nombre de commandes complÃ©tÃ©es
-    - pending_orders : nombre de commandes en attente
-    - topup_revenue : revenu des wallet topups uniquement
-    """
-    since = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    """Return dashboard statistics with four grouped database queries."""
+    since = (_utcnow() - timedelta(days=days)).isoformat()
     db = await get_db()
-    
     try:
-        # Nombre total de commandes sur la pÃ©riode
         cursor = await db.execute(
-            "SELECT COUNT(*) as cnt FROM orders WHERE created_at >= ?", (since,)
-        )
-        total_orders = (await cursor.fetchone())["cnt"]
-
-        # Revenu total des commandes complÃ©tÃ©es (exclut les achats par portefeuille pour Ã©viter le double comptage avec les recharges)
-        # Revenu total des commandes complÃ©tÃ©es (exclut les achats par portefeuille pour Ã©viter le double comptage avec les recharges)
-        cursor = await db.execute(
-            "SELECT COALESCE(SUM(amount_usd), 0) as total FROM orders WHERE status = 'COMPLETED' AND (payment_method IS NULL OR payment_method != 'wallet') AND created_at >= ?",
+            """SELECT
+                   COUNT(*) AS total_orders,
+                   COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END), 0) AS completed_orders,
+                   COALESCE(SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END), 0) AS pending_orders,
+                   COALESCE(SUM(CASE WHEN status = 'COMPLETED'
+                                      AND (payment_method IS NULL OR payment_method != 'wallet')
+                                     THEN amount_usd ELSE 0 END), 0) AS order_revenue,
+                   COALESCE(SUM(CASE WHEN status = 'COMPLETED'
+                                      AND (payment_method IS NULL OR payment_method IN ('binance', 'binance_pay'))
+                                     THEN amount_usd ELSE 0 END), 0) AS sales_binance,
+                   COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND payment_method = 'bep20'
+                                     THEN amount_usd ELSE 0 END), 0) AS sales_bep20,
+                   COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND payment_method = 'trc20'
+                                     THEN amount_usd ELSE 0 END), 0) AS sales_trc20,
+                   COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND payment_method = 'wallet'
+                                     THEN amount_usd ELSE 0 END), 0) AS sales_wallet
+               FROM orders
+               WHERE created_at >= ?""",
             (since,),
         )
-        order_revenue = (await cursor.fetchone())["total"]
+        orders = dict(await cursor.fetchone())
 
-        # Wallet topup revenue (user-initiated Binance Pay topups only, not admin credits)
         cursor = await db.execute(
-            "SELECT COALESCE(SUM(amount), 0) as total FROM wallet_transactions WHERE type = 'topup' AND description NOT LIKE 'Admin%' AND description NOT LIKE 'Refund%' AND created_at >= ?",
+            """SELECT
+                   COALESCE(SUM(CASE WHEN type = 'topup'
+                                      AND description NOT LIKE 'Admin%'
+                                      AND description NOT LIKE 'Refund%'
+                                     THEN amount ELSE 0 END), 0) AS topup_revenue,
+                   COALESCE(SUM(CASE WHEN type = 'purchase' AND description LIKE 'Admin debit%'
+                                     THEN amount ELSE 0 END), 0) AS admin_deductions,
+                   COALESCE(SUM(CASE WHEN type = 'topup'
+                                      AND description NOT LIKE 'Admin%'
+                                      AND description NOT LIKE 'Refund%'
+                                     THEN 1 ELSE 0 END), 0) AS topup_count
+               FROM wallet_transactions
+               WHERE created_at >= ?""",
             (since,),
         )
-        topup_revenue = (await cursor.fetchone())["total"]
+        wallet = dict(await cursor.fetchone())
 
-        # Admin deductions (refunds) â€” subtract from revenue
-        cursor = await db.execute(
-            "SELECT COALESCE(SUM(amount), 0) as total FROM wallet_transactions WHERE type = 'purchase' AND description LIKE 'Admin debit%' AND created_at >= ?",
-            (since,),
-        )
-        admin_deductions = (await cursor.fetchone())["total"]
-
-        total_revenue = float(order_revenue) + float(topup_revenue) - float(admin_deductions)
-
-        # Nombre de commandes complÃ©tÃ©es
-        cursor = await db.execute(
-            "SELECT COUNT(*) as cnt FROM orders WHERE status = 'COMPLETED' AND created_at >= ?",
-            (since,),
-        )
-        completed_orders = (await cursor.fetchone())["cnt"]
-
-        # Nombre de commandes en attente
-        cursor = await db.execute(
-            "SELECT COUNT(*) as cnt FROM orders WHERE status = 'PENDING' AND created_at >= ?",
-            (since,),
-        )
-        pending_orders = (await cursor.fetchone())["cnt"]
-
-        # Breakdown of sales volume by payment method
-        cursor = await db.execute(
-            "SELECT payment_method, SUM(amount_usd) as total FROM orders WHERE status = 'COMPLETED' AND created_at >= ? GROUP BY payment_method",
-            (since,),
-        )
-        sales_breakdown = await cursor.fetchall()
-        
-        sales_binance = 0.0
-        sales_bep20 = 0.0
-        sales_trc20 = 0.0
-        sales_wallet = 0.0
-        
-        for row in sales_breakdown:
-            pm = row["payment_method"]
-            amount = float(row["total"] or 0.0)
-            if not pm or pm.lower() == "binance":
-                sales_binance += amount
-            elif pm.lower() == "bep20":
-                sales_bep20 += amount
-            elif pm.lower() == "trc20":
-                sales_trc20 += amount
-            elif pm.lower() == "wallet":
-                sales_wallet += amount
-
-        # Topup count
-        cursor = await db.execute(
-            "SELECT COUNT(*) as cnt FROM wallet_transactions WHERE type = 'topup' AND description NOT LIKE 'Admin%' AND description NOT LIKE 'Refund%' AND created_at >= ?",
-            (since,),
-        )
-        topup_count = (await cursor.fetchone())["cnt"]
-
-        # Nouveaux utilisateurs sur la période
         cursor = await db.execute(
             "SELECT COUNT(*) as cnt FROM users WHERE created_at >= ?", (since,)
         )
         new_users = (await cursor.fetchone())["cnt"]
 
-        # Utilisateurs récurrents (avec au moins 2 commandes complétées)
         cursor = await db.execute(
             """SELECT COUNT(*) as cnt FROM (
-                SELECT user_telegram_id FROM orders 
-                WHERE status = 'COMPLETED' 
-                GROUP BY user_telegram_id 
-                HAVING COUNT(*) >= 2
-            )"""
+                   SELECT user_telegram_id FROM orders
+                   WHERE status = 'COMPLETED'
+                   GROUP BY user_telegram_id
+                   HAVING COUNT(*) >= 2
+               )"""
         )
         returning_users = (await cursor.fetchone())["cnt"]
 
+        order_revenue = float(orders["order_revenue"] or 0)
+        topup_revenue = float(wallet["topup_revenue"] or 0)
+        admin_deductions = float(wallet["admin_deductions"] or 0)
+
         return {
-            "total_orders": total_orders,
-            "total_revenue": total_revenue,
-            "topup_revenue": float(topup_revenue),
-            "order_revenue": float(order_revenue),
-            "admin_deductions": float(admin_deductions),
-            "completed_orders": completed_orders,
-            "pending_orders": pending_orders,
-            "sales_binance": sales_binance,
-            "sales_bep20": sales_bep20,
-            "sales_trc20": sales_trc20,
-            "sales_wallet": sales_wallet,
-            "topup_count": topup_count,
+            "total_orders": int(orders["total_orders"] or 0),
+            "total_revenue": order_revenue + topup_revenue - admin_deductions,
+            "topup_revenue": topup_revenue,
+            "order_revenue": order_revenue,
+            "admin_deductions": admin_deductions,
+            "completed_orders": int(orders["completed_orders"] or 0),
+            "pending_orders": int(orders["pending_orders"] or 0),
+            "sales_binance": float(orders["sales_binance"] or 0),
+            "sales_bep20": float(orders["sales_bep20"] or 0),
+            "sales_trc20": float(orders["sales_trc20"] or 0),
+            "sales_wallet": float(orders["sales_wallet"] or 0),
+            "topup_count": int(wallet["topup_count"] or 0),
             "new_users": new_users,
             "returning_users": returning_users,
         }
@@ -2035,10 +2289,12 @@ async def topup_wallet(telegram_id: int, amount: float, description: str = "", t
                 method_suffix = "trc20"
             
             setting_key = f"finance_bot_balance_{method_suffix}"
-            cursor = await db.execute("SELECT value FROM settings WHERE key = ?", (setting_key,))
-            set_row = await cursor.fetchone()
-            bal = float(set_row["value"]) if set_row else 0.0
-            await db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (setting_key, str(bal + amount)))
+            await db.execute(
+                """INSERT INTO settings (key, value) VALUES (?, ?)
+                   ON CONFLICT(key) DO UPDATE SET
+                       value = CAST(COALESCE(settings.value, '0') AS REAL) + CAST(excluded.value AS REAL)""",
+                (setting_key, str(amount)),
+            )
 
         await db.commit()
         return new_balance
@@ -2293,6 +2549,7 @@ async def get_reseller_by_api_key(raw_key: str) -> dict | None:
     prefix = _reseller_key_prefix(raw_key)
     if not prefix:
         return None
+    data = None
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -2312,11 +2569,14 @@ async def get_reseller_by_api_key(raw_key: str) -> dict | None:
             return None
         if data.get("is_banned"):
             return None
-        await _touch_reseller_api_key_last_used(data["id"])
         data.pop("key_hash", None)
-        return data
     finally:
         await db.close()
+
+    # Touch only after releasing the authentication connection. This avoids
+    # holding two Turso/Hrana streams for a single API request.
+    await _touch_reseller_api_key_last_used(data["id"])
+    return data
 
 
 async def get_reseller_wallet_transactions(user_telegram_id: int, limit: int = 50, offset: int = 0) -> list[dict]:
@@ -2458,7 +2718,7 @@ async def create_reseller_order(
             if activation_identifier:
                 status = "AWAITING_ACTIVATION"
                 activation_status = "pending"
-                activation_requested_at = datetime.utcnow().isoformat()
+                activation_requested_at = _utcnow().isoformat()
             else:
                 status = "AWAITING_ACTIVATION_INFO"
         else:
@@ -2520,6 +2780,13 @@ async def create_reseller_order(
             "INSERT INTO wallet_transactions (user_telegram_id, type, amount, balance_after, description) VALUES (?, 'purchase', ?, ?, ?)",
             (reseller_user_telegram_id, total, balance_after, f"Reseller API order #{order_id}"),
         )
+        if status == "COMPLETED":
+            completion_order = {
+                "amount_usd": total,
+                "user_telegram_id": reseller_user_telegram_id,
+                "promo_code_id": None,
+            }
+            await _apply_completion_effects_tx(db, completion_order, "wallet")
         await db.commit()
 
         order = await get_reseller_order(reseller_user_telegram_id, order_id)
@@ -2629,7 +2896,7 @@ async def get_daily_stats(days: int = 30) -> list[dict]:
     """Retourne les revenus et commandes par jour sur les N derniers jours.
     Revenue includes completed orders + wallet topups - admin deductions."""
     days = max(1, min(int(days), 365))
-    start_date = (datetime.utcnow() - timedelta(days=days - 1)).date()
+    start_date = (_utcnow() - timedelta(days=days - 1)).date()
     day_labels = [
         (start_date + timedelta(days=i)).strftime("%Y-%m-%d")
         for i in range(days)
@@ -2777,7 +3044,17 @@ async def record_used_transaction(
             return True
         except Exception as e:
             if "UNIQUE" in str(e).upper():
-                return False
+                await db.rollback()
+                cursor = await db.execute(
+                    "SELECT order_id, user_telegram_id FROM used_binance_transactions WHERE transaction_id = ?",
+                    (transaction_id,),
+                )
+                existing = await cursor.fetchone()
+                return bool(
+                    existing
+                    and existing["order_id"] == order_id
+                    and existing["user_telegram_id"] == user_telegram_id
+                )
             raise
     finally:
         await db.close()
@@ -3094,7 +3371,17 @@ async def record_used_bep20_transaction(
             return True
         except Exception as e:
             if "UNIQUE" in str(e).upper():
-                return False
+                await db.rollback()
+                cursor = await db.execute(
+                    "SELECT order_id, user_telegram_id FROM used_bep20_transactions WHERE tx_hash = ?",
+                    (tx_hash.strip().lower(),),
+                )
+                existing = await cursor.fetchone()
+                return bool(
+                    existing
+                    and existing["order_id"] == order_id
+                    and existing["user_telegram_id"] == user_telegram_id
+                )
             raise
     finally:
         await db.close()
@@ -3166,7 +3453,17 @@ async def record_used_trc20_transaction(
             return True
         except Exception as e:
             if "UNIQUE" in str(e).upper():
-                return False
+                await db.rollback()
+                cursor = await db.execute(
+                    "SELECT order_id, user_telegram_id FROM used_trc20_transactions WHERE tx_hash = ?",
+                    (tx_hash.strip().lower(),),
+                )
+                existing = await cursor.fetchone()
+                return bool(
+                    existing
+                    and existing["order_id"] == order_id
+                    and existing["user_telegram_id"] == user_telegram_id
+                )
             raise
     finally:
         await db.close()

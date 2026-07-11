@@ -15,7 +15,7 @@ All routes are restricted to ADMIN_IDS.
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -1363,13 +1363,25 @@ async def admin_confirm_payment(update: Update, context: ContextTypes.DEFAULT_TY
                     reply_markup=admin_menu_keyboard(admin_lang),
                 )
                 return
-            if order_status not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED"):
+            if order_status not in ("PENDING", "AWAITING_PAYMENT"):
                 await query.edit_message_text(
                     f"Commande #{order_id} non confirmable depuis le statut {order_status}.",
                     reply_markup=admin_menu_keyboard(admin_lang),
                 )
                 return
-            await update_order_status(order_id, "AWAITING_ACTIVATION_INFO", payment_method=order.get("payment_method") or "manual", binance_order_id="MANUAL")
+            transitioned = await update_order_status(
+                order_id,
+                "AWAITING_ACTIVATION_INFO",
+                expected_statuses=("PENDING", "AWAITING_PAYMENT"),
+                payment_method=order.get("payment_method") or "manual",
+                binance_order_id="MANUAL",
+            )
+            if not transitioned:
+                await query.edit_message_text(
+                    f"Commande #{order_id} deja traitee.",
+                    reply_markup=admin_menu_keyboard(admin_lang),
+                )
+                return
             try:
                 user_lang = await get_user_lang(order["user_telegram_id"])
                 await context.bot.send_message(
@@ -1393,7 +1405,7 @@ async def admin_confirm_payment(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return
 
-        if order_status not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED"):
+        if order_status not in ("PENDING", "AWAITING_PAYMENT", "PAID_PENDING_DELIVERY"):
             await query.edit_message_text(
                 f"Commande #{order_id} non confirmable depuis le statut {order_status}.",
                 reply_markup=admin_menu_keyboard(admin_lang),
@@ -1403,7 +1415,21 @@ async def admin_confirm_payment(update: Update, context: ContextTypes.DEFAULT_TY
         delivered = await deliver_order(order_id, order.get("product_id"))
 
         if delivered:
-            await update_order_status(order_id, "COMPLETED", binance_order_id="MANUAL")
+            completion_kwargs = {}
+            if order_status != "PAID_PENDING_DELIVERY":
+                completion_kwargs["binance_order_id"] = "MANUAL"
+            transitioned = await update_order_status(
+                order_id,
+                "COMPLETED",
+                expected_statuses=("PENDING", "AWAITING_PAYMENT", "PAID_PENDING_DELIVERY"),
+                **completion_kwargs,
+            )
+            if not transitioned:
+                await query.edit_message_text(
+                    f"Commande #{order_id} deja traitee.",
+                    reply_markup=admin_menu_keyboard(admin_lang),
+                )
+                return
             product = await get_product(order.get("product_id"))
             warranty_days = product.get("warranty_days", 0) if product else 0
 
@@ -1471,12 +1497,19 @@ async def admin_complete_activation(update: Update, context: ContextTypes.DEFAUL
             await query.edit_message_text(t("admin_activation_wrong_status", admin_lang))
             return
 
-        await update_order_status(
+        transitioned = await update_order_status(
             order_id,
             "COMPLETED",
+            expected_statuses=("AWAITING_ACTIVATION",),
             activation_status="done",
-            activated_at=datetime.utcnow().isoformat(),
+            activated_at=datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
         )
+        if not transitioned:
+            admin_lang = await get_user_lang(update.effective_user.id)
+            await query.edit_message_text(
+                t("admin_activation_already_done", admin_lang).format(order_id=order_id)
+            )
+            return
 
         product = await get_product(order.get("product_id"))
         product_name = product["name"] if product else f"#{order.get('product_id')}"

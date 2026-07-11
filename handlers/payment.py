@@ -26,8 +26,7 @@ from database.models import (
     get_product,
     get_stock_count,
     get_user_lang,
-    claim_order_for_wallet_payment,
-    restore_order_after_failed_wallet_claim,
+    purchase_order_with_wallet,
     submit_activation_identifier,
     update_order_status,
     record_used_transaction,
@@ -70,7 +69,12 @@ async def _prompt_activation_identifier(update: Update, context: ContextTypes.DE
     kwargs = {"payment_method": payment_method}
     if payment_ref:
         kwargs["binance_order_id"] = payment_ref
-    await update_order_status(order_id, "AWAITING_ACTIVATION_INFO", **kwargs)
+    await update_order_status(
+        order_id,
+        "AWAITING_ACTIVATION_INFO",
+        expected_statuses=("PENDING", "AWAITING_PAYMENT", "AWAITING_ACTIVATION_INFO"),
+        **kwargs,
+    )
     context.user_data["activation_order_id"] = order_id
     context.user_data.pop("paying_order_id", None)
     context.user_data.pop("paying_amount", None)
@@ -109,7 +113,10 @@ async def receive_activation_identifier(update: Update, context: ContextTypes.DE
             return ConversationHandler.END
         order_id = order["id"]
 
-    await submit_activation_identifier(order_id, identifier)
+    submitted = await submit_activation_identifier(order_id, identifier)
+    if not submitted:
+        context.user_data.pop("activation_order_id", None)
+        return ConversationHandler.END
     context.user_data.pop("activation_order_id", None)
 
     product = await get_product(order["product_id"])
@@ -254,7 +261,11 @@ async def initiate_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 old_order = await get_order(old_order_id)
                 if old_order and old_order.get("status") == "PENDING":
-                    await update_order_status(old_order_id, "CANCELLED")
+                    await update_order_status(
+                        old_order_id,
+                        "CANCELLED",
+                        expected_statuses=("PENDING",),
+                    )
                     logger.info("Auto-cancelled stale order #%d (new purchase started)", old_order_id)
             except Exception:
                 pass
@@ -376,7 +387,11 @@ async def _process_quantity(
         try:
             existing = await get_order(existing_order_id)
             if existing and existing.get("status") == "PENDING":
-                await update_order_status(existing_order_id, "CANCELLED")
+                await update_order_status(
+                    existing_order_id,
+                    "CANCELLED",
+                    expected_statuses=("PENDING",),
+                )
                 logger.info("Auto-cancelled stale PENDING order #%d for user %d",
                             existing_order_id, telegram_id)
         except Exception:
@@ -611,6 +626,7 @@ async def receive_promo_code(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update_order_status(
         order_id,
         "PENDING",
+        expected_statuses=("PENDING",),
         amount_usd=new_amount,
         promo_code_id=promo["id"],
         promo_discount=discount
@@ -627,12 +643,10 @@ async def receive_promo_code(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle 'pay_wallet:{order_id}' callback â€” instant payment from wallet balance."""
+    """Handle an atomic wallet purchase."""
     query = update.callback_query
     await query.answer()
     lang = await get_user_lang(update.effective_user.id)
-    claimed_order = None
-    wallet_debited = False
 
     try:
         order_id = int(query.data.split(":")[1])
@@ -666,40 +680,26 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return ConversationHandler.END
 
-        claimed_order = await claim_order_for_wallet_payment(order_id, telegram_id)
-        if not claimed_order:
-            latest_order = await get_order(order_id)
-            if latest_order and latest_order.get("status") == "COMPLETED":
-                await query.answer(t("payment_confirmed", lang), show_alert=True)
-            elif latest_order and latest_order.get("status") == "PROCESSING":
-                await query.answer(t("payment_processing", lang), show_alert=True)
-            else:
-                await query.edit_message_text(
-                    t("order_cancelled", lang),
-                    parse_mode="HTML",
-                    reply_markup=main_menu_keyboard(lang),
-                )
-            return ConversationHandler.END
-
-        order = claimed_order
-        amount = order["amount_usd"]
-        product_id = order.get("product_id")
-
-        # Try to deduct from wallet
-        from database.models import deduct_wallet, get_wallet_balance
+        from database.models import get_wallet_balance
         try:
-            new_balance = await deduct_wallet(
-                telegram_id, amount,
-                f"Order #{order_id}"
-            )
-            wallet_debited = True
-        except ValueError:
-            await restore_order_after_failed_wallet_claim(order_id, claimed_order)
-            # Insufficient balance
+            purchase = await purchase_order_with_wallet(order_id, telegram_id)
+        except ValueError as exc:
+            error_code = str(exc).split(":", 1)[0]
             balance = await get_wallet_balance(telegram_id)
-            text = t("wallet_insufficient", lang) \
-                .replace("${balance}", format_price(balance)) \
-                .replace("${required}", format_price(amount))
+            if error_code == "INSUFFICIENT_BALANCE":
+                text = t("wallet_insufficient", lang) \
+                    .replace("${balance}", format_price(balance)) \
+                    .replace("${required}", format_price(amount))
+            elif error_code in ("INSUFFICIENT_STOCK", "STOCK_CONFLICT"):
+                text = t("delivery_failed", lang)
+            elif error_code == "ORDER_NOT_PAYABLE":
+                latest_order = await get_order(order_id)
+                if latest_order and latest_order.get("status") == "COMPLETED":
+                    await query.answer(t("payment_confirmed", lang), show_alert=True)
+                    return ConversationHandler.END
+                text = t("order_cancelled", lang)
+            else:
+                text = t("pay_error", lang)
             await query.edit_message_text(
                 text,
                 parse_mode="HTML",
@@ -707,19 +707,16 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return ConversationHandler.END
 
-        # Payment successful — deliver first, then complete
+        order = purchase["order"]
+        amount = order["amount_usd"]
+        product_id = order.get("product_id")
+        new_balance = purchase["balance_after"]
         product = await get_product(product_id)
         if _is_activation_product(product):
             return await _prompt_activation_identifier(update, context, order_id, product, lang, "wallet")
 
-        try:
-            delivered = await deliver_order(order_id, product_id)
-        except Exception as e:
-            logger.error("Error delivering order %s: %s", order_id, e)
-            delivered = None
-
+        delivered = purchase["items"]
         if delivered:
-            await update_order_status(order_id, "COMPLETED", payment_method="wallet")
             warranty_days = product.get("warranty_days", 0) if product else 0
 
             wallet_msg = t("wallet_paid", lang) \
@@ -736,17 +733,6 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"{conf_msg}"
             )
             await safe_send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang, order_id)
-        else:
-            # Refund: delivery failed, return funds to wallet
-            from database.models import topup_wallet as _topup_refund
-            await _topup_refund(telegram_id, amount, f"Refund: delivery failed for order #{order_id}")
-            await update_order_status(order_id, "CANCELLED", payment_method="wallet")
-            refund_balance = await get_wallet_balance(telegram_id)
-            await query.edit_message_text(
-                t("delivery_failed", lang) + f"\n\n💰 {format_price(amount)} refunded.",
-                parse_mode="HTML",
-                reply_markup=main_menu_keyboard(lang),
-            )
 
         # Notify admins
         try:
@@ -766,11 +752,6 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as exc:
         logger.error("pay_with_wallet: %s", exc, exc_info=True)
-        if claimed_order and not wallet_debited:
-            try:
-                await restore_order_after_failed_wallet_claim(claimed_order["id"], claimed_order)
-            except Exception:
-                logger.warning("Could not restore wallet-claimed order #%s", claimed_order.get("id"), exc_info=True)
         await query.edit_message_text(t("pay_error", lang))
         return ConversationHandler.END
 
@@ -795,7 +776,11 @@ async def pay_with_binance(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(t("access_denied", lang))
             return ConversationHandler.END
 
-        await update_order_status(order_id, "AWAITING_PAYMENT")
+        await update_order_status(
+            order_id,
+            "AWAITING_PAYMENT",
+            expected_statuses=("PENDING", "AWAITING_PAYMENT"),
+        )
 
         context.user_data["paying_order_id"] = order_id
         context.user_data["paying_amount"] = order["amount_usd"]
@@ -882,7 +867,7 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if db_order.get("status") == "COMPLETED":
             await update.message.reply_text(t("payment_confirmed", lang))
             return ConversationHandler.END
-        elif db_order.get("status") not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED"):
+        elif db_order.get("status") not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED", "PAID_PENDING_DELIVERY"):
             await update.message.reply_text(
                 t("order_cancelled", lang),
                 parse_mode="HTML",
@@ -918,7 +903,7 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.warning("REPLAY ATTACK BLOCKED: User %s tried to reuse transaction %s for order %d",
                              update.effective_user.id, tx_id, order_id)
                 await update.message.reply_text(
-                    "â Œ This transaction has already been used for another order.",
+                    t("tx_already_used", lang),
                     reply_markup=main_menu_keyboard(lang),
                 )
                 return ConversationHandler.END
@@ -930,7 +915,12 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
             # Reactivate order if it was cancelled by timeout but payment is confirmed
             if order_was_cancelled:
-                await update_order_status(order_id, "PENDING", payment_method="binance")
+                await update_order_status(
+                    order_id,
+                    "PENDING",
+                    expected_statuses=("CANCELLED",),
+                    payment_method="binance",
+                )
                 logger.info("Order #%d reactivated: Binance payment confirmed after timeout", order_id)
             binance_tx_id = tx.get("transactionId", "")
             binance_order_id_val = tx.get("orderId", "")
@@ -943,7 +933,13 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
             delivered = await deliver_order(order_id, product_id)
 
             if delivered:
-                await update_order_status(order_id, "COMPLETED", payment_method="binance", binance_order_id=display_id)
+                await update_order_status(
+                    order_id,
+                    "COMPLETED",
+                    expected_statuses=("PENDING", "AWAITING_PAYMENT", "PAID_PENDING_DELIVERY"),
+                    payment_method="binance",
+                    binance_order_id=display_id,
+                )
                 warranty_days = product.get("warranty_days", 0) if product else 0
 
                 await update.message.reply_text(f"✅ {t('payment_confirmed', lang)}\n\nPréparation de votre commande...", parse_mode="HTML")
@@ -957,7 +953,13 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 await safe_send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang, order_id)
             else:
-                await update_order_status(order_id, "FAILED", payment_method="binance", binance_order_id=display_id)
+                await update_order_status(
+                    order_id,
+                    "PAID_PENDING_DELIVERY",
+                    expected_statuses=("PENDING", "AWAITING_PAYMENT"),
+                    payment_method="binance",
+                    binance_order_id=display_id,
+                )
                 await update.message.reply_text(
                     f"{t('payment_confirmed', lang)}\n\n"
                     f"{t('delivery_error', lang).replace('{order_id}', str(order_id))}",
@@ -981,7 +983,7 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
             error_msg = result.get("error", t("payment_not_detected", lang))
             await update.message.reply_text(
                 f"{t('payment_not_detected', lang)}\n\n"
-                f"â Œ {error_msg}\n\n"
+                f"❌ {error_msg}\n\n"
                 f"{t('retry_order_id', lang)}\n\n"
                 f"{t('contact_support', lang)}",
                 parse_mode="HTML",
@@ -1040,7 +1042,13 @@ async def cancel_order_after_timeout(
     try:
         order = await get_order(order_id)
         if order and order.get("status") in ("PENDING", "AWAITING_PAYMENT"):
-            await update_order_status(order_id, "CANCELLED")
+            transitioned = await update_order_status(
+                order_id,
+                "CANCELLED",
+                expected_statuses=("PENDING", "AWAITING_PAYMENT"),
+            )
+            if not transitioned:
+                return
             lang = await get_user_lang(user_telegram_id)
             
             await context.bot.send_message(
@@ -1085,7 +1093,18 @@ async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if task and not task.done():
             task.cancel()
 
-        await update_order_status(order_id, "CANCELLED")
+        transitioned = await update_order_status(
+            order_id,
+            "CANCELLED",
+            expected_statuses=("PENDING", "AWAITING_PAYMENT"),
+        )
+        if not transitioned:
+            latest = await get_order(order_id)
+            await query.edit_message_text(
+                t("cannot_cancel", lang).format(status=(latest or {}).get("status", "?")),
+                reply_markup=main_menu_keyboard(lang),
+            )
+            return ConversationHandler.END
 
         context.user_data.pop("paying_order_id", None)
         context.user_data.pop("paying_amount", None)
@@ -1142,7 +1161,7 @@ async def _notify_admins_low_stock(context, product_id):
     prod_name = escape_html(product["name"]) if product else f"ID {product_id}"
     stock = await get_stock_count(product_id)
     text = (
-        "âš ï¸  <b>Stock faible !</b>\n"
+        "⚠️ <b>Stock faible !</b>\n"
         f"📦 {prod_name}\n"
         f"📉 Restant : {stock}"
     )
@@ -1189,10 +1208,14 @@ async def pay_with_bep20(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from database.models import get_setting
         bep20_address = await get_setting("bep20_address")
         if not bep20_address:
-            await query.edit_message_text("â Œ BEP20 USDT payment is not configured by admin.")
+            await query.edit_message_text("❌ BEP20 USDT payment is not configured by admin.")
             return ConversationHandler.END
 
-        await update_order_status(order_id, "AWAITING_PAYMENT")
+        await update_order_status(
+            order_id,
+            "AWAITING_PAYMENT",
+            expected_statuses=("PENDING", "AWAITING_PAYMENT"),
+        )
 
         context.user_data["paying_order_id"] = order_id
         context.user_data["paying_amount"] = order["amount_usd"]
@@ -1314,7 +1337,7 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
         if db_order.get("status") == "COMPLETED":
             await update.message.reply_text(t("payment_confirmed", lang))
             return ConversationHandler.END
-        elif db_order.get("status") not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED"):
+        elif db_order.get("status") not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED", "PAID_PENDING_DELIVERY"):
             await update.message.reply_text(
                 t("order_cancelled", lang),
                 parse_mode="HTML",
@@ -1322,20 +1345,11 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return ConversationHandler.END
 
-        # Anti-replay check
-        from database.models import is_bep20_transaction_used, record_used_bep20_transaction, get_setting
-        if await is_bep20_transaction_used(tx_hash):
-            logger.warning("REPLAY ATTACK BLOCKED (BEP20): User %s tried to reuse tx %s for order %d",
-                           update.effective_user.id, tx_hash, order_id)
-            await update.message.reply_text(
-                t("tx_already_used", lang),
-                reply_markup=main_menu_keyboard(lang),
-            )
-            return ConversationHandler.END
+        from database.models import record_used_bep20_transaction, get_setting
 
         bep20_address = await get_setting("bep20_address")
         if not bep20_address:
-            await update.message.reply_text("â Œ BEP20 payment address is not configured by the administrator.")
+            await update.message.reply_text("❌ BEP20 payment address is not configured by the administrator.")
             return ConversationHandler.END
 
         from services.blockchain_verify import verify_bep20_payment
@@ -1379,7 +1393,12 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
 
             # Reactivate order if it was cancelled by timeout but payment is confirmed on-chain
             if order_was_cancelled:
-                await update_order_status(order_id, "PENDING", payment_method="bep20")
+                await update_order_status(
+                    order_id,
+                    "PENDING",
+                    expected_statuses=("CANCELLED",),
+                    payment_method="bep20",
+                )
                 logger.info("Order #%d reactivated: BEP20 payment confirmed on-chain after timeout", order_id)
 
             product = await get_product(product_id)
@@ -1390,7 +1409,13 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
             delivered = await deliver_order(order_id, product_id)
 
             if delivered:
-                await update_order_status(order_id, "COMPLETED", payment_method="bep20", binance_order_id=tx_hash)
+                await update_order_status(
+                    order_id,
+                    "COMPLETED",
+                    expected_statuses=("PENDING", "AWAITING_PAYMENT", "PAID_PENDING_DELIVERY"),
+                    payment_method="bep20",
+                    binance_order_id=tx_hash,
+                )
                 warranty_days = product.get("warranty_days", 0) if product else 0
                 await update.message.reply_text(f"✅ {t('payment_confirmed', lang)}\n\nPréparation de votre commande...", parse_mode="HTML")
 
@@ -1402,7 +1427,13 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                 )
                 await send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang)
             else:
-                await update_order_status(order_id, "FAILED", payment_method="bep20", binance_order_id=tx_hash)
+                await update_order_status(
+                    order_id,
+                    "PAID_PENDING_DELIVERY",
+                    expected_statuses=("PENDING", "AWAITING_PAYMENT"),
+                    payment_method="bep20",
+                    binance_order_id=tx_hash,
+                )
                 await update.message.reply_text(
                     f"{t('payment_confirmed', lang)}\n\n"
                     f"{t('delivery_error', lang).replace('{order_id}', str(order_id))}",
@@ -1459,7 +1490,11 @@ async def pay_with_trc20(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("⚠️ TRC20 USDT payment is not configured by admin.")
             return ConversationHandler.END
 
-        await update_order_status(order_id, "AWAITING_PAYMENT")
+        await update_order_status(
+            order_id,
+            "AWAITING_PAYMENT",
+            expected_statuses=("PENDING", "AWAITING_PAYMENT"),
+        )
 
         context.user_data["paying_order_id"] = order_id
         context.user_data["paying_amount"] = order["amount_usd"]
@@ -1587,7 +1622,7 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
         if db_order.get("status") == "COMPLETED":
             await update.message.reply_text(t("payment_confirmed", lang))
             return ConversationHandler.END
-        elif db_order.get("status") not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED"):
+        elif db_order.get("status") not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED", "PAID_PENDING_DELIVERY"):
             await update.message.reply_text(
                 t("order_cancelled", lang),
                 parse_mode="HTML",
@@ -1595,16 +1630,7 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return ConversationHandler.END
 
-        # Anti-replay check
-        from database.models import is_trc20_transaction_used, record_used_trc20_transaction, get_setting
-        if await is_trc20_transaction_used(tx_hash_clean):
-            logger.warning("REPLAY ATTACK BLOCKED (TRC20): User %s tried to reuse tx %s for order %d",
-                           update.effective_user.id, tx_hash_clean, order_id)
-            await update.message.reply_text(
-                t("tx_already_used", lang),
-                reply_markup=main_menu_keyboard(lang),
-            )
-            return ConversationHandler.END
+        from database.models import record_used_trc20_transaction, get_setting
 
         trc20_address = await get_setting("trc20_address")
         if not trc20_address:
@@ -1646,7 +1672,12 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                 task.cancel()
 
             if order_was_cancelled:
-                await update_order_status(order_id, "PENDING", payment_method="trc20")
+                await update_order_status(
+                    order_id,
+                    "PENDING",
+                    expected_statuses=("CANCELLED",),
+                    payment_method="trc20",
+                )
                 logger.info("Order #%d reactivated: TRC20 payment confirmed on-chain after timeout", order_id)
 
             product = await get_product(product_id)
@@ -1656,7 +1687,13 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
             delivered = await deliver_order(order_id, product_id)
 
             if delivered:
-                await update_order_status(order_id, "COMPLETED", payment_method="trc20", binance_order_id=tx_hash_clean)
+                await update_order_status(
+                    order_id,
+                    "COMPLETED",
+                    expected_statuses=("PENDING", "AWAITING_PAYMENT", "PAID_PENDING_DELIVERY"),
+                    payment_method="trc20",
+                    binance_order_id=tx_hash_clean,
+                )
                 warranty_days = product.get("warranty_days", 0) if product else 0
                 await update.message.reply_text(f"✅ {t('payment_confirmed', lang)}\n\nPréparation de votre commande...", parse_mode="HTML")
                 header = f"{t('payment_confirmed', lang)}"
@@ -1668,7 +1705,13 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                 )
                 await safe_send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang, order_id)
             else:
-                await update_order_status(order_id, "FAILED", payment_method="trc20", binance_order_id=tx_hash_clean)
+                await update_order_status(
+                    order_id,
+                    "PAID_PENDING_DELIVERY",
+                    expected_statuses=("PENDING", "AWAITING_PAYMENT"),
+                    payment_method="trc20",
+                    binance_order_id=tx_hash_clean,
+                )
                 await update.message.reply_text(
                     f"{t('payment_confirmed', lang)}\n\n"
                     f"{t('delivery_error', lang).replace('{order_id}', str(order_id))}",

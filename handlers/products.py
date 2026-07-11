@@ -2,6 +2,7 @@
 Product browsing handlers — direct product list (no categories), product detail.
 """
 
+import asyncio
 import logging
 import re
 
@@ -25,6 +26,15 @@ from utils.keyboards import (
 from utils.locales import t
 
 logger = logging.getLogger(__name__)
+
+
+def _log_background_task(task: asyncio.Task) -> None:
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        pass
+    except Exception:
+        logger.debug("Background product analytics task failed", exc_info=True)
 
 _ACTIVATION_STOCK_LABEL = {
     "fr": "Activation manuelle",
@@ -322,11 +332,9 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             return
 
-        # Best-effort analytics (must never break the UI)
-        try:
-            await record_product_view(product_id, update.effective_user.id)
-        except Exception as view_exc:
-            logger.debug("record_product_view failed: %s", view_exc)
+        # Analytics is deliberately off the response path.
+        view_task = asyncio.create_task(record_product_view(product_id, update.effective_user.id))
+        view_task.add_done_callback(_log_background_task)
 
         can_buy = product.get("delivery_type") == "activation" or (stock or 0) > 0
         markup = product_detail_keyboard(product_id, lang, can_buy=can_buy)
