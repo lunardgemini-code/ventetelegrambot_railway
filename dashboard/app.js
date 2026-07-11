@@ -374,6 +374,7 @@ function setupEvents() {
     $('btn-open-prod-modal').addEventListener('click', () => { 
         DOM.addProdForm.reset(); 
         DOM.prodId.value=''; 
+        setDynamicPricingForm('prod', {});
         if (DOM.prodDeliveryType) DOM.prodDeliveryType.value='stock';
         toggleActivationFields('add'); 
         
@@ -432,6 +433,50 @@ function setupEvents() {
     if ($('edit-prod-delivery-type')) {
         $('edit-prod-delivery-type').addEventListener('change', () => toggleActivationFields('edit'));
     }
+    setupDynamicPricingControls('prod');
+    setupDynamicPricingControls('edit-prod');
+    const recalculateDynamicButton = $('edit-prod-dynamic-recalculate');
+    if (recalculateDynamicButton) recalculateDynamicButton.addEventListener('click', async () => {
+        const productId = Number($('edit-prod-id').value);
+        try {
+            const settings = collectDynamicPricing('edit-prod');
+            if (!settings.dynamic_pricing_enabled) throw new Error("Activez d'abord Dynamic Price.");
+            settings.price_usd = Number($('edit-prod-price').value);
+            showLoading(true);
+            await apiCall(`/api/products/${productId}`, 'PUT', settings);
+            const result = await apiCall(`/api/products/${productId}/dynamic-pricing/recalculate`, 'POST');
+            await loadProducts();
+            const product = state.products.find(item => Number(item.id) === productId) || {...settings, price_usd:result.new_price, dynamic_suggested_price:result.suggested_price};
+            $('edit-prod-price').value = Number(product.price_usd || result.new_price).toFixed(2);
+            setDynamicPricingForm('edit-prod', product);
+            await loadDynamicPricingHistory(productId);
+            showToast(result.status === 'insufficient_data' ? 'Pas encore assez de données pour modifier le prix.' : 'Prix dynamique recalculé.', 'success');
+        } catch (error) {
+            showToast(error.message, 'error');
+        } finally {
+            showLoading(false);
+        }
+    });
+    const applyDynamicButton = $('edit-prod-dynamic-apply');
+    if (applyDynamicButton) applyDynamicButton.addEventListener('click', async () => {
+        const productId = Number($('edit-prod-id').value);
+        try {
+            showLoading(true);
+            const result = await apiCall(`/api/products/${productId}/dynamic-pricing/apply`, 'POST');
+            await loadProducts();
+            const product = state.products.find(item => Number(item.id) === productId);
+            if (product) {
+                $('edit-prod-price').value = Number(result.new_price).toFixed(2);
+                setDynamicPricingForm('edit-prod', product);
+            }
+            await loadDynamicPricingHistory(productId);
+            showToast('Suggestion appliquée au prix du produit.', 'success');
+        } catch (error) {
+            showToast(error.message, 'error');
+        } finally {
+            showLoading(false);
+        }
+    });
 
     DOM.addProdForm.addEventListener('submit', handleAddProduct);
     DOM.addPromoForm.addEventListener('submit', handleAddPromo);
@@ -526,6 +571,120 @@ function setupEvents() {
     if (btnTranslateActEdit) btnTranslateActEdit.addEventListener('click', () => autoTranslate('edit', 'act'));
     if (btnTranslateConfEdit) btnTranslateConfEdit.addEventListener('click', () => autoTranslate('edit', 'conf'));
 
+}
+
+function dynamicPricingId(prefix, field) {
+    return `${prefix}-dynamic-${field}`;
+}
+
+function setDynamicPricingEnabled(prefix, enabled, seedBounds=true) {
+    const toggle = $(dynamicPricingId(prefix, 'toggle'));
+    const input = $(dynamicPricingId(prefix, 'enabled'));
+    const settings = $(dynamicPricingId(prefix, 'settings'));
+    const status = $(dynamicPricingId(prefix, 'status'));
+    if (!toggle || !input || !settings || !status) return;
+    input.value = enabled ? '1' : '0';
+    toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+    status.textContent = enabled ? 'Actif' : 'Désactivé';
+    settings.classList.toggle('hidden', !enabled);
+
+    if (enabled && seedBounds) {
+        const priceInput = $(prefix === 'prod' ? 'prod-price' : 'edit-prod-price');
+        const price = Number(priceInput?.value || 0);
+        const minInput = $(dynamicPricingId(prefix, 'min'));
+        const maxInput = $(dynamicPricingId(prefix, 'max'));
+        if (price > 0 && minInput && !minInput.value) minInput.value = (price * 0.8).toFixed(2);
+        if (price > 0 && maxInput && !maxInput.value) maxInput.value = (price * 1.2).toFixed(2);
+    }
+}
+
+function setDynamicPricingForm(prefix, product={}) {
+    const price = Number(product.price_usd || $(prefix === 'prod' ? 'prod-price' : 'edit-prod-price')?.value || 0);
+    const setValue = (field, value) => { const element = $(dynamicPricingId(prefix, field)); if (element) element.value = value; };
+    setValue('mode', product.dynamic_pricing_mode || 'automatic');
+    setValue('sensitivity', product.dynamic_sensitivity || 'normal');
+    setValue('min', product.dynamic_min_price ?? (price > 0 ? (price * 0.8).toFixed(2) : ''));
+    setValue('max', product.dynamic_max_price ?? (price > 0 ? (price * 1.2).toFixed(2) : ''));
+    setValue('target', product.dynamic_target_daily_sales || 1);
+    setValue('change', product.dynamic_max_change_pct || 5);
+    setValue('cooldown', product.dynamic_cooldown_hours || 6);
+    setDynamicPricingEnabled(prefix, Boolean(product.dynamic_pricing_enabled), false);
+
+    if (prefix === 'edit-prod') {
+        const current = $('edit-prod-dynamic-current');
+        const suggested = $('edit-prod-dynamic-suggested');
+        if (current) current.textContent = price > 0 ? `$${price.toFixed(2)}` : '-';
+        const suggestedPrice = product.dynamic_suggested_price;
+        if (suggested) suggested.textContent = suggestedPrice === null || suggestedPrice === undefined ? '-' : `$${Number(suggestedPrice).toFixed(2)}`;
+        const applyButton = $('edit-prod-dynamic-apply');
+        if (applyButton) {
+            const canApply = Boolean(product.dynamic_pricing_enabled)
+                && product.dynamic_pricing_mode === 'suggestion'
+                && suggestedPrice !== null && suggestedPrice !== undefined
+                && Math.abs(Number(suggestedPrice) - price) >= 0.01;
+            applyButton.classList.toggle('hidden', !canApply);
+        }
+    }
+}
+
+function collectDynamicPricing(prefix) {
+    const enabled = $(dynamicPricingId(prefix, 'enabled'))?.value === '1';
+    if (!enabled) return {dynamic_pricing_enabled:false};
+    const numberValue = field => Number($(dynamicPricingId(prefix, field))?.value);
+    const price = Number($(prefix === 'prod' ? 'prod-price' : 'edit-prod-price')?.value);
+    const minPrice = numberValue('min');
+    const maxPrice = numberValue('max');
+    const target = numberValue('target');
+    const maxChange = numberValue('change');
+    const cooldown = numberValue('cooldown');
+    if (![price, minPrice, maxPrice, target, maxChange, cooldown].every(Number.isFinite)) throw new Error('Vérifiez les paramètres du prix dynamique.');
+    if (minPrice <= 0 || maxPrice < minPrice) throw new Error('Le prix minimum doit être positif et inférieur au prix maximum.');
+    if (price < minPrice || price > maxPrice) throw new Error('Le prix actuel doit être compris entre le minimum et le maximum.');
+    if (target < 0.1) throw new Error("L'objectif de ventes doit être supérieur à zéro.");
+    if (maxChange < 0.5 || maxChange > 20) throw new Error('La variation maximale doit être comprise entre 0,5 % et 20 %.');
+    if (cooldown < 1 || cooldown > 168) throw new Error('Le délai doit être compris entre 1 et 168 heures.');
+    return {
+        dynamic_pricing_enabled:true,
+        dynamic_pricing_mode:$(dynamicPricingId(prefix, 'mode')).value,
+        dynamic_min_price:minPrice,
+        dynamic_max_price:maxPrice,
+        dynamic_target_daily_sales:target,
+        dynamic_max_change_pct:maxChange,
+        dynamic_cooldown_hours:cooldown,
+        dynamic_sensitivity:$(dynamicPricingId(prefix, 'sensitivity')).value,
+    };
+}
+
+function setupDynamicPricingControls(prefix) {
+    const toggle = $(dynamicPricingId(prefix, 'toggle'));
+    if (!toggle) return;
+    toggle.addEventListener('click', () => {
+        const enabled = $(dynamicPricingId(prefix, 'enabled')).value === '1';
+        setDynamicPricingEnabled(prefix, !enabled, true);
+    });
+    const priceInput = $(prefix === 'prod' ? 'prod-price' : 'edit-prod-price');
+    if (priceInput) priceInput.addEventListener('change', () => {
+        if ($(dynamicPricingId(prefix, 'enabled')).value === '1') {
+            setDynamicPricingEnabled(prefix, true, true);
+        }
+    });
+}
+
+async function loadDynamicPricingHistory(productId) {
+    const container = $('edit-prod-dynamic-history');
+    if (!container) return;
+    container.innerHTML = '<p class="empty-state">Chargement...</p>';
+    try {
+        const data = await apiCall(`/api/products/${productId}/dynamic-pricing/history?limit=8`);
+        const history = data.history || [];
+        container.innerHTML = history.length ? history.map(item => {
+            const date = item.created_at ? parseUTCDate(item.created_at).toLocaleString() : '';
+            const mode = item.mode === 'automatic' ? 'Auto' : item.mode === 'suggestion' ? 'Suggestion' : 'Manuel';
+            return `<div class="dynamic-history-item"><strong>$${Number(item.old_price).toFixed(2)} → $${Number(item.new_price).toFixed(2)}</strong><span>${mode} · ${escapeHtml(date)}</span><small>${escapeHtml(item.reason || '')}</small></div>`;
+        }).join('') : '<p class="empty-state">Aucun historique.</p>';
+    } catch (error) {
+        container.innerHTML = `<p class="empty-state">${escapeHtml(error.message)}</p>`;
+    }
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -1414,7 +1573,7 @@ async function loadProducts() {
         DOM.productsTableBody.innerHTML = prods.map(p => `<tr data-id="${p.id}">
             <td class="drag-handle" style="cursor: grab; text-align: center;"><i class="fas fa-bars" style="color:var(--color-primary);"></i></td>
             <td><div class="prod-badge"><span class="prod-emoji">${escapeHtml(p.emoji||'📦')}</span><strong>${escapeHtml(p.name)}</strong></div></td>
-            <td>$${parseFloat(p.price_usd).toFixed(2)}</td><td>${p.warranty_days||0} ${t('days')}</td>
+            <td><strong>$${parseFloat(p.price_usd).toFixed(2)}</strong>${p.dynamic_pricing_enabled ? `<span class="dynamic-price-badge" title="${p.dynamic_pricing_mode === 'suggestion' ? 'Mode suggestion' : 'Mode automatique'}"><i class="fa-solid fa-wave-square"></i> Dynamic</span>` : ''}</td><td>${p.warranty_days||0} ${t('days')}</td>
             <td>${p.delivery_type === 'activation' ? '<span class="stock-count-badge ok">Activation</span>' : `<span class="stock-count-badge ${p.stock===0?'empty':p.stock<3?'low':'ok'}">${p.stock}</span>`}</td>
             <td><span class="status-dot ${p.is_active?'online':''}"></span> ${p.is_active?t('active'):t('inactive')}</td>
             <td><button class="btn-table-action" onclick="toggleProductVisibility(${Number(p.id)})" title="${p.is_active ? 'Désactiver' : 'Activer'}" style="color:${p.is_active ? '#ef4444' : '#22c55e'};"><i class="fa-solid ${p.is_active ? 'fa-xmark' : 'fa-check'}"></i></button><button class="btn-table-action" onclick="openEditProduct(${Number(p.id)})" title="Modifier" style="color:#3b82f6;"><i class="fa-solid fa-pen"></i></button><button class="btn-table-action" onclick="viewProductStock(${Number(p.id)})" title="Voir stock" style="color:#f59e0b;"><i class="fa-solid fa-box-open"></i></button><button class="btn-table-action stock" onclick="openStockModal(${Number(p.id)})" title="${t('stock_manage')}"><i class="fa-solid fa-warehouse"></i></button><button class="btn-table-action" onclick="openTiersModal(${Number(p.id)})" title="Tarifs" style="color:#a78bfa;"><i class="fa-solid fa-tags"></i></button><button class="btn-table-action delete" onclick="deleteProduct(${Number(p.id)})" title="Supprimer"><i class="fa-solid fa-trash-can"></i></button></td>
@@ -2000,6 +2159,8 @@ window.openEditProduct = function(productId) {
     $('edit-prod-emoji').value = p.emoji || '📦';
     $('edit-prod-name').value = p.name;
     $('edit-prod-price').value = parseFloat(p.price_usd).toFixed(2);
+    setDynamicPricingForm('edit-prod', p);
+    loadDynamicPricingHistory(p.id);
     $('edit-prod-warranty').value = p.warranty_days || 0;
     $('edit-prod-desc').value = p.description || '';
     if ($('edit-prod-desc-fr')) $('edit-prod-desc-fr').value = p.description_fr || '';
@@ -2060,6 +2221,12 @@ $('edit-prod-form').addEventListener('submit', async (e) => {
         confirmation_message_vi: $('edit-prod-conf-msg-vi') ? $('edit-prod-conf-msg-vi').value.trim() : '',
         confirmation_message_ru: $('edit-prod-conf-msg-ru') ? $('edit-prod-conf-msg-ru').value.trim() : ''
     };
+    try {
+        Object.assign(data, collectDynamicPricing('edit-prod'));
+    } catch (error) {
+        showToast(error.message, 'error');
+        return;
+    }
     if (!data.name || isNaN(data.price_usd) || data.price_usd < 0) {
         alert('Vérifiez le nom et le prix.'); return;
     }
@@ -2511,6 +2678,7 @@ window.openEditProdModal = function(id) {
     DOM.prodId.value = p.id;
     DOM.prodName.value = p.name;
     DOM.prodPrice.value = p.price_usd;
+    setDynamicPricingForm('prod', p);
     DOM.prodWarranty.value = p.warranty_days || 0;
     DOM.prodEmoji.value = p.emoji;
     if (DOM.prodDesc) DOM.prodDesc.value = p.description || '';
@@ -2569,6 +2737,13 @@ async function handleAddProduct(e) {
         confirmation_message_vi: $('prod-conf-msg-vi') ? $('prod-conf-msg-vi').value.trim() : '',
         confirmation_message_ru: $('prod-conf-msg-ru') ? $('prod-conf-msg-ru').value.trim() : ''
     };
+    try {
+        Object.assign(payload, collectDynamicPricing('prod'));
+    } catch (error) {
+        showLoading(false);
+        showToast(error.message, 'error');
+        return;
+    }
     try {
         const id = DOM.prodId.value;
         if (id) {

@@ -14,7 +14,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
     <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="revamp.css?v=20260711-2">
+    <link rel="stylesheet" href="revamp.css?v=20260711-4">
 </head>
 <body>
     <!-- Login Screen -->
@@ -677,6 +677,28 @@
                 <div class="form-row"><div class="form-group col-3"><label>Émoji</label><input type="text" id="prod-emoji" placeholder="📦"></div><div class="form-group col-9"><label data-i18n="lbl_prod_name">Nom</label><input type="text" id="prod-name" required></div></div>
                 <div class="form-group"><label>Custom Emoji ID (optionnel)</label><input type="text" id="prod-custom-emoji-id" placeholder="Ex: 5278223861404421915" style="width:100%; padding:0.75rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:var(--color-text);"></div>
                 <div class="form-row"><div class="form-group col-6"><label data-i18n="lbl_price">Prix USD ($)</label><input type="number" step="0.01" id="prod-price" required></div><div class="form-group col-6"><label data-i18n="lbl_warranty">Garantie (J)</label><input type="number" id="prod-warranty" value="0"></div></div>
+                <div class="dynamic-pricing-panel">
+                    <button type="button" id="prod-dynamic-toggle" class="dynamic-pricing-toggle" aria-pressed="false">
+                        <span><i class="fa-solid fa-wave-square"></i> Dynamic Price</span><span id="prod-dynamic-status">Désactivé</span>
+                    </button>
+                    <input type="hidden" id="prod-dynamic-enabled" value="0">
+                    <div id="prod-dynamic-settings" class="dynamic-pricing-settings hidden">
+                        <div class="form-row">
+                            <div class="form-group"><label>Mode</label><select id="prod-dynamic-mode"><option value="automatic">Automatique</option><option value="suggestion">Suggestion uniquement</option></select></div>
+                            <div class="form-group"><label>Sensibilité</label><select id="prod-dynamic-sensitivity"><option value="cautious">Prudente</option><option value="normal" selected>Normale</option><option value="aggressive">Agressive</option></select></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>Prix minimum ($)</label><input type="number" id="prod-dynamic-min" min="0.01" step="0.01"></div>
+                            <div class="form-group"><label>Prix maximum ($)</label><input type="number" id="prod-dynamic-max" min="0.01" step="0.01"></div>
+                        </div>
+                        <div class="form-row dynamic-pricing-three">
+                            <div class="form-group"><label>Objectif ventes/jour</label><input type="number" id="prod-dynamic-target" min="0.1" step="0.1" value="1"></div>
+                            <div class="form-group"><label>Variation max (%)</label><input type="number" id="prod-dynamic-change" min="0.5" max="20" step="0.5" value="5"></div>
+                            <div class="form-group"><label>Délai (heures)</label><input type="number" id="prod-dynamic-cooldown" min="1" max="168" step="1" value="6"></div>
+                        </div>
+                        <p class="dynamic-pricing-hint"><i class="fa-solid fa-shield-halved"></i> Le prix restera entre les limites et une commande créée conservera toujours son montant.</p>
+                    </div>
+                </div>
                 <div class="form-group">
                     <label>Type de livraison</label>
                     <select id="prod-delivery-type" style="width:100%; padding:0.75rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:var(--color-text);">
@@ -838,6 +860,37 @@
                 <div class="form-row">
                     <div class="form-group"><label>Prix USD ($)</label><input type="number" step="0.01" id="edit-prod-price" required></div>
                     <div class="form-group"><label>Garantie (jours)</label><input type="number" id="edit-prod-warranty" min="0"></div>
+                </div>
+                <div class="dynamic-pricing-panel">
+                    <button type="button" id="edit-prod-dynamic-toggle" class="dynamic-pricing-toggle" aria-pressed="false">
+                        <span><i class="fa-solid fa-wave-square"></i> Dynamic Price</span><span id="edit-prod-dynamic-status">Désactivé</span>
+                    </button>
+                    <input type="hidden" id="edit-prod-dynamic-enabled" value="0">
+                    <div id="edit-prod-dynamic-settings" class="dynamic-pricing-settings hidden">
+                        <div class="dynamic-pricing-summary">
+                            <div><span>Prix actuel</span><strong id="edit-prod-dynamic-current">-</strong></div>
+                            <div><span>Prix recommandé</span><strong id="edit-prod-dynamic-suggested">-</strong></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>Mode</label><select id="edit-prod-dynamic-mode"><option value="automatic">Automatique</option><option value="suggestion">Suggestion uniquement</option></select></div>
+                            <div class="form-group"><label>Sensibilité</label><select id="edit-prod-dynamic-sensitivity"><option value="cautious">Prudente</option><option value="normal">Normale</option><option value="aggressive">Agressive</option></select></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>Prix minimum ($)</label><input type="number" id="edit-prod-dynamic-min" min="0.01" step="0.01"></div>
+                            <div class="form-group"><label>Prix maximum ($)</label><input type="number" id="edit-prod-dynamic-max" min="0.01" step="0.01"></div>
+                        </div>
+                        <div class="form-row dynamic-pricing-three">
+                            <div class="form-group"><label>Objectif ventes/jour</label><input type="number" id="edit-prod-dynamic-target" min="0.1" step="0.1"></div>
+                            <div class="form-group"><label>Variation max (%)</label><input type="number" id="edit-prod-dynamic-change" min="0.5" max="20" step="0.5"></div>
+                            <div class="form-group"><label>Délai (heures)</label><input type="number" id="edit-prod-dynamic-cooldown" min="1" max="168" step="1"></div>
+                        </div>
+                        <div class="dynamic-pricing-actions">
+                            <button type="button" id="edit-prod-dynamic-recalculate" class="btn-secondary"><i class="fa-solid fa-calculator"></i> Calculer maintenant</button>
+                            <button type="button" id="edit-prod-dynamic-apply" class="btn-secondary hidden"><i class="fa-solid fa-check"></i> Appliquer la suggestion</button>
+                        </div>
+                        <p class="dynamic-pricing-hint"><i class="fa-solid fa-shield-halved"></i> Les commandes existantes ne changent jamais de montant.</p>
+                        <div class="dynamic-pricing-history-wrap"><h4>Dernières décisions</h4><div id="edit-prod-dynamic-history" class="dynamic-pricing-history"><p class="empty-state">Aucun historique.</p></div></div>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label>Type de livraison</label>
@@ -1051,7 +1104,7 @@
 </div>
 
 
-    <script src="app.js?v=20260711-dashboard-revamp-2"></script>
+    <script src="app.js?v=20260711-dynamic-pricing-1"></script>
     <script>
     /* ── Mobile Sidebar Toggle ── */
     (function() {

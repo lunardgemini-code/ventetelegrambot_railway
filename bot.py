@@ -857,7 +857,7 @@ async def api_reseller_me(reseller: dict = Depends(verify_reseller_key)):
 
 @api.get("/api/reseller/products")
 async def api_reseller_products(lang: str = "en", reseller: dict = Depends(verify_reseller_key)):
-    from database.models import get_all_products, get_all_stock_counts, get_price_tiers_for_products
+    from database.models import get_all_products, get_all_stock_counts, get_price_tiers_for_products, dynamic_tier_price
     try:
         lang = lang if lang in {"en", "fr", "ar", "zh", "vi", "ru"} else "en"
         products = await get_all_products()
@@ -884,7 +884,7 @@ async def api_reseller_products(lang: str = "en", reseller: dict = Depends(verif
                 "delivery_type": p.get("delivery_type") or "stock",
                 "stock": None if p.get("delivery_type") == "activation" else stock_counts.get(p["id"], 0),
                 "price_tiers": [
-                    {"min_qty": t_item["min_qty"], "max_qty": t_item["max_qty"], "price_usd": float(t_item["price_usd"])}
+                    {"min_qty": t_item["min_qty"], "max_qty": t_item["max_qty"], "price_usd": dynamic_tier_price(p, float(t_item["price_usd"]))}
                     for t_item in tiers
                 ],
             })
@@ -1157,9 +1157,72 @@ async def api_get_products():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+_DYNAMIC_PRICING_FIELDS = {
+    "dynamic_pricing_enabled", "dynamic_pricing_mode", "dynamic_min_price",
+    "dynamic_max_price", "dynamic_target_daily_sales", "dynamic_max_change_pct",
+    "dynamic_cooldown_hours", "dynamic_sensitivity",
+}
+
+
+def _as_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _validated_dynamic_pricing_updates(data: dict, current_price: float, existing: dict | None = None) -> dict:
+    if not any(field in data for field in _DYNAMIC_PRICING_FIELDS):
+        return {}
+    existing = existing or {}
+    enabled = _as_bool(data.get("dynamic_pricing_enabled", existing.get("dynamic_pricing_enabled", False)))
+    if not enabled:
+        return {"dynamic_pricing_enabled": 0}
+
+    try:
+        min_price = float(data.get("dynamic_min_price", existing.get("dynamic_min_price") or current_price * 0.8))
+        max_price = float(data.get("dynamic_max_price", existing.get("dynamic_max_price") or current_price * 1.2))
+        target = float(data.get("dynamic_target_daily_sales", existing.get("dynamic_target_daily_sales") or 1.0))
+        max_change = float(data.get("dynamic_max_change_pct", existing.get("dynamic_max_change_pct") or 5.0))
+        cooldown = int(data.get("dynamic_cooldown_hours", existing.get("dynamic_cooldown_hours") or 6))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Dynamic pricing values must be valid numbers")
+
+    mode = str(data.get("dynamic_pricing_mode", existing.get("dynamic_pricing_mode") or "automatic"))
+    sensitivity = str(data.get("dynamic_sensitivity", existing.get("dynamic_sensitivity") or "normal"))
+    if min_price <= 0 or max_price <= 0 or min_price > max_price:
+        raise HTTPException(status_code=400, detail="Dynamic minimum price must be positive and not exceed maximum price")
+    if not min_price <= current_price <= max_price:
+        raise HTTPException(status_code=400, detail="Current price must remain between dynamic minimum and maximum prices")
+    if not 0.1 <= target <= 10000:
+        raise HTTPException(status_code=400, detail="Target daily sales must be between 0.1 and 10000")
+    if not 0.5 <= max_change <= 20:
+        raise HTTPException(status_code=400, detail="Maximum dynamic variation must be between 0.5% and 20%")
+    if not 1 <= cooldown <= 168:
+        raise HTTPException(status_code=400, detail="Dynamic pricing cooldown must be between 1 and 168 hours")
+    if mode not in {"suggestion", "automatic"}:
+        raise HTTPException(status_code=400, detail="Dynamic pricing mode must be suggestion or automatic")
+    if sensitivity not in {"cautious", "normal", "aggressive"}:
+        raise HTTPException(status_code=400, detail="Invalid dynamic pricing sensitivity")
+
+    base_price = float(existing.get("dynamic_base_price") or current_price)
+    return {
+        "dynamic_pricing_enabled": 1,
+        "dynamic_pricing_mode": mode,
+        "dynamic_min_price": round(min_price, 2),
+        "dynamic_max_price": round(max_price, 2),
+        "dynamic_base_price": round(base_price, 2),
+        "dynamic_target_daily_sales": target,
+        "dynamic_max_change_pct": max_change,
+        "dynamic_cooldown_hours": cooldown,
+        "dynamic_sensitivity": sensitivity,
+    }
+
+
 @api.post("/api/products", dependencies=[Depends(verify_api_key)])
 async def api_create_product(data: dict):
-    from database.models import add_product, get_categories, add_category
+    from database.models import add_product, get_categories, add_category, update_product
     try:
         if "price_usd" not in data or "name" not in data:
             raise HTTPException(status_code=400, detail="Missing required fields: name, price_usd")
@@ -1177,6 +1240,7 @@ async def api_create_product(data: dict):
         warranty = int(data.get("warranty_days", 0))
         if warranty < 0:
             raise HTTPException(status_code=400, detail="Warranty days cannot be negative")
+        dynamic_updates = _validated_dynamic_pricing_updates(data, price)
 
         prod_id = await add_product(
             category_id=cat_id,
@@ -1207,6 +1271,8 @@ async def api_create_product(data: dict):
             confirmation_message_vi=data.get("confirmation_message_vi", ""),
             confirmation_message_ru=data.get("confirmation_message_ru", "")
         )
+        if dynamic_updates:
+            await update_product(prod_id, **dynamic_updates)
         _clear_api_stats_cache()
         return {"id": prod_id, "status": "created"}
     except HTTPException:
@@ -1272,10 +1338,17 @@ async def api_reorder_products(request: Request):
 
 @api.put("/api/products/{product_id}", dependencies=[Depends(verify_api_key)])
 async def api_update_product(product_id: int, data: dict):
-    from database.models import update_product
+    from database.models import update_product, get_product
     try:
         allowed = {"name", "price_usd", "emoji", "custom_emoji_id", "warranty_days", "description", "description_fr", "description_ar", "description_zh", "description_vi", "description_ru", "is_active", "binance_account_id", "image_url", "delivery_type", "activation_message", "activation_message_fr", "activation_message_ar", "activation_message_zh", "activation_message_vi", "activation_message_ru", "confirmation_message", "confirmation_message_fr", "confirmation_message_ar", "confirmation_message_zh", "confirmation_message_vi", "confirmation_message_ru"}
         updates = {k: v for k, v in data.items() if k in allowed}
+        product = await get_product(product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        updated_price = float(updates.get("price_usd", product["price_usd"]))
+        if updated_price <= 0:
+            raise HTTPException(status_code=400, detail="Price must be positive")
+        updates.update(_validated_dynamic_pricing_updates(data, updated_price, existing=product))
         if not updates:
             raise HTTPException(status_code=400, detail="No valid fields to update")
         if "price_usd" in updates:
@@ -1289,6 +1362,49 @@ async def api_update_product(product_id: int, data: dict):
         raise
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/api/products/{product_id}/dynamic-pricing/history", dependencies=[Depends(verify_api_key)])
+async def api_dynamic_pricing_history(product_id: int, limit: int = 20):
+    from database.models import get_dynamic_price_history
+    try:
+        return {"history": await get_dynamic_price_history(product_id, limit=limit)}
+    except Exception as exc:
+        logger.error("API dynamic pricing history error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/products/{product_id}/dynamic-pricing/recalculate", dependencies=[Depends(verify_api_key)])
+async def api_recalculate_dynamic_price(product_id: int):
+    from database.models import get_product, recalculate_dynamic_prices
+    try:
+        product = await get_product(product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        if not product.get("dynamic_pricing_enabled"):
+            raise HTTPException(status_code=400, detail="Dynamic pricing is disabled for this product")
+        results = await recalculate_dynamic_prices(product_id=product_id, force=True)
+        _clear_api_stats_cache()
+        return results[0] if results else {"product_id": product_id, "status": "unchanged"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("API dynamic price recalculation error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/products/{product_id}/dynamic-pricing/apply", dependencies=[Depends(verify_api_key)])
+async def api_apply_dynamic_price(product_id: int):
+    from database.models import apply_dynamic_price_suggestion
+    try:
+        result = await apply_dynamic_price_suggestion(product_id)
+        _clear_api_stats_cache()
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("API apply dynamic price error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2325,6 +2441,24 @@ webhook_user_locks: list[asyncio.Lock] = [asyncio.Lock() for _ in range(WEBHOOK_
 #  Post-init hook: database setup
 # ──────────────────────────────────────────────
 
+DYNAMIC_PRICING_CHECK_SECONDS = _env_int("DYNAMIC_PRICING_CHECK_SECONDS", 900, minimum=60)
+
+
+async def _dynamic_pricing_worker() -> None:
+    from database.models import recalculate_dynamic_prices
+    while True:
+        try:
+            results = await recalculate_dynamic_prices()
+            changed = [item for item in results if item.get("status") == "updated"]
+            if changed:
+                logger.info("Dynamic pricing updated %d product(s)", len(changed))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("Dynamic pricing cycle failed: %s", exc)
+        await asyncio.sleep(DYNAMIC_PRICING_CHECK_SECONDS)
+
+
 async def post_init(application: Application) -> None:
     """Called after the Application has been initialised — set up the database."""
     await init_db()
@@ -2360,6 +2494,18 @@ async def post_init(application: Application) -> None:
             await db.close()
     except Exception as exc:
         logger.warning("Could not clean stale orders: %s", exc)
+
+    task = application.bot_data.get("dynamic_pricing_task")
+    if not task or task.done():
+        application.bot_data["dynamic_pricing_task"] = asyncio.create_task(_dynamic_pricing_worker())
+        logger.info("Dynamic pricing worker started (check every %ds)", DYNAMIC_PRICING_CHECK_SECONDS)
+
+
+async def post_shutdown(application: Application) -> None:
+    task = application.bot_data.pop("dynamic_pricing_task", None)
+    if task and not task.done():
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 # ──────────────────────────────────────────────
@@ -2657,7 +2803,7 @@ def main() -> None:
     webhook_url = os.environ.get("WEBHOOK_URL", "").strip()
 
     # In webhook mode, disable the built-in Updater (we handle updates via FastAPI)
-    builder = Application.builder().token(BOT_TOKEN).connect_timeout(30.0).read_timeout(30.0).write_timeout(30.0).pool_timeout(30.0).post_init(post_init)
+    builder = Application.builder().token(BOT_TOKEN).connect_timeout(30.0).read_timeout(30.0).write_timeout(30.0).pool_timeout(30.0).post_init(post_init).post_shutdown(post_shutdown)
     if webhook_url:
         builder = builder.updater(None)
     app = builder.build()
@@ -2951,6 +3097,7 @@ def main() -> None:
                     task.cancel()
                 if webhook_worker_tasks:
                     await asyncio.gather(*webhook_worker_tasks, return_exceptions=True)
+                await post_shutdown(app)
                 await app.stop()
                 await app.shutdown()
 
