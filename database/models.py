@@ -2028,6 +2028,62 @@ async def get_stats(days: int = 30, method: str = None) -> dict:
     _GET_STATS_CACHE[cache_key] = (now, data)
     return data
 
+
+async def get_dashboard_overview() -> dict:
+    """Return the compact operational summary used by the dashboard home."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT
+                   COALESCE(SUM(CASE WHEN status IN ('PENDING', 'AWAITING_PAYMENT') THEN 1 ELSE 0 END), 0) AS pending_payments,
+                   COALESCE(SUM(CASE WHEN status IN ('AWAITING_ACTIVATION_INFO', 'AWAITING_ACTIVATION') THEN 1 ELSE 0 END), 0) AS pending_activations,
+                   COALESCE(SUM(CASE WHEN status = 'PAID_PENDING_DELIVERY' THEN 1 ELSE 0 END), 0) AS delivery_issues,
+                   COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND DATE(created_at) = DATE('now') THEN 1 ELSE 0 END), 0) AS today_orders,
+                   COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND DATE(created_at) = DATE('now') THEN amount_usd ELSE 0 END), 0) AS today_revenue,
+                   COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND DATE(created_at) = DATE('now', '-1 day') THEN 1 ELSE 0 END), 0) AS yesterday_orders,
+                   COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND DATE(created_at) = DATE('now', '-1 day') THEN amount_usd ELSE 0 END), 0) AS yesterday_revenue
+               FROM orders"""
+        )
+        summary = dict(await cursor.fetchone())
+
+        cursor = await db.execute(
+            "SELECT COUNT(*) AS cnt FROM support_tickets WHERE status = 'OPEN'"
+        )
+        ticket_row = await cursor.fetchone()
+
+        cursor = await db.execute(
+            """SELECT o.id, o.user_telegram_id, o.amount_usd, o.quantity,
+                      o.status, o.payment_method, o.created_at,
+                      u.username, u.first_name AS user_first_name,
+                      p.name AS product_name, p.emoji AS product_emoji
+               FROM orders o
+               LEFT JOIN users u ON u.telegram_id = o.user_telegram_id
+               LEFT JOIN products p ON p.id = o.product_id
+               ORDER BY o.created_at DESC
+               LIMIT 8"""
+        )
+        recent_orders = [dict(row) for row in await cursor.fetchall()]
+
+        return {
+            "today": {
+                "orders": int(summary.get("today_orders") or 0),
+                "revenue": float(summary.get("today_revenue") or 0),
+            },
+            "yesterday": {
+                "orders": int(summary.get("yesterday_orders") or 0),
+                "revenue": float(summary.get("yesterday_revenue") or 0),
+            },
+            "actions": {
+                "pending_payments": int(summary.get("pending_payments") or 0),
+                "pending_activations": int(summary.get("pending_activations") or 0),
+                "delivery_issues": int(summary.get("delivery_issues") or 0),
+                "open_tickets": int(ticket_row["cnt"] if ticket_row else 0),
+            },
+            "recent_orders": recent_orders,
+        }
+    finally:
+        await db.close()
+
 async def _get_stats_uncached(days: int = 30, method: str = None) -> dict:
     """Return dashboard statistics with four grouped database queries."""
     since = (_utcnow() - timedelta(days=days)).isoformat()

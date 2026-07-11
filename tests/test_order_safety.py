@@ -205,6 +205,35 @@ class OrderSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(int(user["total_orders"]), 1)
         self.assertEqual(int(transactions["cnt"]), 1)
 
+    async def test_dashboard_overview_groups_operational_work(self):
+        completed = await models.create_order(1001, self.product_id, 5, quantity=1)
+        self.assertTrue(await models.update_order_status(
+            completed["id"], "COMPLETED", expected_statuses=("PENDING",)
+        ))
+
+        await models.get_or_create_user(1002, "pending", "Pending")
+        await models.get_or_create_user(1003, "activation", "Activation")
+        await models.get_or_create_user(1004, "delivery", "Delivery")
+        await models.create_order(1002, self.product_id, 5, quantity=1)
+        activation = await models.create_order(1003, self.product_id, 5, quantity=1)
+        self.assertTrue(await models.update_order_status(
+            activation["id"], "AWAITING_ACTIVATION", expected_statuses=("PENDING",)
+        ))
+        delivery = await models.create_order(1004, self.product_id, 5, quantity=1)
+        self.assertTrue(await models.update_order_status(
+            delivery["id"], "PAID_PENDING_DELIVERY", expected_statuses=("PENDING",)
+        ))
+        await models.create_ticket(1001, "Please help")
+
+        overview = await models.get_dashboard_overview()
+        self.assertEqual(overview["today"]["orders"], 1)
+        self.assertAlmostEqual(overview["today"]["revenue"], 5.0)
+        self.assertEqual(overview["actions"]["pending_payments"], 1)
+        self.assertEqual(overview["actions"]["pending_activations"], 1)
+        self.assertEqual(overview["actions"]["delivery_issues"], 1)
+        self.assertEqual(overview["actions"]["open_tickets"], 1)
+        self.assertGreaterEqual(len(overview["recent_orders"]), 4)
+
 
 if __name__ == "__main__":
     unittest.main()

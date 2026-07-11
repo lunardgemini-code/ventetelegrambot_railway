@@ -124,6 +124,41 @@ ar: {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  STATE & DOM
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+LANG.zh = {...LANG.en,
+    login_subtitle:'管理员控制台', login_url_label:'API 地址', login_key_label:'管理员 API 密钥', login_btn:'连接',
+    nav_dashboard:'控制台', nav_stats:'统计', nav_inventory:'商品与库存', nav_orders:'订单', nav_activations:'激活', nav_resellers:'经销商', nav_users:'用户', nav_tickets:'工单', nav_wallet_history:'钱包记录', nav_finance:'财务', nav_binance:'Binance 账户', nav_broadcast:'群发消息', nav_api_docs:'API 文档', nav_settings:'设置',
+    tab_dashboard:'控制台', tab_stats:'分析与统计', tab_inventory:'商品与库存', tab_orders:'订单跟踪', tab_users:'用户管理', tab_tickets:'客服工单', tab_broadcast:'群发消息', tab_settings:'设置',
+    metric_revenue:'收入（30天）', metric_sales:'销量（30天）', metric_clients:'客户', metric_initiated:'待处理订单', chart_revenue:'每日收入（$）', chart_orders:'每日订单', stock_status:'库存状态', no_products:'暂无商品。',
+    btn_add_product:'添加', filter_all:'全部', filter_pending:'待处理', filter_completed:'已完成', filter_cancelled:'已取消', no_orders:'暂无订单。', no_users:'暂无用户。', no_tickets:'暂无待处理工单。', btn_save:'保存', btn_cancel:'取消'
+};
+LANG.vi = {...LANG.en,
+    login_subtitle:'Bảng điều khiển quản trị', login_url_label:'URL API', login_key_label:'Khóa API quản trị', login_btn:'Kết nối',
+    nav_dashboard:'Tổng quan', nav_stats:'Thống kê', nav_inventory:'Sản phẩm & kho', nav_orders:'Đơn hàng', nav_activations:'Kích hoạt', nav_resellers:'Đại lý', nav_users:'Người dùng', nav_tickets:'Hỗ trợ', nav_wallet_history:'Lịch sử ví', nav_finance:'Tài chính', nav_binance:'Tài khoản Binance', nav_broadcast:'Phát tin', nav_api_docs:'Tài liệu API', nav_settings:'Cài đặt',
+    tab_dashboard:'Tổng quan', tab_stats:'Phân tích & thống kê', tab_inventory:'Sản phẩm & kho', tab_orders:'Theo dõi đơn hàng', tab_users:'Quản lý người dùng', tab_tickets:'Yêu cầu hỗ trợ', tab_broadcast:'Phát tin', tab_settings:'Cài đặt',
+    metric_revenue:'Doanh thu (30 ngày)', metric_sales:'Đã bán (30 ngày)', metric_clients:'Khách hàng', metric_initiated:'Đơn chờ xử lý', chart_revenue:'Doanh thu hàng ngày ($)', chart_orders:'Đơn hàng hàng ngày', stock_status:'Tình trạng kho', no_products:'Chưa có sản phẩm.',
+    btn_add_product:'Thêm', filter_all:'Tất cả', filter_pending:'Đang chờ', filter_completed:'Hoàn tất', filter_cancelled:'Đã hủy', no_orders:'Không có đơn hàng.', no_users:'Không có người dùng.', no_tickets:'Không có yêu cầu đang chờ.', btn_save:'Lưu', btn_cancel:'Hủy'
+};
+LANG.ru = {...LANG.en,
+    login_subtitle:'Панель администратора', login_url_label:'URL API', login_key_label:'Ключ API администратора', login_btn:'Подключиться',
+    nav_dashboard:'Обзор', nav_stats:'Статистика', nav_inventory:'Каталог и склад', nav_orders:'Заказы', nav_activations:'Активации', nav_resellers:'Реселлеры', nav_users:'Пользователи', nav_tickets:'Обращения', nav_wallet_history:'История кошелька', nav_finance:'Финансы', nav_binance:'Аккаунты Binance', nav_broadcast:'Рассылка', nav_api_docs:'Документация API', nav_settings:'Настройки',
+    tab_dashboard:'Обзор', tab_stats:'Аналитика и статистика', tab_inventory:'Каталог и склад', tab_orders:'Отслеживание заказов', tab_users:'Управление пользователями', tab_tickets:'Обращения в поддержку', tab_broadcast:'Рассылка', tab_settings:'Настройки',
+    metric_revenue:'Выручка (30 дней)', metric_sales:'Продажи (30 дней)', metric_clients:'Клиенты', metric_initiated:'Заказы в ожидании', chart_revenue:'Выручка по дням ($)', chart_orders:'Заказы по дням', stock_status:'Состояние склада', no_products:'Нет товаров.',
+    btn_add_product:'Добавить', filter_all:'Все', filter_pending:'В ожидании', filter_completed:'Завершенные', filter_cancelled:'Отмененные', no_orders:'Нет заказов.', no_users:'Нет пользователей.', no_tickets:'Нет открытых обращений.', btn_save:'Сохранить', btn_cancel:'Отмена'
+};
+LANG.ar = {...LANG.ar,
+    login_subtitle:'لوحة تحكم المسؤول', login_url_label:'رابط API', login_key_label:'مفتاح API للمسؤول', login_btn:'اتصال',
+    nav_dashboard:'لوحة التحكم', nav_stats:'الإحصائيات', nav_inventory:'المنتجات والمخزون', nav_orders:'الطلبات', nav_activations:'التفعيلات', nav_resellers:'الموزعون', nav_users:'المستخدمون', nav_tickets:'الدعم', nav_wallet_history:'سجل المحفظة', nav_finance:'المالية', nav_binance:'حسابات Binance', nav_broadcast:'البث', nav_api_docs:'وثائق API', nav_settings:'الإعدادات',
+    tab_dashboard:'لوحة التحكم', tab_stats:'التحليلات والإحصائيات', tab_inventory:'المنتجات والمخزون', tab_orders:'متابعة الطلبات', tab_users:'إدارة المستخدمين', tab_tickets:'تذاكر الدعم', tab_broadcast:'البث', tab_settings:'الإعدادات',
+    metric_revenue:'الإيرادات (30 يومًا)', metric_sales:'المبيعات (30 يومًا)', metric_clients:'العملاء', metric_initiated:'الطلبات المعلقة', chart_revenue:'الإيرادات اليومية ($)', chart_orders:'الطلبات اليومية', stock_status:'حالة المخزون', no_products:'لا توجد منتجات.',
+    btn_add_product:'إضافة', filter_all:'الكل', filter_pending:'قيد الانتظار', filter_completed:'مكتملة', filter_cancelled:'ملغاة', no_orders:'لا توجد طلبات.', no_users:'لا يوجد مستخدمون.', no_tickets:'لا توجد تذاكر مفتوحة.', btn_save:'حفظ', btn_cancel:'إلغاء'
+};
+Object.assign(LANG.fr, {overview_kicker:'Aujourd’hui', overview_title:'Le magasin en un coup d’œil', today_revenue:'Revenus du jour', today_orders:'Ventes du jour', priorities:'Priorités', actions_title:'À traiter maintenant', activity:'Activité', recent_orders:'Dernières commandes', view_all:'Tout voir', pending_metric:'Commandes en attente'});
+Object.assign(LANG.en, {overview_kicker:'Today', overview_title:'Store at a glance', today_revenue:'Today revenue', today_orders:'Today sales', priorities:'Priorities', actions_title:'Needs attention', activity:'Activity', recent_orders:'Recent orders', view_all:'View all', pending_metric:'Pending orders'});
+Object.assign(LANG.zh, {overview_kicker:'今天', overview_title:'商店概览', today_revenue:'今日收入', today_orders:'今日销量', priorities:'优先事项', actions_title:'待处理事项', activity:'动态', recent_orders:'最近订单', view_all:'查看全部', pending_metric:'待处理订单'});
+Object.assign(LANG.vi, {overview_kicker:'Hôm nay', overview_title:'Tổng quan cửa hàng', today_revenue:'Doanh thu hôm nay', today_orders:'Lượt bán hôm nay', priorities:'Ưu tiên', actions_title:'Cần xử lý', activity:'Hoạt động', recent_orders:'Đơn gần đây', view_all:'Xem tất cả', pending_metric:'Đơn đang chờ'});
+Object.assign(LANG.ru, {overview_kicker:'Сегодня', overview_title:'Магазин в цифрах', today_revenue:'Выручка сегодня', today_orders:'Продажи сегодня', priorities:'Приоритеты', actions_title:'Требует внимания', activity:'Активность', recent_orders:'Последние заказы', view_all:'Все заказы', pending_metric:'Заказы в ожидании'});
+Object.assign(LANG.ar, {overview_kicker:'اليوم', overview_title:'نظرة عامة على المتجر', today_revenue:'إيرادات اليوم', today_orders:'مبيعات اليوم', priorities:'الأولويات', actions_title:'بحاجة إلى معالجة', activity:'النشاط', recent_orders:'أحدث الطلبات', view_all:'عرض الكل', pending_metric:'الطلبات المعلقة'});
+
 const state = {
     botUrl:'', apiKey:'', currentLang:'fr', currentTab:'dashboard-tab',
     categories:[], products:[], orders:[], activations:[], resellers:[], users:[], promos:[], tickets:[], walletHistory:[], binanceAccounts:[],
@@ -131,6 +166,7 @@ const state = {
     whFilter:'all', whPage:0, whTotal:0,
     usersPage:0, usersPerPage:20, usersSearch:'', usersTotal:0, usersSort:'joined', usersOrder:'desc',
     currentStockProductId:null, autoRefresh:false, autoRefreshTimer:null,
+    chartDays:30, refreshing:false, lastRefreshAt:null,
     revenueChart:null, ordersChart:null, productSalesChart:null, productMomentumChart:null,
     productStats:[], productMomentum:null, productMomentumSelected:[], deadProductAlerts:[]
 };
@@ -146,6 +182,10 @@ const DOM = {
     statRevenue:$('stat-revenue'), statOrders:$('stat-orders'), statUsers:$('stat-users'), statPending:$('stat-pending'),
     statNewUsers:$('stat-new-users'), statReturningUsers:$('stat-returning-users'),
     stockSummaryList:$('stock-summary-list'),
+    todayRevenue:$('today-revenue'), todayOrders:$('today-orders'),
+    todayRevenueDelta:$('today-revenue-delta'), todayOrdersDelta:$('today-orders-delta'),
+    actionCenterList:$('action-center-list'), recentOrdersList:$('recent-orders-list'),
+    dashboardRange:$('dashboard-range'), pageContext:$('page-context'), toastRegion:$('toast-region'),
     badgeOrders:$('badge-orders'), badgeActivations:$('badge-activations'), badgeTickets:$('badge-tickets'), apiStatusBadge:$('api-status-badge'),
     productsTableBody:$('products-table-body'),
     statsProductsTableBody:$('stats-products-table-body'),
@@ -212,7 +252,10 @@ function applyTranslations() {
     $$('[data-i18n]').forEach(el => { const k = el.getAttribute('data-i18n'); const v = t(k); if (v) el.textContent = v; });
     $$('[data-i18n-placeholder]').forEach(el => { const k = el.getAttribute('data-i18n-placeholder'); const v = t(k); if (v) el.placeholder = v; });
     document.documentElement.dir = state.currentLang === 'ar' ? 'rtl' : 'ltr';
+    document.documentElement.lang = state.currentLang;
     $$('.lang-btn').forEach(b => b.classList.toggle('active', b.getAttribute('data-lang') === state.currentLang));
+    const mobileLanguageSelect = $('mobile-language-select');
+    if (mobileLanguageSelect) mobileLanguageSelect.value = state.currentLang;
 }
 
 function setLang(lang) {
@@ -245,7 +288,10 @@ function toggleAutoRefresh() {
 
 function startAutoRefresh() {
     stopAutoRefresh();
-    if (state.autoRefresh) state.autoRefreshTimer = setInterval(() => { if (!DOM.loadingOverlay.classList.contains('hidden')) return; refreshData(); }, 60000);
+    if (state.autoRefresh) state.autoRefreshTimer = setInterval(() => {
+        if (document.hidden || state.refreshing) return;
+        refreshData({silent:true});
+    }, 60000);
 }
 
 function stopAutoRefresh() {
@@ -262,15 +308,8 @@ document.addEventListener('DOMContentLoaded', () => {
     DOM.btnTheme.innerHTML = theme === 'dark' ? '<i class="fa-solid fa-moon"></i>' : '<i class="fa-solid fa-sun"></i>';
     applyTranslations();
 
-    // Initialize Turbo Mode
-    state.turboMode = localStorage.getItem('vb_turbo') === 'true';
-    const turboCheckbox = $('settings-turbo-mode');
-    if (turboCheckbox) {
-        turboCheckbox.checked = state.turboMode;
-    }
-    if (state.turboMode) {
-        document.body.classList.add('turbo-mode');
-    }
+    localStorage.removeItem('vb_turbo');
+    document.body.classList.remove('turbo-mode');
 
     const savedUrl = localStorage.getItem('ventebot_url') || '';
     const savedKey = localStorage.getItem('ventebot_key');
@@ -448,6 +487,30 @@ function setupEvents() {
         $('broadcast-url-group').classList.toggle('hidden', type !== 'url');
     });
     $$('.lang-btn').forEach(b => b.addEventListener('click', () => setLang(b.getAttribute('data-lang'))));
+    const mobileLanguageSelect = $('mobile-language-select');
+    if (mobileLanguageSelect) mobileLanguageSelect.addEventListener('change', () => setLang(mobileLanguageSelect.value));
+    $$('[data-go-tab]').forEach(button => button.addEventListener('click', () => switchTab(button.dataset.goTab)));
+    if (DOM.dashboardRange) {
+        DOM.dashboardRange.querySelectorAll('button').forEach(button => button.addEventListener('click', () => {
+            DOM.dashboardRange.querySelectorAll('button').forEach(item => item.classList.remove('active'));
+            button.classList.add('active');
+            state.chartDays = Number(button.dataset.days || 30);
+            loadCharts();
+        }));
+    }
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && state.autoRefresh && !state.refreshing) refreshData({silent:true});
+    });
+    $$('.modal-overlay').forEach(modal => {
+        modal.setAttribute('role', 'dialog');
+        modal.setAttribute('aria-modal', 'true');
+        modal.addEventListener('click', event => { if (event.target === modal) hideModal(modal); });
+    });
+    document.addEventListener('keydown', event => {
+        if (event.key !== 'Escape') return;
+        const openModal = document.querySelector('.modal-overlay:not(.hidden)');
+        if (openModal) hideModal(openModal);
+    });
 
     const btnTranslateAdd = $('btn-translate-add');
     const btnTranslateActAdd = $('btn-translate-act-add');
@@ -463,62 +526,6 @@ function setupEvents() {
     if (btnTranslateActEdit) btnTranslateActEdit.addEventListener('click', () => autoTranslate('edit', 'act'));
     if (btnTranslateConfEdit) btnTranslateConfEdit.addEventListener('click', () => autoTranslate('edit', 'conf'));
 
-    // Turbo Mode toggle listener
-    const turboModeToggle = $('settings-turbo-mode');
-    if (turboModeToggle) {
-        turboModeToggle.addEventListener('change', (e) => {
-            state.turboMode = e.target.checked;
-            localStorage.setItem('vb_turbo', state.turboMode);
-            document.body.classList.toggle('turbo-mode', state.turboMode);
-        });
-    }
-
-    // Spotlight cursor follow effect
-    document.addEventListener('mousemove', (e) => {
-        if (!state.turboMode) return;
-        const panels = document.querySelectorAll('.glass-panel');
-        panels.forEach(el => {
-            const rect = el.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-            el.style.setProperty('--mouse-x', `${x}px`);
-            el.style.setProperty('--mouse-y', `${y}px`);
-        });
-    });
-
-    // Particle click burst
-    document.addEventListener('click', (e) => {
-        if (!state.turboMode) return;
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT' || e.target.closest('button') || e.target.closest('a')) return;
-        createParticleBurst(e.clientX, e.clientY);
-    });
-}
-
-// ── Particle Generator Utility ──
-function createParticleBurst(x, y) {
-    const count = 15;
-    const colors = ['#6366f1', '#ec4899', '#a78bfa', '#f59e0b', '#10b981'];
-    for (let i = 0; i < count; i++) {
-        const p = document.createElement('div');
-        p.className = 'click-particle';
-        p.style.left = `${x}px`;
-        p.style.top = `${y}px`;
-        p.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
-        
-        const angle = Math.random() * Math.PI * 2;
-        const velocity = 40 + Math.random() * 80;
-        const tx = Math.cos(angle) * velocity;
-        const ty = Math.sin(angle) * velocity;
-        
-        document.body.appendChild(p);
-        
-        requestAnimationFrame(() => {
-            p.style.transform = `translate(${tx}px, ${ty}px) scale(0)`;
-            p.style.opacity = '0';
-        });
-        
-        setTimeout(() => p.remove(), 800);
-    }
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -740,14 +747,14 @@ async function testConnectionAndStart() {
 
         // /api/stats validates connectivity, database readiness and the admin key
         // in one request. A separate /health request made login less reliable.
-        await apiCall('/api/stats');
+        state.initialStats = await apiCall('/api/stats');
 
         localStorage.setItem('ventebot_url', state.botUrl);
         localStorage.setItem('ventebot_key', state.apiKey);
         DOM.settingsBotUrl.value = state.botUrl;
         DOM.settingsApiKey.value = state.apiKey;
         showScreen('app');
-        refreshData();
+        await refreshData({silent:true});
         startAutoRefresh();
     } catch (e) {
         showScreen('login');
@@ -777,7 +784,7 @@ async function testConnectionAndStart() {
 //  REFRESH ALL
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 const tabRefreshLoaders = {
-    'dashboard-tab': [loadStats, loadFinance, loadCharts],
+    'dashboard-tab': [loadDashboardOverview, loadStats, loadCharts],
     'stats-tab': [loadStats, loadCharts, loadProductStats, loadProductMomentum, loadDeadProductAlerts],
     'inventory-tab': [loadProducts, loadBinanceAccounts],
     'orders-tab': [loadProducts, loadAllOrders],
@@ -792,7 +799,7 @@ const tabRefreshLoaders = {
 };
 
 const fullRefreshLoaders = [
-    loadStats, loadFinance, loadProducts, loadAllOrders, loadActivations, loadResellers,
+    loadDashboardOverview, loadStats, loadFinance, loadProducts, loadAllOrders, loadActivations, loadResellers,
     loadTickets, loadUsers, loadPromos, loadCharts, loadWalletHistory, loadBinanceAccounts,
     loadPaymentSettings, loadProductStats, loadProductMomentum, loadDeadProductAlerts
 ];
@@ -802,16 +809,25 @@ function uniqueLoaders(loaders) {
 }
 
 async function refreshData(options={}) {
-    showLoading(true);
+    if (state.refreshing) return;
+    state.refreshing = true;
+    if (!options.silent) showLoading(true);
     DOM.apiStatusBadge.querySelector('.status-indicator').className = 'status-indicator';
     try {
         const loaders = options.full
             ? fullRefreshLoaders
-            : uniqueLoaders([loadStats, ...(tabRefreshLoaders[state.currentTab] || tabRefreshLoaders['dashboard-tab'])]);
-        await Promise.all(loaders.map(loader => loader()));
-        DOM.apiStatusBadge.querySelector('.status-indicator').classList.add('online');
-    } catch(e) { console.error(e); DOM.apiStatusBadge.querySelector('.status-indicator').classList.add('offline'); }
-    finally { showLoading(false); }
+            : uniqueLoaders(tabRefreshLoaders[state.currentTab] || tabRefreshLoaders['dashboard-tab']);
+        const results = await Promise.allSettled(loaders.map(loader => loader()));
+        const failures = results.filter(result => result.status === 'rejected');
+        failures.forEach(result => console.error(result.reason));
+        const status = DOM.apiStatusBadge.querySelector('.status-indicator');
+        status.classList.add(failures.length === results.length ? 'offline' : 'online');
+        if (failures.length && !options.silent) showToast(`${failures.length} section(s) n'ont pas pu être actualisées.`, 'error');
+        state.lastRefreshAt = new Date();
+    } finally {
+        state.refreshing = false;
+        if (!options.silent) showLoading(false);
+    }
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -851,13 +867,73 @@ async function loadBinanceAccounts() {
     }
 }
 
+function formatComparison(current, previous) {
+    const now = Number(current || 0);
+    const before = Number(previous || 0);
+    if (before === 0) return now === 0 ? {text:'Stable vs hier', className:''} : {text:'Nouveau vs hier', className:'positive'};
+    const percent = Math.round(((now - before) / before) * 100);
+    return {text:`${percent >= 0 ? '+' : ''}${percent}% vs hier`, className:percent > 0 ? 'positive' : percent < 0 ? 'negative' : ''};
+}
+
+async function loadDashboardOverview() {
+    const data = await apiCall('/api/dashboard/overview');
+    const today = data.today || {};
+    const yesterday = data.yesterday || {};
+    const actions = data.actions || {};
+    const revenueDelta = formatComparison(today.revenue, yesterday.revenue);
+    const ordersDelta = formatComparison(today.orders, yesterday.orders);
+
+    DOM.todayRevenue.textContent = `$${Number(today.revenue || 0).toFixed(2)}`;
+    DOM.todayOrders.textContent = Number(today.orders || 0).toLocaleString();
+    DOM.todayRevenueDelta.textContent = revenueDelta.text;
+    DOM.todayRevenueDelta.className = revenueDelta.className;
+    DOM.todayOrdersDelta.textContent = ordersDelta.text;
+    DOM.todayOrdersDelta.className = ordersDelta.className;
+
+    const actionItems = [
+        {count:actions.delivery_issues, icon:'triangle-exclamation', title:'Livraisons à relancer', detail:'Paiement reçu, livraison incomplète', tab:'orders-tab'},
+        {count:actions.pending_activations, icon:'bolt', title:'Activations à traiter', detail:'Identifiants clients prêts', tab:'activations-tab'},
+        {count:actions.pending_payments, icon:'clock', title:'Paiements en attente', detail:'Commandes à contrôler', tab:'orders-tab'},
+        {count:actions.open_tickets, icon:'headset', title:'Tickets ouverts', detail:'Réponses clients attendues', tab:'tickets-tab'}
+    ];
+    DOM.actionCenterList.innerHTML = actionItems.map(item => `
+        <button type="button" class="action-item" data-go-tab="${item.tab}">
+            <span class="action-item-icon"><i class="fa-solid fa-${item.icon}"></i></span>
+            <span><strong>${item.title}</strong><span>${item.detail}</span></span>
+            <span class="action-count">${Number(item.count || 0)}</span>
+        </button>`).join('');
+    DOM.actionCenterList.querySelectorAll('[data-go-tab]').forEach(button => button.addEventListener('click', () => switchTab(button.dataset.goTab)));
+
+    const recentOrders = Array.isArray(data.recent_orders) ? data.recent_orders : [];
+    DOM.recentOrdersList.innerHTML = recentOrders.length ? recentOrders.map(order => {
+        const customer = order.username ? `@${order.username}` : (order.user_first_name || order.user_telegram_id || 'Client');
+        const product = `${order.product_emoji || ''} ${order.product_name || `Commande #${order.id}`}`.trim();
+        const date = order.created_at ? parseUTCDate(order.created_at).toLocaleString([], {dateStyle:'short', timeStyle:'short'}) : '';
+        return `<button type="button" class="recent-order-item" data-go-tab="orders-tab">
+            <span class="recent-order-meta"><strong>${escapeHtml(product)}</strong><span>${escapeHtml(customer)} · ${escapeHtml(date)}</span></span>
+            <span class="status-badge status-${escapeHtml(String(order.status || '').toLowerCase())}">${escapeHtml(order.status || '')}</span>
+            <span class="recent-order-amount">$${Number(order.amount_usd || 0).toFixed(2)}</span>
+        </button>`;
+    }).join('') : '<p class="empty-state">Aucune commande récente.</p>';
+    DOM.recentOrdersList.querySelectorAll('[data-go-tab]').forEach(button => button.addEventListener('click', () => switchTab(button.dataset.goTab)));
+
+    const pendingOrders = Number(actions.pending_payments || 0) + Number(actions.delivery_issues || 0);
+    DOM.badgeOrders.textContent = pendingOrders;
+    DOM.badgeOrders.classList.toggle('hidden', pendingOrders === 0);
+    DOM.badgeActivations.textContent = Number(actions.pending_activations || 0);
+    DOM.badgeActivations.classList.toggle('hidden', Number(actions.pending_activations || 0) === 0);
+    DOM.badgeTickets.textContent = Number(actions.open_tickets || 0);
+    DOM.badgeTickets.classList.toggle('hidden', Number(actions.open_tickets || 0) === 0);
+}
+
 async function loadStats() {
-    const s = await apiCall('/api/stats');
+    const s = state.initialStats || await apiCall('/api/stats');
+    state.initialStats = null;
     state.lastStats = s; // Save for modal
     DOM.statRevenue.textContent = `$${parseFloat(s.total_revenue).toFixed(2)}`;
     DOM.statOrders.textContent = s.completed_orders;
     DOM.statUsers.textContent = s.total_users;
-    DOM.statPending.textContent = s.total_orders;
+    DOM.statPending.textContent = s.pending_orders || 0;
     if (DOM.statNewUsers) DOM.statNewUsers.textContent = s.new_users || 0;
     if (DOM.statReturningUsers) DOM.statReturningUsers.textContent = s.returning_users || 0;
     if (s.stock_summary?.length > 0) {
@@ -887,7 +963,7 @@ window.showRevenueDetails = function() {
 
 async function loadCharts() {
     try {
-        const data = await apiCall('/api/stats/daily?days=30');
+        const data = await apiCall(`/api/stats/daily?days=${state.chartDays}`);
         const labels = data.map(d => d.day.slice(5));
         const revenues = data.map(d => d.revenue);
         const orders = data.map(d => d.orders);
@@ -895,10 +971,20 @@ async function loadCharts() {
         const gridColor = getComputedStyle(document.documentElement).getPropertyValue('--chart-grid').trim() || 'rgba(255,255,255,0.05)';
         const textColor = getComputedStyle(document.documentElement).getPropertyValue('--color-text-muted').trim() || '#9f9baa';
         const opts = { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{color:textColor,maxTicksLimit:10},grid:{color:gridColor}},y:{ticks:{color:textColor},grid:{color:gridColor}}} };
-        if (state.revenueChart) state.revenueChart.destroy();
-        state.revenueChart = new Chart(DOM.chartRevenue, { type:'line', data:{ labels, datasets:[{ data:revenues, borderColor:chartColor, backgroundColor:chartColor+'20', fill:true, tension:0.4, pointRadius:2 }] }, options:opts });
-        if (state.ordersChart) state.ordersChart.destroy();
-        state.ordersChart = new Chart(DOM.chartOrders, { type:'bar', data:{ labels, datasets:[{ data:orders, backgroundColor:chartColor+'60', borderColor:chartColor, borderWidth:1, borderRadius:4 }] }, options:opts });
+        if (state.revenueChart) {
+            state.revenueChart.data.labels = labels;
+            state.revenueChart.data.datasets[0].data = revenues;
+            state.revenueChart.update('none');
+        } else {
+            state.revenueChart = new Chart(DOM.chartRevenue, { type:'line', data:{ labels, datasets:[{ data:revenues, borderColor:chartColor, backgroundColor:chartColor+'20', fill:true, tension:0.25, pointRadius:2 }] }, options:opts });
+        }
+        if (state.ordersChart) {
+            state.ordersChart.data.labels = labels;
+            state.ordersChart.data.datasets[0].data = orders;
+            state.ordersChart.update('none');
+        } else {
+            state.ordersChart = new Chart(DOM.chartOrders, { type:'bar', data:{ labels, datasets:[{ data:orders, backgroundColor:chartColor+'60', borderColor:chartColor, borderWidth:1, borderRadius:4 }] }, options:opts });
+        }
     } catch(e) { console.warn('Charts failed:', e); }
 }
 
@@ -1309,7 +1395,7 @@ function renderStatsTable() {
         
         return `
             <tr>
-                <td><div class="prod-badge"><span class="prod-emoji">${p.emoji}</span><strong>${p.name}</strong></div></td>
+                <td><div class="prod-badge"><span class="prod-emoji">${escapeHtml(p.emoji || '📦')}</span><strong>${escapeHtml(p.name)}</strong></div></td>
                 <td>$${p.price_usd.toFixed(2)}</td>
                 <td>${p.total_sold}</td>
                 <td><strong>$${p.total_revenue.toFixed(2)}</strong></td>
@@ -1327,14 +1413,14 @@ async function loadProducts() {
     if (prods.length > 0) {
         DOM.productsTableBody.innerHTML = prods.map(p => `<tr data-id="${p.id}">
             <td class="drag-handle" style="cursor: grab; text-align: center;"><i class="fas fa-bars" style="color:var(--color-primary);"></i></td>
-            <td><div class="prod-badge"><span class="prod-emoji">${p.emoji||'📦'}</span><strong>${p.name}</strong></div></td>
+            <td><div class="prod-badge"><span class="prod-emoji">${escapeHtml(p.emoji||'📦')}</span><strong>${escapeHtml(p.name)}</strong></div></td>
             <td>$${parseFloat(p.price_usd).toFixed(2)}</td><td>${p.warranty_days||0} ${t('days')}</td>
             <td>${p.delivery_type === 'activation' ? '<span class="stock-count-badge ok">Activation</span>' : `<span class="stock-count-badge ${p.stock===0?'empty':p.stock<3?'low':'ok'}">${p.stock}</span>`}</td>
             <td><span class="status-dot ${p.is_active?'online':''}"></span> ${p.is_active?t('active'):t('inactive')}</td>
-            <td><button class="btn-table-action" onclick="toggleProductVisibility(${p.id})" title="${p.is_active ? 'Désactiver' : 'Activer'}" style="color:${p.is_active ? '#ef4444' : '#22c55e'};"><i class="fa-solid ${p.is_active ? 'fa-xmark' : 'fa-check'}"></i></button><button class="btn-table-action" onclick="openEditProduct(${p.id})" title="Modifier" style="color:#3b82f6;"><i class="fa-solid fa-pen"></i></button><button class="btn-table-action" onclick="viewProductStock(${p.id},'${(p.emoji||'✨').replace(/'/g,'\\\'')}','${p.name.replace(/'/g,'\\\'')}')" title="Voir stock" style="color:#f59e0b;"><i class="fa-solid fa-box-open"></i></button><button class="btn-table-action stock" onclick="openStockModal(${p.id},'${(p.emoji||'✨').replace(/'/g,'\\\'')}','${p.name.replace(/'/g,'\\\'')}')" title="${t('stock_manage')}"><i class="fa-solid fa-warehouse"></i></button><button class="btn-table-action" onclick="openTiersModal(${p.id},'${p.name.replace(/'/g,'\\\'')}',${parseFloat(p.price_usd).toFixed(2)})" title="Tarifs" style="color:#a78bfa;"><i class="fa-solid fa-tags"></i></button><button class="btn-table-action delete" onclick="deleteProduct(${p.id})"><i class="fa-solid fa-trash-can"></i></button></td>
+            <td><button class="btn-table-action" onclick="toggleProductVisibility(${Number(p.id)})" title="${p.is_active ? 'Désactiver' : 'Activer'}" style="color:${p.is_active ? '#ef4444' : '#22c55e'};"><i class="fa-solid ${p.is_active ? 'fa-xmark' : 'fa-check'}"></i></button><button class="btn-table-action" onclick="openEditProduct(${Number(p.id)})" title="Modifier" style="color:#3b82f6;"><i class="fa-solid fa-pen"></i></button><button class="btn-table-action" onclick="viewProductStock(${Number(p.id)})" title="Voir stock" style="color:#f59e0b;"><i class="fa-solid fa-box-open"></i></button><button class="btn-table-action stock" onclick="openStockModal(${Number(p.id)})" title="${t('stock_manage')}"><i class="fa-solid fa-warehouse"></i></button><button class="btn-table-action" onclick="openTiersModal(${Number(p.id)})" title="Tarifs" style="color:#a78bfa;"><i class="fa-solid fa-tags"></i></button><button class="btn-table-action delete" onclick="deleteProduct(${Number(p.id)})" title="Supprimer"><i class="fa-solid fa-trash-can"></i></button></td>
         </tr>`).join('');
         if (DOM.broadcastBtnProductId) {
-            DOM.broadcastBtnProductId.innerHTML = prods.map(p => `<option value="${p.id}">${p.emoji||'📦'} ${p.name}</option>`).join('');
+            DOM.broadcastBtnProductId.innerHTML = prods.map(p => `<option value="${Number(p.id)}">${escapeHtml(p.emoji||'📦')} ${escapeHtml(p.name)}</option>`).join('');
         }
         
         if (!window.productsSortable) {
@@ -1365,26 +1451,21 @@ async function loadProducts() {
 }
 
 async function loadAllOrders() {
-    // Auto-cancel expired PENDING orders server-side before loading
-    try { await apiCall('/api/orders/cleanup', 'POST'); } catch(e) {}
-
     const sp = state.orderFilter==='all' ? '' : `status=${state.orderFilter}&`;
     const r = await apiCall(`/api/orders/all?${sp}limit=20&offset=${state.orderPage*20}`);
     state.orders = r.orders; state.orderTotal = r.total;
-    // badge
-    try { const pending = await apiCall('/api/orders'); if (pending.length>0) { DOM.badgeOrders.textContent=pending.length; DOM.badgeOrders.classList.remove('hidden'); } else DOM.badgeOrders.classList.add('hidden'); } catch(e) {}
-
     if (r.orders.length > 0) {
         DOM.ordersTableBody.innerHTML = r.orders.map(o => {
             const isTopup = o.status === 'TOPUP';
             const prod = !isTopup ? state.products.find(p=>p.id===o.product_id) : null;
-            let pn = isTopup ? t('wallet_topup') : (prod ? `${prod.emoji} ${prod.name}` : `#${o.product_id}`);
+            let pn = isTopup ? t('wallet_topup') : (prod ? `${prod.emoji || ''} ${prod.name}` : `#${o.product_id}`);
             if (!isTopup && !prod && o.product_name) {
                 pn = `${o.product_emoji || '📦'} ${o.product_name}${o.product_is_deleted ? ' (Supprimé)' : ''}`;
             }
             const d = parseUTCDate(o.created_at).toLocaleDateString();
-            const uname = o.username ? `@${o.username}` : (o.user_first_name || o.user_telegram_id);
-            const orderNo = o.merchant_trade_no || '—';
+            pn = escapeHtml(pn);
+            const uname = escapeHtml(o.username ? `@${o.username}` : (o.user_first_name || o.user_telegram_id));
+            const orderNo = escapeHtml(o.merchant_trade_no || '—');
             // Payment method badge
             let payMethod = '—';
             if (isTopup) {
@@ -1394,7 +1475,7 @@ async function loadAllOrders() {
             } else if (o.payment_method === 'binance' || o.payment_method == null) {
                 payMethod = `<span class="pay-method-badge binance">${t('pay_method_binance')}</span>`;
             } else {
-                payMethod = `<span class="pay-method-badge">${o.payment_method}</span>`;
+                payMethod = `<span class="pay-method-badge">${escapeHtml(o.payment_method)}</span>`;
             }
             let actions = '';
             if (isTopup) {
@@ -1412,10 +1493,10 @@ async function loadAllOrders() {
             } else {
                 actions = '—';
             }
-            let statusHtml = o.status;
+            let statusHtml = escapeHtml(o.status);
             if (o.status === 'PAID_PENDING_DELIVERY') statusHtml = 'PAYÉ — LIVRAISON EN ATTENTE';
             if (!isTopup && o.activation_identifier) {
-                statusHtml += `<br><span style="font-size:0.72rem; color:var(--color-text-muted); display:block; margin-top:4px;">ID: ${String(o.activation_identifier).replace(/</g,'&lt;').replace(/>/g,'&gt;')}</span>`;
+                statusHtml += `<br><span style="font-size:0.72rem; color:var(--color-text-muted); display:block; margin-top:4px;">ID: ${escapeHtml(o.activation_identifier)}</span>`;
             }
             if (!isTopup && (o.status === 'PENDING' || o.status === 'AWAITING_PAYMENT')) {
                 const elapsed = Math.floor((Date.now() - parseUTCDate(o.created_at).getTime()) / 1000);
@@ -1436,12 +1517,13 @@ async function loadAllOrders() {
                 }
             }
 
-            let displayBId = o.binance_order_id || '—';
+            const rawBId = String(o.binance_order_id || '—');
+            let displayBId = escapeHtml(rawBId);
             if (displayBId.length > 15 && displayBId !== '—') {
-                displayBId = `<span title="${o.binance_order_id}" style="cursor:help; border-bottom: 1px dotted rgba(255,255,255,0.5);">${o.binance_order_id.substring(0, 3)}...${o.binance_order_id.substring(o.binance_order_id.length - 4)}</span>`;
+                displayBId = `<span title="${escapeHtml(rawBId)}" style="cursor:help; border-bottom: 1px dotted rgba(255,255,255,0.5);">${escapeHtml(rawBId.substring(0, 3))}...${escapeHtml(rawBId.substring(rawBId.length - 4))}</span>`;
             }
 
-            return `<tr><td><strong>#${o.id}</strong></td><td><code>${orderNo}</code></td><td><code>${displayBId}</code></td><td>${uname}</td><td>${pn}</td><td>$${parseFloat(o.amount_usd).toFixed(2)}</td><td>${isTopup ? '—' : (o.quantity||1)}</td><td>${payMethod}</td><td><div class="status-badge ${o.status.toLowerCase()}">${statusHtml}</div></td><td>${d}</td><td>${actions}</td></tr>`;
+            return `<tr><td><strong>#${Number(o.id)}</strong></td><td><code>${orderNo}</code></td><td><code>${displayBId}</code></td><td>${uname}</td><td>${pn}</td><td>$${parseFloat(o.amount_usd).toFixed(2)}</td><td>${isTopup ? '—' : Number(o.quantity||1)}</td><td>${payMethod}</td><td><div class="status-badge ${escapeHtml(String(o.status || '').toLowerCase())}">${statusHtml}</div></td><td>${escapeHtml(d)}</td><td>${actions}</td></tr>`;
         }).join('');
     } else DOM.ordersTableBody.innerHTML = `<tr><td colspan="11" class="empty-state" data-i18n="no_orders">Aucune commande.</td></tr>`;
     const tp = Math.max(1, Math.ceil(r.total/20));
@@ -1483,7 +1565,7 @@ async function loadActivations() {
         return `<tr>
             <td><strong>#${o.id}</strong></td>
             <td>${uname}</td>
-            <td><code>${o.user_telegram_id}</code></td>
+            <td><code>${escapeHtml(o.user_telegram_id)}</code></td>
             <td>${pn}</td>
             <td>${identifier}</td>
             <td>$${parseFloat(o.amount_usd || 0).toFixed(2)}</td>
@@ -1580,7 +1662,7 @@ async function loadWalletHistory() {
 
     if (txs.length > 0) {
         DOM.whTableBody.innerHTML = txs.map(tx => {
-            const uname = tx.username ? `@${tx.username}` : (tx.user_first_name || tx.user_telegram_id);
+            const uname = escapeHtml(tx.username ? `@${tx.username}` : (tx.user_first_name || tx.user_telegram_id));
             const d = tx.created_at ? parseUTCDate(tx.created_at).toLocaleString() : '—';
             const isTopup = tx.type === 'topup';
             const typeLabel = isTopup
@@ -1588,16 +1670,16 @@ async function loadWalletHistory() {
                 : `<span class="status-badge" style="background:rgba(99,102,241,0.15);color:#818cf8;border:1px solid rgba(99,102,241,0.3);">🛒 Achat</span>`;
             const amountColor = isTopup ? '#22c55e' : '#ef4444';
             const amountSign = isTopup ? '+' : '-';
-            const desc = tx.description || '—';
+            const desc = escapeHtml(tx.description || '—');
             const balAfter = parseFloat(tx.balance_after||0).toFixed(2);
             return `<tr>
-                <td><strong>#${tx.id}</strong></td>
+                <td><strong>#${Number(tx.id)}</strong></td>
                 <td>${uname}</td>
                 <td>${typeLabel}</td>
                 <td style="color:${amountColor};font-weight:600;">${amountSign}$${parseFloat(tx.amount||0).toFixed(2)}</td>
                 <td>💰 $${balAfter}</td>
                 <td style="font-size:0.82rem;color:var(--color-text-muted);">${desc}</td>
-                <td style="font-size:0.82rem;">${d}</td>
+                <td style="font-size:0.82rem;">${escapeHtml(d)}</td>
             </tr>`;
         }).join('');
     } else {
@@ -1612,7 +1694,7 @@ async function loadTickets() {
     const tks = await apiCall('/api/tickets'); state.tickets = tks;
     if (tks.length > 0) {
         DOM.badgeTickets.textContent = tks.length; DOM.badgeTickets.classList.remove('hidden');
-        DOM.openTicketsContainer.innerHTML = tks.map(tk => `<div class="ticket-card glass-panel animate-slide"><div class="ticket-header"><h3>🎫 #${tk.id}</h3><p>👤 <code>${tk.user_telegram_id}</code></p></div><div class="ticket-message"><p>${tk.message}</p></div><form class="ticket-reply-form" onsubmit="submitTicketReply(event,${tk.id})"><div class="form-group"><input type="text" placeholder="${t('reply_placeholder')}" required></div><button type="submit" class="btn-primary btn-send-reply"><i class="fa-solid fa-paper-plane"></i></button></form></div>`).join('');
+        DOM.openTicketsContainer.innerHTML = tks.map(tk => `<div class="ticket-card glass-panel"><div class="ticket-header"><h3>Ticket #${Number(tk.id)}</h3><p><i class="fa-solid fa-user"></i> <code>${escapeHtml(tk.user_telegram_id)}</code></p></div><div class="ticket-message"><p>${escapeHtml(tk.message)}</p></div><form class="ticket-reply-form" onsubmit="submitTicketReply(event,${Number(tk.id)})"><div class="form-group"><input type="text" placeholder="${escapeHtml(t('reply_placeholder'))}" required></div><button type="submit" class="btn-primary btn-send-reply" title="Répondre"><i class="fa-solid fa-paper-plane"></i></button></form></div>`).join('');
     } else { DOM.badgeTickets.classList.add('hidden'); DOM.openTicketsContainer.innerHTML = `<p class="empty-state">${t('no_tickets')}</p>`; }
 }
 
@@ -1632,10 +1714,10 @@ async function loadUsers() {
                 const banned = u.is_banned;
                 const d = u.created_at ? parseUTCDate(u.created_at).toLocaleDateString() : '—';
                 const wb = parseFloat(u.wallet_balance||0).toFixed(2);
-                const refBy = u.referred_by ? `<code>${u.referred_by}</code>` : '—';
-                const refCount = u.referrals_count > 0 ? `${u.referrals_count} <button class="btn-table-action" onclick="viewUserReferrals(${u.telegram_id})" title="Voir les filleuls" style="margin-left:5px;color:#3b82f6;"><i class="fa-solid fa-users"></i></button>` : 0;
+                const refBy = u.referred_by ? `<code>${escapeHtml(u.referred_by)}</code>` : '—';
+                const refCount = u.referrals_count > 0 ? `${Number(u.referrals_count)} <button class="btn-table-action" onclick="viewUserReferrals(${Number(u.telegram_id)})" title="Voir les filleuls" style="margin-left:5px;color:#3b82f6;"><i class="fa-solid fa-users"></i></button>` : 0;
                 const refEarnings = parseFloat(u.referral_earnings||0).toFixed(2);
-                return `<tr><td><code>${u.telegram_id}</code></td><td>${u.username||'—'}</td><td>${u.first_name||'—'}</td><td>${u.language||'fr'}</td><td>${u.total_orders||0}</td><td>$${parseFloat(u.total_spent||0).toFixed(2)}</td><td>💰 $${wb}</td><td>${refBy}</td><td>${refCount}</td><td>💰 $${refEarnings}</td><td>${d}</td><td><button class="btn-table-action" onclick="creditWallet(${u.telegram_id})" title="Créditer" style="color:#22c55e;"><i class="fa-solid fa-circle-plus"></i></button> <button class="btn-table-action" onclick="debitWallet(${u.telegram_id})" title="Retirer" style="color:#ef4444;"><i class="fa-solid fa-circle-minus"></i></button> ${banned?`<span class="status-badge banned">${t('banned')}</span> <button class="btn-table-action unban" onclick="unbanUser(${u.telegram_id})"><i class="fa-solid fa-lock-open"></i></button>`:`<button class="btn-table-action ban" onclick="banUser(${u.telegram_id})"><i class="fa-solid fa-ban"></i></button>`}</td></tr>`;
+                return `<tr><td><code>${escapeHtml(u.telegram_id)}</code></td><td>${escapeHtml(u.username||'—')}</td><td>${escapeHtml(u.first_name||'—')}</td><td>${escapeHtml(u.language||'fr')}</td><td>${Number(u.total_orders||0)}</td><td>$${parseFloat(u.total_spent||0).toFixed(2)}</td><td>$${wb}</td><td>${refBy}</td><td>${refCount}</td><td>$${refEarnings}</td><td>${escapeHtml(d)}</td><td><button class="btn-table-action" onclick="creditWallet(${Number(u.telegram_id)})" title="Créditer" style="color:#22c55e;"><i class="fa-solid fa-circle-plus"></i></button> <button class="btn-table-action" onclick="debitWallet(${Number(u.telegram_id)})" title="Retirer" style="color:#ef4444;"><i class="fa-solid fa-circle-minus"></i></button> ${banned?`<span class="status-badge banned">${t('banned')}</span> <button class="btn-table-action unban" onclick="unbanUser(${Number(u.telegram_id)})"><i class="fa-solid fa-lock-open"></i></button>`:`<button class="btn-table-action ban" onclick="banUser(${Number(u.telegram_id)})"><i class="fa-solid fa-ban"></i></button>`}</td></tr>`;
             }).join('');
         } else {
             DOM.usersTableBody.innerHTML = `<tr><td colspan="12" class="empty-state">${t('no_users')}</td></tr>`;
@@ -1700,19 +1782,49 @@ async function loadPromos() {
 
 async function handleAddPromo(e) { e.preventDefault(); showLoading(true); try { const applicable_product_ids = Array.from(document.querySelectorAll('.promo-product-cb:checked')).map(o => o.value).join(','); await apiCall('/api/promos','POST',{code:$('promo-code').value.trim(),discount_type:$('promo-type').value,discount_value:$('promo-value').value,max_uses:$('promo-max').value||0,max_uses_per_user:$('promo-max-user').value||0,max_qty_per_order:$('promo-max-qty').value||0,applicable_product_ids:applicable_product_ids,expires_at:$('promo-expires').value||null}); hideModal(DOM.promoModal); DOM.addPromoForm.reset(); await refreshData(); } catch(e){alert(e.message);} finally{showLoading(false);} }
 
-window.toggleProductVisibility = async function(id) { showLoading(true); try{await apiCall(`/api/products/${id}/toggle-active`,'POST'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
-window.deleteProduct = async function(id) { if(!confirm(t('confirm_delete'))) return; showLoading(true); try{await apiCall(`/api/products/${id}`,'DELETE'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
-window.deletePromo = async function(id) { showLoading(true); try{await apiCall(`/api/promos/${id}`,'DELETE'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
-window.confirmOrderPayment = async function(id) { if(!confirm(`${t('confirm_order')}${id}?`)) return; showLoading(true); try{await apiCall(`/api/orders/${id}/confirm`,'POST'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
-window.completeActivation = async function(id) { if(!confirm(t('activation_confirm_prompt').replace('{id}', id))) return; showLoading(true); try{await apiCall(`/api/orders/${id}/activate`,'POST'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
-window.cancelOrder = async function(id) { if(!confirm(`Annuler la commande #${id} ?`)) return; showLoading(true); try{await apiCall(`/api/orders/${id}/cancel`,'POST'); await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
+async function runDashboardAction(action, successMessage) {
+    showLoading(true);
+    try {
+        await action();
+        await refreshData({silent:true});
+        if (successMessage) showToast(successMessage, 'success');
+        return true;
+    } catch (error) {
+        showToast(error.message || 'Opération impossible.', 'error');
+        return false;
+    } finally {
+        showLoading(false);
+    }
+}
+
+window.toggleProductVisibility = id => runDashboardAction(
+    () => apiCall(`/api/products/${id}/toggle-active`, 'POST'),
+    'Visibilité du produit mise à jour.'
+);
+window.deleteProduct = async function(id) {
+    if (confirm(t('confirm_delete'))) await runDashboardAction(() => apiCall(`/api/products/${id}`, 'DELETE'), 'Produit supprimé.');
+};
+window.deletePromo = id => runDashboardAction(() => apiCall(`/api/promos/${id}`, 'DELETE'), 'Code promo supprimé.');
+window.confirmOrderPayment = async function(id) {
+    if (confirm(`${t('confirm_order')}${id}?`)) await runDashboardAction(() => apiCall(`/api/orders/${id}/confirm`, 'POST'), `Commande #${id} confirmée.`);
+};
+window.completeActivation = async function(id) {
+    if (confirm(t('activation_confirm_prompt').replace('{id}', id))) await runDashboardAction(() => apiCall(`/api/orders/${id}/activate`, 'POST'), `Activation #${id} terminée.`);
+};
+window.cancelOrder = async function(id) {
+    if (confirm(`Annuler la commande #${id} ?`)) await runDashboardAction(() => apiCall(`/api/orders/${id}/cancel`, 'POST'), `Commande #${id} annulée.`);
+};
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  PRICE TIERS MODAL
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 let _tiersProductId = null;
 
-window.openTiersModal = async function(productId, productName, basePrice) {
+window.openTiersModal = async function(productId) {
+    const product = state.products.find(item => Number(item.id) === Number(productId));
+    if (!product) return showToast('Produit introuvable.', 'error');
+    const productName = product.name;
+    const basePrice = Number(product.price_usd || 0);
     _tiersProductId = productId;
     $('tiers-modal-title').textContent = `Tarifs — ${productName} (base: $${basePrice})`;
     const container = $('tiers-rows-container');
@@ -1835,14 +1947,18 @@ window.openOrderDetail = async function(orderId) {
             $('order-items-list').innerHTML = '<p class="empty-state">Aucun article livré trouvé.</p>';
         }
     } catch(e) {
-        $('order-detail-info').innerHTML = `<p style="color:var(--color-error);">Erreur: ${e.message}</p>`;
+        $('order-detail-info').innerHTML = `<p style="color:var(--color-error);">Erreur: ${escapeHtml(e.message)}</p>`;
     }
 };
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  VIEW REMAINING STOCK MODAL
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-window.viewProductStock = async function(productId, emoji, name) {
+window.viewProductStock = async function(productId) {
+    const product = state.products.find(item => Number(item.id) === Number(productId));
+    if (!product) return showToast('Produit introuvable.', 'error');
+    const emoji = product.emoji || '📦';
+    const name = product.name;
     $('view-stock-title').textContent = `${emoji} ${name} — Stock`;
     $('view-stock-list').innerHTML = '<p style="color:var(--color-text-muted);font-size:0.85rem;">Chargement...</p>';
     $('view-stock-count').textContent = '...';
@@ -1856,7 +1972,7 @@ window.viewProductStock = async function(productId, emoji, name) {
 
         if (items.length > 0) {
             $('view-stock-list').innerHTML = items.map(it => {
-                const safeData = it.account_data ? it.account_data.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
+                const safeData = escapeHtml(it.account_data || '');
                 return `
                 <div class="stock-item-row">
                     <span class="stock-item-data">${it.is_sold ? '🔴' : '🟢'} ${safeData}</span>
@@ -1870,7 +1986,7 @@ window.viewProductStock = async function(productId, emoji, name) {
             $('view-stock-list').innerHTML = '<p class="empty-state">Aucun article en stock.</p>';
         }
     } catch(e) {
-        $('view-stock-list').innerHTML = `<p style="color:var(--color-error);">Erreur: ${e.message}</p>`;
+        $('view-stock-list').innerHTML = `<p style="color:var(--color-error);">Erreur: ${escapeHtml(e.message)}</p>`;
     }
 };
 
@@ -1956,7 +2072,15 @@ $('edit-prod-form').addEventListener('submit', async (e) => {
     finally { showLoading(false); }
 });
 
-window.submitTicketReply = async function(e,id) { e.preventDefault(); showLoading(true); const inp=e.target.querySelector('input'); try{await apiCall(`/api/tickets/${id}/reply`,'POST',{reply_text:inp.value.trim()}); inp.value=''; await refreshData();}catch(e){alert(e.message);}finally{showLoading(false);} };
+window.submitTicketReply = async function(event, id) {
+    event.preventDefault();
+    const input = event.target.querySelector('input');
+    const sent = await runDashboardAction(
+        () => apiCall(`/api/tickets/${id}/reply`, 'POST', {reply_text:input.value.trim()}),
+        `Réponse envoyée pour le ticket #${id}.`
+    );
+    if (sent) input.value = '';
+};
 window.viewUserReferrals = function(tid) {
     if(DOM.usersSearch) {
         DOM.usersSearch.value = tid;
@@ -2029,7 +2153,11 @@ window.debitWallet = async function(tid) {
 };
 
 // Stock
-window.openStockModal = async function(pid, emoji, name) {
+window.openStockModal = async function(pid) {
+    const product = state.products.find(item => Number(item.id) === Number(pid));
+    if (!product) return showToast('Produit introuvable.', 'error');
+    const emoji = product.emoji || '📦';
+    const name = product.name;
     state.currentStockProductId = pid;
     DOM.stockModalTitle.textContent = `${emoji} ${name} — ${t('stock_manage')}`;
     DOM.stockTextarea.value = ''; DOM.stockLineCount.textContent = `0 ${t('accounts_detected')}`;
@@ -2038,7 +2166,7 @@ window.openStockModal = async function(pid, emoji, name) {
         const items = await apiCall(`/api/products/${pid}/stock`);
         DOM.stockExistingCount.textContent = items.filter(i=>!i.is_sold).length;
         if (items.length > 0) DOM.stockItemsList.innerHTML = items.map(i => {
-            const safeData = i.account_data ? i.account_data.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
+            const safeData = escapeHtml(i.account_data || '');
             return `<div class="stock-item-row">
             <span class="stock-item-data">${safeData}</span>
             <span class="stock-item-status ${i.is_sold?'sold':'available'}">${i.is_sold?t('sold'):t('available')}</span>
@@ -2046,7 +2174,7 @@ window.openStockModal = async function(pid, emoji, name) {
         </div>`;
         }).join('');
         else DOM.stockItemsList.innerHTML = `<p class="empty-state">${t('no_stock')}</p>`;
-    } catch(e) { DOM.stockItemsList.innerHTML = `<p class="empty-state">Error: ${e.message}</p>`; }
+    } catch(e) { DOM.stockItemsList.innerHTML = `<p class="empty-state">Error: ${escapeHtml(e.message)}</p>`; }
 };
 
 window.deleteStockItem = async function(stockId) {
@@ -2054,7 +2182,7 @@ window.deleteStockItem = async function(stockId) {
     showLoading(true);
     try {
         await apiCall(`/api/stock/${stockId}`, 'DELETE');
-        await openStockModal(state.currentStockProductId, '', DOM.stockModalTitle.textContent.split('—')[0].trim());
+        await openStockModal(state.currentStockProductId);
         loadProducts(); loadStats();
     } catch(e) { alert(e.message); }
     finally { showLoading(false); }
@@ -2069,7 +2197,7 @@ async function handleAddStock() {
         await apiCall(`/api/products/${state.currentStockProductId}/stock`,'POST',{items:lines, broadcast_restock: broadcastRestock}); 
         DOM.stockTextarea.value=''; 
         if (DOM.stockBroadcastCheckbox) DOM.stockBroadcastCheckbox.checked = false;
-        await openStockModal(state.currentStockProductId,'',DOM.stockModalTitle.textContent.split('—')[0].trim()); 
+        await openStockModal(state.currentStockProductId);
         loadProducts(); 
         loadStats(); 
     }
@@ -2158,9 +2286,18 @@ async function handleSaveCryptoSettings(e) {
 // Category select removed — not needed
 
 const tabKeys = { 'dashboard-tab':'tab_dashboard','stats-tab':'tab_stats','inventory-tab':'tab_inventory','orders-tab':'tab_orders','activations-tab':'nav_activations','resellers-tab':'nav_resellers','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
+const tabContexts = {
+    'dashboard-tab':'Vue opérationnelle', 'stats-tab':'Tendances de ventes et produits',
+    'inventory-tab':'Produits, prix et disponibilité', 'orders-tab':'Paiements et livraisons',
+    'activations-tab':'Demandes manuelles à traiter', 'resellers-tab':'Accès et activité API',
+    'users-tab':'Clients, wallets et parrainages', 'tickets-tab':'Demandes de support ouvertes',
+    'broadcast-tab':'Communication aux clients', 'settings-tab':'Connexion et paiements',
+    'wallet-history-tab':'Mouvements des soldes clients', 'finance-tab':'Revenus et ajustements',
+    'binance-tab':'Comptes de réception'
+};
 
 function escapeHtml(str) {
-    if (!str) return '';
+    if (str === null || str === undefined) return '';
     return str.toString()
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
@@ -2177,13 +2314,36 @@ function switchTab(tabId) {
     const ai = document.querySelector(`.menu-item[data-tab="${tabId}"]`); if(ai) ai.classList.add('active');
     const ac = $(tabId); if(ac) ac.classList.add('active');
     DOM.currentTabTitle.textContent = t(tabKeys[tabId]||'tab_dashboard');
+    if (DOM.pageContext) DOM.pageContext.textContent = tabContexts[tabId] || '';
     state.currentTab = tabId;
     if (!DOM.appContainer.classList.contains('hidden')) refreshData();
 }
 
-function showModal(m) { m.classList.remove('hidden'); }
-function hideModal(m) { m.classList.add('hidden'); }
+function showModal(m) {
+    if (!m) return;
+    state.modalReturnFocus = document.activeElement;
+    m.classList.remove('hidden');
+    const focusTarget = m.querySelector('input:not([type="hidden"]), textarea, select, button');
+    if (focusTarget) requestAnimationFrame(() => focusTarget.focus());
+}
+function hideModal(m) {
+    if (!m) return;
+    m.classList.add('hidden');
+    if (state.modalReturnFocus?.focus) state.modalReturnFocus.focus();
+    state.modalReturnFocus = null;
+}
 function showLoading(v) { if(v)DOM.loadingOverlay.classList.remove('hidden');else DOM.loadingOverlay.classList.add('hidden'); }
+function showToast(message, type='info') {
+    if (!DOM.toastRegion) return;
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    const icon = type === 'success' ? 'circle-check' : type === 'error' ? 'triangle-exclamation' : 'circle-info';
+    toast.innerHTML = `<i class="fa-solid fa-${icon}"></i><p>${escapeHtml(message)}</p><button type="button" title="Fermer" aria-label="Fermer"><i class="fa-solid fa-xmark"></i></button>`;
+    toast.querySelector('button').addEventListener('click', () => toast.remove());
+    DOM.toastRegion.appendChild(toast);
+    setTimeout(() => toast.remove(), 5000);
+}
 function logout() {
     state.botUrl=''; state.apiKey='';
     localStorage.removeItem('ventebot_url'); localStorage.removeItem('ventebot_key');

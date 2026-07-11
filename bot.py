@@ -1110,6 +1110,7 @@ async def api_get_stats():
             "total_users": total_users,
             "total_orders": stats_30.get("total_orders", 0),
             "completed_orders": stats_30.get("completed_orders", 0),
+            "pending_orders": stats_30.get("pending_orders", 0),
             "total_revenue": stats_30.get("total_revenue", 0),
             "stock_summary": stock_summary,
             "new_users": stats_30.get("new_users", 0),
@@ -1119,6 +1120,23 @@ async def api_get_stats():
         return response_data
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/api/dashboard/overview", dependencies=[Depends(verify_api_key)])
+async def api_dashboard_overview():
+    current_time = time.time()
+    cache_key = "dashboard_overview"
+    if cache_key in _stats_cache and current_time - _stats_cache[cache_key]["time"] < _stats_cache_ttl:
+        return _stats_cache[cache_key]["data"]
+
+    from database.models import get_dashboard_overview
+    try:
+        data = await get_dashboard_overview()
+        _stats_cache[cache_key] = {"time": current_time, "data": data}
+        return data
+    except Exception as exc:
+        logger.error("API dashboard overview error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

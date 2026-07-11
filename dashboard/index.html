@@ -14,34 +14,30 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="revamp.css?v=20260711-2">
 </head>
 <body>
-    <div class="glow-bg">
-        <div class="glow-circle glow-circle-1"></div>
-        <div class="glow-circle glow-circle-2"></div>
-    </div>
-
     <!-- Login Screen -->
     <div id="login-screen" class="glass-container">
         <div class="login-card glass-panel">
             <div class="login-header">
-                <div class="brand-logo"><i class="fa-solid fa-server"></i></div>
+                <div class="brand-logo" aria-hidden="true"><i class="fa-solid fa-bolt"></i></div>
                 <h1>VenteBot</h1>
                 <p data-i18n="login_subtitle">Console de Gestion Administrateur</p>
             </div>
             <form id="login-form">
                 <div class="form-group">
                     <label for="bot-url"><i class="fa-solid fa-link"></i> <span data-i18n="login_url_label">URL de l'API</span></label>
-                    <input type="text" id="bot-url" value="" placeholder="https://your-app.up.railway.app">
+                    <input type="url" id="bot-url" value="" placeholder="https://your-app.up.railway.app" autocomplete="url" spellcheck="false">
                     <span class="field-hint" data-i18n="login_url_hint">Laissez vide si vous êtes déjà sur /dashboard du bot ; sinon collez l'URL Railway</span>
                 </div>
                 <div class="form-group">
                     <label for="api-key"><i class="fa-solid fa-key"></i> <span data-i18n="login_key_label">Clé d'API Administrateur</span></label>
-                    <input type="password" id="api-key" placeholder="Entrez votre clé secrète" required>
+                    <input type="password" id="api-key" placeholder="Entrez votre clé secrète" autocomplete="current-password" spellcheck="false" required>
                 </div>
-                <button type="submit" class="btn-primary"><i class="fa-solid fa-plug"></i> <span data-i18n="login_btn">Se connecter</span></button>
+                <button type="submit" class="btn-primary"><i class="fa-solid fa-arrow-right-to-bracket"></i> <span data-i18n="login_btn">Se connecter</span></button>
             </form>
-            <div id="login-error" class="alert-box error hidden">
+            <div id="login-error" class="alert-box error hidden" role="alert" aria-live="polite">
                 <i class="fa-solid fa-circle-exclamation"></i> Connexion impossible.
             </div>
         </div>
@@ -53,23 +49,26 @@
         <aside class="sidebar glass-panel">
             <div class="sidebar-brand">
                 <i class="fa-solid fa-bolt brand-icon"></i>
-                <h2>VenteBot</h2>
+                <div><h2>VenteBot</h2><span>Operations</span></div>
             </div>
-            <nav class="sidebar-menu">
+            <nav class="sidebar-menu" aria-label="Navigation principale">
+                <p class="nav-section-label">Pilotage</p>
                 <a href="#" class="menu-item active" data-tab="dashboard-tab"><i class="fa-solid fa-chart-simple"></i> <span data-i18n="nav_dashboard">Dashboard</span></a>
                 <a href="#" class="menu-item" data-tab="stats-tab"><i class="fa-solid fa-chart-pie"></i> <span data-i18n="nav_stats">Statistiques</span></a>
                 <a href="#" class="menu-item" data-tab="finance-tab"><i class="fa-solid fa-sack-dollar"></i> <span data-i18n="nav_finance">Finance</span></a>
-                <a href="#" class="menu-item" data-tab="inventory-tab"><i class="fa-solid fa-box-open"></i> <span data-i18n="nav_inventory">Catalogue & Stock</span></a>
+                <p class="nav-section-label">Ventes</p>
                 <a href="#" class="menu-item" data-tab="orders-tab"><i class="fa-solid fa-receipt"></i> <span data-i18n="nav_orders">Commandes</span><span id="badge-orders" class="badge hidden">0</span></a>
                 <a href="#" class="menu-item" data-tab="activations-tab"><i class="fa-solid fa-bolt"></i> <span data-i18n="nav_activations">Activations</span><span id="badge-activations" class="badge hidden">0</span></a>
+                <a href="#" class="menu-item" data-tab="inventory-tab"><i class="fa-solid fa-box-open"></i> <span data-i18n="nav_inventory">Catalogue & Stock</span></a>
+                <p class="nav-section-label">Relations</p>
                 <a href="#" class="menu-item" data-tab="users-tab"><i class="fa-solid fa-users"></i> <span data-i18n="nav_users">Utilisateurs</span></a>
-                <a href="#" class="menu-item" data-tab="resellers-tab"><i class="fa-solid fa-handshake"></i> <span data-i18n="nav_resellers">Revendeurs</span></a>
-                <a href="#" class="menu-item" data-external="api-docs"><i class="fa-solid fa-book-open"></i> <span data-i18n="nav_api_docs">Documentation API</span></a>
                 <a href="#" class="menu-item" data-tab="wallet-history-tab"><i class="fa-solid fa-wallet"></i> <span data-i18n="nav_wallet_history">Wallet History</span></a>
                 <a href="#" class="menu-item" data-tab="tickets-tab"><i class="fa-solid fa-ticket"></i> <span data-i18n="nav_tickets">Tickets</span><span id="badge-tickets" class="badge hidden">0</span></a>
+                <a href="#" class="menu-item" data-tab="resellers-tab"><i class="fa-solid fa-handshake"></i> <span data-i18n="nav_resellers">Revendeurs</span></a>
+                <a href="#" class="menu-item" data-external="api-docs"><i class="fa-solid fa-book-open"></i> <span data-i18n="nav_api_docs">Documentation API</span></a>
+                <p class="nav-section-label">Outils</p>
                 <a href="#" class="menu-item" data-tab="binance-tab"><i class="fa-brands fa-btc"></i> <span data-i18n="nav_binance">Comptes Binance</span></a>
                 <a href="#" class="menu-item" data-tab="broadcast-tab"><i class="fa-solid fa-bullhorn"></i> <span data-i18n="nav_broadcast">Broadcast</span></a>
-
                 <a href="#" class="menu-item" data-tab="settings-tab"><i class="fa-solid fa-sliders"></i> <span data-i18n="nav_settings">Paramètres</span></a>
             </nav>
             <div class="sidebar-footer">
@@ -86,25 +85,32 @@
 
         <main class="main-content">
             <header class="topbar glass-panel">
-                <div style="display:flex;align-items:center;gap:0.75rem;">
+                <div class="topbar-title-group">
                     <button id="mobile-menu-btn" class="mobile-menu-toggle" aria-label="Menu"><i class="fa-solid fa-bars"></i></button>
-                    <div class="page-title"><h1 id="current-tab-title" data-i18n="tab_dashboard">Tableau de Bord</h1></div>
+                    <div class="page-title"><h1 id="current-tab-title" data-i18n="tab_dashboard">Tableau de Bord</h1><p id="page-context">Vue opérationnelle</p></div>
                 </div>
                 <div class="topbar-actions">
-                    <div class="lang-selector">
+                    <div class="lang-selector" aria-label="Langue">
                         <button class="lang-btn" data-lang="fr" title="Français">🇫🇷</button>
                         <button class="lang-btn" data-lang="en" title="English">🇬🇧</button>
                         <button class="lang-btn" data-lang="ar" title="العربية">عر</button>
+                        <button class="lang-btn" data-lang="zh" title="中文">中</button>
+                        <button class="lang-btn" data-lang="vi" title="Tiếng Việt">VI</button>
+                        <button class="lang-btn" data-lang="ru" title="Русский">RU</button>
                     </div>
-                    <button id="btn-theme" class="btn-icon" title="Toggle theme"><i class="fa-solid fa-moon"></i></button>
+                    <select id="mobile-language-select" class="mobile-language-select" aria-label="Langue">
+                        <option value="fr">FR</option><option value="en">EN</option><option value="ar">AR</option>
+                        <option value="zh">中文</option><option value="vi">VI</option><option value="ru">RU</option>
+                    </select>
+                    <button id="btn-theme" class="btn-icon" title="Changer le thème" aria-label="Changer le thème"><i class="fa-solid fa-moon"></i></button>
                     <div class="auto-refresh-toggle">
-                        <button id="btn-auto-refresh" class="btn-icon" title="Auto-refresh"><i class="fa-solid fa-arrows-rotate"></i></button>
+                        <button id="btn-auto-refresh" class="btn-icon" title="Actualisation automatique" aria-label="Actualisation automatique"><i class="fa-solid fa-arrows-rotate"></i></button>
                     </div>
                     <div id="api-status-badge" class="api-status">
                         <span class="status-indicator online"></span><p>API</p>
                     </div>
-                    <button id="btn-export" class="btn-icon" title="Exporter Excel"><i class="fa-solid fa-file-excel"></i></button>
-                    <button id="btn-refresh" class="btn-icon" title="Refresh"><i class="fa-solid fa-rotate"></i></button>
+                    <button id="btn-export" class="btn-icon" title="Exporter" aria-label="Exporter"><i class="fa-solid fa-file-export"></i></button>
+                    <button id="btn-refresh" class="btn-icon" title="Actualiser" aria-label="Actualiser"><i class="fa-solid fa-rotate"></i></button>
                 </div>
             </header>
 
@@ -112,13 +118,33 @@
 
             <!-- Dashboard Tab -->
             <section id="dashboard-tab" class="tab-content active">
+                <div class="overview-heading">
+                    <div><p class="eyebrow" data-i18n="overview_kicker">Aujourd'hui</p><h2 data-i18n="overview_title">Le magasin en un coup d'œil</h2></div>
+                    <div class="segmented-control" id="dashboard-range" aria-label="Période des graphiques">
+                        <button data-days="7">7J</button><button data-days="30" class="active">30J</button><button data-days="90">90J</button>
+                    </div>
+                </div>
+                <div class="today-strip">
+                    <div class="today-signal"><span data-i18n="today_revenue">Revenus du jour</span><strong id="today-revenue">$0.00</strong><small id="today-revenue-delta">vs hier</small></div>
+                    <div class="today-signal"><span data-i18n="today_orders">Ventes du jour</span><strong id="today-orders">0</strong><small id="today-orders-delta">vs hier</small></div>
+                </div>
                 <div class="metrics-grid">
                     <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label"><span data-i18n="metric_revenue">Revenus (30J)</span> <i class="fa-solid fa-circle-info" style="cursor:pointer; color:var(--primary-color); margin-left:4px;" onclick="showRevenueDetails()"></i></p><h3 id="stat-revenue">$0.00</h3></div><div class="metric-icon color-green"><i class="fa-solid fa-dollar-sign"></i></div></div>
                     <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label" data-i18n="metric_sales">Ventes (30J)</p><h3 id="stat-orders">0</h3></div><div class="metric-icon color-blue"><i class="fa-solid fa-cart-shopping"></i></div></div>
                     <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label" data-i18n="metric_clients">Clients</p><h3 id="stat-users">0</h3></div><div class="metric-icon color-purple"><i class="fa-solid fa-users"></i></div></div>
-                    <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label" data-i18n="metric_initiated">Commandes (30J)</p><h3 id="stat-pending">0</h3></div><div class="metric-icon color-amber"><i class="fa-solid fa-hourglass-half"></i></div></div>
+                    <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label" data-i18n="pending_metric">Commandes en attente</p><h3 id="stat-pending">0</h3></div><div class="metric-icon color-amber"><i class="fa-solid fa-hourglass-half"></i></div></div>
                     <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label">Nouveaux (30J)</p><h3 id="stat-new-users">0</h3></div><div class="metric-icon color-blue"><i class="fa-solid fa-user-plus"></i></div></div>
                     <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label">Récurrents</p><h3 id="stat-returning-users">0</h3></div><div class="metric-icon color-purple"><i class="fa-solid fa-user-check"></i></div></div>
+                </div>
+                <div class="operations-grid">
+                    <section class="dashboard-col glass-panel action-center" aria-labelledby="action-center-title">
+                        <div class="panel-header"><div><p class="eyebrow" data-i18n="priorities">Priorités</p><h3 id="action-center-title" data-i18n="actions_title">À traiter maintenant</h3></div></div>
+                        <div id="action-center-list" class="action-center-list"><div class="skeleton-row"></div><div class="skeleton-row"></div><div class="skeleton-row"></div></div>
+                    </section>
+                    <section class="dashboard-col glass-panel recent-orders" aria-labelledby="recent-orders-title">
+                        <div class="panel-header"><div><p class="eyebrow" data-i18n="activity">Activité</p><h3 id="recent-orders-title" data-i18n="recent_orders">Dernières commandes</h3></div><button class="text-button" data-go-tab="orders-tab"><span data-i18n="view_all">Tout voir</span> <i class="fa-solid fa-arrow-right"></i></button></div>
+                        <div id="recent-orders-list" class="recent-orders-list"><div class="skeleton-row"></div><div class="skeleton-row"></div><div class="skeleton-row"></div></div>
+                    </section>
                 </div>
                 <!-- Charts -->
                 <div class="charts-row">
@@ -279,15 +305,15 @@
 
                 <!-- Virtual Balance Card -->
                 <div class="dashboard-row">
-                    <div class="dashboard-col glass-panel flex-grow-2" style="text-align: center; padding: 3rem 2rem;">
-                        <h3 style="color: var(--color-text-muted); margin-bottom: 1rem; font-size: 1.2rem; text-transform: uppercase; letter-spacing: 2px;">Solde du Bot (Simulation)</h3>
-                        <h1 id="finance-balance" style="font-size: 4rem; margin-bottom: 2rem; background: linear-gradient(135deg, #10b981, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0 0 20px rgba(16,185,129,0.3);">$0.00</h1>
+                    <div class="dashboard-col glass-panel flex-grow-2 finance-balance-panel">
+                        <p class="eyebrow">Solde opérationnel suivi</p>
+                        <h1 id="finance-balance">$0.00</h1>
                         
                         <div style="display: flex; gap: 1rem; justify-content: center;">
-                            <button id="btn-finance-withdraw" class="btn-primary" style="font-size: 1.2rem; padding: 1rem 2rem; background: linear-gradient(135deg, #f43f5e, #e11d48); border: none; box-shadow: 0 0 20px rgba(244,63,94,0.4); border-radius: 12px; transition: all 0.3s ease;">
+                            <button id="btn-finance-withdraw" class="btn-danger">
                                 <i class="fa-solid fa-money-bill-transfer"></i> Withdraw
                             </button>
-                            <button id="btn-finance-adjust" class="btn-secondary" style="font-size: 1.2rem; padding: 1rem 2rem; border-radius: 12px;">
+                            <button id="btn-finance-adjust" class="btn-secondary">
                                 <i class="fa-solid fa-sliders"></i> Ajuster
                             </button>
                         </div>
@@ -335,11 +361,11 @@
                         <div style="display:flex; justify-content:space-around; align-items:center; flex-wrap:wrap; gap:1rem;">
                             <div style="text-align:center;">
                                 <p style="color:var(--color-text-muted); font-size:1.1rem; margin-bottom:0.5rem;">Montant Total Rechargé</p>
-                                <h2 id="finance-topup-revenue" style="color:#10b981; font-size:2.5rem; text-shadow: 0 0 15px rgba(16,185,129,0.3);">$0.00</h2>
+                                <h2 id="finance-topup-revenue" class="finance-kpi-value success">$0.00</h2>
                             </div>
                             <div style="text-align:center;">
                                 <p style="color:var(--color-text-muted); font-size:1.1rem; margin-bottom:0.5rem;">Nombre de Recharges</p>
-                                <h2 id="finance-topup-count" style="color:#3b82f6; font-size:2.5rem; text-shadow: 0 0 15px rgba(59,130,246,0.3);">0</h2>
+                                <h2 id="finance-topup-count" class="finance-kpi-value info">0</h2>
                             </div>
                         </div>
                     </div>
@@ -420,15 +446,15 @@
                 <!-- Stats row -->
                 <div class="metrics-grid" style="margin-bottom:1.5rem;">
                     <div class="metric-card glass-panel animate-slide">
-                        <div class="metric-icon" style="background:linear-gradient(135deg,#22c55e20,#22c55e40);"><i class="fa-solid fa-arrow-trend-up" style="color:#22c55e;"></i></div>
+                        <div class="metric-icon color-green"><i class="fa-solid fa-arrow-trend-up"></i></div>
                         <div class="metric-info"><p data-i18n="wh_total_topups">Total Recharges</p><h3 id="wh-stat-topups">—</h3></div>
                     </div>
                     <div class="metric-card glass-panel animate-slide">
-                        <div class="metric-icon" style="background:linear-gradient(135deg,#ef444420,#ef444440);"><i class="fa-solid fa-arrow-trend-down" style="color:#ef4444;"></i></div>
+                        <div class="metric-icon color-red"><i class="fa-solid fa-arrow-trend-down"></i></div>
                         <div class="metric-info"><p data-i18n="wh_total_purchases">Total Achats Wallet</p><h3 id="wh-stat-purchases">—</h3></div>
                     </div>
                     <div class="metric-card glass-panel animate-slide">
-                        <div class="metric-icon" style="background:linear-gradient(135deg,#f59e0b20,#f59e0b40);"><i class="fa-solid fa-coins" style="color:#f59e0b;"></i></div>
+                        <div class="metric-icon color-amber"><i class="fa-solid fa-coins"></i></div>
                         <div class="metric-info"><p data-i18n="wh_total_count">Transactions</p><h3 id="wh-stat-count">—</h3></div>
                     </div>
                 </div>
@@ -517,7 +543,7 @@
                 <div class="action-bar mb-4" style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; justify-content: space-between; width: 100%;">
                     <div class="search-box" style="position: relative; flex-grow: 1; max-width: 400px; display: flex; align-items: center;">
                         <span style="position: absolute; left: 14px; color: var(--color-text-muted);"><i class="fa-solid fa-magnifying-glass"></i></span>
-                        <input type="text" id="users-search" placeholder="Rechercher par ID ou nom..." data-i18n-placeholder="users_search_placeholder" style="width: 100%; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: 10px; padding: 0.65rem 1rem 0.65rem 2.5rem; color: var(--color-text-main); font-family: var(--font-body); font-size: 0.9rem; outline: none; transition: var(--transition-smooth);" onfocus="this.style.borderColor='var(--primary-color)'; this.style.boxShadow='0 0 12px var(--primary-glow)';" onblur="this.style.borderColor='var(--border-color)'; this.style.boxShadow='none';">
+                        <input type="search" id="users-search" placeholder="Rechercher par ID ou nom..." data-i18n-placeholder="users_search_placeholder" class="table-search-input">
                     </div>
                     <div style="display: flex; align-items: center; gap: 0.75rem;">
                         <span style="font-size: 0.85rem; color: var(--color-text-muted);" data-i18n="users_show_count">Afficher :</span>
@@ -635,23 +661,6 @@
                     </form>
                 </div>
 
-                <!-- Display Mode Option (Default vs Turbo) -->
-                <div class="glass-panel max-w-xl mx-auto" style="padding: 2rem; margin-top: 2rem;">
-                    <div class="panel-header mb-4">
-                        <h2><i class="fa-solid fa-wand-magic-sparkles"></i> <span>Mode d'Affichage</span></h2>
-                        <p>Basculez entre le design standard et le mode Turbo (effets néon, spots lumineux réactifs et animations immersives partout).</p>
-                    </div>
-                    <div class="form-group" style="display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.02); padding: 1.25rem; border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; margin-bottom: 0;">
-                        <div>
-                            <strong style="display: block; font-size: 1rem; color: var(--color-text); margin-bottom: 0.25rem;">Mode Turbo</strong>
-                            <span style="font-size: 0.85rem; color: var(--color-text-muted);">Activer des animations et effets de lumière spectaculaires</span>
-                        </div>
-                        <label class="switch" style="position: relative; display: inline-block; width: 60px; height: 34px; min-width: 60px;">
-                            <input type="checkbox" id="settings-turbo-mode" style="opacity: 0; width: 0; height: 0;">
-                            <span class="slider round" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.1); transition: .4s; border-radius: 34px;"></span>
-                        </label>
-                    </div>
-                </div>
             </section>
         </main>
     </div>
@@ -915,7 +924,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn-secondary btn-close-modal">Annuler</button>
-                    <button type="submit" class="btn-primary" style="background: linear-gradient(135deg, #f43f5e, #e11d48); border: none;">Confirmer le retrait</button>
+                    <button type="submit" class="btn-danger">Confirmer le retrait</button>
                 </div>
             </form>
         </div>
@@ -1042,7 +1051,7 @@
 </div>
 
 
-    <script src="app.js?v=20260711-netlify-dashboard"></script>
+    <script src="app.js?v=20260711-dashboard-revamp-2"></script>
     <script>
     /* ── Mobile Sidebar Toggle ── */
     (function() {
@@ -1086,11 +1095,12 @@
     <!-- Mass Translation Progress Overlay -->
     <div id="mass-translate-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; flex-direction:column; justify-content:center; align-items:center; color:white;">
         <h2 style="margin-bottom:20px;"><i class="fa-solid fa-language"></i> Traduction de masse en cours...</h2>
-        <div style="width:50%; max-width:400px; background:#333; border-radius:10px; overflow:hidden; height:20px; margin-bottom:15px;">
+        <div style="width:50%; max-width:400px; background:#333; border-radius:6px; overflow:hidden; height:20px; margin-bottom:15px;">
             <div id="mass-translate-progress" style="width:0%; height:100%; background:var(--color-primary); transition:width 0.3s ease;"></div>
         </div>
         <p id="mass-translate-status" style="font-size:1.1rem; margin-bottom: 20px;">Préparation...</p>
         <button id="btn-mass-translate-cancel" class="btn-secondary btn-sm" style="background:#555; color:white; border:none; padding:8px 16px; border-radius:5px; cursor:pointer;">Annuler</button>
     </div>
+    <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
 </body>
 </html>
