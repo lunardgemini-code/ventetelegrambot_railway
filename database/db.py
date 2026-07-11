@@ -199,6 +199,11 @@ class _PooledAsyncDB(_AsyncDB):
 #  get_db() — returns async-compatible connection
 # ══════════════════════════════════════════════
 
+def is_transient_db_connection_error(exc: Exception) -> bool:
+    """Return whether retrying on a fresh Turso connection is appropriate."""
+    return _PooledAsyncDB._is_connection_error(exc)
+
+
 async def get_db():
     """Ouvre et retourne une connexion à la base de données."""
     if TURSO_URL:
@@ -208,13 +213,25 @@ async def get_db():
             if _libsql_pool:
                 conn_to_wrap = _libsql_pool.pop()
                 
+        wrapper = None
         if conn_to_wrap:
-            wrapper = _PooledAsyncDB(conn_to_wrap)
-        else:
+            candidate = _PooledAsyncDB(conn_to_wrap)
+            try:
+                # Hrana streams expire server-side while a pooled connection is idle.
+                # Validate before handing the connection to a request.
+                await candidate.execute("SELECT 1")
+                wrapper = candidate
+            except Exception as exc:
+                candidate.has_error = True
+                await candidate.close()
+                logger.info("Discarded stale Turso connection before reuse: %s", exc)
+
+        if wrapper is None:
             conn = await asyncio.to_thread(libsql.connect, TURSO_URL, auth_token=TURSO_TOKEN)
             wrapper = _PooledAsyncDB(conn)
             try:
                 await wrapper.execute("PRAGMA foreign_keys = ON")
+                await wrapper.execute("PRAGMA busy_timeout = 5000")
             except Exception:
                 pass
         return wrapper
@@ -227,6 +244,7 @@ async def get_db():
             await db.execute("PRAGMA journal_mode = WAL")
             _sqlite_wal_configured = True
         await db.execute("PRAGMA synchronous = NORMAL")
+        await db.execute("PRAGMA busy_timeout = 5000")
         await db.execute("PRAGMA busy_timeout = 5000")
         await db.execute("PRAGMA foreign_keys = ON")
         return db
@@ -277,6 +295,17 @@ async def init_db() -> None:
                 custom_emoji_id TEXT DEFAULT NULL,
                 image_url TEXT DEFAULT NULL,
                 delivery_type TEXT DEFAULT 'stock',
+                dynamic_pricing_enabled INTEGER DEFAULT 0,
+                dynamic_pricing_mode TEXT DEFAULT 'automatic',
+                dynamic_min_price REAL DEFAULT NULL,
+                dynamic_max_price REAL DEFAULT NULL,
+                dynamic_base_price REAL DEFAULT NULL,
+                dynamic_target_daily_sales REAL DEFAULT 1.0,
+                dynamic_max_change_pct REAL DEFAULT 5.0,
+                dynamic_cooldown_hours INTEGER DEFAULT 6,
+                dynamic_sensitivity TEXT DEFAULT 'normal',
+                dynamic_suggested_price REAL DEFAULT NULL,
+                dynamic_last_calculated_at TIMESTAMP DEFAULT NULL,
                 is_active INTEGER DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 is_deleted INTEGER DEFAULT 0,
@@ -290,6 +319,23 @@ async def init_db() -> None:
                 min_qty INTEGER NOT NULL,
                 max_qty INTEGER NOT NULL,
                 price_usd REAL NOT NULL,
+                FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+            )""",
+            """CREATE TABLE IF NOT EXISTS dynamic_price_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER NOT NULL,
+                old_price REAL NOT NULL,
+                new_price REAL NOT NULL,
+                suggested_price REAL NOT NULL,
+                mode TEXT NOT NULL,
+                reason TEXT DEFAULT '',
+                sales_3d REAL DEFAULT 0,
+                sales_14d REAL DEFAULT 0,
+                stock_count INTEGER,
+                stock_days REAL,
+                views_7d INTEGER DEFAULT 0,
+                conversion_7d REAL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
             )""",
             """CREATE TABLE IF NOT EXISTS stock_items (
@@ -507,6 +553,20 @@ async def init_db() -> None:
             "ALTER TABLE products ADD COLUMN confirmation_message_vi TEXT DEFAULT ''",
             "ALTER TABLE products ADD COLUMN confirmation_message_ru TEXT DEFAULT ''",
             "ALTER TABLE products ADD COLUMN sort_order INTEGER DEFAULT 0",
+            "ALTER TABLE products ADD COLUMN dynamic_pricing_enabled INTEGER DEFAULT 0",
+            "ALTER TABLE products ADD COLUMN dynamic_pricing_mode TEXT DEFAULT 'automatic'",
+            "ALTER TABLE products ADD COLUMN dynamic_min_price REAL DEFAULT NULL",
+            "ALTER TABLE products ADD COLUMN dynamic_max_price REAL DEFAULT NULL",
+            "ALTER TABLE products ADD COLUMN dynamic_base_price REAL DEFAULT NULL",
+            "ALTER TABLE products ADD COLUMN dynamic_target_daily_sales REAL DEFAULT 1.0",
+            "ALTER TABLE products ADD COLUMN dynamic_max_change_pct REAL DEFAULT 5.0",
+            "ALTER TABLE products ADD COLUMN dynamic_cooldown_hours INTEGER DEFAULT 6",
+            "ALTER TABLE products ADD COLUMN dynamic_sensitivity TEXT DEFAULT 'normal'",
+            "ALTER TABLE products ADD COLUMN dynamic_suggested_price REAL DEFAULT NULL",
+            "ALTER TABLE products ADD COLUMN dynamic_last_calculated_at TIMESTAMP DEFAULT NULL",
+            "CREATE TABLE IF NOT EXISTS dynamic_price_history (id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL, old_price REAL NOT NULL, new_price REAL NOT NULL, suggested_price REAL NOT NULL, mode TEXT NOT NULL, reason TEXT DEFAULT '', sales_3d REAL DEFAULT 0, sales_14d REAL DEFAULT 0, stock_count INTEGER, stock_days REAL, views_7d INTEGER DEFAULT 0, conversion_7d REAL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE)",
+            "CREATE INDEX IF NOT EXISTS idx_dynamic_price_history_product ON dynamic_price_history(product_id, created_at)",
+            "CREATE INDEX IF NOT EXISTS idx_products_dynamic_pricing ON products(dynamic_pricing_enabled, dynamic_last_calculated_at)",
             "CREATE INDEX IF NOT EXISTS idx_orders_activation_status ON orders(activation_status, status)",
             "CREATE INDEX IF NOT EXISTS idx_reseller_keys_user ON reseller_api_keys(user_telegram_id)",
             "CREATE INDEX IF NOT EXISTS idx_reseller_keys_prefix ON reseller_api_keys(key_prefix)",

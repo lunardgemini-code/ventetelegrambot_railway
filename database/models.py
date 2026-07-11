@@ -11,7 +11,7 @@ import logging
 import time
 from datetime import datetime, timedelta, timezone
 
-from .db import get_db
+from .db import get_db, is_transient_db_connection_error
 
 logger = logging.getLogger(__name__)
 
@@ -699,7 +699,7 @@ async def add_product(
         await db.close()
 
 
-ALLOWED_PRODUCT_COLUMNS = {"category_id", "name", "description", "description_fr", "description_ar", "description_zh", "description_vi", "description_ru", "activation_message", "activation_message_fr", "activation_message_ar", "activation_message_zh", "activation_message_vi", "activation_message_ru", "confirmation_message", "confirmation_message_fr", "confirmation_message_ar", "confirmation_message_zh", "confirmation_message_vi", "confirmation_message_ru", "price_usd", "warranty_days", "emoji", "custom_emoji_id", "image_url", "is_active", "binance_account_id", "delivery_type"}
+ALLOWED_PRODUCT_COLUMNS = {"category_id", "name", "description", "description_fr", "description_ar", "description_zh", "description_vi", "description_ru", "activation_message", "activation_message_fr", "activation_message_ar", "activation_message_zh", "activation_message_vi", "activation_message_ru", "confirmation_message", "confirmation_message_fr", "confirmation_message_ar", "confirmation_message_zh", "confirmation_message_vi", "confirmation_message_ru", "price_usd", "warranty_days", "emoji", "custom_emoji_id", "image_url", "is_active", "binance_account_id", "delivery_type", "dynamic_pricing_enabled", "dynamic_pricing_mode", "dynamic_min_price", "dynamic_max_price", "dynamic_base_price", "dynamic_target_daily_sales", "dynamic_max_change_pct", "dynamic_cooldown_hours", "dynamic_sensitivity", "dynamic_suggested_price", "dynamic_last_calculated_at"}
 
 
 async def update_product(product_id: int, **kwargs) -> None:
@@ -966,16 +966,278 @@ async def get_effective_price(product_id: int, quantity: int) -> float:
     Cherche le palier correspondant Ã  la quantitÃ©.
     Si aucun palier ne correspond, retourne le prix de base du produit.
     """
-    tiers = await get_price_tiers(product_id)
-    for tier in tiers:
-        if tier["min_qty"] <= quantity <= tier["max_qty"]:
-            return float(tier["price_usd"])
-
-    # Fallback: prix de base du produit
     product = await get_product(product_id)
     if not product:
         raise ValueError(f"Product #{product_id} not found")
+
+    tiers = await get_price_tiers(product_id)
+    for tier in tiers:
+        if tier["min_qty"] <= quantity <= tier["max_qty"]:
+            return dynamic_tier_price(product, float(tier["price_usd"]))
+
+    # Fallback: prix de base du produit
     return float(product["price_usd"])
+
+
+def dynamic_tier_price(product: dict, tier_price: float) -> float:
+    """Scale an explicit quantity tier with the current dynamic base price."""
+    if not product.get("dynamic_pricing_enabled"):
+        return round(float(tier_price), 2)
+    base_price = float(product.get("dynamic_base_price") or 0)
+    current_price = float(product.get("price_usd") or 0)
+    if base_price <= 0 or current_price <= 0:
+        return round(float(tier_price), 2)
+    return round(float(tier_price) * (current_price / base_price), 2)
+
+
+def _clamp(value: float, minimum: float, maximum: float) -> float:
+    return max(minimum, min(maximum, value))
+
+
+def _dynamic_last_datetime(value) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        return parsed
+    except (TypeError, ValueError):
+        return None
+
+
+async def recalculate_dynamic_prices(
+    product_id: int | None = None,
+    force: bool = False,
+) -> list[dict]:
+    """Calculate guarded price recommendations and apply automatic ones.
+
+    Products are processed in one transaction with grouped analytics queries.
+    A recommendation never changes an existing order because orders store their
+    final amount when they are created.
+    """
+    db = await get_db()
+    processed: list[dict] = []
+    now = _utcnow()
+    try:
+        params: list = []
+        where = "COALESCE(dynamic_pricing_enabled, 0) = 1 AND COALESCE(is_deleted, 0) = 0"
+        if product_id is not None:
+            where += " AND id = ?"
+            params.append(int(product_id))
+        cursor = await db.execute(f"SELECT * FROM products WHERE {where}", params)
+        products = [dict(row) for row in await cursor.fetchall()]
+        if not products:
+            return []
+
+        due_products = []
+        for product in products:
+            cooldown = max(1, int(product.get("dynamic_cooldown_hours") or 6))
+            last = _dynamic_last_datetime(product.get("dynamic_last_calculated_at"))
+            if force or last is None or now - last >= timedelta(hours=cooldown):
+                due_products.append(product)
+        if not due_products:
+            return []
+
+        product_ids = [int(product["id"]) for product in due_products]
+        placeholders = ",".join("?" for _ in product_ids)
+        paid_statuses = "'COMPLETED','AWAITING_ACTIVATION','AWAITING_ACTIVATION_INFO','PAID_PENDING_DELIVERY'"
+
+        cursor = await db.execute(
+            f"""SELECT product_id,
+                       COALESCE(SUM(CASE WHEN datetime(created_at) >= datetime('now', '-3 days') THEN quantity ELSE 0 END), 0) AS sales_3d,
+                       COALESCE(SUM(CASE WHEN datetime(created_at) >= datetime('now', '-7 days') THEN quantity ELSE 0 END), 0) AS sales_7d,
+                       COALESCE(SUM(CASE WHEN datetime(created_at) >= datetime('now', '-14 days') THEN quantity ELSE 0 END), 0) AS sales_14d
+                FROM orders
+                WHERE product_id IN ({placeholders}) AND status IN ({paid_statuses})
+                GROUP BY product_id""",
+            product_ids,
+        )
+        sales = {int(row["product_id"]): dict(row) for row in await cursor.fetchall()}
+
+        cursor = await db.execute(
+            f"""SELECT product_id, COUNT(*) AS views_7d
+                FROM product_views
+                WHERE product_id IN ({placeholders})
+                  AND datetime(viewed_at) >= datetime('now', '-7 days')
+                GROUP BY product_id""",
+            product_ids,
+        )
+        views = {int(row["product_id"]): int(row["views_7d"] or 0) for row in await cursor.fetchall()}
+
+        cursor = await db.execute(
+            f"""SELECT product_id, COUNT(*) AS stock_count
+                FROM stock_items
+                WHERE product_id IN ({placeholders}) AND is_sold = 0
+                GROUP BY product_id""",
+            product_ids,
+        )
+        stocks = {int(row["product_id"]): int(row["stock_count"] or 0) for row in await cursor.fetchall()}
+
+        calculated_at = now.isoformat(sep=" ", timespec="seconds")
+        sensitivity_factors = {"cautious": 0.6, "normal": 1.0, "aggressive": 1.4}
+        for product in due_products:
+            pid = int(product["id"])
+            current_price = float(product.get("price_usd") or 0)
+            min_price = float(product.get("dynamic_min_price") or current_price)
+            max_price = float(product.get("dynamic_max_price") or current_price)
+            target = max(0.1, float(product.get("dynamic_target_daily_sales") or 1.0))
+            max_change = _clamp(float(product.get("dynamic_max_change_pct") or 5.0), 0.5, 20.0) / 100.0
+            sensitivity = str(product.get("dynamic_sensitivity") or "normal")
+            sensitivity_factor = sensitivity_factors.get(sensitivity, 1.0)
+            mode = "suggestion" if product.get("dynamic_pricing_mode") == "suggestion" else "automatic"
+
+            product_sales = sales.get(pid, {})
+            sales_3d = float(product_sales.get("sales_3d") or 0)
+            sales_7d = float(product_sales.get("sales_7d") or 0)
+            sales_14d = float(product_sales.get("sales_14d") or 0)
+            views_7d = int(views.get(pid, 0))
+            conversion_7d = sales_7d / views_7d if views_7d > 0 else 0.0
+            stock_count = None if product.get("delivery_type") == "activation" else int(stocks.get(pid, 0))
+
+            if sales_14d <= 0 and views_7d < 5:
+                await db.execute(
+                    "UPDATE products SET dynamic_suggested_price = ?, dynamic_last_calculated_at = ? WHERE id = ?",
+                    (current_price, calculated_at, pid),
+                )
+                await db.commit()
+                processed.append({
+                    "product_id": pid, "status": "insufficient_data",
+                    "old_price": current_price, "new_price": current_price,
+                    "suggested_price": current_price,
+                })
+                continue
+
+            short_daily = sales_3d / 3.0
+            long_daily = sales_14d / 14.0
+            demand_signal = _clamp((short_daily - target) / target, -1.0, 1.0)
+            momentum_denominator = max(long_daily, target * 0.25, 0.1)
+            momentum_signal = _clamp((short_daily - long_daily) / momentum_denominator, -1.0, 1.0)
+            conversion_signal = 0.0
+            if views_7d >= 5:
+                conversion_signal = _clamp((conversion_7d - 0.10) / 0.10, -1.0, 1.0)
+
+            stock_days = None
+            stock_signal = 0.0
+            if stock_count is not None:
+                velocity = max(short_daily, long_daily, 0.1)
+                stock_days = stock_count / velocity
+                stock_signal = _clamp((14.0 - stock_days) / 14.0, -1.0, 1.0)
+                score = 0.45 * demand_signal + 0.25 * momentum_signal + 0.20 * stock_signal + 0.10 * conversion_signal
+            else:
+                score = 0.55 * demand_signal + 0.35 * momentum_signal + 0.10 * conversion_signal
+
+            change_ratio = _clamp(score * 0.05 * sensitivity_factor, -max_change, max_change)
+            suggested_price = round(_clamp(current_price * (1.0 + change_ratio), min_price, max_price), 2)
+            if abs(suggested_price - current_price) < 0.01:
+                suggested_price = round(current_price, 2)
+            new_price = suggested_price if mode == "automatic" else current_price
+            reason = (
+                f"demand={demand_signal:+.2f}; momentum={momentum_signal:+.2f}; "
+                f"stock={stock_signal:+.2f}; conversion={conversion_signal:+.2f}; "
+                f"change={change_ratio * 100:+.2f}%"
+            )
+
+            await db.execute(
+                """UPDATE products
+                   SET price_usd = ?, dynamic_suggested_price = ?, dynamic_last_calculated_at = ?
+                   WHERE id = ?""",
+                (new_price, suggested_price, calculated_at, pid),
+            )
+            previous_suggestion = product.get("dynamic_suggested_price")
+            recommendation_changed = previous_suggestion is None or abs(float(previous_suggestion) - suggested_price) >= 0.01
+            if abs(suggested_price - current_price) >= 0.01 and (mode == "automatic" or recommendation_changed):
+                await db.execute(
+                    """INSERT INTO dynamic_price_history
+                       (product_id, old_price, new_price, suggested_price, mode, reason,
+                        sales_3d, sales_14d, stock_count, stock_days, views_7d, conversion_7d)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (pid, current_price, new_price, suggested_price, mode, reason,
+                     sales_3d, sales_14d, stock_count, stock_days, views_7d, conversion_7d),
+                )
+            await db.commit()
+            processed.append({
+                "product_id": pid,
+                "status": "updated" if abs(new_price - current_price) >= 0.01 else "suggested",
+                "mode": mode,
+                "old_price": current_price,
+                "new_price": new_price,
+                "suggested_price": suggested_price,
+                "reason": reason,
+            })
+
+        clear_products_cache()
+        return processed
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def get_dynamic_price_history(product_id: int, limit: int = 20) -> list[dict]:
+    query_params = (int(product_id), max(1, min(int(limit), 100)))
+    for attempt in range(2):
+        db = await get_db()
+        try:
+            cursor = await db.execute(
+                """SELECT * FROM dynamic_price_history
+                   WHERE product_id = ? ORDER BY created_at DESC, id DESC LIMIT ?""",
+                query_params,
+            )
+            return [dict(row) for row in await cursor.fetchall()]
+        except Exception as exc:
+            if attempt or not is_transient_db_connection_error(exc):
+                raise
+            logger.info("Retrying dynamic price history after a stale Turso stream: %s", exc)
+        finally:
+            await db.close()
+
+    return []
+
+
+async def apply_dynamic_price_suggestion(product_id: int) -> dict:
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute("SELECT * FROM products WHERE id = ?", (int(product_id),))
+        row = await cursor.fetchone()
+        if not row:
+            await db.rollback()
+            raise ValueError("Product not found")
+        product = dict(row)
+        if not product.get("dynamic_pricing_enabled"):
+            await db.rollback()
+            raise ValueError("Dynamic pricing is disabled")
+        suggestion = product.get("dynamic_suggested_price")
+        if suggestion is None:
+            await db.rollback()
+            raise ValueError("No dynamic price suggestion available")
+        old_price = float(product["price_usd"])
+        min_price = float(product.get("dynamic_min_price") or old_price)
+        max_price = float(product.get("dynamic_max_price") or old_price)
+        new_price = round(_clamp(float(suggestion), min_price, max_price), 2)
+        await db.execute("UPDATE products SET price_usd = ? WHERE id = ?", (new_price, int(product_id)))
+        await db.execute(
+            """INSERT INTO dynamic_price_history
+               (product_id, old_price, new_price, suggested_price, mode, reason)
+               VALUES (?, ?, ?, ?, 'manual', 'Recommendation applied manually')""",
+            (int(product_id), old_price, new_price, new_price),
+        )
+        await db.commit()
+        clear_products_cache()
+        return {"product_id": int(product_id), "old_price": old_price, "new_price": new_price}
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
 
 
 # â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
@@ -2750,7 +3012,7 @@ async def create_reseller_order(
         unit_price = float(product["price_usd"])
         for tier in tiers:
             if int(tier["min_qty"]) <= quantity <= int(tier["max_qty"]):
-                unit_price = float(tier["price_usd"])
+                unit_price = dynamic_tier_price(product, float(tier["price_usd"]))
                 break
         total = round(unit_price * quantity, 2)
 

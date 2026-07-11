@@ -1340,7 +1340,7 @@ async def api_reorder_products(request: Request):
 
 @api.put("/api/products/{product_id}", dependencies=[Depends(verify_api_key)])
 async def api_update_product(product_id: int, data: dict):
-    from database.models import update_product, get_product, recalculate_dynamic_prices
+    from database.models import update_product, get_product
     try:
         allowed = {"name", "price_usd", "emoji", "custom_emoji_id", "warranty_days", "description", "description_fr", "description_ar", "description_zh", "description_vi", "description_ru", "is_active", "binance_account_id", "image_url", "delivery_type", "activation_message", "activation_message_fr", "activation_message_ar", "activation_message_zh", "activation_message_vi", "activation_message_ru", "confirmation_message", "confirmation_message_fr", "confirmation_message_ar", "confirmation_message_zh", "confirmation_message_vi", "confirmation_message_ru"}
         updates = {k: v for k, v in data.items() if k in allowed}
@@ -1359,25 +1359,8 @@ async def api_update_product(product_id: int, data: dict):
         if "warranty_days" in updates:
             updates["warranty_days"] = int(updates["warranty_days"])
         await update_product(product_id, **updates)
-        calculation_warning = None
-        if (
-            dynamic_updates.get("dynamic_pricing_enabled")
-            and product.get("dynamic_suggested_price") is None
-            and not data.get("skip_dynamic_recalculation")
-        ):
-            try:
-                await recalculate_dynamic_prices(product_id=product_id, force=True)
-            except Exception as exc:
-                # Settings were already committed. A temporary calculation failure
-                # must not make the whole product update look unsuccessful.
-                calculation_warning = "dynamic_pricing_calculation_deferred"
-                logger.warning(
-                    "Initial dynamic pricing calculation deferred for product %s: %s",
-                    product_id,
-                    exc,
-                )
         _clear_api_stats_cache()
-        return {"status": "updated", "warning": calculation_warning}
+        return {"status": "updated"}
     except HTTPException:
         raise
     except Exception as exc:
@@ -1396,9 +1379,11 @@ async def api_dynamic_pricing_history(product_id: int, limit: int = 20):
 
 
 @api.post("/api/products/{product_id}/dynamic-pricing/recalculate", dependencies=[Depends(verify_api_key)])
-async def api_recalculate_dynamic_price(product_id: int):
+async def api_recalculate_dynamic_price(product_id: int, data: dict | None = None):
     from database.models import get_product, recalculate_dynamic_prices
     try:
+        if data:
+            await api_update_product(product_id, {**data, "skip_dynamic_recalculation": True})
         product = await get_product(product_id)
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")

@@ -2,6 +2,7 @@ import asyncio
 import os
 import tempfile
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from database import db as db_module
 from database.db import get_db, init_db
@@ -42,6 +43,49 @@ class OrderSafetyTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         self.temp_dir.cleanup()
+
+    async def test_dynamic_price_history_retries_stale_turso_stream(self):
+        stale_db = AsyncMock()
+        stale_db.execute.side_effect = RuntimeError(
+            'Hrana: status=404 body={"error":"stream not found"}'
+        )
+        fresh_cursor = AsyncMock()
+        fresh_cursor.fetchall.return_value = [
+            {"id": 1, "product_id": self.product_id, "old_price": 5, "new_price": 5.5}
+        ]
+        fresh_db = AsyncMock()
+        fresh_db.execute.return_value = fresh_cursor
+
+        with patch.object(models, "get_db", side_effect=[stale_db, fresh_db]):
+            history = await models.get_dynamic_price_history(self.product_id, limit=8)
+
+        self.assertEqual(history[0]["new_price"], 5.5)
+        stale_db.close.assert_awaited_once()
+        fresh_db.close.assert_awaited_once()
+
+    async def test_dynamic_price_without_data_recommends_current_price(self):
+        await models.update_product(
+            self.product_id,
+            dynamic_pricing_enabled=1,
+            dynamic_pricing_mode="automatic",
+            dynamic_min_price=4.0,
+            dynamic_max_price=6.0,
+            dynamic_target_daily_sales=20,
+            dynamic_max_change_pct=5,
+            dynamic_cooldown_hours=6,
+            dynamic_sensitivity="normal",
+        )
+
+        result = (await models.recalculate_dynamic_prices(
+            product_id=self.product_id,
+            force=True,
+        ))[0]
+        product = await models.get_product(self.product_id)
+
+        self.assertEqual(result["status"], "insufficient_data")
+        self.assertEqual(float(result["suggested_price"]), 5.0)
+        self.assertEqual(float(product["price_usd"]), 5.0)
+        self.assertEqual(float(product["dynamic_suggested_price"]), 5.0)
 
     async def test_wallet_double_click_debits_and_delivers_once(self):
         order = await models.create_order(1001, self.product_id, 5, quantity=1)
@@ -233,6 +277,86 @@ class OrderSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(overview["actions"]["delivery_issues"], 1)
         self.assertEqual(overview["actions"]["open_tickets"], 1)
         self.assertGreaterEqual(len(overview["recent_orders"]), 4)
+
+    async def _seed_dynamic_sales(self, count=3):
+        for index in range(count):
+            user_id = 2000 + index
+            await models.get_or_create_user(user_id, f"buyer{index}", f"Buyer {index}")
+            order = await models.create_order(user_id, self.product_id, 5, quantity=1)
+            self.assertTrue(await models.update_order_status(
+                order["id"], "COMPLETED", expected_statuses=("PENDING",)
+            ))
+
+    async def test_dynamic_price_automatic_increases_with_demand_but_is_capped(self):
+        await self._seed_dynamic_sales(3)
+        await models.update_product(
+            self.product_id,
+            dynamic_pricing_enabled=1,
+            dynamic_pricing_mode="automatic",
+            dynamic_min_price=4.0,
+            dynamic_max_price=6.0,
+            dynamic_base_price=5.0,
+            dynamic_target_daily_sales=0.1,
+            dynamic_max_change_pct=5.0,
+            dynamic_cooldown_hours=6,
+            dynamic_sensitivity="normal",
+        )
+
+        result = (await models.recalculate_dynamic_prices(
+            product_id=self.product_id, force=True
+        ))[0]
+        product = await models.get_product(self.product_id)
+        history = await models.get_dynamic_price_history(self.product_id)
+
+        self.assertEqual(result["status"], "updated")
+        self.assertGreater(float(product["price_usd"]), 5.0)
+        self.assertLessEqual(float(product["price_usd"]), 5.25)
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]["mode"], "automatic")
+        self.assertEqual(await models.recalculate_dynamic_prices(
+            product_id=self.product_id, force=False
+        ), [])
+
+    async def test_dynamic_price_suggestion_waits_for_manual_apply(self):
+        await self._seed_dynamic_sales(3)
+        await models.update_product(
+            self.product_id,
+            dynamic_pricing_enabled=1,
+            dynamic_pricing_mode="suggestion",
+            dynamic_min_price=4.0,
+            dynamic_max_price=6.0,
+            dynamic_base_price=5.0,
+            dynamic_target_daily_sales=0.1,
+            dynamic_max_change_pct=5.0,
+            dynamic_cooldown_hours=6,
+            dynamic_sensitivity="normal",
+        )
+
+        result = (await models.recalculate_dynamic_prices(
+            product_id=self.product_id, force=True
+        ))[0]
+        before_apply = await models.get_product(self.product_id)
+        self.assertEqual(float(before_apply["price_usd"]), 5.0)
+        self.assertGreater(float(result["suggested_price"]), 5.0)
+
+        applied = await models.apply_dynamic_price_suggestion(self.product_id)
+        after_apply = await models.get_product(self.product_id)
+        self.assertEqual(float(after_apply["price_usd"]), float(applied["new_price"]))
+        self.assertGreater(float(after_apply["price_usd"]), 5.0)
+
+    async def test_dynamic_price_scales_quantity_tiers(self):
+        await models.set_price_tiers(self.product_id, [
+            {"min_qty": 2, "max_qty": 10, "price_usd": 4.0}
+        ])
+        await models.update_product(
+            self.product_id,
+            price_usd=5.5,
+            dynamic_pricing_enabled=1,
+            dynamic_base_price=5.0,
+            dynamic_min_price=4.0,
+            dynamic_max_price=6.0,
+        )
+        self.assertAlmostEqual(await models.get_effective_price(self.product_id, 2), 4.4)
 
 
 if __name__ == "__main__":

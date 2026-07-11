@@ -443,11 +443,11 @@ function setupEvents() {
             if (!settings.dynamic_pricing_enabled) throw new Error("Activez d'abord Dynamic Price.");
             settings.price_usd = Number($('edit-prod-price').value);
             showLoading(true);
-            await apiCall(`/api/products/${productId}`, 'PUT', {
-                ...settings,
-                skip_dynamic_recalculation: true,
-            });
-            const result = await apiCall(`/api/products/${productId}/dynamic-pricing/recalculate`, 'POST');
+            const result = await apiCall(
+                `/api/products/${productId}/dynamic-pricing/recalculate`,
+                'POST',
+                settings
+            );
             const calculatedProduct = {
                 ...settings,
                 id: productId,
@@ -2274,7 +2274,13 @@ $('edit-prod-form').addEventListener('submit', async (e) => {
     try {
         await apiCall(`/api/products/${id}`, 'PUT', data);
         hideModal(DOM.editProdModal);
-        await refreshData();
+        showToast('Produit enregistré.', 'success');
+        try {
+            await refreshData();
+        } catch (refreshError) {
+            console.warn('Product saved; dashboard refresh deferred.', refreshError);
+            showToast('Produit enregistré. Actualisation temporairement indisponible.', 'info');
+        }
     } catch(err) { alert(err.message); }
     finally { showLoading(false); }
 });
