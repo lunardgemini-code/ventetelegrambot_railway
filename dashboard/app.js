@@ -168,6 +168,7 @@ const state = {
     currentStockProductId:null, autoRefresh:false, autoRefreshTimer:null,
     chartDays:30, refreshing:false, lastRefreshAt:null,
     revenueChart:null, ordersChart:null, productSalesChart:null, productMomentumChart:null,
+    dynamicPriceChart:null, dynamicSimulationChart:null,
     productStats:[], productMomentum:null, productMomentumSelected:[], deadProductAlerts:[]
 };
 
@@ -454,6 +455,8 @@ function setupEvents() {
                 price_usd: Number(result.new_price ?? settings.price_usd),
                 dynamic_suggested_price: Number(result.suggested_price ?? result.new_price ?? settings.price_usd),
                 dynamic_last_calculated_at: new Date().toISOString(),
+                dynamic_last_confidence: Number(result.confidence ?? 0),
+                dynamic_last_explanation: result.explanation || '',
             };
             $('edit-prod-price').value = calculatedProduct.price_usd.toFixed(2);
             setDynamicPricingForm('edit-prod', calculatedProduct);
@@ -474,9 +477,11 @@ function setupEvents() {
             showToast(
                 result.status === 'insufficient_data'
                     ? 'Calcul terminé : pas encore assez de données, le prix reste inchangé.'
+                    : result.status === 'out_of_stock'
+                        ? 'Calcul suspendu : le produit est en rupture de stock.'
                     : result.status === 'unchanged'
                         ? 'Calcul terminé : le prix recommandé reste inchangé.'
-                        : 'Prix dynamique recalculé.',
+                        : 'Recommandation calculée. Utilisez Appliquer pour modifier le prix maintenant.',
                 'success'
             );
         } catch (error) {
@@ -498,7 +503,25 @@ function setupEvents() {
                 setDynamicPricingForm('edit-prod', product);
             }
             await loadDynamicPricingHistory(productId);
-            showToast('Suggestion appliquée au prix du produit.', 'success');
+            showToast(result.status === 'unchanged' ? 'Cette suggestion est déjà appliquée.' : 'Suggestion appliquée au prix du produit.', 'success');
+        } catch (error) {
+            showToast(error.message, 'error');
+        } finally {
+            showLoading(false);
+        }
+    });
+    const simulateDynamicButton = $('edit-prod-dynamic-simulate');
+    if (simulateDynamicButton) simulateDynamicButton.addEventListener('click', async () => {
+        const productId = Number($('edit-prod-id').value);
+        try {
+            const settings = collectDynamicPricing('edit-prod');
+            if (!settings.dynamic_pricing_enabled) throw new Error("Activez d'abord Dynamic Price.");
+            settings.price_usd = Number($('edit-prod-price').value);
+            showLoading(true);
+            await apiCall(`/api/products/${productId}`, 'PUT', settings);
+            const simulation = await apiCall(`/api/products/${productId}/dynamic-pricing/simulate?days=30`);
+            renderDynamicPricingSimulation(simulation);
+            showToast('Simulation 30 jours terminée.', 'success');
         } catch (error) {
             showToast(error.message, 'error');
         } finally {
@@ -636,18 +659,29 @@ function setDynamicPricingForm(prefix, product={}) {
     setValue('target', product.dynamic_target_daily_sales || 1);
     setValue('change', product.dynamic_max_change_pct || 5);
     setValue('cooldown', product.dynamic_cooldown_hours || 6);
+    setValue('daily-cap', product.dynamic_daily_cap_pct || 10);
+    setValue('weekly-cap', product.dynamic_weekly_cap_pct || 25);
+    setValue('confidence', Math.round(Number(product.dynamic_min_confidence ?? 0.30) * 100));
+    const psychological = $(dynamicPricingId(prefix, 'psychological'));
+    if (psychological) psychological.checked = Boolean(product.dynamic_psychological_rounding);
     setDynamicPricingEnabled(prefix, Boolean(product.dynamic_pricing_enabled), false);
 
     if (prefix === 'edit-prod') {
         const current = $('edit-prod-dynamic-current');
         const suggested = $('edit-prod-dynamic-suggested');
+        const confidence = $('edit-prod-dynamic-confidence-value');
+        const explanation = $('edit-prod-dynamic-explanation');
         if (current) current.textContent = price > 0 ? `$${price.toFixed(2)}` : '-';
         const suggestedPrice = product.dynamic_suggested_price;
         if (suggested) suggested.textContent = suggestedPrice === null || suggestedPrice === undefined ? 'À calculer' : `$${Number(suggestedPrice).toFixed(2)}`;
+        if (confidence) {
+            const confidenceValue = product.dynamic_last_confidence;
+            confidence.textContent = confidenceValue === null || confidenceValue === undefined ? '-' : `${Math.round(Number(confidenceValue) * 100)}%`;
+        }
+        if (explanation && product.dynamic_last_explanation) explanation.textContent = product.dynamic_last_explanation;
         const applyButton = $('edit-prod-dynamic-apply');
         if (applyButton) {
             const canApply = Boolean(product.dynamic_pricing_enabled)
-                && product.dynamic_pricing_mode === 'suggestion'
                 && suggestedPrice !== null && suggestedPrice !== undefined
                 && Math.abs(Number(suggestedPrice) - price) >= 0.01;
             applyButton.classList.toggle('hidden', !canApply);
@@ -665,12 +699,18 @@ function collectDynamicPricing(prefix) {
     const target = numberValue('target');
     const maxChange = numberValue('change');
     const cooldown = numberValue('cooldown');
-    if (![price, minPrice, maxPrice, target, maxChange, cooldown].every(Number.isFinite)) throw new Error('Vérifiez les paramètres du prix dynamique.');
+    const dailyCap = numberValue('daily-cap');
+    const weeklyCap = numberValue('weekly-cap');
+    const confidence = numberValue('confidence');
+    if (![price, minPrice, maxPrice, target, maxChange, cooldown, dailyCap, weeklyCap, confidence].every(Number.isFinite)) throw new Error('Vérifiez les paramètres du prix dynamique.');
     if (minPrice <= 0 || maxPrice < minPrice) throw new Error('Le prix minimum doit être positif et inférieur au prix maximum.');
     if (price < minPrice || price > maxPrice) throw new Error('Le prix actuel doit être compris entre le minimum et le maximum.');
     if (target < 0.1) throw new Error("L'objectif de ventes doit être supérieur à zéro.");
     if (maxChange < 0.5 || maxChange > 20) throw new Error('La variation maximale doit être comprise entre 0,5 % et 20 %.');
     if (cooldown < 1 || cooldown > 168) throw new Error('Le délai doit être compris entre 1 et 168 heures.');
+    if (dailyCap < 0.5 || dailyCap > 100) throw new Error('Le plafond sur 24 h doit être compris entre 0,5 % et 100 %.');
+    if (weeklyCap < dailyCap || weeklyCap > 200) throw new Error('Le plafond sur 7 jours doit être supérieur au plafond journalier et inférieur à 200 %.');
+    if (confidence < 0 || confidence > 100) throw new Error('La confiance minimum doit être comprise entre 0 % et 100 %.');
     return {
         dynamic_pricing_enabled:true,
         dynamic_pricing_mode:$(dynamicPricingId(prefix, 'mode')).value,
@@ -680,6 +720,10 @@ function collectDynamicPricing(prefix) {
         dynamic_max_change_pct:maxChange,
         dynamic_cooldown_hours:cooldown,
         dynamic_sensitivity:$(dynamicPricingId(prefix, 'sensitivity')).value,
+        dynamic_daily_cap_pct:dailyCap,
+        dynamic_weekly_cap_pct:weeklyCap,
+        dynamic_min_confidence:confidence / 100,
+        dynamic_psychological_rounding:Boolean($(dynamicPricingId(prefix, 'psychological'))?.checked),
     };
 }
 
@@ -705,19 +749,34 @@ async function loadDynamicPricingHistory(productId) {
     try {
         let data;
         try {
-            data = await apiCall(`/api/products/${productId}/dynamic-pricing/history?limit=8`);
+            data = await apiCall(`/api/products/${productId}/dynamic-pricing/history?limit=30`);
         } catch (firstError) {
             if (!['UNREACHABLE', 'TIMEOUT'].includes(firstError.message)) throw firstError;
             await new Promise(resolve => setTimeout(resolve, 900));
-            data = await apiCall(`/api/products/${productId}/dynamic-pricing/history?limit=8`);
+            data = await apiCall(`/api/products/${productId}/dynamic-pricing/history?limit=30`);
         }
         const history = data.history || [];
-        container.innerHTML = history.length ? history.map(item => {
+        container.innerHTML = history.length ? history.slice(0, 10).map(item => {
             const date = item.created_at ? parseUTCDate(item.created_at).toLocaleString() : '';
-            const mode = item.mode === 'automatic' ? 'Auto' : item.mode === 'suggestion' ? 'Suggestion' : 'Manuel';
-            return `<div class="dynamic-history-item"><strong>$${Number(item.old_price).toFixed(2)} → $${Number(item.new_price).toFixed(2)}</strong><span>${mode} · ${escapeHtml(date)}</span><small>${escapeHtml(item.reason || '')}</small></div>`;
+            const mode = item.applied ? (item.mode === 'automatic' ? 'Auto appliqué' : 'Appliqué') : 'Prévisualisation';
+            const displayedPrice = item.applied ? item.new_price : item.suggested_price;
+            return `<div class="dynamic-history-item">
+                <strong>$${Number(item.old_price).toFixed(2)} → $${Number(displayedPrice).toFixed(2)}</strong>
+                <span>${mode} · ${escapeHtml(date)}</span>
+                <small>${escapeHtml(item.explanation || item.reason || '')}</small>
+                <div class="dynamic-history-meta">
+                    <span class="dynamic-history-pill ${item.applied ? 'applied' : ''}">${item.applied ? 'Prix appliqué' : 'Suggestion'}</span>
+                    <span class="dynamic-history-pill">Confiance ${Number(item.confidence_pct || 0)}%</span>
+                    <span class="dynamic-history-pill">${(Number(item.sales_3d || 0) / 3).toFixed(1)} vente/j</span>
+                    <span class="dynamic-history-pill">Revenu 7j $${Number(item.revenue_7d || 0).toFixed(2)}</span>
+                </div>
+            </div>`;
         }).join('') : '<p class="empty-state">Aucun historique.</p>';
+        const explanation = $('edit-prod-dynamic-explanation');
+        if (explanation && history.length) explanation.textContent = history[0].explanation || history[0].reason || 'Décision dynamique enregistrée.';
+        renderDynamicPricingHistoryChart(history);
     } catch (error) {
+        renderDynamicPricingHistoryChart([]);
         const transient = ['UNREACHABLE', 'TIMEOUT'].includes(error.message);
         const message = transient
             ? "Historique temporairement indisponible. Le prix dynamique reste actif."
@@ -725,6 +784,65 @@ async function loadDynamicPricingHistory(productId) {
         container.innerHTML = `<div class="dynamic-history-unavailable"><p>${escapeHtml(message)}</p><button type="button" class="btn-secondary"><i class="fa-solid fa-rotate-right"></i> Réessayer</button></div>`;
         container.querySelector('button').addEventListener('click', () => loadDynamicPricingHistory(productId));
     }
+}
+
+function renderDynamicPricingHistoryChart(history) {
+    const canvas = $('edit-prod-dynamic-chart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    if (state.dynamicPriceChart) {
+        state.dynamicPriceChart.destroy();
+        state.dynamicPriceChart = null;
+    }
+    if (!history.length) return;
+    const rows = [...history].reverse();
+    const labels = rows.map(item => item.created_at ? parseUTCDate(item.created_at).toLocaleDateString() : '');
+    state.dynamicPriceChart = new Chart(canvas, {
+        type:'line',
+        data:{labels,datasets:[
+            {label:'Prix recommandé ($)',data:rows.map(item=>Number(item.suggested_price||0)),borderColor:'#60a5fa',backgroundColor:'#60a5fa22',tension:.25,pointRadius:3,yAxisID:'y'},
+            {label:'Ventes/jour',type:'bar',data:rows.map(item=>Number(item.sales_3d||0)/3),backgroundColor:'#34d39955',borderColor:'#34d399',borderWidth:1,yAxisID:'y1'},
+            {label:'Revenu 7j ($)',data:rows.map(item=>Number(item.revenue_7d||0)),borderColor:'#f59e0b',tension:.25,pointRadius:2,yAxisID:'y2',hidden:true},
+            {label:'Conversion (%)',data:rows.map(item=>Number(item.conversion_7d||0)*100),borderColor:'#f472b6',tension:.25,pointRadius:2,yAxisID:'y1',hidden:true},
+        ]},
+        options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{labels:{boxWidth:10,usePointStyle:true}}},scales:{
+            y:{position:'left',beginAtZero:false,grid:{color:'rgba(148,163,184,.10)'}},
+            y1:{position:'right',beginAtZero:true,grid:{display:false}},
+            y2:{position:'right',beginAtZero:true,display:false,grid:{display:false}},
+            x:{grid:{display:false}}
+        }}
+    });
+}
+
+function renderDynamicPricingSimulation(simulation) {
+    const container = $('edit-prod-dynamic-simulation');
+    const summary = $('edit-prod-dynamic-simulation-summary');
+    const canvas = $('edit-prod-dynamic-simulation-chart');
+    if (!container || !summary || !canvas) return;
+    container.classList.remove('hidden');
+    const values = simulation.summary || {};
+    summary.innerHTML = `
+        <div class="dynamic-simulation-metric"><span>Prix de départ</span><strong>$${Number(values.start_price||0).toFixed(2)}</strong></div>
+        <div class="dynamic-simulation-metric"><span>Prix simulé final</span><strong>$${Number(values.end_price||0).toFixed(2)}</strong></div>
+        <div class="dynamic-simulation-metric"><span>Décisions</span><strong>${Number(values.decisions||0)}</strong></div>
+        <div class="dynamic-simulation-metric"><span>Ventes observées</span><strong>${Number(values.observed_sales||0)}</strong></div>
+        <div class="dynamic-simulation-metric"><span>Revenu observé</span><strong>$${Number(values.observed_revenue||0).toFixed(2)}</strong></div>
+        <div class="dynamic-simulation-metric"><span>Fourchette simulée</span><strong>$${Number(values.min_price||0).toFixed(2)} – $${Number(values.max_price||0).toFixed(2)}</strong></div>
+        <p class="dynamic-simulation-note"><i class="fa-solid fa-circle-info"></i> ${escapeHtml(simulation.assumption || 'Simulation indicative en lecture seule.')}</p>`;
+    if (state.dynamicSimulationChart) state.dynamicSimulationChart.destroy();
+    const points = simulation.points || [];
+    state.dynamicSimulationChart = new Chart(canvas, {
+        type:'line',
+        data:{labels:points.map(point=>point.date),datasets:[
+            {label:'Prix simulé ($)',data:points.map(point=>point.simulated_price),borderColor:'#60a5fa',backgroundColor:'#60a5fa22',fill:true,tension:.25,pointRadius:1,yAxisID:'y'},
+            {label:'Ventes observées',type:'bar',data:points.map(point=>point.sales),backgroundColor:'#34d39955',borderColor:'#34d399',borderWidth:1,yAxisID:'y1'},
+            {label:'Revenu observé ($)',data:points.map(point=>point.revenue),borderColor:'#f59e0b',pointRadius:1,tension:.2,yAxisID:'y2',hidden:true},
+            {label:'Confiance (%)',data:points.map(point=>Number(point.confidence||0)*100),borderColor:'#f472b6',pointRadius:1,tension:.2,yAxisID:'y1',hidden:true},
+        ]},
+        options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{labels:{boxWidth:10,usePointStyle:true}}},scales:{
+            y:{position:'left',beginAtZero:false},y1:{position:'right',beginAtZero:true,grid:{display:false}},
+            y2:{position:'right',display:false,grid:{display:false}},x:{grid:{display:false}}
+        }}
+    });
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -2195,6 +2313,14 @@ window.viewProductStock = async function(productId) {
 window.openEditProduct = function(productId) {
     const p = state.products.find(pr => pr.id === productId);
     if (!p) return;
+    const dynamicExplanation = $('edit-prod-dynamic-explanation');
+    if (dynamicExplanation) dynamicExplanation.textContent = 'Calculez une recommandation pour afficher les facteurs de décision.';
+    const simulationPanel = $('edit-prod-dynamic-simulation');
+    if (simulationPanel) simulationPanel.classList.add('hidden');
+    if (state.dynamicSimulationChart) {
+        state.dynamicSimulationChart.destroy();
+        state.dynamicSimulationChart = null;
+    }
     $('edit-prod-id').value = p.id;
     $('edit-prod-emoji').value = p.emoji || '📦';
     $('edit-prod-name').value = p.name;

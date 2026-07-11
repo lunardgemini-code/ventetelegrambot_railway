@@ -1160,7 +1160,9 @@ async def api_get_products():
 _DYNAMIC_PRICING_FIELDS = {
     "dynamic_pricing_enabled", "dynamic_pricing_mode", "dynamic_min_price",
     "dynamic_max_price", "dynamic_target_daily_sales", "dynamic_max_change_pct",
-    "dynamic_cooldown_hours", "dynamic_sensitivity",
+    "dynamic_cooldown_hours", "dynamic_sensitivity", "dynamic_daily_cap_pct",
+    "dynamic_weekly_cap_pct", "dynamic_min_confidence",
+    "dynamic_psychological_rounding",
 }
 
 
@@ -1186,6 +1188,9 @@ def _validated_dynamic_pricing_updates(data: dict, current_price: float, existin
         target = float(data.get("dynamic_target_daily_sales", existing.get("dynamic_target_daily_sales") or 1.0))
         max_change = float(data.get("dynamic_max_change_pct", existing.get("dynamic_max_change_pct") or 5.0))
         cooldown = int(data.get("dynamic_cooldown_hours", existing.get("dynamic_cooldown_hours") or 6))
+        daily_cap = float(data.get("dynamic_daily_cap_pct", existing.get("dynamic_daily_cap_pct") or 10.0))
+        weekly_cap = float(data.get("dynamic_weekly_cap_pct", existing.get("dynamic_weekly_cap_pct") or 25.0))
+        min_confidence = float(data.get("dynamic_min_confidence", existing.get("dynamic_min_confidence") or 0.30))
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Dynamic pricing values must be valid numbers")
 
@@ -1201,6 +1206,12 @@ def _validated_dynamic_pricing_updates(data: dict, current_price: float, existin
         raise HTTPException(status_code=400, detail="Maximum dynamic variation must be between 0.5% and 20%")
     if not 1 <= cooldown <= 168:
         raise HTTPException(status_code=400, detail="Dynamic pricing cooldown must be between 1 and 168 hours")
+    if not 0.5 <= daily_cap <= 100:
+        raise HTTPException(status_code=400, detail="Daily dynamic variation cap must be between 0.5% and 100%")
+    if not 0.5 <= weekly_cap <= 200 or weekly_cap < daily_cap:
+        raise HTTPException(status_code=400, detail="Weekly dynamic variation cap must be at least the daily cap and not exceed 200%")
+    if not 0 <= min_confidence <= 1:
+        raise HTTPException(status_code=400, detail="Minimum dynamic pricing confidence must be between 0 and 1")
     if mode not in {"suggestion", "automatic"}:
         raise HTTPException(status_code=400, detail="Dynamic pricing mode must be suggestion or automatic")
     if sensitivity not in {"cautious", "normal", "aggressive"}:
@@ -1217,6 +1228,10 @@ def _validated_dynamic_pricing_updates(data: dict, current_price: float, existin
         "dynamic_max_change_pct": max_change,
         "dynamic_cooldown_hours": cooldown,
         "dynamic_sensitivity": sensitivity,
+        "dynamic_daily_cap_pct": daily_cap,
+        "dynamic_weekly_cap_pct": weekly_cap,
+        "dynamic_min_confidence": min_confidence,
+        "dynamic_psychological_rounding": 1 if _as_bool(data.get("dynamic_psychological_rounding", existing.get("dynamic_psychological_rounding", False))) else 0,
     }
 
 
@@ -1274,7 +1289,7 @@ async def api_create_product(data: dict):
         if dynamic_updates:
             await update_product(prod_id, **dynamic_updates)
             if dynamic_updates.get("dynamic_pricing_enabled"):
-                await recalculate_dynamic_prices(product_id=prod_id, force=True)
+                await recalculate_dynamic_prices(product_id=prod_id, force=True, apply_automatic=False)
         _clear_api_stats_cache()
         return {"id": prod_id, "status": "created"}
     except HTTPException:
@@ -1352,6 +1367,25 @@ async def api_update_product(product_id: int, data: dict):
             raise HTTPException(status_code=400, detail="Price must be positive")
         dynamic_updates = _validated_dynamic_pricing_updates(data, updated_price, existing=product)
         updates.update(dynamic_updates)
+        pricing_changed = False
+        for key, value in dynamic_updates.items():
+            previous = product.get(key)
+            if isinstance(value, (int, float)) and previous is not None:
+                try:
+                    changed = abs(float(previous) - float(value)) > 1e-9
+                except (TypeError, ValueError):
+                    changed = previous != value
+            else:
+                changed = previous != value
+            pricing_changed = pricing_changed or changed
+        price_changed = "price_usd" in updates and abs(float(product["price_usd"]) - float(updates["price_usd"])) >= 0.01
+        if pricing_changed or price_changed:
+            updates.update({
+                "dynamic_suggested_price": None,
+                "dynamic_last_input_hash": None,
+                "dynamic_last_applied_hash": None,
+                "dynamic_last_confidence": None,
+            })
         if not updates:
             raise HTTPException(status_code=400, detail="No valid fields to update")
         if "price_usd" in updates:
@@ -1372,7 +1406,13 @@ async def api_update_product(product_id: int, data: dict):
 async def api_dynamic_pricing_history(product_id: int, limit: int = 20):
     from database.models import get_dynamic_price_history
     try:
-        return {"history": await get_dynamic_price_history(product_id, limit=limit)}
+        history = await get_dynamic_price_history(product_id, limit=limit)
+        for item in history:
+            item["applied"] = bool(item.get("applied"))
+            item["confidence_pct"] = round(float(item.get("confidence") or 0) * 100)
+            if not item.get("explanation"):
+                item["explanation"] = item.get("reason") or "Décision dynamique enregistrée."
+        return {"history": history}
     except Exception as exc:
         logger.error("API dynamic pricing history error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -1389,13 +1429,25 @@ async def api_recalculate_dynamic_price(product_id: int, data: dict | None = Non
             raise HTTPException(status_code=404, detail="Product not found")
         if not product.get("dynamic_pricing_enabled"):
             raise HTTPException(status_code=400, detail="Dynamic pricing is disabled for this product")
-        results = await recalculate_dynamic_prices(product_id=product_id, force=True)
+        results = await recalculate_dynamic_prices(product_id=product_id, force=True, apply_automatic=False)
         _clear_api_stats_cache()
         return results[0] if results else {"product_id": product_id, "status": "unchanged"}
     except HTTPException:
         raise
     except Exception as exc:
         logger.error("API dynamic price recalculation error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/api/products/{product_id}/dynamic-pricing/simulate", dependencies=[Depends(verify_api_key)])
+async def api_simulate_dynamic_price(product_id: int, days: int = 30):
+    from database.models import simulate_dynamic_pricing
+    try:
+        return await simulate_dynamic_pricing(product_id, days=days)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        logger.error("API dynamic price simulation error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

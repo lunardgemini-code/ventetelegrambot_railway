@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import secrets
 import uuid
 import logging
@@ -699,7 +700,7 @@ async def add_product(
         await db.close()
 
 
-ALLOWED_PRODUCT_COLUMNS = {"category_id", "name", "description", "description_fr", "description_ar", "description_zh", "description_vi", "description_ru", "activation_message", "activation_message_fr", "activation_message_ar", "activation_message_zh", "activation_message_vi", "activation_message_ru", "confirmation_message", "confirmation_message_fr", "confirmation_message_ar", "confirmation_message_zh", "confirmation_message_vi", "confirmation_message_ru", "price_usd", "warranty_days", "emoji", "custom_emoji_id", "image_url", "is_active", "binance_account_id", "delivery_type", "dynamic_pricing_enabled", "dynamic_pricing_mode", "dynamic_min_price", "dynamic_max_price", "dynamic_base_price", "dynamic_target_daily_sales", "dynamic_max_change_pct", "dynamic_cooldown_hours", "dynamic_sensitivity", "dynamic_suggested_price", "dynamic_last_calculated_at"}
+ALLOWED_PRODUCT_COLUMNS = {"category_id", "name", "description", "description_fr", "description_ar", "description_zh", "description_vi", "description_ru", "activation_message", "activation_message_fr", "activation_message_ar", "activation_message_zh", "activation_message_vi", "activation_message_ru", "confirmation_message", "confirmation_message_fr", "confirmation_message_ar", "confirmation_message_zh", "confirmation_message_vi", "confirmation_message_ru", "price_usd", "warranty_days", "emoji", "custom_emoji_id", "image_url", "is_active", "binance_account_id", "delivery_type", "dynamic_pricing_enabled", "dynamic_pricing_mode", "dynamic_min_price", "dynamic_max_price", "dynamic_base_price", "dynamic_target_daily_sales", "dynamic_max_change_pct", "dynamic_cooldown_hours", "dynamic_sensitivity", "dynamic_suggested_price", "dynamic_last_calculated_at", "dynamic_daily_cap_pct", "dynamic_weekly_cap_pct", "dynamic_min_confidence", "dynamic_psychological_rounding", "dynamic_last_input_hash", "dynamic_last_applied_hash", "dynamic_last_confidence"}
 
 
 async def update_product(product_id: int, **kwargs) -> None:
@@ -1006,16 +1007,173 @@ def _dynamic_last_datetime(value) -> datetime | None:
         return None
 
 
+def _psychological_dynamic_price(raw_price: float, minimum: float, maximum: float) -> float:
+    rounded = round(_clamp(raw_price, minimum, maximum), 2)
+    if rounded < 1:
+        return rounded
+    candidates = []
+    whole = int(raw_price)
+    for base in range(max(0, whole - 1), whole + 2):
+        for ending in (0.49, 0.90, 0.99):
+            candidate = round(base + ending, 2)
+            if minimum <= candidate <= maximum:
+                candidates.append(candidate)
+    if not candidates:
+        return rounded
+    candidate = min(candidates, key=lambda value: abs(value - raw_price))
+    return candidate if abs(candidate - raw_price) <= max(0.05, raw_price * 0.0125) else rounded
+
+
+def _dynamic_confidence(sales_14d: float, views_7d: int) -> float:
+    if sales_14d <= 0 and views_7d < 5:
+        return 0.0
+    sales_confidence = min(1.0, sales_14d / 10.0)
+    views_confidence = min(1.0, views_7d / 50.0)
+    return round(min(1.0, 0.20 + 0.60 * sales_confidence + 0.20 * views_confidence), 3)
+
+
+def _dynamic_decision_key(product: dict, metrics: dict) -> str:
+    payload = {
+        "sales_3d": round(float(metrics.get("sales_3d", 0)), 4),
+        "sales_7d": round(float(metrics.get("sales_7d", 0)), 4),
+        "sales_14d": round(float(metrics.get("sales_14d", 0)), 4),
+        "views_7d": int(metrics.get("views_7d", 0)),
+        "stock_count": metrics.get("stock_count"),
+        "revenue_7d": round(float(metrics.get("revenue_7d", 0)), 4),
+        "revenue_prev_7d": round(float(metrics.get("revenue_prev_7d", 0)), 4),
+        "mode": product.get("dynamic_pricing_mode"),
+        "min": product.get("dynamic_min_price"),
+        "max": product.get("dynamic_max_price"),
+        "target": product.get("dynamic_target_daily_sales"),
+        "max_change": product.get("dynamic_max_change_pct"),
+        "daily_cap": product.get("dynamic_daily_cap_pct"),
+        "weekly_cap": product.get("dynamic_weekly_cap_pct"),
+        "min_confidence": product.get("dynamic_min_confidence"),
+        "sensitivity": product.get("dynamic_sensitivity"),
+        "psychological": product.get("dynamic_psychological_rounding"),
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:32]
+
+
+def _calculate_dynamic_decision(
+    product: dict,
+    current_price: float,
+    metrics: dict,
+    daily_base_price: float,
+    weekly_base_price: float,
+) -> dict:
+    sales_3d = float(metrics.get("sales_3d") or 0)
+    sales_7d = float(metrics.get("sales_7d") or 0)
+    sales_14d = float(metrics.get("sales_14d") or 0)
+    views_7d = int(metrics.get("views_7d") or 0)
+    revenue_7d = float(metrics.get("revenue_7d") or 0)
+    revenue_prev_7d = float(metrics.get("revenue_prev_7d") or 0)
+    stock_count = metrics.get("stock_count")
+    confidence = _dynamic_confidence(sales_14d, views_7d)
+    min_confidence = _clamp(float(product.get("dynamic_min_confidence") or 0.30), 0.0, 1.0)
+    min_price = float(product.get("dynamic_min_price") or current_price)
+    max_price = float(product.get("dynamic_max_price") or current_price)
+
+    if stock_count == 0:
+        return {
+            "status": "out_of_stock", "suggested_price": round(current_price, 2),
+            "confidence": confidence, "score": 0.0, "change_ratio": 0.0,
+            "stock_days": 0.0, "signals": {},
+            "explanation": "Calcul suspendu : le produit est en rupture de stock.",
+        }
+    if confidence < min_confidence:
+        return {
+            "status": "insufficient_data", "suggested_price": round(current_price, 2),
+            "confidence": confidence, "score": 0.0, "change_ratio": 0.0,
+            "stock_days": None, "signals": {},
+            "explanation": f"Données insuffisantes : confiance {confidence * 100:.0f}% (minimum {min_confidence * 100:.0f}%).",
+        }
+
+    recent_daily = sales_3d / 3.0
+    medium_daily = sales_7d / 7.0
+    long_daily = sales_14d / 14.0
+    smoothed_daily = 0.50 * recent_daily + 0.30 * medium_daily + 0.20 * long_daily
+    target = max(0.1, float(product.get("dynamic_target_daily_sales") or 1.0))
+    demand_signal = _clamp((smoothed_daily - target) / target, -1.0, 1.0)
+    momentum_denominator = max(long_daily, target * 0.25, 0.1)
+    momentum_signal = _clamp((recent_daily - long_daily) / momentum_denominator, -1.0, 1.0)
+    conversion_7d = sales_7d / views_7d if views_7d > 0 else 0.0
+    conversion_signal = 0.0
+    if views_7d >= 5:
+        conversion_signal = _clamp((conversion_7d - 0.10) / 0.10, -1.0, 1.0)
+    revenue_baseline = max(revenue_prev_7d, target * current_price * 7.0 * 0.25, 0.01)
+    revenue_signal = _clamp((revenue_7d - revenue_prev_7d) / revenue_baseline, -1.0, 1.0)
+
+    stock_days = None
+    stock_signal = 0.0
+    if stock_count is not None:
+        velocity = max(smoothed_daily, 0.1)
+        stock_days = float(stock_count) / velocity
+        stock_signal = _clamp((14.0 - stock_days) / 14.0, -1.0, 1.0)
+        score = (
+            0.35 * demand_signal + 0.20 * momentum_signal + 0.15 * stock_signal
+            + 0.10 * conversion_signal + 0.20 * revenue_signal
+        )
+    else:
+        score = 0.45 * demand_signal + 0.25 * momentum_signal + 0.10 * conversion_signal + 0.20 * revenue_signal
+
+    sensitivity_factor = {"cautious": 0.6, "normal": 1.0, "aggressive": 1.4}.get(
+        str(product.get("dynamic_sensitivity") or "normal"), 1.0
+    )
+    max_change = _clamp(float(product.get("dynamic_max_change_pct") or 5.0), 0.5, 20.0) / 100.0
+    change_ratio = _clamp(score * 0.05 * sensitivity_factor, -max_change, max_change)
+
+    daily_cap = _clamp(float(product.get("dynamic_daily_cap_pct") or 10.0), 0.5, 100.0) / 100.0
+    weekly_cap = _clamp(float(product.get("dynamic_weekly_cap_pct") or 25.0), 0.5, 200.0) / 100.0
+    lower_bound = max(min_price, current_price * (1.0 - max_change), daily_base_price * (1.0 - daily_cap), weekly_base_price * (1.0 - weekly_cap))
+    upper_bound = min(max_price, current_price * (1.0 + max_change), daily_base_price * (1.0 + daily_cap), weekly_base_price * (1.0 + weekly_cap))
+    raw_price = _clamp(current_price * (1.0 + change_ratio), lower_bound, upper_bound)
+    if product.get("dynamic_psychological_rounding"):
+        raw_price = _psychological_dynamic_price(raw_price, lower_bound, upper_bound)
+    suggested_price = round(raw_price, 2)
+    if abs(suggested_price - current_price) < 0.01:
+        suggested_price = round(current_price, 2)
+
+    reasons = []
+    reasons.append("ventes au-dessus de l’objectif" if demand_signal > 0.15 else "ventes sous l’objectif" if demand_signal < -0.15 else "ventes proches de l’objectif")
+    if momentum_signal > 0.15:
+        reasons.append("momentum récent positif")
+    elif momentum_signal < -0.15:
+        reasons.append("momentum récent en baisse")
+    if stock_signal > 0.25:
+        reasons.append("stock faible")
+    elif stock_signal < -0.25:
+        reasons.append("stock confortable")
+    if conversion_signal > 0.25:
+        reasons.append("conversion élevée")
+    elif conversion_signal < -0.25:
+        reasons.append("conversion faible")
+    if revenue_signal > 0.25:
+        reasons.append("revenu hebdomadaire en progression")
+    elif revenue_signal < -0.25:
+        reasons.append("revenu hebdomadaire en recul")
+    direction = "hausse" if suggested_price > current_price else "baisse" if suggested_price < current_price else "maintien"
+    explanation = f"{direction.capitalize()} recommandée : " + ", ".join(reasons) + "."
+    return {
+        "status": "ready", "suggested_price": suggested_price,
+        "confidence": confidence, "score": round(score, 4), "change_ratio": change_ratio,
+        "stock_days": stock_days, "conversion_7d": conversion_7d,
+        "signals": {
+            "demand": round(demand_signal, 3), "momentum": round(momentum_signal, 3),
+            "stock": round(stock_signal, 3), "conversion": round(conversion_signal, 3),
+            "revenue": round(revenue_signal, 3), "smoothed_daily_sales": round(smoothed_daily, 3),
+        },
+        "explanation": explanation,
+    }
+
+
 async def recalculate_dynamic_prices(
     product_id: int | None = None,
     force: bool = False,
+    apply_automatic: bool = True,
 ) -> list[dict]:
-    """Calculate guarded price recommendations and apply automatic ones.
-
-    Products are processed in one transaction with grouped analytics queries.
-    A recommendation never changes an existing order because orders store their
-    final amount when they are created.
-    """
+    """Build idempotent recommendations and optionally apply automatic decisions."""
     db = await get_db()
     processed: list[dict] = []
     now = _utcnow()
@@ -1042,128 +1200,137 @@ async def recalculate_dynamic_prices(
         product_ids = [int(product["id"]) for product in due_products]
         placeholders = ",".join("?" for _ in product_ids)
         paid_statuses = "'COMPLETED','AWAITING_ACTIVATION','AWAITING_ACTIVATION_INFO','PAID_PENDING_DELIVERY'"
-
         cursor = await db.execute(
             f"""SELECT product_id,
                        COALESCE(SUM(CASE WHEN datetime(created_at) >= datetime('now', '-3 days') THEN quantity ELSE 0 END), 0) AS sales_3d,
                        COALESCE(SUM(CASE WHEN datetime(created_at) >= datetime('now', '-7 days') THEN quantity ELSE 0 END), 0) AS sales_7d,
-                       COALESCE(SUM(CASE WHEN datetime(created_at) >= datetime('now', '-14 days') THEN quantity ELSE 0 END), 0) AS sales_14d
+                       COALESCE(SUM(CASE WHEN datetime(created_at) >= datetime('now', '-14 days') THEN quantity ELSE 0 END), 0) AS sales_14d,
+                       COALESCE(SUM(CASE WHEN datetime(created_at) >= datetime('now', '-7 days') THEN amount_usd ELSE 0 END), 0) AS revenue_7d,
+                       COALESCE(SUM(CASE WHEN datetime(created_at) >= datetime('now', '-14 days') AND datetime(created_at) < datetime('now', '-7 days') THEN amount_usd ELSE 0 END), 0) AS revenue_prev_7d
                 FROM orders
                 WHERE product_id IN ({placeholders}) AND status IN ({paid_statuses})
                 GROUP BY product_id""",
             product_ids,
         )
         sales = {int(row["product_id"]): dict(row) for row in await cursor.fetchall()}
-
         cursor = await db.execute(
-            f"""SELECT product_id, COUNT(*) AS views_7d
-                FROM product_views
-                WHERE product_id IN ({placeholders})
-                  AND datetime(viewed_at) >= datetime('now', '-7 days')
+            f"""SELECT product_id, COUNT(*) AS views_7d FROM product_views
+                WHERE product_id IN ({placeholders}) AND datetime(viewed_at) >= datetime('now', '-7 days')
                 GROUP BY product_id""",
             product_ids,
         )
         views = {int(row["product_id"]): int(row["views_7d"] or 0) for row in await cursor.fetchall()}
-
         cursor = await db.execute(
-            f"""SELECT product_id, COUNT(*) AS stock_count
-                FROM stock_items
-                WHERE product_id IN ({placeholders}) AND is_sold = 0
-                GROUP BY product_id""",
+            f"""SELECT product_id, COUNT(*) AS stock_count FROM stock_items
+                WHERE product_id IN ({placeholders}) AND is_sold = 0 GROUP BY product_id""",
             product_ids,
         )
         stocks = {int(row["product_id"]): int(row["stock_count"] or 0) for row in await cursor.fetchall()}
+        cursor = await db.execute(
+            f"""SELECT product_id, old_price, new_price, created_at FROM dynamic_price_history
+                WHERE product_id IN ({placeholders}) AND COALESCE(applied, 0) = 1
+                  AND datetime(created_at) >= datetime('now', '-7 days')
+                ORDER BY datetime(created_at) ASC, id ASC""",
+            product_ids,
+        )
+        applied_history: dict[int, list[dict]] = {}
+        for row in await cursor.fetchall():
+            applied_history.setdefault(int(row["product_id"]), []).append(dict(row))
 
         calculated_at = now.isoformat(sep=" ", timespec="seconds")
-        sensitivity_factors = {"cautious": 0.6, "normal": 1.0, "aggressive": 1.4}
         for product in due_products:
             pid = int(product["id"])
             current_price = float(product.get("price_usd") or 0)
-            min_price = float(product.get("dynamic_min_price") or current_price)
-            max_price = float(product.get("dynamic_max_price") or current_price)
-            target = max(0.1, float(product.get("dynamic_target_daily_sales") or 1.0))
-            max_change = _clamp(float(product.get("dynamic_max_change_pct") or 5.0), 0.5, 20.0) / 100.0
-            sensitivity = str(product.get("dynamic_sensitivity") or "normal")
-            sensitivity_factor = sensitivity_factors.get(sensitivity, 1.0)
+            product_metrics = dict(sales.get(pid, {}))
+            product_metrics["views_7d"] = int(views.get(pid, 0))
+            product_metrics["stock_count"] = None if product.get("delivery_type") == "activation" else int(stocks.get(pid, 0))
+            history = applied_history.get(pid, [])
+            weekly_base = float(history[0]["old_price"]) if history else current_price
+            daily_rows = [row for row in history if (_dynamic_last_datetime(row.get("created_at")) or datetime.min) >= now - timedelta(days=1)]
+            daily_base = float(daily_rows[0]["old_price"]) if daily_rows else current_price
+            decision_key = _dynamic_decision_key(product, product_metrics)
             mode = "suggestion" if product.get("dynamic_pricing_mode") == "suggestion" else "automatic"
 
-            product_sales = sales.get(pid, {})
-            sales_3d = float(product_sales.get("sales_3d") or 0)
-            sales_7d = float(product_sales.get("sales_7d") or 0)
-            sales_14d = float(product_sales.get("sales_14d") or 0)
-            views_7d = int(views.get(pid, 0))
-            conversion_7d = sales_7d / views_7d if views_7d > 0 else 0.0
-            stock_count = None if product.get("delivery_type") == "activation" else int(stocks.get(pid, 0))
+            if decision_key == product.get("dynamic_last_input_hash") and product.get("dynamic_suggested_price") is not None:
+                stored_suggestion = round(float(product["dynamic_suggested_price"]), 2)
+                should_apply = apply_automatic and mode == "automatic" and product.get("dynamic_last_applied_hash") != decision_key
+                if should_apply and abs(stored_suggestion - current_price) >= 0.01:
+                    await db.execute(
+                        "UPDATE products SET price_usd = ?, dynamic_last_applied_hash = ? WHERE id = ?",
+                        (stored_suggestion, decision_key, pid),
+                    )
+                    await db.execute(
+                        """UPDATE dynamic_price_history SET applied = 1, new_price = ?, mode = 'automatic'
+                           WHERE product_id = ? AND decision_key = ? AND COALESCE(applied, 0) = 0""",
+                        (stored_suggestion, pid, decision_key),
+                    )
+                    await db.commit()
+                    processed.append({
+                        "product_id": pid, "status": "updated", "idempotent": True,
+                        "old_price": current_price, "new_price": stored_suggestion,
+                        "suggested_price": stored_suggestion,
+                        "confidence": float(product.get("dynamic_last_confidence") or 0),
+                        "explanation": "Recommandation existante appliquée après le délai configuré.",
+                    })
+                else:
+                    processed.append({
+                        "product_id": pid, "status": "unchanged", "idempotent": True,
+                        "old_price": current_price, "new_price": current_price,
+                        "suggested_price": stored_suggestion,
+                        "confidence": float(product.get("dynamic_last_confidence") or 0),
+                        "explanation": "Aucune nouvelle donnée : la recommandation reste inchangée.",
+                    })
+                continue
 
-            if sales_14d <= 0 and views_7d < 5:
+            decision = _calculate_dynamic_decision(product, current_price, product_metrics, daily_base, weekly_base)
+            confidence = float(decision["confidence"])
+            suggested_price = float(decision["suggested_price"])
+            if decision["status"] != "ready":
                 await db.execute(
-                    "UPDATE products SET dynamic_suggested_price = ?, dynamic_last_calculated_at = ? WHERE id = ?",
-                    (current_price, calculated_at, pid),
+                    """UPDATE products SET dynamic_suggested_price = ?, dynamic_last_calculated_at = ?,
+                       dynamic_last_input_hash = ?, dynamic_last_confidence = ? WHERE id = ?""",
+                    (suggested_price, calculated_at, decision_key, confidence, pid),
                 )
                 await db.commit()
                 processed.append({
-                    "product_id": pid, "status": "insufficient_data",
+                    "product_id": pid, "status": decision["status"],
                     "old_price": current_price, "new_price": current_price,
-                    "suggested_price": current_price,
+                    "suggested_price": suggested_price, "confidence": confidence,
+                    "explanation": decision["explanation"], "signals": decision.get("signals", {}),
                 })
                 continue
 
-            short_daily = sales_3d / 3.0
-            long_daily = sales_14d / 14.0
-            demand_signal = _clamp((short_daily - target) / target, -1.0, 1.0)
-            momentum_denominator = max(long_daily, target * 0.25, 0.1)
-            momentum_signal = _clamp((short_daily - long_daily) / momentum_denominator, -1.0, 1.0)
-            conversion_signal = 0.0
-            if views_7d >= 5:
-                conversion_signal = _clamp((conversion_7d - 0.10) / 0.10, -1.0, 1.0)
-
-            stock_days = None
-            stock_signal = 0.0
-            if stock_count is not None:
-                velocity = max(short_daily, long_daily, 0.1)
-                stock_days = stock_count / velocity
-                stock_signal = _clamp((14.0 - stock_days) / 14.0, -1.0, 1.0)
-                score = 0.45 * demand_signal + 0.25 * momentum_signal + 0.20 * stock_signal + 0.10 * conversion_signal
-            else:
-                score = 0.55 * demand_signal + 0.35 * momentum_signal + 0.10 * conversion_signal
-
-            change_ratio = _clamp(score * 0.05 * sensitivity_factor, -max_change, max_change)
-            suggested_price = round(_clamp(current_price * (1.0 + change_ratio), min_price, max_price), 2)
-            if abs(suggested_price - current_price) < 0.01:
-                suggested_price = round(current_price, 2)
-            new_price = suggested_price if mode == "automatic" else current_price
-            reason = (
-                f"demand={demand_signal:+.2f}; momentum={momentum_signal:+.2f}; "
-                f"stock={stock_signal:+.2f}; conversion={conversion_signal:+.2f}; "
-                f"change={change_ratio * 100:+.2f}%"
-            )
-
+            apply_now = apply_automatic and mode == "automatic"
+            new_price = suggested_price if apply_now else current_price
+            applied_hash = decision_key if apply_now else product.get("dynamic_last_applied_hash")
             await db.execute(
-                """UPDATE products
-                   SET price_usd = ?, dynamic_suggested_price = ?, dynamic_last_calculated_at = ?
-                   WHERE id = ?""",
-                (new_price, suggested_price, calculated_at, pid),
+                """UPDATE products SET price_usd = ?, dynamic_suggested_price = ?,
+                   dynamic_last_calculated_at = ?, dynamic_last_input_hash = ?,
+                   dynamic_last_applied_hash = ?, dynamic_last_confidence = ? WHERE id = ?""",
+                (new_price, suggested_price, calculated_at, decision_key, applied_hash, confidence, pid),
             )
-            previous_suggestion = product.get("dynamic_suggested_price")
-            recommendation_changed = previous_suggestion is None or abs(float(previous_suggestion) - suggested_price) >= 0.01
-            if abs(suggested_price - current_price) >= 0.01 and (mode == "automatic" or recommendation_changed):
-                await db.execute(
-                    """INSERT INTO dynamic_price_history
-                       (product_id, old_price, new_price, suggested_price, mode, reason,
-                        sales_3d, sales_14d, stock_count, stock_days, views_7d, conversion_7d)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (pid, current_price, new_price, suggested_price, mode, reason,
-                     sales_3d, sales_14d, stock_count, stock_days, views_7d, conversion_7d),
-                )
+            signals = decision.get("signals", {})
+            reason = "; ".join(f"{key}={value:+.2f}" for key, value in signals.items() if key != "smoothed_daily_sales")
+            await db.execute(
+                """INSERT INTO dynamic_price_history
+                   (product_id, old_price, new_price, suggested_price, mode, reason,
+                    sales_3d, sales_14d, stock_count, stock_days, views_7d, conversion_7d,
+                    revenue_7d, score, confidence, applied, decision_key, explanation)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (pid, current_price, new_price, suggested_price, mode, reason,
+                 float(product_metrics.get("sales_3d") or 0), float(product_metrics.get("sales_14d") or 0),
+                 product_metrics.get("stock_count"), decision.get("stock_days"), int(product_metrics.get("views_7d") or 0),
+                 float(decision.get("conversion_7d") or 0), float(product_metrics.get("revenue_7d") or 0),
+                 float(decision["score"]), confidence, 1 if apply_now else 0, decision_key, decision["explanation"]),
+            )
             await db.commit()
             processed.append({
                 "product_id": pid,
-                "status": "updated" if abs(new_price - current_price) >= 0.01 else "suggested",
-                "mode": mode,
-                "old_price": current_price,
-                "new_price": new_price,
-                "suggested_price": suggested_price,
-                "reason": reason,
+                "status": "updated" if apply_now and abs(new_price - current_price) >= 0.01 else "recommended",
+                "mode": mode, "old_price": current_price, "new_price": new_price,
+                "suggested_price": suggested_price, "confidence": confidence,
+                "score": decision["score"], "signals": signals,
+                "explanation": decision["explanation"], "applied": apply_now,
             })
 
         clear_products_cache()
@@ -1220,22 +1387,141 @@ async def apply_dynamic_price_suggestion(product_id: int) -> dict:
         min_price = float(product.get("dynamic_min_price") or old_price)
         max_price = float(product.get("dynamic_max_price") or old_price)
         new_price = round(_clamp(float(suggestion), min_price, max_price), 2)
-        await db.execute("UPDATE products SET price_usd = ? WHERE id = ?", (new_price, int(product_id)))
+        if abs(new_price - old_price) < 0.01:
+            await db.rollback()
+            return {
+                "product_id": int(product_id), "old_price": old_price,
+                "new_price": old_price, "status": "unchanged",
+            }
+        decision_key = product.get("dynamic_last_input_hash")
         await db.execute(
-            """INSERT INTO dynamic_price_history
-               (product_id, old_price, new_price, suggested_price, mode, reason)
-               VALUES (?, ?, ?, ?, 'manual', 'Recommendation applied manually')""",
-            (int(product_id), old_price, new_price, new_price),
+            "UPDATE products SET price_usd = ?, dynamic_last_applied_hash = ? WHERE id = ?",
+            (new_price, decision_key, int(product_id)),
         )
+        updated = await db.execute(
+            """UPDATE dynamic_price_history
+               SET applied = 1, new_price = ?, mode = 'manual',
+                   explanation = 'Recommandation appliquée manuellement.'
+               WHERE product_id = ? AND decision_key = ? AND COALESCE(applied, 0) = 0""",
+            (new_price, int(product_id), decision_key),
+        )
+        if updated.rowcount <= 0:
+            await db.execute(
+                """INSERT INTO dynamic_price_history
+                   (product_id, old_price, new_price, suggested_price, mode, reason,
+                    confidence, applied, decision_key, explanation)
+                   VALUES (?, ?, ?, ?, 'manual', 'Recommendation applied manually', ?, 1, ?,
+                           'Recommandation appliquée manuellement.')""",
+                (int(product_id), old_price, new_price, new_price,
+                 float(product.get("dynamic_last_confidence") or 0), decision_key),
+            )
         await db.commit()
         clear_products_cache()
-        return {"product_id": int(product_id), "old_price": old_price, "new_price": new_price}
+        return {
+            "product_id": int(product_id), "old_price": old_price,
+            "new_price": new_price, "status": "applied",
+        }
     except Exception:
         try:
             await db.rollback()
         except Exception:
             pass
         raise
+    finally:
+        await db.close()
+
+
+async def simulate_dynamic_pricing(product_id: int, days: int = 30) -> dict:
+    """Backtest dynamic pricing without writing prices or history."""
+    days = max(7, min(int(days), 90))
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM products WHERE id = ?", (int(product_id),))
+        row = await cursor.fetchone()
+        if not row:
+            raise ValueError("Product not found")
+        product = dict(row)
+        paid_statuses = "'COMPLETED','AWAITING_ACTIVATION','AWAITING_ACTIVATION_INFO','PAID_PENDING_DELIVERY'"
+        cursor = await db.execute(
+            f"""SELECT date(created_at) AS day, COALESCE(SUM(quantity), 0) AS sales,
+                       COALESCE(SUM(amount_usd), 0) AS revenue
+                FROM orders WHERE product_id = ? AND status IN ({paid_statuses})
+                  AND datetime(created_at) >= datetime('now', ?)
+                GROUP BY date(created_at)""",
+            (int(product_id), f"-{days + 14} days"),
+        )
+        order_days = {str(item["day"]): dict(item) for item in await cursor.fetchall()}
+        cursor = await db.execute(
+            """SELECT date(viewed_at) AS day, COUNT(*) AS views FROM product_views
+               WHERE product_id = ? AND datetime(viewed_at) >= datetime('now', ?)
+               GROUP BY date(viewed_at)""",
+            (int(product_id), f"-{days + 14} days"),
+        )
+        view_days = {str(item["day"]): int(item["views"] or 0) for item in await cursor.fetchall()}
+        cursor = await db.execute(
+            "SELECT COUNT(*) AS stock_count FROM stock_items WHERE product_id = ? AND is_sold = 0",
+            (int(product_id),),
+        )
+        stock_row = await cursor.fetchone()
+        stock_count = None if product.get("delivery_type") == "activation" else int(stock_row["stock_count"] or 0)
+
+        today = _utcnow().date()
+        all_dates = [today - timedelta(days=offset) for offset in range(days + 13, -1, -1)]
+        daily_sales = [float(order_days.get(day.isoformat(), {}).get("sales") or 0) for day in all_dates]
+        daily_revenue = [float(order_days.get(day.isoformat(), {}).get("revenue") or 0) for day in all_dates]
+        daily_views = [int(view_days.get(day.isoformat(), 0)) for day in all_dates]
+        current_price = float(product.get("dynamic_base_price") or product.get("price_usd") or 0)
+        start_price = current_price
+        simulated_prices: list[float] = []
+        points = []
+        interval_days = max(1, (max(1, int(product.get("dynamic_cooldown_hours") or 6)) + 23) // 24)
+        last_decision_index = -interval_days
+        decision_count = 0
+
+        for index in range(14, len(all_dates)):
+            day = all_dates[index]
+            metrics = {
+                "sales_3d": sum(daily_sales[index - 2:index + 1]),
+                "sales_7d": sum(daily_sales[index - 6:index + 1]),
+                "sales_14d": sum(daily_sales[index - 13:index + 1]),
+                "views_7d": sum(daily_views[index - 6:index + 1]),
+                "revenue_7d": sum(daily_revenue[index - 6:index + 1]),
+                "revenue_prev_7d": sum(daily_revenue[index - 13:index - 6]),
+                "stock_count": stock_count,
+            }
+            daily_base = simulated_prices[-1] if simulated_prices else current_price
+            weekly_base = simulated_prices[max(0, len(simulated_prices) - 7)] if simulated_prices else current_price
+            if index - last_decision_index >= interval_days:
+                decision = _calculate_dynamic_decision(product, current_price, metrics, daily_base, weekly_base)
+                if decision["status"] == "ready":
+                    current_price = float(decision["suggested_price"])
+                    decision_count += 1
+                last_decision_index = index
+            else:
+                decision = {
+                    "status": "cooldown", "confidence": _dynamic_confidence(metrics["sales_14d"], metrics["views_7d"]),
+                    "explanation": "Aucune décision : délai de sécurité actif.",
+                }
+            simulated_prices.append(round(current_price, 2))
+            points.append({
+                "date": day.isoformat(), "simulated_price": round(current_price, 2),
+                "sales": daily_sales[index], "revenue": round(daily_revenue[index], 2),
+                "views": daily_views[index], "confidence": round(float(decision.get("confidence") or 0), 3),
+                "status": decision["status"], "explanation": decision["explanation"],
+            })
+
+        return {
+            "product_id": int(product_id), "days": days, "points": points,
+            "summary": {
+                "start_price": round(start_price, 2), "end_price": round(current_price, 2),
+                "min_price": min(simulated_prices) if simulated_prices else round(current_price, 2),
+                "max_price": max(simulated_prices) if simulated_prices else round(current_price, 2),
+                "decisions": decision_count,
+                "observed_sales": sum(point["sales"] for point in points),
+                "observed_revenue": round(sum(point["revenue"] for point in points), 2),
+            },
+            "assumption": "Simulation en lecture seule utilisant le stock disponible actuel.",
+        }
     finally:
         await db.close()
 
