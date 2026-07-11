@@ -443,14 +443,42 @@ function setupEvents() {
             if (!settings.dynamic_pricing_enabled) throw new Error("Activez d'abord Dynamic Price.");
             settings.price_usd = Number($('edit-prod-price').value);
             showLoading(true);
-            await apiCall(`/api/products/${productId}`, 'PUT', settings);
+            await apiCall(`/api/products/${productId}`, 'PUT', {
+                ...settings,
+                skip_dynamic_recalculation: true,
+            });
             const result = await apiCall(`/api/products/${productId}/dynamic-pricing/recalculate`, 'POST');
-            await loadProducts();
-            const product = state.products.find(item => Number(item.id) === productId) || {...settings, price_usd:result.new_price, dynamic_suggested_price:result.suggested_price};
-            $('edit-prod-price').value = Number(product.price_usd || result.new_price).toFixed(2);
-            setDynamicPricingForm('edit-prod', product);
+            const calculatedProduct = {
+                ...settings,
+                id: productId,
+                price_usd: Number(result.new_price ?? settings.price_usd),
+                dynamic_suggested_price: Number(result.suggested_price ?? result.new_price ?? settings.price_usd),
+                dynamic_last_calculated_at: new Date().toISOString(),
+            };
+            $('edit-prod-price').value = calculatedProduct.price_usd.toFixed(2);
+            setDynamicPricingForm('edit-prod', calculatedProduct);
+
+            // Display the authoritative calculation response even when a later
+            // catalogue refresh is temporarily unavailable.
+            try {
+                await loadProducts();
+                const refreshedProduct = state.products.find(item => Number(item.id) === productId);
+                if (refreshedProduct) {
+                    $('edit-prod-price').value = Number(refreshedProduct.price_usd).toFixed(2);
+                    setDynamicPricingForm('edit-prod', refreshedProduct);
+                }
+            } catch (refreshError) {
+                console.warn('Dynamic price calculated; catalogue refresh deferred.', refreshError);
+            }
             await loadDynamicPricingHistory(productId);
-            showToast(result.status === 'insufficient_data' ? 'Pas encore assez de données pour modifier le prix.' : 'Prix dynamique recalculé.', 'success');
+            showToast(
+                result.status === 'insufficient_data'
+                    ? 'Calcul terminé : pas encore assez de données, le prix reste inchangé.'
+                    : result.status === 'unchanged'
+                        ? 'Calcul terminé : le prix recommandé reste inchangé.'
+                        : 'Prix dynamique recalculé.',
+                'success'
+            );
         } catch (error) {
             showToast(error.message, 'error');
         } finally {

@@ -1359,10 +1359,25 @@ async def api_update_product(product_id: int, data: dict):
         if "warranty_days" in updates:
             updates["warranty_days"] = int(updates["warranty_days"])
         await update_product(product_id, **updates)
-        if dynamic_updates.get("dynamic_pricing_enabled") and product.get("dynamic_suggested_price") is None:
-            await recalculate_dynamic_prices(product_id=product_id, force=True)
+        calculation_warning = None
+        if (
+            dynamic_updates.get("dynamic_pricing_enabled")
+            and product.get("dynamic_suggested_price") is None
+            and not data.get("skip_dynamic_recalculation")
+        ):
+            try:
+                await recalculate_dynamic_prices(product_id=product_id, force=True)
+            except Exception as exc:
+                # Settings were already committed. A temporary calculation failure
+                # must not make the whole product update look unsuccessful.
+                calculation_warning = "dynamic_pricing_calculation_deferred"
+                logger.warning(
+                    "Initial dynamic pricing calculation deferred for product %s: %s",
+                    product_id,
+                    exc,
+                )
         _clear_api_stats_cache()
-        return {"status": "updated"}
+        return {"status": "updated", "warning": calculation_warning}
     except HTTPException:
         raise
     except Exception as exc:
