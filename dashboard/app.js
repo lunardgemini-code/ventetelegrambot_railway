@@ -723,19 +723,35 @@ async function testConnectionAndStart() {
         if (!state.apiKey) throw new Error('MISSING_KEY');
 
         const healthUrl = `${state.botUrl}/health`;
-        const ctrl = new AbortController();
-        const tid = setTimeout(() => ctrl.abort(), 60000);
-        try {
-            const r = await fetch(healthUrl, { mode: 'cors', signal: ctrl.signal, cache: 'no-store' });
-            clearTimeout(tid);
-            if (!r.ok) throw new Error(`HEALTH_${r.status}`);
-            const h = await r.json();
-            if (!h || h.status !== 'ok') throw new Error('BAD_HEALTH');
-        } catch (e) {
-            clearTimeout(tid);
-            if (e.name === 'AbortError') throw new Error('TIMEOUT');
-            if (e.message === 'BAD_HEALTH' || String(e.message || '').startsWith('HEALTH_')) throw e;
-            // CORS / wrong URL / bot offline → browser "Failed to fetch"
+        let healthError = null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const ctrl = new AbortController();
+            const tid = setTimeout(() => ctrl.abort(), 15000);
+            try {
+                const r = await fetch(healthUrl, { mode: 'cors', signal: ctrl.signal, cache: 'no-store' });
+                if (!r.ok) throw new Error(`HEALTH_${r.status}`);
+                const h = await r.json();
+                if (!h || h.status !== 'ok') throw new Error('BAD_HEALTH');
+                healthError = null;
+                break;
+            } catch (e) {
+                healthError = e.name === 'AbortError' ? new Error('TIMEOUT') : e;
+                const retryable = healthError.message === 'TIMEOUT'
+                    || healthError.message === 'BAD_HEALTH'
+                    || healthError.message === 'HEALTH_503'
+                    || healthError instanceof TypeError;
+                if (!retryable || attempt === 1) break;
+                await new Promise(resolve => setTimeout(resolve, 1200));
+            } finally {
+                clearTimeout(tid);
+            }
+        }
+        if (healthError) {
+            if (healthError.message === 'TIMEOUT') throw healthError;
+            if (healthError.message === 'BAD_HEALTH' || String(healthError.message || '').startsWith('HEALTH_')) {
+                throw healthError;
+            }
+            // CORS / wrong URL / bot offline -> browser "Failed to fetch"
             throw new Error('UNREACHABLE');
         }
 

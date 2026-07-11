@@ -378,20 +378,32 @@ async def liveness_check():
 async def health_check():
     """Readiness check for Railway and the dashboard."""
     db_ready = False
-    db = None
-    try:
-        from database.db import get_db
-        db = await asyncio.wait_for(get_db(), timeout=3)
-        cursor = await asyncio.wait_for(db.execute("SELECT 1 AS ok"), timeout=3)
-        db_ready = bool(await asyncio.wait_for(cursor.fetchone(), timeout=3))
-    except Exception as exc:
-        logger.warning("Healthcheck database failure: %s", exc)
-    finally:
-        if db is not None:
-            try:
-                await db.close()
-            except Exception:
-                pass
+    last_db_error = None
+    from database.db import get_db
+
+    # A pooled Turso stream can expire between requests. Closing the failed
+    # wrapper discards it, so one retry normally gets a fresh connection.
+    for attempt in range(2):
+        db = None
+        try:
+            db = await asyncio.wait_for(get_db(), timeout=3)
+            cursor = await asyncio.wait_for(db.execute("SELECT 1 AS ok"), timeout=3)
+            db_ready = bool(await asyncio.wait_for(cursor.fetchone(), timeout=3))
+            if db_ready:
+                break
+        except Exception as exc:
+            last_db_error = exc
+            if attempt == 0:
+                logger.debug("Healthcheck database retry after: %s", exc)
+        finally:
+            if db is not None:
+                try:
+                    await db.close()
+                except Exception:
+                    pass
+
+    if not db_ready and last_db_error is not None:
+        logger.warning("Healthcheck database failure after retry: %s", last_db_error)
 
     bot_ready = bool(tg_app and getattr(tg_app, "running", False))
     queue_size = webhook_update_queue.qsize() if webhook_update_queue is not None else 0
