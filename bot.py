@@ -101,13 +101,19 @@ api = FastAPI(
 # Admin routes still require ADMIN_API_KEY. Optionally lock origins with:
 #   CORS_ORIGINS=https://your-dashboard.com,https://your-app.up.railway.app
 def _build_cors_origins() -> list[str]:
+    allow_file_dashboard = os.environ.get("ALLOW_FILE_DASHBOARD", "true").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
     raw = os.environ.get("CORS_ORIGINS", "").strip()
     if raw:
-        origins = [o.strip() for o in raw.split(",") if o.strip()]
+        origins = {o.strip() for o in raw.split(",") if o.strip()}
         if "*" in origins:
             logger.warning("CORS_ORIGINS contains '*'. Restrict it to trusted domains in production.")
             return ["*"]
-        return origins
+        if allow_file_dashboard:
+            # Browsers serialize requests made by a local file:// page as Origin: null.
+            origins.add("null")
+        return sorted(origins)
 
     origins: set[str] = set()
     for env_name in ("PUBLIC_BASE_URL", "WEBHOOK_URL"):
@@ -124,6 +130,9 @@ def _build_cors_origins() -> list[str]:
 
     if os.environ.get("ENV", "").lower() in {"dev", "development", "local"}:
         origins.update({"http://localhost:8000", "http://127.0.0.1:8000"})
+
+    if allow_file_dashboard:
+        origins.add("null")
 
     if not origins:
         logger.warning(

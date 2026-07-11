@@ -524,11 +524,16 @@ function createParticleBurst(x, y) {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  API CALL
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+const DEFAULT_API_URL = 'https://ventetelegrambotrailway-production.up.railway.app';
+
 function resolveBotUrl(raw) {
     let u = (raw || '').trim().replace(/\/$/, '');
     if (u && !u.startsWith('http://') && !u.startsWith('https://')) u = 'https://' + u;
-    // Empty URL → same origin (Railway /dashboard or a reverse proxy)
-    if (!u) u = (typeof window !== 'undefined' && window.location?.origin) ? window.location.origin : '';
+    if (!u && typeof window !== 'undefined') {
+        const localFile = window.location?.protocol === 'file:' || window.location?.origin === 'null';
+        // A local index.html has no usable origin, so target the production API.
+        u = localFile ? DEFAULT_API_URL : (window.location?.origin || DEFAULT_API_URL);
+    }
     return u.replace(/\/$/, '');
 }
 
