@@ -24,7 +24,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 import uvicorn
 import httpx
@@ -149,10 +149,24 @@ import pathlib
 _dashboard_dir = pathlib.Path(__file__).parent / "dashboard"
 if _dashboard_dir.is_dir():
     @api.get("/dashboard")
+    async def redirect_dashboard_index():
+        return RedirectResponse(url="/dashboard/", status_code=307)
+
     @api.get("/dashboard/")
     async def serve_dashboard_index():
         return FileResponse(str(_dashboard_dir / "index.html"), media_type="text/html")
     api.mount("/dashboard", StaticFiles(directory=str(_dashboard_dir)), name="dashboard")
+
+
+@api.middleware("http")
+async def disable_dashboard_cache(request: Request, call_next):
+    """Always load the dashboard version shipped with the current deployment."""
+    response = await call_next(request)
+    if request.url.path == "/dashboard" or request.url.path.startswith("/dashboard/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
 
 ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "")
 if not ADMIN_API_KEY:
