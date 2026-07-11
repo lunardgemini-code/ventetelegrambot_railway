@@ -143,10 +143,15 @@ def _build_cors_origins() -> list[str]:
 
 
 _cors_origins = _build_cors_origins()
-logger.info("CORS allow_origins=%s", _cors_origins)
+_allow_netlify_dashboard = os.environ.get("ALLOW_NETLIFY_DASHBOARD", "true").strip().lower() in {
+    "1", "true", "yes", "on"
+}
+_cors_origin_regex = r"^https://[a-zA-Z0-9-]+\.netlify\.app$" if _allow_netlify_dashboard else None
+logger.info("CORS allow_origins=%s allow_origin_regex=%s", _cors_origins, _cors_origin_regex)
 api.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
+    allow_origin_regex=_cors_origin_regex,
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],

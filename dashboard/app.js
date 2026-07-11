@@ -529,10 +529,21 @@ const DEFAULT_API_URL = 'https://ventetelegrambotrailway-production.up.railway.a
 function resolveBotUrl(raw) {
     let u = (raw || '').trim().replace(/\/$/, '');
     if (u && !u.startsWith('http://') && !u.startsWith('https://')) u = 'https://' + u;
+    if (u) {
+        try {
+            if (new URL(u).hostname.toLowerCase().endsWith('.netlify.app')) {
+                u = DEFAULT_API_URL;
+            }
+        } catch(e) {}
+    }
     if (!u && typeof window !== 'undefined') {
         const localFile = window.location?.protocol === 'file:' || window.location?.origin === 'null';
-        // A local index.html has no usable origin, so target the production API.
-        u = localFile ? DEFAULT_API_URL : (window.location?.origin || DEFAULT_API_URL);
+        const host = (window.location?.hostname || '').toLowerCase();
+        const apiHostedHere = host.endsWith('.up.railway.app')
+            || host === 'localhost'
+            || host === '127.0.0.1';
+        // Netlify and local files only host the frontend; the API remains on Railway.
+        u = (!localFile && apiHostedHere) ? window.location.origin : DEFAULT_API_URL;
     }
     return u.replace(/\/$/, '');
 }
