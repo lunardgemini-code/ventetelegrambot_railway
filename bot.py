@@ -2452,6 +2452,7 @@ DYNAMIC_PRICING_CHECK_SECONDS = _env_int("DYNAMIC_PRICING_CHECK_SECONDS", 900, m
 async def _dynamic_pricing_worker() -> None:
     from database.models import recalculate_dynamic_prices
     while True:
+        next_delay = DYNAMIC_PRICING_CHECK_SECONDS
         try:
             results = await recalculate_dynamic_prices()
             changed = [item for item in results if item.get("status") == "updated"]
@@ -2461,7 +2462,8 @@ async def _dynamic_pricing_worker() -> None:
             raise
         except Exception as exc:
             logger.exception("Dynamic pricing cycle failed: %s", exc)
-        await asyncio.sleep(DYNAMIC_PRICING_CHECK_SECONDS)
+            next_delay = 30
+        await asyncio.sleep(next_delay)
 
 
 async def post_init(application: Application) -> None:
