@@ -143,6 +143,13 @@ async def receive_activation_identifier(update: Update, context: ContextTypes.DE
     await update.message.reply_text(t("activation_request_sent", lang), reply_markup=main_menu_keyboard(lang))
     return ConversationHandler.END
 
+
+def _build_txt_delivery(items: list) -> str:
+    """Return raw account data separated by one blank line."""
+    accounts = [str(item["account_data"]).strip() for item in items]
+    return "\n\n".join(accounts) + "\n"
+
+
 async def send_delivery_messages(bot, chat_id: int, header: str, items: list, footer: str, lang: str, order_id: int = None):
     """Sends delivery messages. Uses a single .txt document if the total delivery is very long."""
     import io
@@ -159,10 +166,7 @@ async def send_delivery_messages(bot, chat_id: int, header: str, items: list, fo
         reply_markup = base_markup
     
     if total_length > 1500 or len(items) > 10:
-        file_content = ""
-        for i, item in enumerate(items):
-            file_content += f"--- Product n°{i+1} ---\n{item['account_data']}\n\n"
-            
+        file_content = _build_txt_delivery(items)
         file_bytes = io.BytesIO(file_content.encode('utf-8'))
         file_bytes.name = "accounts.txt"
         
@@ -1821,11 +1825,8 @@ async def download_txt_delivery(update: Update, context: ContextTypes.DEFAULT_TY
         if not items:
             await query.answer("Delivery not found or empty.", show_alert=True)
             return
-            
-        file_content = ""
-        for i, item in enumerate(items):
-            file_content += f"--- Product n°{i+1} ---\n{item['account_data']}\n\n"
-            
+
+        file_content = _build_txt_delivery(items)
         file_bytes = io.BytesIO(file_content.encode('utf-8'))
         file_bytes.name = f"Order_{order_id}_accounts.txt"
         
