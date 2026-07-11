@@ -1,6 +1,7 @@
 import asyncio
 import os
 import tempfile
+import time
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -19,6 +20,8 @@ class OrderSafetyTests(unittest.IsolatedAsyncioTestCase):
         models._SETTINGS_CACHE.clear()
         models._USER_LANG_CACHE.clear()
         models._USER_BANNED_CACHE.clear()
+        models._RESELLER_AUTH_CACHE.clear()
+        models._RESELLER_LAST_USED_TOUCH_CACHE.clear()
         models.clear_products_cache()
         await init_db()
 
@@ -248,6 +251,35 @@ class OrderSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(float(user["wallet_balance"]), 15.0)
         self.assertEqual(int(user["total_orders"]), 1)
         self.assertEqual(int(transactions["cnt"]), 1)
+
+    async def test_reseller_auth_retries_a_broken_connection(self):
+        generated = await models.create_reseller_api_key(1001, "Retry test")
+        models._RESELLER_LAST_USED_TOUCH_CACHE[int(generated["id"])] = time.time()
+        original_get_db = models.get_db
+        attempts = 0
+
+        async def flaky_get_db():
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise RuntimeError("Hrana: stream not found")
+            return await original_get_db()
+
+        with patch.object(models, "get_db", side_effect=flaky_get_db):
+            reseller = await models.get_reseller_by_api_key(generated["api_key"])
+
+        self.assertEqual(int(reseller["user_telegram_id"]), 1001)
+        self.assertEqual(attempts, 2)
+
+    async def test_reseller_auth_cache_avoids_repeated_database_reads(self):
+        generated = await models.create_reseller_api_key(1001, "Cache test")
+        models._RESELLER_LAST_USED_TOUCH_CACHE[int(generated["id"])] = time.time()
+        first = await models.get_reseller_by_api_key(generated["api_key"])
+
+        with patch.object(models, "get_db", side_effect=AssertionError("cache miss")):
+            second = await models.get_reseller_by_api_key(generated["api_key"])
+
+        self.assertEqual(first["id"], second["id"])
 
     async def test_dashboard_overview_groups_operational_work(self):
         completed = await models.create_order(1001, self.product_id, 5, quantity=1)

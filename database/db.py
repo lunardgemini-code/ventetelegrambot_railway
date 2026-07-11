@@ -219,7 +219,7 @@ async def get_db():
             try:
                 # Hrana streams expire server-side while a pooled connection is idle.
                 # Validate before handing the connection to a request.
-                await candidate.execute("SELECT 1")
+                await asyncio.wait_for(candidate.execute("SELECT 1"), timeout=3)
                 wrapper = candidate
             except Exception as exc:
                 candidate.has_error = True
@@ -227,11 +227,14 @@ async def get_db():
                 logger.info("Discarded stale Turso connection before reuse: %s", exc)
 
         if wrapper is None:
-            conn = await asyncio.to_thread(libsql.connect, TURSO_URL, auth_token=TURSO_TOKEN)
+            conn = await asyncio.wait_for(
+                asyncio.to_thread(libsql.connect, TURSO_URL, auth_token=TURSO_TOKEN),
+                timeout=5,
+            )
             wrapper = _PooledAsyncDB(conn)
             try:
-                await wrapper.execute("PRAGMA foreign_keys = ON")
-                await wrapper.execute("PRAGMA busy_timeout = 5000")
+                await asyncio.wait_for(wrapper.execute("PRAGMA foreign_keys = ON"), timeout=3)
+                await asyncio.wait_for(wrapper.execute("PRAGMA busy_timeout = 5000"), timeout=3)
             except Exception:
                 pass
         return wrapper

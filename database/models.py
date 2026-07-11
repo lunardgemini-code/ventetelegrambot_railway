@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -36,6 +37,8 @@ _DEFAULT_BINANCE_ACCOUNT_CACHE: dict | None = None
 _DEFAULT_BINANCE_ACCOUNT_LOADED = False
 _RESELLER_LAST_USED_TOUCH_CACHE: dict[int, float] = {}
 _RESELLER_LAST_USED_TOUCH_INTERVAL = 60.0
+_RESELLER_AUTH_CACHE: dict[str, tuple[float, dict]] = {}
+_RESELLER_AUTH_CACHE_TTL = 30.0
 _GET_STATS_CACHE = {}
 _GET_STATS_CACHE_TTL = 30
 
@@ -3024,6 +3027,7 @@ async def create_reseller_api_key(user_telegram_id: int, name: str = "") -> dict
             (int(user_telegram_id), name.strip(), prefix, key_hash),
         )
         await db.commit()
+        _RESELLER_AUTH_CACHE.clear()
         return {
             "id": cursor.lastrowid,
             "user_telegram_id": int(user_telegram_id),
@@ -3054,6 +3058,7 @@ async def rotate_reseller_api_key(user_telegram_id: int, name: str = "Bot API") 
             (int(user_telegram_id), name.strip(), prefix, key_hash),
         )
         await db.commit()
+        _RESELLER_AUTH_CACHE.clear()
         return {
             "id": cursor.lastrowid,
             "user_telegram_id": int(user_telegram_id),
@@ -3113,6 +3118,7 @@ async def revoke_reseller_api_key(key_id: int) -> bool:
             (int(key_id),),
         )
         await db.commit()
+        _RESELLER_AUTH_CACHE.clear()
         return cursor.rowcount > 0
     finally:
         await db.close()
@@ -3153,34 +3159,54 @@ async def get_reseller_by_api_key(raw_key: str) -> dict | None:
     prefix = _reseller_key_prefix(raw_key)
     if not prefix:
         return None
-    data = None
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            """SELECT rk.*, u.username, u.first_name, COALESCE(u.wallet_balance, 0) as wallet_balance,
-                      COALESCE(u.is_banned, 0) as is_banned
-               FROM reseller_api_keys rk
-               JOIN users u ON u.telegram_id = rk.user_telegram_id
-               WHERE rk.key_prefix = ? AND rk.is_active = 1
-               LIMIT 1""",
-            (prefix,),
-        )
-        row = await cursor.fetchone()
-        if not row:
-            return None
-        data = dict(row)
-        if not hmac.compare_digest(str(data.get("key_hash") or ""), _hash_reseller_key(raw_key)):
-            return None
-        if data.get("is_banned"):
-            return None
-        data.pop("key_hash", None)
-    finally:
-        await db.close()
+    key_digest = _hash_reseller_key(raw_key)
+    cached = _RESELLER_AUTH_CACHE.get(key_digest)
+    if cached and time.time() - cached[0] < _RESELLER_AUTH_CACHE_TTL:
+        return dict(cached[1])
 
-    # Touch only after releasing the authentication connection. This avoids
-    # holding two Turso/Hrana streams for a single API request.
-    await _touch_reseller_api_key_last_used(data["id"])
-    return data
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        db = None
+        try:
+            db = await asyncio.wait_for(get_db(), timeout=6)
+            cursor = await asyncio.wait_for(
+                db.execute(
+                    """SELECT rk.*, u.username, u.first_name, COALESCE(u.wallet_balance, 0) as wallet_balance,
+                              COALESCE(u.is_banned, 0) as is_banned
+                       FROM reseller_api_keys rk
+                       JOIN users u ON u.telegram_id = rk.user_telegram_id
+                       WHERE rk.key_prefix = ? AND rk.is_active = 1
+                       LIMIT 1""",
+                    (prefix,),
+                ),
+                timeout=5,
+            )
+            row = await asyncio.wait_for(cursor.fetchone(), timeout=5)
+            if not row:
+                return None
+            data = dict(row)
+            if not hmac.compare_digest(str(data.get("key_hash") or ""), key_digest):
+                return None
+            if data.get("is_banned"):
+                return None
+            data.pop("key_hash", None)
+            _RESELLER_AUTH_CACHE[key_digest] = (time.time(), dict(data))
+            asyncio.create_task(_touch_reseller_api_key_last_used(int(data["id"])))
+            return data
+        except Exception as exc:
+            last_exc = exc
+            if db is not None and hasattr(db, "has_error"):
+                db.has_error = True
+            if attempt == 0:
+                logger.info("Retrying reseller authentication on a fresh connection: %s", exc)
+        finally:
+            if db is not None:
+                try:
+                    await asyncio.wait_for(db.close(), timeout=2)
+                except Exception:
+                    pass
+
+    raise RuntimeError("Reseller authentication database unavailable") from last_exc
 
 
 async def get_reseller_wallet_transactions(user_telegram_id: int, limit: int = 50, offset: int = 0) -> list[dict]:

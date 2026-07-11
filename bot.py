@@ -349,7 +349,16 @@ async def verify_reseller_key(
     if not reseller_key:
         _raise_reseller_error(status.HTTP_401_UNAUTHORIZED, "MISSING_API_KEY", "Missing reseller API key")
     from database.models import get_reseller_by_api_key
-    reseller = await get_reseller_by_api_key(reseller_key)
+    try:
+        reseller = await get_reseller_by_api_key(reseller_key)
+    except Exception as exc:
+        logger.error("Reseller authentication unavailable: %s", exc, exc_info=True)
+        _raise_reseller_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "API_TEMPORARILY_UNAVAILABLE",
+            "Authentication service temporarily unavailable. Retry shortly.",
+            headers={"Retry-After": "3"},
+        )
     if not reseller:
         _raise_reseller_error(status.HTTP_401_UNAUTHORIZED, "INVALID_API_KEY", "Invalid reseller API key")
     rate_headers = _check_reseller_rate_limit(str(reseller.get("id") or reseller.get("key_prefix") or reseller["user_telegram_id"]))
@@ -448,7 +457,7 @@ async def health_check():
 
 
 def _reseller_openapi_schema() -> dict:
-    return {
+    schema = {
         "openapi": "3.0.3",
         "info": {
             "title": "VenteBot Reseller API",
@@ -785,6 +794,21 @@ def _reseller_openapi_schema() -> dict:
             },
         },
     }
+    unavailable_response = {
+        "description": "Authentication database temporarily unavailable. Retry after a short delay.",
+        "headers": {
+            "Retry-After": {
+                "description": "Recommended retry delay in seconds.",
+                "schema": {"type": "integer", "example": 3},
+            }
+        },
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}},
+    }
+    for path_item in schema["paths"].values():
+        for operation in path_item.values():
+            if isinstance(operation, dict) and "responses" in operation:
+                operation["responses"].setdefault("503", unavailable_response)
+    return schema
 
 
 @api.get("/api/reseller/openapi.json", include_in_schema=False)
@@ -1233,8 +1257,6 @@ def _validated_dynamic_pricing_updates(data: dict, current_price: float, existin
         "dynamic_min_confidence": min_confidence,
         "dynamic_psychological_rounding": 1 if _as_bool(data.get("dynamic_psychological_rounding", existing.get("dynamic_psychological_rounding", False))) else 0,
     }
-
-
 @api.post("/api/products", dependencies=[Depends(verify_api_key)])
 async def api_create_product(data: dict):
     from database.models import add_product, get_categories, add_category, update_product, recalculate_dynamic_prices
