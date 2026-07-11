@@ -169,6 +169,8 @@ body { background:var(--bg-primary); line-height:1.5; font-size:16px; }
 .dynamic-pricing-history { display:grid; gap:6px; max-height:190px; overflow:auto; }
 .dynamic-history-item { display:grid; grid-template-columns:1fr auto; gap:4px 10px; padding:9px 10px; border-radius:6px; background:var(--bg-elevated); }
 .dynamic-history-item strong { font-size:12px; }.dynamic-history-item span,.dynamic-history-item small { color:var(--color-text-muted); font-size:11px; }.dynamic-history-item small { grid-column:1/-1; }
+.dynamic-history-unavailable { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px; border-radius:6px; background:rgba(251,191,36,.08); color:var(--color-text-muted); }
+.dynamic-history-unavailable p { font-size:12px; }.dynamic-history-unavailable .btn-secondary { min-height:32px; padding:5px 9px; font-size:12px; white-space:nowrap; }
 .dynamic-price-badge { display:inline-flex; align-items:center; gap:4px; margin-left:7px; padding:3px 6px; border-radius:999px; background:rgba(96,165,250,.12); color:var(--primary-color); font-size:10px; font-weight:700; white-space:nowrap; }
 
 /* Feedback */

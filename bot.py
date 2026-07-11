@@ -1222,7 +1222,7 @@ def _validated_dynamic_pricing_updates(data: dict, current_price: float, existin
 
 @api.post("/api/products", dependencies=[Depends(verify_api_key)])
 async def api_create_product(data: dict):
-    from database.models import add_product, get_categories, add_category, update_product
+    from database.models import add_product, get_categories, add_category, update_product, recalculate_dynamic_prices
     try:
         if "price_usd" not in data or "name" not in data:
             raise HTTPException(status_code=400, detail="Missing required fields: name, price_usd")
@@ -1273,6 +1273,8 @@ async def api_create_product(data: dict):
         )
         if dynamic_updates:
             await update_product(prod_id, **dynamic_updates)
+            if dynamic_updates.get("dynamic_pricing_enabled"):
+                await recalculate_dynamic_prices(product_id=prod_id, force=True)
         _clear_api_stats_cache()
         return {"id": prod_id, "status": "created"}
     except HTTPException:
@@ -1338,7 +1340,7 @@ async def api_reorder_products(request: Request):
 
 @api.put("/api/products/{product_id}", dependencies=[Depends(verify_api_key)])
 async def api_update_product(product_id: int, data: dict):
-    from database.models import update_product, get_product
+    from database.models import update_product, get_product, recalculate_dynamic_prices
     try:
         allowed = {"name", "price_usd", "emoji", "custom_emoji_id", "warranty_days", "description", "description_fr", "description_ar", "description_zh", "description_vi", "description_ru", "is_active", "binance_account_id", "image_url", "delivery_type", "activation_message", "activation_message_fr", "activation_message_ar", "activation_message_zh", "activation_message_vi", "activation_message_ru", "confirmation_message", "confirmation_message_fr", "confirmation_message_ar", "confirmation_message_zh", "confirmation_message_vi", "confirmation_message_ru"}
         updates = {k: v for k, v in data.items() if k in allowed}
@@ -1348,7 +1350,8 @@ async def api_update_product(product_id: int, data: dict):
         updated_price = float(updates.get("price_usd", product["price_usd"]))
         if updated_price <= 0:
             raise HTTPException(status_code=400, detail="Price must be positive")
-        updates.update(_validated_dynamic_pricing_updates(data, updated_price, existing=product))
+        dynamic_updates = _validated_dynamic_pricing_updates(data, updated_price, existing=product)
+        updates.update(dynamic_updates)
         if not updates:
             raise HTTPException(status_code=400, detail="No valid fields to update")
         if "price_usd" in updates:
@@ -1356,6 +1359,8 @@ async def api_update_product(product_id: int, data: dict):
         if "warranty_days" in updates:
             updates["warranty_days"] = int(updates["warranty_days"])
         await update_product(product_id, **updates)
+        if dynamic_updates.get("dynamic_pricing_enabled") and product.get("dynamic_suggested_price") is None:
+            await recalculate_dynamic_prices(product_id=product_id, force=True)
         _clear_api_stats_cache()
         return {"status": "updated"}
     except HTTPException:

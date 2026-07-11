@@ -615,7 +615,7 @@ function setDynamicPricingForm(prefix, product={}) {
         const suggested = $('edit-prod-dynamic-suggested');
         if (current) current.textContent = price > 0 ? `$${price.toFixed(2)}` : '-';
         const suggestedPrice = product.dynamic_suggested_price;
-        if (suggested) suggested.textContent = suggestedPrice === null || suggestedPrice === undefined ? '-' : `$${Number(suggestedPrice).toFixed(2)}`;
+        if (suggested) suggested.textContent = suggestedPrice === null || suggestedPrice === undefined ? 'À calculer' : `$${Number(suggestedPrice).toFixed(2)}`;
         const applyButton = $('edit-prod-dynamic-apply');
         if (applyButton) {
             const canApply = Boolean(product.dynamic_pricing_enabled)
@@ -675,7 +675,14 @@ async function loadDynamicPricingHistory(productId) {
     if (!container) return;
     container.innerHTML = '<p class="empty-state">Chargement...</p>';
     try {
-        const data = await apiCall(`/api/products/${productId}/dynamic-pricing/history?limit=8`);
+        let data;
+        try {
+            data = await apiCall(`/api/products/${productId}/dynamic-pricing/history?limit=8`);
+        } catch (firstError) {
+            if (!['UNREACHABLE', 'TIMEOUT'].includes(firstError.message)) throw firstError;
+            await new Promise(resolve => setTimeout(resolve, 900));
+            data = await apiCall(`/api/products/${productId}/dynamic-pricing/history?limit=8`);
+        }
         const history = data.history || [];
         container.innerHTML = history.length ? history.map(item => {
             const date = item.created_at ? parseUTCDate(item.created_at).toLocaleString() : '';
@@ -683,7 +690,12 @@ async function loadDynamicPricingHistory(productId) {
             return `<div class="dynamic-history-item"><strong>$${Number(item.old_price).toFixed(2)} → $${Number(item.new_price).toFixed(2)}</strong><span>${mode} · ${escapeHtml(date)}</span><small>${escapeHtml(item.reason || '')}</small></div>`;
         }).join('') : '<p class="empty-state">Aucun historique.</p>';
     } catch (error) {
-        container.innerHTML = `<p class="empty-state">${escapeHtml(error.message)}</p>`;
+        const transient = ['UNREACHABLE', 'TIMEOUT'].includes(error.message);
+        const message = transient
+            ? "Historique temporairement indisponible. Le prix dynamique reste actif."
+            : `Historique indisponible : ${error.message}`;
+        container.innerHTML = `<div class="dynamic-history-unavailable"><p>${escapeHtml(message)}</p><button type="button" class="btn-secondary"><i class="fa-solid fa-rotate-right"></i> Réessayer</button></div>`;
+        container.querySelector('button').addEventListener('click', () => loadDynamicPricingHistory(productId));
     }
 }
 
