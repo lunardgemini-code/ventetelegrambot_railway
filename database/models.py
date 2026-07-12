@@ -2232,6 +2232,7 @@ async def _apply_completion_effects_tx(
     if payment_method != "wallet":
         method_suffix = {
             "bep20": "bep20",
+            "nowpayments_bep20": "bep20",
             "trc20": "trc20",
             "binance_pay": "binance",
             "binance": "binance",
@@ -2294,6 +2295,472 @@ async def update_order_status(
         except Exception:
             pass
         raise
+    finally:
+        await db.close()
+
+
+_NOWPAYMENTS_ACTIVE_STATUSES = (
+    "creating",
+    "creation_unknown",
+    "waiting",
+    "confirming",
+    "confirmed",
+    "sending",
+    "spending",
+    "partially_paid",
+)
+
+
+async def prepare_nowpayments_attempt(order_id: int, price_amount: float) -> dict:
+    """Create one provider attempt or return the existing active attempt."""
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        placeholders = ",".join("?" for _ in _NOWPAYMENTS_ACTIVE_STATUSES)
+        cursor = await db.execute(
+            f"""SELECT * FROM nowpayments_payments
+                WHERE order_id = ? AND provider_status IN ({placeholders})
+                ORDER BY id DESC LIMIT 1""",
+            (int(order_id), *_NOWPAYMENTS_ACTIVE_STATUSES),
+        )
+        existing = await cursor.fetchone()
+        if existing:
+            await db.commit()
+            result = dict(existing)
+            result["created"] = False
+            return result
+
+        request_key = f"np-{int(order_id)}-{uuid.uuid4().hex}"
+        cursor = await db.execute(
+            """INSERT INTO nowpayments_payments
+               (order_id, request_key, provider_status, price_amount, price_currency, pay_currency)
+               VALUES (?, ?, 'creating', ?, 'usd', 'usdtbsc')""",
+            (int(order_id), request_key, round(float(price_amount), 2)),
+        )
+        attempt_id = cursor.lastrowid
+        await db.commit()
+        cursor = await db.execute("SELECT * FROM nowpayments_payments WHERE id = ?", (attempt_id,))
+        result = dict(await cursor.fetchone())
+        result["created"] = True
+        return result
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def attach_nowpayments_payment(request_key: str, payload: dict) -> dict:
+    payment_id = str(payload.get("payment_id") or "").strip()
+    if not payment_id:
+        raise ValueError("NOWPAYMENTS_PAYMENT_ID_MISSING")
+
+    provider_status = str(payload.get("payment_status") or "waiting").lower()
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute(
+            """UPDATE nowpayments_payments SET
+                   payment_id = ?, provider_status = ?, pay_amount = ?, pay_currency = ?,
+                   pay_address = ?, network = ?, valid_until = ?, raw_payload = ?,
+                   updated_at = CURRENT_TIMESTAMP, processing_error = NULL
+               WHERE request_key = ? AND payment_id IS NULL
+               RETURNING *""",
+            (
+                payment_id,
+                provider_status,
+                float(payload.get("pay_amount") or 0),
+                str(payload.get("pay_currency") or "usdtbsc").lower(),
+                str(payload.get("pay_address") or ""),
+                str(payload.get("network") or ""),
+                payload.get("valid_until") or payload.get("expiration_estimate_date"),
+                json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                request_key,
+            ),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            cursor = await db.execute(
+                "SELECT * FROM nowpayments_payments WHERE request_key = ?",
+                (request_key,),
+            )
+            row = await cursor.fetchone()
+        await db.commit()
+        if not row:
+            raise ValueError("NOWPAYMENTS_ATTEMPT_NOT_FOUND")
+        return dict(row)
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def mark_nowpayments_creation_failed(request_key: str, *, uncertain: bool, error: str) -> None:
+    db = await get_db()
+    try:
+        await db.execute(
+            """UPDATE nowpayments_payments
+               SET provider_status = ?, processing_error = ?, updated_at = CURRENT_TIMESTAMP
+               WHERE request_key = ? AND payment_id IS NULL""",
+            ("creation_unknown" if uncertain else "creation_failed", str(error)[:500], request_key),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def get_nowpayments_payment_for_order(order_id: int) -> dict | None:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM nowpayments_payments WHERE order_id = ? ORDER BY id DESC LIMIT 1",
+            (int(order_id),),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def get_nowpayments_payment(payment_id: str | int) -> dict | None:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM nowpayments_payments WHERE payment_id = ?",
+            (str(payment_id),),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def save_nowpayments_update(payload: dict) -> dict | None:
+    """Persist an authenticated provider update before asynchronous processing."""
+    payment_id = str(payload.get("payment_id") or "").strip()
+    if not payment_id:
+        return None
+    provider_status = str(payload.get("payment_status") or "").strip().lower()
+    if not provider_status:
+        return None
+
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute(
+            "SELECT * FROM nowpayments_payments WHERE payment_id = ?",
+            (payment_id,),
+        )
+        existing = await cursor.fetchone()
+        if not existing:
+            await db.rollback()
+            return None
+        existing = dict(existing)
+        callback_order_id = str(payload.get("order_id") or "").strip()
+        if callback_order_id and callback_order_id != str(existing["order_id"]):
+            await db.rollback()
+            raise ValueError("NOWPAYMENTS_ORDER_MISMATCH")
+
+        old_status = str(existing.get("provider_status") or "")
+        status_rank = {
+            "creating": 0,
+            "creation_unknown": 0,
+            "waiting": 1,
+            "confirming": 2,
+            "confirmed": 3,
+            "sending": 4,
+            "spending": 4,
+            "partially_paid": 4,
+            "finished": 5,
+            "failed": 5,
+            "refunded": 5,
+            "expired": 5,
+        }
+        if provider_status != "finished" and status_rank.get(provider_status, 0) < status_rank.get(old_status, 0):
+            provider_status = old_status
+        cursor = await db.execute(
+            """UPDATE nowpayments_payments SET
+                   provider_status = ?,
+                   pay_amount = COALESCE(?, pay_amount),
+                   pay_currency = COALESCE(?, pay_currency),
+                   pay_address = COALESCE(?, pay_address),
+                   actually_paid = MAX(COALESCE(actually_paid, 0), ?),
+                   network = COALESCE(?, network),
+                   valid_until = COALESCE(?, valid_until),
+                   raw_payload = ?,
+                   updated_at = CURRENT_TIMESTAMP,
+                   notified_at = CASE WHEN provider_status != ? THEN NULL ELSE notified_at END
+               WHERE payment_id = ?
+               RETURNING *""",
+            (
+                provider_status,
+                float(payload["pay_amount"]) if payload.get("pay_amount") is not None else None,
+                str(payload.get("pay_currency")).lower() if payload.get("pay_currency") else None,
+                str(payload.get("pay_address")) if payload.get("pay_address") else None,
+                float(payload.get("actually_paid") or 0),
+                str(payload.get("network")) if payload.get("network") else None,
+                payload.get("valid_until") or payload.get("expiration_estimate_date"),
+                json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                provider_status,
+                payment_id,
+            ),
+        )
+        row = await cursor.fetchone()
+        await db.commit()
+        result = dict(row)
+        result["status_changed"] = old_status != provider_status
+        return result
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def finalize_nowpayments_payment(payment_id: str | int) -> dict:
+    """Finalize a finished provider payment exactly once, including stock and finance."""
+    _clear_stock_cache()
+    invalidate_stats_cache()
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute(
+            """SELECT np.*, o.user_telegram_id, o.product_id, o.quantity,
+                      o.amount_usd, o.status AS order_status, o.payment_method,
+                      o.promo_code_id, p.delivery_type, p.name AS product_name,
+                      p.warranty_days
+               FROM nowpayments_payments np
+               JOIN orders o ON o.id = np.order_id
+               JOIN products p ON p.id = o.product_id
+               WHERE np.payment_id = ?""",
+            (str(payment_id),),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            await db.rollback()
+            return {"action": "unknown"}
+        payment = dict(row)
+        provider_status = str(payment.get("provider_status") or "").lower()
+        if provider_status != "finished":
+            await db.commit()
+            return {"action": provider_status or "waiting", "payment": payment}
+
+        expected_currency = str(payment.get("pay_currency") or "").lower()
+        expected_pay_amount = float(payment.get("pay_amount") or 0)
+        actually_paid = float(payment.get("actually_paid") or 0)
+        expected_price = round(float(payment.get("amount_usd") or 0), 2)
+        stored_price = round(float(payment.get("price_amount") or 0), 2)
+        error = None
+        if expected_currency != "usdtbsc":
+            error = f"Unexpected pay currency: {expected_currency or 'missing'}"
+        elif abs(stored_price - expected_price) > 0.01:
+            error = f"Order amount mismatch: expected {expected_price:.2f}, stored {stored_price:.2f}"
+        elif expected_pay_amount <= 0 or actually_paid + 0.000001 < expected_pay_amount:
+            error = f"Insufficient provider amount: paid {actually_paid}, expected {expected_pay_amount}"
+
+        if error:
+            await db.execute(
+                "UPDATE nowpayments_payments SET processing_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (error, int(payment["id"])),
+            )
+            await db.commit()
+            payment["processing_error"] = error
+            return {"action": "review_required", "payment": payment}
+
+        order_status = str(payment.get("order_status") or "")
+        payment_method = str(payment.get("payment_method") or "")
+        if order_status == "COMPLETED" and payment_method != "nowpayments_bep20":
+            error = f"Order already completed with {payment_method or 'another method'}"
+            await db.execute(
+                "UPDATE nowpayments_payments SET processing_error = ? WHERE id = ?",
+                (error, int(payment["id"])),
+            )
+            await db.commit()
+            return {"action": "review_required", "payment": payment}
+
+        cursor = await db.execute(
+            "SELECT id, account_data FROM stock_items WHERE sold_to_order_id = ? ORDER BY id ASC",
+            (int(payment["order_id"]),),
+        )
+        items = [dict(item) for item in await cursor.fetchall()]
+        already_processed = payment.get("processed_at") is not None
+        if already_processed:
+            await db.commit()
+            if order_status in ("AWAITING_ACTIVATION_INFO", "AWAITING_ACTIVATION"):
+                action = "activation"
+            elif order_status == "PAID_PENDING_DELIVERY":
+                action = "paid_pending_delivery"
+            else:
+                action = "completed"
+            return {"action": action, "payment": payment, "items": items, "already_processed": True}
+
+        delivery_type = str(payment.get("delivery_type") or "stock")
+        if delivery_type == "activation":
+            next_status = order_status if order_status in ("AWAITING_ACTIVATION_INFO", "AWAITING_ACTIVATION") else "AWAITING_ACTIVATION_INFO"
+            await db.execute(
+                """UPDATE orders SET status = ?, payment_method = 'nowpayments_bep20',
+                          binance_order_id = ?, paid_at = COALESCE(paid_at, CURRENT_TIMESTAMP)
+                   WHERE id = ?""",
+                (next_status, str(payment_id), int(payment["order_id"])),
+            )
+            await db.execute(
+                "UPDATE nowpayments_payments SET processed_at = CURRENT_TIMESTAMP, processing_error = NULL WHERE id = ?",
+                (int(payment["id"]),),
+            )
+            await db.commit()
+            payment["order_status"] = next_status
+            return {"action": "activation", "payment": payment, "items": []}
+
+        quantity = max(1, int(payment.get("quantity") or 1))
+        if not items:
+            cursor = await db.execute(
+                """SELECT id, account_data FROM stock_items
+                   WHERE product_id = ? AND is_sold = 0
+                   ORDER BY added_at ASC, id ASC LIMIT ?""",
+                (int(payment["product_id"]), quantity),
+            )
+            items = [dict(item) for item in await cursor.fetchall()]
+            if len(items) < quantity:
+                await db.execute(
+                    """UPDATE orders SET status = 'PAID_PENDING_DELIVERY',
+                              payment_method = 'nowpayments_bep20', binance_order_id = ?,
+                              paid_at = COALESCE(paid_at, CURRENT_TIMESTAMP)
+                       WHERE id = ?""",
+                    (str(payment_id), int(payment["order_id"])),
+                )
+                await db.execute(
+                    """UPDATE nowpayments_payments SET processed_at = CURRENT_TIMESTAMP,
+                              processing_error = 'Insufficient stock after confirmed payment'
+                       WHERE id = ?""",
+                    (int(payment["id"]),),
+                )
+                await db.commit()
+                payment["order_status"] = "PAID_PENDING_DELIVERY"
+                return {"action": "paid_pending_delivery", "payment": payment, "items": []}
+
+            ids = [int(item["id"]) for item in items]
+            placeholders = ",".join("?" for _ in ids)
+            cursor = await db.execute(
+                f"""UPDATE stock_items SET is_sold = 1, sold_to_order_id = ?, sold_at = CURRENT_TIMESTAMP
+                    WHERE id IN ({placeholders}) AND is_sold = 0""",
+                [int(payment["order_id"]), *ids],
+            )
+            if cursor.rowcount != -1 and cursor.rowcount != len(ids):
+                await db.rollback()
+                raise ValueError("NOWPAYMENTS_STOCK_CONFLICT")
+
+        first_stock_id = items[0]["id"] if items else None
+        transitioned = order_status != "COMPLETED"
+        await db.execute(
+            """UPDATE orders SET status = 'COMPLETED', payment_method = 'nowpayments_bep20',
+                      binance_order_id = ?, paid_at = COALESCE(paid_at, CURRENT_TIMESTAMP),
+                      stock_item_id = COALESCE(?, stock_item_id)
+               WHERE id = ?""",
+            (str(payment_id), first_stock_id, int(payment["order_id"])),
+        )
+        if transitioned:
+            await _apply_completion_effects_tx(db, payment, "nowpayments_bep20")
+        await db.execute(
+            "UPDATE nowpayments_payments SET processed_at = CURRENT_TIMESTAMP, processing_error = NULL WHERE id = ?",
+            (int(payment["id"]),),
+        )
+        await db.commit()
+        payment["order_status"] = "COMPLETED"
+        return {"action": "completed", "payment": payment, "items": items}
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def mark_nowpayments_notified(payment_id: str | int) -> None:
+    db = await get_db()
+    try:
+        await db.execute(
+            """UPDATE nowpayments_payments
+               SET notified_at = CURRENT_TIMESTAMP, notification_claimed_at = NULL
+               WHERE payment_id = ?""",
+            (str(payment_id),),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def claim_nowpayments_notification(payment_id: str | int) -> bool:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """UPDATE nowpayments_payments
+               SET notification_claimed_at = CURRENT_TIMESTAMP
+               WHERE payment_id = ? AND notified_at IS NULL
+                 AND (notification_claimed_at IS NULL
+                      OR notification_claimed_at <= datetime('now', '-5 minutes'))
+               RETURNING id""",
+            (str(payment_id),),
+        )
+        row = await cursor.fetchone()
+        await db.commit()
+        return row is not None
+    finally:
+        await db.close()
+
+
+async def release_nowpayments_notification(payment_id: str | int) -> None:
+    db = await get_db()
+    try:
+        await db.execute(
+            """UPDATE nowpayments_payments SET notification_claimed_at = NULL
+               WHERE payment_id = ? AND notified_at IS NULL""",
+            (str(payment_id),),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def list_nowpayments_to_finalize(limit: int = 25) -> list[dict]:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT * FROM nowpayments_payments
+               WHERE provider_status = 'finished'
+                 AND ((processed_at IS NULL AND processing_error IS NULL) OR notified_at IS NULL)
+               ORDER BY updated_at ASC LIMIT ?""",
+            (max(1, min(int(limit), 100)),),
+        )
+        return [dict(row) for row in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+
+async def list_nowpayments_to_poll(limit: int = 20) -> list[dict]:
+    db = await get_db()
+    try:
+        placeholders = ",".join("?" for _ in _NOWPAYMENTS_ACTIVE_STATUSES[2:])
+        cursor = await db.execute(
+            f"""SELECT * FROM nowpayments_payments
+                WHERE payment_id IS NOT NULL
+                  AND provider_status IN ({placeholders})
+                  AND updated_at <= datetime('now', '-60 seconds')
+                ORDER BY updated_at ASC LIMIT ?""",
+            (*_NOWPAYMENTS_ACTIVE_STATUSES[2:], max(1, min(int(limit), 50))),
+        )
+        return [dict(row) for row in await cursor.fetchall()]
     finally:
         await db.close()
 
@@ -2651,7 +3118,7 @@ async def _get_stats_uncached(days: int = 30, method: str = None) -> dict:
                    COALESCE(SUM(CASE WHEN status = 'COMPLETED'
                                       AND (payment_method IS NULL OR payment_method IN ('binance', 'binance_pay'))
                                      THEN amount_usd ELSE 0 END), 0) AS sales_binance,
-                   COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND payment_method = 'bep20'
+                   COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND payment_method IN ('bep20', 'nowpayments_bep20')
                                      THEN amount_usd ELSE 0 END), 0) AS sales_bep20,
                    COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND payment_method = 'trc20'
                                      THEN amount_usd ELSE 0 END), 0) AS sales_trc20,

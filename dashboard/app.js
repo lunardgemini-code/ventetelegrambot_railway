@@ -1791,6 +1791,8 @@ async function loadAllOrders() {
                 payMethod = `<span class="pay-method-badge wallet">${t('pay_method_wallet')}</span>`;
             } else if (o.payment_method === 'binance' || o.payment_method == null) {
                 payMethod = `<span class="pay-method-badge binance">${t('pay_method_binance')}</span>`;
+            } else if (o.payment_method === 'nowpayments_bep20') {
+                payMethod = `<span class="pay-method-badge">NOWPayments · BEP20</span>`;
             } else {
                 payMethod = `<span class="pay-method-badge">${escapeHtml(o.payment_method)}</span>`;
             }

@@ -22,6 +22,16 @@ BINANCE_API_KEY: str = os.getenv("BINANCE_API_KEY", "")
 BINANCE_API_SECRET: str = os.getenv("BINANCE_API_SECRET", "")
 BINANCE_PAY_ID: str = os.getenv("BINANCE_PAY_ID", "")
 
+# NOWPayments credentials must stay in Railway environment variables.
+NOWPAYMENTS_API_KEY: str = os.getenv("NOWPAYMENTS_API_KEY", "").strip()
+NOWPAYMENTS_IPN_SECRET: str = os.getenv("NOWPAYMENTS_IPN_SECRET", "").strip()
+NOWPAYMENTS_BASE_URL: str = os.getenv(
+    "NOWPAYMENTS_BASE_URL", "https://api.nowpayments.io/v1"
+).strip().rstrip("/")
+NOWPAYMENTS_ENABLED: bool = os.getenv("NOWPAYMENTS_ENABLED", "false").strip().lower() in {
+    "1", "true", "yes", "on"
+}
+
 
 # ── Identifiants des administrateurs (séparés par des virgules) ────
 ADMIN_IDS: list[int] = [

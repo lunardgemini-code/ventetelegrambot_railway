@@ -578,6 +578,106 @@ class OrderSafetyTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertAlmostEqual(await models.get_effective_price(self.product_id, 2), 4.4)
 
+    async def _finished_nowpayments_payment(self, order_id: int, payment_id: str, amount: float = 5.0):
+        attempt = await models.prepare_nowpayments_attempt(order_id, amount)
+        await models.attach_nowpayments_payment(attempt["request_key"], {
+            "payment_id": payment_id,
+            "payment_status": "waiting",
+            "pay_amount": amount,
+            "pay_currency": "usdtbsc",
+            "pay_address": "0x1111111111111111111111111111111111111111",
+            "network": "bsc",
+        })
+        await models.save_nowpayments_update({
+            "payment_id": payment_id,
+            "payment_status": "finished",
+            "order_id": str(order_id),
+            "pay_amount": amount,
+            "actually_paid": amount,
+            "pay_currency": "usdtbsc",
+        })
+
+    async def test_nowpayments_double_callback_delivers_and_counts_once(self):
+        order = await models.create_order(1001, self.product_id, 5, quantity=1)
+        await self._finished_nowpayments_payment(order["id"], "np-double-1")
+
+        first, second = await asyncio.gather(
+            models.finalize_nowpayments_payment("np-double-1"),
+            models.finalize_nowpayments_payment("np-double-1"),
+        )
+        self.assertEqual(first["action"], "completed")
+        self.assertEqual(second["action"], "completed")
+
+        db = await get_db()
+        try:
+            saved_order = await (await db.execute(
+                "SELECT status, payment_method, binance_order_id FROM orders WHERE id = ?",
+                (order["id"],),
+            )).fetchone()
+            sold = await (await db.execute(
+                "SELECT COUNT(*) AS cnt FROM stock_items WHERE sold_to_order_id = ?",
+                (order["id"],),
+            )).fetchone()
+            user = await (await db.execute(
+                "SELECT total_orders, total_spent FROM users WHERE telegram_id = 1001"
+            )).fetchone()
+            finance = await (await db.execute(
+                "SELECT value FROM settings WHERE key = 'finance_bot_balance_bep20'"
+            )).fetchone()
+        finally:
+            await db.close()
+
+        self.assertEqual(saved_order["status"], "COMPLETED")
+        self.assertEqual(saved_order["payment_method"], "nowpayments_bep20")
+        self.assertEqual(saved_order["binance_order_id"], "np-double-1")
+        self.assertEqual(int(sold["cnt"]), 1)
+        self.assertEqual(int(user["total_orders"]), 1)
+        self.assertAlmostEqual(float(user["total_spent"]), 5.0)
+        self.assertAlmostEqual(float(finance["value"]), 5.0)
+
+    async def test_nowpayments_underpayment_requires_review(self):
+        order = await models.create_order(1001, self.product_id, 5, quantity=1)
+        attempt = await models.prepare_nowpayments_attempt(order["id"], 5)
+        await models.attach_nowpayments_payment(attempt["request_key"], {
+            "payment_id": "np-underpaid-1",
+            "payment_status": "waiting",
+            "pay_amount": 5,
+            "pay_currency": "usdtbsc",
+            "pay_address": "0x1111111111111111111111111111111111111111",
+        })
+        await models.save_nowpayments_update({
+            "payment_id": "np-underpaid-1",
+            "payment_status": "finished",
+            "order_id": str(order["id"]),
+            "pay_amount": 5,
+            "actually_paid": 4,
+            "pay_currency": "usdtbsc",
+        })
+
+        result = await models.finalize_nowpayments_payment("np-underpaid-1")
+        saved = await models.get_order(order["id"])
+        self.assertEqual(result["action"], "review_required")
+        self.assertNotEqual(saved["status"], "COMPLETED")
+        self.assertIn("Insufficient provider amount", result["payment"]["processing_error"])
+
+    async def test_nowpayments_activation_waits_for_identifier(self):
+        category_id = await models.add_category("Activation")
+        product_id = await models.add_product(
+            category_id=category_id,
+            name="Activation product",
+            description="",
+            price_usd=5,
+            delivery_type="activation",
+        )
+        order = await models.create_order(1001, product_id, 5, quantity=1)
+        await self._finished_nowpayments_payment(order["id"], "np-activation-1")
+
+        result = await models.finalize_nowpayments_payment("np-activation-1")
+        saved = await models.get_order(order["id"])
+        self.assertEqual(result["action"], "activation")
+        self.assertEqual(saved["status"], "AWAITING_ACTIVATION_INFO")
+        self.assertEqual(saved["payment_method"], "nowpayments_bep20")
+
 
 if __name__ == "__main__":
     unittest.main()

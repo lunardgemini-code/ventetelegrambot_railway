@@ -266,6 +266,14 @@ async def payment_method_keyboard(order_id: int, lang: str = "fr", wallet_balanc
         icon_custom_emoji_id="5388622778817589921"
     )])
 
+    # Automated USDT/BEP20 checkout through NOWPayments.
+    from services.nowpayments import is_nowpayments_configured
+    if is_nowpayments_configured():
+        buttons.append([InlineKeyboardButton(
+            t("btn_pay_nowpayments", lang),
+            callback_data=f"pay_nowpayments:{order_id}",
+        )])
+
     # Dynamic BEP20 button
     bep20_addr = await get_setting("bep20_address")
     if bep20_addr:
@@ -296,6 +304,13 @@ async def payment_method_keyboard(order_id: int, lang: str = "fr", wallet_balanc
 
     buttons.append([make_button("btn_cancel", lang, callback_data=f"cancel_order:{order_id}")])
     return InlineKeyboardMarkup(buttons)
+
+
+def nowpayments_payment_keyboard(order_id: int, lang: str = "fr") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(t("btn_check_nowpayments", lang), callback_data=f"check_nowpayments:{order_id}")],
+        [make_button("btn_cancel", lang, callback_data=f"cancel_order:{order_id}")],
+    ])
 
 
 async def wallet_topup_method_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:

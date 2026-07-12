@@ -11,6 +11,7 @@ warnings.filterwarnings("ignore", category=PTBUserWarning)
 
 import hmac
 import asyncio
+import json
 import logging
 import os
 import secrets
@@ -456,18 +457,72 @@ async def health_check():
     return payload
 
 
+def _log_nowpayments_task_result(task: asyncio.Task) -> None:
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        pass
+    except Exception as exc:
+        logger.exception("NOWPayments background processing failed: %s", exc)
+
+
+async def _process_nowpayments_payment(payment_id: str) -> None:
+    if not tg_app or not getattr(tg_app, "bot", None):
+        return
+    from handlers.payment import process_nowpayments_payment_notification
+    await process_nowpayments_payment_notification(tg_app.bot, payment_id)
+
+
+@api.post("/webhooks/nowpayments", include_in_schema=False)
+async def nowpayments_webhook(request: Request, x_nowpayments_sig: str = Header(None)):
+    """Persist a signed IPN quickly, then finish delivery outside the HTTP response."""
+    from services.nowpayments import is_nowpayments_configured, verify_ipn_signature
+    if not is_nowpayments_configured():
+        raise HTTPException(status_code=503, detail="NOWPayments is not configured")
+
+    raw_body = await request.body()
+    if len(raw_body) > 65536:
+        raise HTTPException(status_code=413, detail="IPN payload too large")
+    try:
+        payload = json.loads(raw_body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Invalid IPN payload")
+    if not verify_ipn_signature(payload, x_nowpayments_sig):
+        logger.warning("Rejected NOWPayments IPN with an invalid signature")
+        raise HTTPException(status_code=401, detail="Invalid IPN signature")
+
+    from database.models import save_nowpayments_update
+    try:
+        payment = await save_nowpayments_update(payload)
+    except ValueError as exc:
+        logger.error("Rejected signed NOWPayments IPN: %s", exc)
+        return {"status": "rejected"}
+    if not payment:
+        logger.warning("Ignored signed NOWPayments IPN for unknown payment %s", payload.get("payment_id"))
+        return {"status": "ignored"}
+
+    payment_id = str(payment["payment_id"])
+    if tg_app and getattr(tg_app, "bot", None):
+        task = asyncio.create_task(_process_nowpayments_payment(payment_id))
+        task.add_done_callback(_log_nowpayments_task_result)
+    return {"status": "accepted"}
+
+
 def _reseller_openapi_schema() -> dict:
     schema = {
         "openapi": "3.0.3",
         "info": {
             "title": "VenteBot Reseller API",
-            "version": "1.0.0",
+            "version": "1.0.1",
             "description": (
                 "Public API for connecting a reseller bot to VenteBot. "
                 "Purchases debit the reseller account wallet.\n\n"
                 "Authenticate with X-Reseller-Key, or X-API-Key for compatibility with common reseller integrations.\n\n"
                 f"Rate limit: {RESELLER_API_RATE_LIMIT} requests per {RESELLER_API_RATE_WINDOW} seconds per API key. "
-                "Responses include X-RateLimit-Limit, X-RateLimit-Remaining, and X-RateLimit-Reset headers."
+                "Successful authenticated responses include X-RateLimit-Limit, "
+                "X-RateLimit-Remaining, and X-RateLimit-Reset headers."
             ),
         },
         "servers": [{"url": "/"}],
@@ -575,6 +630,12 @@ def _reseller_openapi_schema() -> dict:
                                 "unit_price": {"type": "number", "format": "float", "example": 5.0},
                                 "total": {"type": "number", "format": "float", "example": 5.0},
                                 "delivery_type": {"type": "string", "example": "activation"},
+                                "stock": {
+                                    "type": "integer",
+                                    "nullable": True,
+                                    "description": "Available units for stock delivery; null for activation products.",
+                                    "example": 12,
+                                },
                             },
                         },
                         "wallet_balance": {"type": "number", "format": "float", "example": 42.5},
@@ -624,7 +685,11 @@ def _reseller_openapi_schema() -> dict:
                     "type": "object",
                     "properties": {
                         "id": {"type": "integer", "example": 124},
-                        "status": {"type": "string", "example": "AWAITING_ACTIVATION"},
+                        "status": {
+                            "type": "string",
+                            "enum": ["COMPLETED", "AWAITING_ACTIVATION_INFO", "AWAITING_ACTIVATION", "CANCELLED"],
+                            "example": "AWAITING_ACTIVATION",
+                        },
                         "product_id": {"type": "integer", "example": 12},
                         "product_name": {"type": "string", "example": "Grok 1 month"},
                         "quantity": {"type": "integer", "example": 1},
@@ -635,6 +700,19 @@ def _reseller_openapi_schema() -> dict:
                         "activation_identifier": {"type": "string", "nullable": True, "example": "@client"},
                         "created_at": {"type": "string", "example": "2026-07-06 12:30:00"},
                         "items": {"type": "array", "items": {"$ref": "#/components/schemas/OrderItem"}},
+                    },
+                },
+                "WalletTransaction": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "integer", "example": 456},
+                        "user_telegram_id": {"type": "integer", "example": 123456789},
+                        "type": {"type": "string", "example": "purchase"},
+                        "amount": {"type": "number", "format": "float", "example": 5.0},
+                        "balance_after": {"type": "number", "format": "float", "example": 37.5},
+                        "description": {"type": "string", "example": "Reseller API order #123"},
+                        "created_at": {"type": "string", "example": "2026-07-06 12:30:00"},
+                        "tx_hash": {"type": "string", "nullable": True, "example": None},
                     },
                 },
             },
@@ -719,9 +797,18 @@ def _reseller_openapi_schema() -> dict:
                                             "success": {"type": "boolean", "example": True},
                                             "status": {"type": "string", "example": "ok"},
                                             "idempotent": {"type": "boolean", "example": False},
-                                            "balance_after": {"type": "number", "format": "float", "example": 37.5},
-                                            "unit_price": {"type": "number", "format": "float", "example": 5.0},
-                                            "total": {"type": "number", "format": "float", "example": 5.0},
+                                            "balance_after": {
+                                                "type": "number", "format": "float", "nullable": True, "example": 37.5,
+                                                "description": "Balance after a new purchase; null when replaying an existing idempotent order.",
+                                            },
+                                            "unit_price": {
+                                                "type": "number", "format": "float", "nullable": True, "example": 5.0,
+                                                "description": "Unit price for a new purchase; null when replaying an existing idempotent order.",
+                                            },
+                                            "total": {
+                                                "type": "number", "format": "float", "nullable": True, "example": 5.0,
+                                                "description": "Total for a new purchase; null when replaying an existing idempotent order. order.amount_usd remains available.",
+                                            },
                                             "order": {"$ref": "#/components/schemas/Order"},
                                         },
                                     }
@@ -743,6 +830,7 @@ def _reseller_openapi_schema() -> dict:
                     "responses": {
                         "200": {"description": "Order", "content": {"application/json": {"schema": {"type": "object", "properties": {"success": {"type": "boolean", "example": True}, "order": {"$ref": "#/components/schemas/Order"}}}}}},
                         "404": {"description": "Order not found", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+                        "422": {"description": "Invalid order_id", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationError"}}}},
                         "429": {"description": "Rate limit exceeded", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
                     },
                 }
@@ -759,6 +847,7 @@ def _reseller_openapi_schema() -> dict:
                     "responses": {
                         "200": {"description": "Identifier saved", "content": {"application/json": {"schema": {"type": "object", "properties": {"success": {"type": "boolean", "example": True}, "status": {"type": "string", "example": "ok"}, "order": {"$ref": "#/components/schemas/Order"}}}}}},
                         "400": {"description": "The order is not waiting for an identifier", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+                        "409": {"description": "The order state changed before the identifier was saved", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
                         "404": {"description": "Order not found", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
                         "422": {"description": "Request validation error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationError"}}}},
                         "429": {"description": "Rate limit exceeded", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
@@ -770,7 +859,7 @@ def _reseller_openapi_schema() -> dict:
                     "tags": ["Wallet"],
                     "summary": "Reseller wallet history",
                     "parameters": [
-                        {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 50, "minimum": 1, "maximum": 200}},
+                        {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 50, "minimum": 1, "maximum": 100}},
                         {"name": "offset", "in": "query", "schema": {"type": "integer", "default": 0, "minimum": 0}},
                     ],
                     "responses": {
@@ -782,16 +871,49 @@ def _reseller_openapi_schema() -> dict:
                                         "type": "object",
                                         "properties": {
                                             "success": {"type": "boolean", "example": True},
-                                            "transactions": {"type": "array", "items": {"type": "object"}}
+                                            "transactions": {"type": "array", "items": {"$ref": "#/components/schemas/WalletTransaction"}}
                                         },
                                     }
                                 }
                             },
                         },
+                        "422": {"description": "Invalid pagination value", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationError"}}}},
                         "429": {"description": "Rate limit exceeded", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
                     },
                 }
             },
+        },
+    }
+    error_response = {
+        "description": "Unexpected server error.",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}},
+    }
+    unauthorized_response = {
+        "description": "Missing, invalid, or revoked reseller API key.",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}},
+    }
+    rate_limit_response = {
+        "description": "Rate limit exceeded. Use Retry-After before retrying.",
+        "headers": {
+            "Retry-After": {
+                "description": "Required retry delay in seconds.",
+                "schema": {"type": "integer"},
+            }
+        },
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}},
+    }
+    rate_limit_headers = {
+        "X-RateLimit-Limit": {
+            "description": "Maximum requests allowed in the current window.",
+            "schema": {"type": "integer"},
+        },
+        "X-RateLimit-Remaining": {
+            "description": "Requests remaining in the current window.",
+            "schema": {"type": "integer"},
+        },
+        "X-RateLimit-Reset": {
+            "description": "Unix timestamp when the current window resets.",
+            "schema": {"type": "integer"},
         },
     }
     unavailable_response = {
@@ -807,7 +929,13 @@ def _reseller_openapi_schema() -> dict:
     for path_item in schema["paths"].values():
         for operation in path_item.values():
             if isinstance(operation, dict) and "responses" in operation:
+                operation["responses"].setdefault("401", unauthorized_response)
+                operation["responses"].setdefault("429", rate_limit_response)
+                operation["responses"].setdefault("500", error_response)
                 operation["responses"].setdefault("503", unavailable_response)
+                operation["responses"]["429"].setdefault("headers", rate_limit_response["headers"])
+                if "200" in operation["responses"]:
+                    operation["responses"]["200"].setdefault("headers", rate_limit_headers)
     return schema
 
 
@@ -2521,6 +2649,7 @@ webhook_user_locks: list[asyncio.Lock] = [asyncio.Lock() for _ in range(WEBHOOK_
 # ──────────────────────────────────────────────
 
 DYNAMIC_PRICING_CHECK_SECONDS = _env_int("DYNAMIC_PRICING_CHECK_SECONDS", 900, minimum=60)
+NOWPAYMENTS_RECONCILE_SECONDS = _env_int("NOWPAYMENTS_RECONCILE_SECONDS", 60, minimum=30)
 
 
 async def _dynamic_pricing_worker() -> None:
@@ -2536,6 +2665,37 @@ async def _dynamic_pricing_worker() -> None:
             raise
         except Exception as exc:
             logger.exception("Dynamic pricing cycle failed: %s", exc)
+            next_delay = 30
+        await asyncio.sleep(next_delay)
+
+
+async def _nowpayments_worker() -> None:
+    from database.models import (
+        list_nowpayments_to_finalize,
+        list_nowpayments_to_poll,
+        save_nowpayments_update,
+    )
+    from services.nowpayments import NowPaymentsError, get_payment_status
+
+    while True:
+        next_delay = NOWPAYMENTS_RECONCILE_SECONDS
+        try:
+            for payment in await list_nowpayments_to_finalize(limit=25):
+                await _process_nowpayments_payment(str(payment["payment_id"]))
+
+            for payment in await list_nowpayments_to_poll(limit=20):
+                try:
+                    provider_payment = await get_payment_status(payment["payment_id"])
+                    saved = await save_nowpayments_update(provider_payment)
+                    if saved:
+                        await _process_nowpayments_payment(str(saved["payment_id"]))
+                except NowPaymentsError as exc:
+                    logger.warning("NOWPayments reconciliation failed for %s: %s", payment.get("payment_id"), exc)
+                await asyncio.sleep(0.2)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("NOWPayments reconciliation cycle failed: %s", exc)
             next_delay = 30
         await asyncio.sleep(next_delay)
 
@@ -2565,7 +2725,12 @@ async def post_init(application: Application) -> None:
             cursor = await db.execute(
                 """UPDATE orders SET status = 'CANCELLED'
                    WHERE status IN ('PENDING', 'AWAITING_PAYMENT')
-                     AND created_at <= datetime('now', '-5 minutes')"""
+                     AND created_at <= datetime('now', '-5 minutes')
+                     AND NOT EXISTS (
+                         SELECT 1 FROM nowpayments_payments np
+                         WHERE np.order_id = orders.id
+                           AND np.provider_status IN ('creating', 'creation_unknown', 'waiting', 'confirming', 'confirmed', 'sending', 'spending', 'partially_paid')
+                     )"""
             )
             await db.commit()
             count = cursor.rowcount if cursor.rowcount > 0 else 0
@@ -2581,12 +2746,25 @@ async def post_init(application: Application) -> None:
         application.bot_data["dynamic_pricing_task"] = asyncio.create_task(_dynamic_pricing_worker())
         logger.info("Dynamic pricing worker started (check every %ds)", DYNAMIC_PRICING_CHECK_SECONDS)
 
+    from services.nowpayments import is_nowpayments_configured
+    if is_nowpayments_configured():
+        task = application.bot_data.get("nowpayments_task")
+        if not task or task.done():
+            application.bot_data["nowpayments_task"] = asyncio.create_task(_nowpayments_worker())
+            logger.info("NOWPayments reconciliation worker started (check every %ds)", NOWPAYMENTS_RECONCILE_SECONDS)
+
 
 async def post_shutdown(application: Application) -> None:
-    task = application.bot_data.pop("dynamic_pricing_task", None)
-    if task and not task.done():
-        task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
+    tasks = [
+        application.bot_data.pop("dynamic_pricing_task", None),
+        application.bot_data.pop("nowpayments_task", None),
+    ]
+    for task in tasks:
+        if task and not task.done():
+            task.cancel()
+    await asyncio.gather(*(task for task in tasks if task), return_exceptions=True)
+    from services.nowpayments import close_nowpayments_client
+    await close_nowpayments_client()
 
 
 # ──────────────────────────────────────────────
@@ -2770,6 +2948,10 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
         ("ALTER TABLE orders ADD COLUMN activated_at TIMESTAMP", "Column 'orders.activated_at'"),
         ("CREATE TABLE IF NOT EXISTS reseller_api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, user_telegram_id INTEGER NOT NULL, name TEXT DEFAULT '', key_prefix TEXT UNIQUE NOT NULL, key_hash TEXT NOT NULL, is_active INTEGER DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, last_used_at TIMESTAMP)", "Table 'reseller_api_keys'"),
         ("CREATE TABLE IF NOT EXISTS reseller_order_links (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER UNIQUE NOT NULL, reseller_user_telegram_id INTEGER NOT NULL, customer_reference TEXT DEFAULT '', idempotency_key TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(reseller_user_telegram_id, idempotency_key))", "Table 'reseller_order_links'"),
+        ("CREATE TABLE IF NOT EXISTS nowpayments_payments (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL, request_key TEXT UNIQUE NOT NULL, payment_id TEXT UNIQUE, provider_status TEXT DEFAULT 'creating', price_amount REAL NOT NULL, price_currency TEXT DEFAULT 'usd', pay_amount REAL, pay_currency TEXT DEFAULT 'usdtbsc', pay_address TEXT, actually_paid REAL DEFAULT 0, network TEXT, valid_until TEXT, raw_payload TEXT DEFAULT '{}', processing_error TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, processed_at TIMESTAMP, notification_claimed_at TIMESTAMP, notified_at TIMESTAMP)", "Table 'nowpayments_payments'"),
+        ("ALTER TABLE nowpayments_payments ADD COLUMN notification_claimed_at TIMESTAMP", "Column 'nowpayments_payments.notification_claimed_at'"),
+        ("CREATE INDEX IF NOT EXISTS idx_nowpayments_order ON nowpayments_payments(order_id, created_at)", "Index 'idx_nowpayments_order'"),
+        ("CREATE INDEX IF NOT EXISTS idx_nowpayments_status ON nowpayments_payments(provider_status, updated_at)", "Index 'idx_nowpayments_status'"),
         ("CREATE INDEX IF NOT EXISTS idx_reseller_keys_user ON reseller_api_keys(user_telegram_id)", "Index 'idx_reseller_keys_user'"),
         ("CREATE INDEX IF NOT EXISTS idx_reseller_keys_prefix ON reseller_api_keys(key_prefix)", "Index 'idx_reseller_keys_prefix'"),
         ("CREATE INDEX IF NOT EXISTS idx_reseller_orders_user ON reseller_order_links(reseller_user_telegram_id, created_at)", "Index 'idx_reseller_orders_user'"),

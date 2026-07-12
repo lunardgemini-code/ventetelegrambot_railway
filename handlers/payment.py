@@ -6,6 +6,7 @@ Uses ConversationHandler with state WAITING_ORDER_ID = 200.
 
 import asyncio
 import logging
+import os
 
 from telegram import Update
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -39,6 +40,7 @@ from utils.keyboards import (
     main_menu_keyboard,
     payment_check_keyboard,
     payment_method_keyboard,
+    nowpayments_payment_keyboard,
     quantity_keyboard,
 )
 from utils.locales import t, get_confirmation_message
@@ -52,8 +54,23 @@ WAITING_PROMO_CODE = 203
 WAITING_BEP20_TX_HASH = 204
 WAITING_TRC20_TX_HASH = 205
 WAITING_ACTIVATION_IDENTIFIER = 206
+WAITING_NOWPAYMENTS = 207
 
 _timeout_tasks = {}
+_nowpayments_locks = [asyncio.Lock() for _ in range(64)]
+
+
+def _nowpayments_callback_url() -> str:
+    explicit = os.environ.get("NOWPAYMENTS_CALLBACK_URL", "").strip()
+    if explicit:
+        return explicit
+    public_base = os.environ.get("WEBHOOK_URL", "").strip().rstrip("/")
+    return f"{public_base}/webhooks/nowpayments" if public_base else ""
+
+
+def _format_crypto_amount(value) -> str:
+    rendered = f"{float(value or 0):.8f}".rstrip("0").rstrip(".")
+    return rendered or "0"
 
 
 def _is_activation_product(product: dict | None) -> bool:
@@ -1189,6 +1206,310 @@ async def _notify_admins_manual_check(context, order_id, client_order_id):
             logger.warning("Could not notify admin %s: %s", admin_id, exc)
 
 
+async def _render_nowpayments_checkout(query, payment: dict, lang: str, status_text: str | None = None):
+    payment_id = str(payment.get("payment_id") or "")
+    address = str(payment.get("pay_address") or "")
+    amount = _format_crypto_amount(payment.get("pay_amount"))
+    text = (
+        f"{t('nowpayments_title', lang)}\n\n"
+        f"{t('nowpayments_address', lang)}\n"
+        f"<code>{escape_html(address)}</code>\n\n"
+        f"{t('nowpayments_amount', lang).format(amount=amount)}\n"
+        f"{t('nowpayments_network', lang)}\n"
+        f"{t('nowpayments_reference', lang).format(payment_id=escape_html(payment_id))}\n\n"
+        f"{t('nowpayments_instructions', lang)}\n\n"
+        f"{status_text or t('nowpayments_waiting', lang)}"
+    )
+    await query.edit_message_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=nowpayments_payment_keyboard(int(payment["order_id"]), lang),
+    )
+
+
+async def process_nowpayments_payment_notification(bot, payment_id: str | int) -> dict:
+    """Finalize and notify a NOWPayments status update without requiring a Telegram Update."""
+    from database.models import (
+        claim_nowpayments_notification,
+        finalize_nowpayments_payment,
+        get_product,
+        get_user_lang,
+        mark_nowpayments_notified,
+        release_nowpayments_notification,
+        update_order_status,
+    )
+
+    result = await finalize_nowpayments_payment(payment_id)
+    action = result.get("action")
+    payment = result.get("payment") or {}
+    if not payment or payment.get("notified_at"):
+        return result
+
+    notifiable_actions = {
+        "completed", "activation", "paid_pending_delivery", "review_required",
+        "partially_paid", "expired", "failed", "refunded",
+    }
+    if action not in notifiable_actions:
+        return result
+    if not await claim_nowpayments_notification(payment_id):
+        return result
+
+    user_id = int(payment.get("user_telegram_id") or 0)
+    order_id = int(payment.get("order_id") or 0)
+    product_id = int(payment.get("product_id") or 0)
+    lang = await get_user_lang(user_id) if user_id else "en"
+    notified = False
+
+    if action == "completed" and user_id:
+        product = await get_product(product_id)
+        warranty_days = int((product or {}).get("warranty_days") or 0)
+        footer = (
+            f"{t('warranty_lbl', lang).format(days=warranty_days)}\n"
+            f"{t('save_info', lang)}\n\n"
+            f"{get_confirmation_message(product, lang, order_id)}"
+        )
+        notified = await safe_send_delivery_messages(
+            bot,
+            user_id,
+            t("payment_confirmed", lang),
+            result.get("items") or [],
+            footer,
+            lang,
+            order_id,
+        )
+    elif action == "activation" and user_id:
+        product = await get_product(product_id)
+        product_name = escape_html((product or {}).get("name") or f"#{order_id}")
+        text = t("activation_prompt", lang).format(
+            payment_confirmed=t("payment_confirmed", lang),
+            product=product_name,
+        )
+        markup = InlineKeyboardMarkup([[
+            InlineKeyboardButton(t("btn_enter_activation", lang), callback_data=f"activation_info:{order_id}")
+        ]])
+        await bot.send_message(user_id, text, parse_mode="HTML", reply_markup=markup)
+        notified = True
+    elif action == "paid_pending_delivery" and user_id:
+        await bot.send_message(
+            user_id,
+            t("nowpayments_paid_pending", lang).format(order_id=order_id),
+            reply_markup=main_menu_keyboard(lang),
+        )
+        notified = True
+    elif action == "review_required":
+        if user_id:
+            await bot.send_message(user_id, t("nowpayments_review", lang), reply_markup=main_menu_keyboard(lang))
+        error = escape_html(str(payment.get("processing_error") or "Payment validation mismatch"))
+        for admin_id in ADMIN_IDS:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    f"<b>NOWPayments security review</b>\nOrder: #{order_id}\nPayment: <code>{escape_html(str(payment_id))}</code>\nReason: {error}",
+                    parse_mode="HTML",
+                )
+            except Exception as exc:
+                logger.warning("Could not notify admin %s about NOWPayments review: %s", admin_id, exc)
+        notified = True
+    elif action == "partially_paid" and user_id:
+        await bot.send_message(user_id, t("nowpayments_partial", lang))
+        notified = True
+    elif action in ("expired", "failed", "refunded") and user_id:
+        await update_order_status(
+            order_id,
+            "CANCELLED",
+            expected_statuses=("PENDING", "AWAITING_PAYMENT"),
+        )
+        await bot.send_message(user_id, t("nowpayments_expired", lang), reply_markup=main_menu_keyboard(lang))
+        notified = True
+
+    if notified:
+        await mark_nowpayments_notified(payment_id)
+        if action in ("completed", "activation", "paid_pending_delivery"):
+            for admin_id in ADMIN_IDS:
+                try:
+                    await bot.send_message(
+                        admin_id,
+                        f"<b>NOWPayments payment confirmed</b>\nOrder: #{order_id}\nPayment: <code>{escape_html(str(payment_id))}</code>\nAmount: {_format_crypto_amount(payment.get('actually_paid'))} USDT",
+                        parse_mode="HTML",
+                    )
+                except Exception as exc:
+                    logger.warning("Could not notify admin %s about NOWPayments sale: %s", admin_id, exc)
+    else:
+        await release_nowpayments_notification(payment_id)
+    return result
+
+
+async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    lang = await get_user_lang(update.effective_user.id)
+    order_id = int(query.data.split(":")[1])
+    lock = _nowpayments_locks[order_id % len(_nowpayments_locks)]
+
+    async with lock:
+        order = await get_order(order_id)
+        if not order:
+            await query.edit_message_text(t("product_not_found", lang))
+            return ConversationHandler.END
+        if int(order.get("user_telegram_id") or 0) != update.effective_user.id:
+            await query.edit_message_text(t("access_denied", lang))
+            return ConversationHandler.END
+        if order.get("status") not in ("PENDING", "AWAITING_PAYMENT"):
+            if order.get("status") == "COMPLETED":
+                await query.edit_message_text(t("payment_confirmed", lang), reply_markup=main_menu_keyboard(lang))
+            else:
+                await query.edit_message_text(t("order_cancelled", lang), reply_markup=main_menu_keyboard(lang))
+            return ConversationHandler.END
+
+        callback_url = _nowpayments_callback_url()
+        if not callback_url.startswith("https://"):
+            logger.error("NOWPayments callback URL is missing or not HTTPS")
+            await query.edit_message_text(t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
+            return ConversationHandler.END
+
+        from database.models import (
+            attach_nowpayments_payment,
+            mark_nowpayments_creation_failed,
+            prepare_nowpayments_attempt,
+        )
+        from services.nowpayments import (
+            NowPaymentsError,
+            create_payment,
+            get_minimum_amount,
+            is_nowpayments_configured,
+        )
+
+        if not is_nowpayments_configured():
+            await query.edit_message_text(t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
+            return ConversationHandler.END
+
+        try:
+            minimum = await get_minimum_amount()
+            minimum_usd = float(minimum.get("fiat_equivalent") or minimum.get("min_amount") or 0)
+            if minimum_usd > 0 and float(order["amount_usd"]) + 0.000001 < minimum_usd:
+                await query.edit_message_text(
+                    t("nowpayments_below_minimum", lang).format(minimum=_format_crypto_amount(minimum_usd)),
+                    reply_markup=main_menu_keyboard(lang),
+                )
+                return ConversationHandler.END
+        except (NowPaymentsError, ValueError, TypeError) as exc:
+            logger.warning("Could not read NOWPayments minimum amount: %s", exc)
+
+        attempt = await prepare_nowpayments_attempt(order_id, order["amount_usd"])
+        if not attempt.get("created"):
+            if attempt.get("payment_id"):
+                await _render_nowpayments_checkout(query, attempt, lang)
+                return WAITING_NOWPAYMENTS
+            await query.edit_message_text(
+                t("nowpayments_creation_unknown", lang).format(order_id=order_id),
+                reply_markup=main_menu_keyboard(lang),
+            )
+            return ConversationHandler.END
+
+        await update_order_status(
+            order_id,
+            "AWAITING_PAYMENT",
+            expected_statuses=("PENDING", "AWAITING_PAYMENT"),
+            payment_method="nowpayments_bep20",
+        )
+        product = await get_product(order.get("product_id"))
+        description = f"{(product or {}).get('name') or 'Product'} x{int(order.get('quantity') or 1)}"
+
+        try:
+            provider_payment = await create_payment(
+                price_amount=order["amount_usd"],
+                order_id=order_id,
+                order_description=description,
+                callback_url=callback_url,
+            )
+            payment = await attach_nowpayments_payment(attempt["request_key"], provider_payment)
+        except (NowPaymentsError, ValueError, TypeError) as exc:
+            await mark_nowpayments_creation_failed(
+                attempt["request_key"],
+                uncertain=bool(isinstance(exc, NowPaymentsError) and exc.retryable),
+                error=str(exc),
+            )
+            text = (
+                t("nowpayments_creation_unknown", lang).format(order_id=order_id)
+                if isinstance(exc, NowPaymentsError) and exc.retryable
+                else t("nowpayments_unavailable", lang)
+            )
+            await query.edit_message_text(text, reply_markup=main_menu_keyboard(lang))
+            return ConversationHandler.END
+
+        context.user_data["paying_order_id"] = order_id
+        context.user_data["paying_product_id"] = order.get("product_id")
+        await _render_nowpayments_checkout(query, payment, lang)
+        return WAITING_NOWPAYMENTS
+
+
+async def check_nowpayments_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    lang = await get_user_lang(update.effective_user.id)
+    order_id = int(query.data.split(":")[1])
+    order = await get_order(order_id)
+    if not order or int(order.get("user_telegram_id") or 0) != update.effective_user.id:
+        await query.edit_message_text(t("access_denied", lang))
+        return ConversationHandler.END
+
+    from database.models import get_nowpayments_payment_for_order, save_nowpayments_update
+    from services.nowpayments import NowPaymentsError, get_payment_status
+
+    payment = await get_nowpayments_payment_for_order(order_id)
+    if not payment or not payment.get("payment_id"):
+        await query.edit_message_text(t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
+        return ConversationHandler.END
+    try:
+        provider_payment = await get_payment_status(payment["payment_id"])
+        payment = await save_nowpayments_update(provider_payment) or payment
+        result = await process_nowpayments_payment_notification(context.bot, payment["payment_id"])
+    except (NowPaymentsError, ValueError, TypeError):
+        await _render_nowpayments_checkout(query, payment, lang, t("nowpayments_unavailable", lang))
+        return WAITING_NOWPAYMENTS
+
+    action = result.get("action")
+    if action in ("completed", "activation", "paid_pending_delivery"):
+        await query.edit_message_text(t("payment_confirmed", lang), parse_mode="HTML", reply_markup=main_menu_keyboard(lang))
+        return ConversationHandler.END
+    if action == "review_required":
+        await query.edit_message_text(t("nowpayments_review", lang), reply_markup=main_menu_keyboard(lang))
+        return ConversationHandler.END
+    if action == "partially_paid":
+        status_text = t("nowpayments_partial", lang)
+    elif action in ("confirming", "confirmed", "sending", "spending"):
+        status_text = t("nowpayments_confirming", lang)
+    elif action in ("expired", "failed", "refunded"):
+        await query.edit_message_text(t("nowpayments_expired", lang), reply_markup=main_menu_keyboard(lang))
+        return ConversationHandler.END
+    else:
+        status_text = t("nowpayments_waiting", lang)
+    await _render_nowpayments_checkout(query, payment, lang, status_text)
+    return WAITING_NOWPAYMENTS
+
+
+async def start_activation_identifier(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    lang = await get_user_lang(update.effective_user.id)
+    order_id = int(query.data.split(":")[1])
+    order = await get_order(order_id)
+    if not order or int(order.get("user_telegram_id") or 0) != update.effective_user.id:
+        await query.edit_message_text(t("access_denied", lang))
+        return ConversationHandler.END
+    if order.get("status") != "AWAITING_ACTIVATION_INFO":
+        await query.edit_message_text(t("order_cancelled", lang), reply_markup=main_menu_keyboard(lang))
+        return ConversationHandler.END
+    product = await get_product(order.get("product_id"))
+    context.user_data["activation_order_id"] = order_id
+    text = t("activation_prompt", lang).format(
+        payment_confirmed=t("payment_confirmed", lang),
+        product=escape_html((product or {}).get("name") or f"#{order_id}"),
+    )
+    await query.edit_message_text(text, parse_mode="HTML")
+    return WAITING_ACTIVATION_IDENTIFIER
+
+
 async def pay_with_bep20(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle 'pay_bep20:{order_id}' callback â€” show BEP20 deposit instructions."""
     query = update.callback_query
@@ -1767,6 +2088,9 @@ def get_payment_conversation_handler() -> ConversationHandler:
             CallbackQueryHandler(initiate_purchase, pattern=r"^buy:"),
             CallbackQueryHandler(pay_with_binance, pattern=r"^pay_binance:"),
             CallbackQueryHandler(pay_with_wallet, pattern=r"^pay_wallet:"),
+            CallbackQueryHandler(pay_with_nowpayments, pattern=r"^pay_nowpayments:"),
+            CallbackQueryHandler(check_nowpayments_payment, pattern=r"^check_nowpayments:"),
+            CallbackQueryHandler(start_activation_identifier, pattern=r"^activation_info:"),
             CallbackQueryHandler(pay_with_bep20, pattern=r"^pay_bep20:"),
             CallbackQueryHandler(pay_with_trc20, pattern=r"^pay_trc20:"),
             CallbackQueryHandler(start_apply_promo, pattern=r"^apply_promo:"),
@@ -1778,6 +2102,7 @@ def get_payment_conversation_handler() -> ConversationHandler:
             WAITING_PAYMENT_METHOD: [
                 CallbackQueryHandler(pay_with_binance, pattern=r"^pay_binance:"),
                 CallbackQueryHandler(pay_with_wallet, pattern=r"^pay_wallet:"),
+                CallbackQueryHandler(pay_with_nowpayments, pattern=r"^pay_nowpayments:"),
                 CallbackQueryHandler(pay_with_bep20, pattern=r"^pay_bep20:"),
                 CallbackQueryHandler(pay_with_trc20, pattern=r"^pay_trc20:"),
                 CallbackQueryHandler(start_apply_promo, pattern=r"^apply_promo:"),
@@ -1796,6 +2121,10 @@ def get_payment_conversation_handler() -> ConversationHandler:
             WAITING_TRC20_TX_HASH: [
                 CallbackQueryHandler(check_trc20_payment, pattern=r"^check_trc20:"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_trc20_tx_hash),
+            ],
+            WAITING_NOWPAYMENTS: [
+                CallbackQueryHandler(check_nowpayments_payment, pattern=r"^check_nowpayments:"),
+                CallbackQueryHandler(start_activation_identifier, pattern=r"^activation_info:"),
             ],
             WAITING_ACTIVATION_IDENTIFIER: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_activation_identifier),

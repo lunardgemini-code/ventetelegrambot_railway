@@ -1309,6 +1309,133 @@ TRANSLATIONS["ru"] = {
 }
 
 
+TRANSLATIONS["en"].update({
+    "btn_pay_nowpayments": "NOWPayments - USDT (BEP20)",
+    "btn_check_nowpayments": "Check payment",
+    "btn_enter_activation": "Enter activation identifier",
+    "nowpayments_title": "<b>NOWPayments - USDT (BEP20)</b>",
+    "nowpayments_address": "<b>Deposit address</b> (tap to copy):",
+    "nowpayments_amount": "<b>Exact amount:</b> {amount} USDT",
+    "nowpayments_network": "<b>Network:</b> BNB Smart Chain (BEP20)",
+    "nowpayments_reference": "<b>Payment ID:</b> <code>{payment_id}</code>",
+    "nowpayments_instructions": "Send the exact amount using the BEP20 network only. Detection is automatic; you do not need to send a transaction hash.",
+    "nowpayments_waiting": "Waiting for your payment...",
+    "nowpayments_confirming": "Your payment was detected and is being confirmed.",
+    "nowpayments_partial": "A partial payment was detected. Send the remaining amount to the same address, then check again.",
+    "nowpayments_expired": "This payment has expired. Return to the payment methods to create a new one.",
+    "nowpayments_unavailable": "NOWPayments is temporarily unavailable. Please try again shortly.",
+    "nowpayments_below_minimum": "This order is below the current NOWPayments minimum of approximately {minimum} USD. Choose another payment method.",
+    "nowpayments_creation_unknown": "The payment provider may have created this payment but did not return a confirmation. Do not create another payment; contact support with order #{order_id}.",
+    "nowpayments_paid_pending": "Payment confirmed, but delivery requires administrator assistance. Order #{order_id} is safely recorded.",
+    "nowpayments_review": "Payment received but held for a security review. An administrator has been notified.",
+})
+
+TRANSLATIONS["fr"].update({
+    "btn_pay_nowpayments": "NOWPayments - USDT (BEP20)",
+    "btn_check_nowpayments": "Verifier le paiement",
+    "btn_enter_activation": "Entrer l'identifiant d'activation",
+    "nowpayments_title": "<b>NOWPayments - USDT (BEP20)</b>",
+    "nowpayments_address": "<b>Adresse de depot</b> (touchez pour copier) :",
+    "nowpayments_amount": "<b>Montant exact :</b> {amount} USDT",
+    "nowpayments_network": "<b>Reseau :</b> BNB Smart Chain (BEP20)",
+    "nowpayments_reference": "<b>ID du paiement :</b> <code>{payment_id}</code>",
+    "nowpayments_instructions": "Envoyez le montant exact uniquement sur le reseau BEP20. La detection est automatique : aucun hash de transaction n'est necessaire.",
+    "nowpayments_waiting": "En attente de votre paiement...",
+    "nowpayments_confirming": "Votre paiement a ete detecte et est en cours de confirmation.",
+    "nowpayments_partial": "Un paiement partiel a ete detecte. Envoyez le montant restant a la meme adresse, puis verifiez a nouveau.",
+    "nowpayments_expired": "Ce paiement a expire. Revenez aux methodes de paiement pour en creer un nouveau.",
+    "nowpayments_unavailable": "NOWPayments est temporairement indisponible. Reessayez dans quelques instants.",
+    "nowpayments_below_minimum": "Cette commande est inferieure au minimum NOWPayments actuel d'environ {minimum} USD. Choisissez une autre methode de paiement.",
+    "nowpayments_creation_unknown": "Le fournisseur a peut-etre cree le paiement sans renvoyer de confirmation. Ne creez pas un autre paiement et contactez le support avec la commande #{order_id}.",
+    "nowpayments_paid_pending": "Paiement confirme, mais la livraison necessite l'aide de l'administrateur. La commande #{order_id} est bien enregistree.",
+    "nowpayments_review": "Paiement recu mais place en verification de securite. Un administrateur a ete averti.",
+})
+
+TRANSLATIONS["ar"].update({
+    "btn_pay_nowpayments": "NOWPayments - USDT (BEP20)",
+    "btn_check_nowpayments": "التحقق من الدفع",
+    "btn_enter_activation": "إدخال معرف التفعيل",
+    "nowpayments_title": "<b>NOWPayments - USDT (BEP20)</b>",
+    "nowpayments_address": "<b>عنوان الإيداع</b> (اضغط للنسخ):",
+    "nowpayments_amount": "<b>المبلغ الدقيق:</b> {amount} USDT",
+    "nowpayments_network": "<b>الشبكة:</b> BNB Smart Chain (BEP20)",
+    "nowpayments_reference": "<b>معرف الدفع:</b> <code>{payment_id}</code>",
+    "nowpayments_instructions": "أرسل المبلغ الدقيق عبر شبكة BEP20 فقط. يتم التحقق تلقائيا ولا تحتاج إلى إرسال Tx Hash.",
+    "nowpayments_waiting": "بانتظار دفعتك...",
+    "nowpayments_confirming": "تم اكتشاف دفعتك وهي قيد التأكيد.",
+    "nowpayments_partial": "تم اكتشاف دفعة جزئية. أرسل المبلغ المتبقي إلى العنوان نفسه ثم تحقق مجددا.",
+    "nowpayments_expired": "انتهت صلاحية هذا الدفع. ارجع إلى طرق الدفع لإنشاء دفعة جديدة.",
+    "nowpayments_unavailable": "NOWPayments غير متاح مؤقتا. حاول مرة أخرى بعد قليل.",
+    "nowpayments_below_minimum": "هذا الطلب أقل من الحد الأدنى الحالي لدى NOWPayments وهو حوالي {minimum} USD. اختر طريقة دفع أخرى.",
+    "nowpayments_creation_unknown": "ربما تم إنشاء الدفع دون تأكيد. لا تنشئ دفعة أخرى وتواصل مع الدعم مع رقم الطلب #{order_id}.",
+    "nowpayments_paid_pending": "تم تأكيد الدفع، لكن التسليم يحتاج مساعدة المسؤول. الطلب #{order_id} محفوظ بأمان.",
+    "nowpayments_review": "تم استلام الدفع ووضعه قيد المراجعة الأمنية. تم إشعار المسؤول.",
+})
+
+TRANSLATIONS["zh"].update({
+    "btn_pay_nowpayments": "NOWPayments - USDT (BEP20)",
+    "btn_check_nowpayments": "检查付款",
+    "btn_enter_activation": "输入激活标识",
+    "nowpayments_title": "<b>NOWPayments - USDT (BEP20)</b>",
+    "nowpayments_address": "<b>充值地址</b>（点击复制）：",
+    "nowpayments_amount": "<b>准确金额：</b> {amount} USDT",
+    "nowpayments_network": "<b>网络：</b> BNB Smart Chain (BEP20)",
+    "nowpayments_reference": "<b>付款 ID：</b> <code>{payment_id}</code>",
+    "nowpayments_instructions": "请仅通过 BEP20 网络发送准确金额。系统会自动检测，无需发送交易哈希。",
+    "nowpayments_waiting": "正在等待付款...",
+    "nowpayments_confirming": "已检测到付款，正在确认。",
+    "nowpayments_partial": "检测到部分付款。请向同一地址补足余额，然后再次检查。",
+    "nowpayments_expired": "此付款已过期。请返回付款方式创建新的付款。",
+    "nowpayments_unavailable": "NOWPayments 暂时不可用，请稍后重试。",
+    "nowpayments_below_minimum": "此订单低于 NOWPayments 当前约 {minimum} USD 的最低金额，请选择其他付款方式。",
+    "nowpayments_creation_unknown": "付款可能已创建但未返回确认。请勿再次创建，并使用订单号 #{order_id} 联系客服。",
+    "nowpayments_paid_pending": "付款已确认，但交付需要管理员处理。订单 #{order_id} 已安全记录。",
+    "nowpayments_review": "付款已收到，但正在进行安全审核。管理员已收到通知。",
+})
+
+TRANSLATIONS["vi"].update({
+    "btn_pay_nowpayments": "NOWPayments - USDT (BEP20)",
+    "btn_check_nowpayments": "Kiem tra thanh toan",
+    "btn_enter_activation": "Nhap ma dinh danh kich hoat",
+    "nowpayments_title": "<b>NOWPayments - USDT (BEP20)</b>",
+    "nowpayments_address": "<b>Dia chi nap</b> (nhan de sao chep):",
+    "nowpayments_amount": "<b>So tien chinh xac:</b> {amount} USDT",
+    "nowpayments_network": "<b>Mang:</b> BNB Smart Chain (BEP20)",
+    "nowpayments_reference": "<b>Ma thanh toan:</b> <code>{payment_id}</code>",
+    "nowpayments_instructions": "Chi gui dung so tien qua mang BEP20. He thong tu dong phat hien, khong can gui Tx Hash.",
+    "nowpayments_waiting": "Dang cho thanh toan...",
+    "nowpayments_confirming": "Da phat hien thanh toan va dang xac nhan.",
+    "nowpayments_partial": "Da phat hien thanh toan mot phan. Gui phan con lai den cung dia chi roi kiem tra lai.",
+    "nowpayments_expired": "Thanh toan da het han. Quay lai phuong thuc thanh toan de tao moi.",
+    "nowpayments_unavailable": "NOWPayments tam thoi khong kha dung. Vui long thu lai sau.",
+    "nowpayments_below_minimum": "Don hang thap hon muc toi thieu hien tai cua NOWPayments, khoang {minimum} USD. Hay chon cach thanh toan khac.",
+    "nowpayments_creation_unknown": "Thanh toan co the da duoc tao nhung chua co xac nhan. Khong tao lai; hay lien he ho tro voi don #{order_id}.",
+    "nowpayments_paid_pending": "Thanh toan da xac nhan, nhung can quan tri vien ho tro giao hang. Don #{order_id} da duoc ghi nhan.",
+    "nowpayments_review": "Da nhan thanh toan nhung dang duoc kiem tra bao mat. Quan tri vien da duoc thong bao.",
+})
+
+TRANSLATIONS["ru"].update({
+    "btn_pay_nowpayments": "NOWPayments - USDT (BEP20)",
+    "btn_check_nowpayments": "Проверить платеж",
+    "btn_enter_activation": "Ввести идентификатор активации",
+    "nowpayments_title": "<b>NOWPayments - USDT (BEP20)</b>",
+    "nowpayments_address": "<b>Адрес пополнения</b> (нажмите, чтобы скопировать):",
+    "nowpayments_amount": "<b>Точная сумма:</b> {amount} USDT",
+    "nowpayments_network": "<b>Сеть:</b> BNB Smart Chain (BEP20)",
+    "nowpayments_reference": "<b>ID платежа:</b> <code>{payment_id}</code>",
+    "nowpayments_instructions": "Отправьте точную сумму только через сеть BEP20. Проверка выполняется автоматически, Tx Hash отправлять не нужно.",
+    "nowpayments_waiting": "Ожидаем оплату...",
+    "nowpayments_confirming": "Платеж обнаружен и подтверждается.",
+    "nowpayments_partial": "Обнаружена частичная оплата. Отправьте остаток на тот же адрес и проверьте снова.",
+    "nowpayments_expired": "Срок платежа истек. Вернитесь к способам оплаты и создайте новый.",
+    "nowpayments_unavailable": "NOWPayments временно недоступен. Повторите попытку позже.",
+    "nowpayments_below_minimum": "Сумма заказа ниже текущего минимума NOWPayments, примерно {minimum} USD. Выберите другой способ оплаты.",
+    "nowpayments_creation_unknown": "Платеж мог быть создан без ответа. Не создавайте новый; обратитесь в поддержку с заказом #{order_id}.",
+    "nowpayments_paid_pending": "Оплата подтверждена, но для выдачи нужна помощь администратора. Заказ #{order_id} сохранен.",
+    "nowpayments_review": "Платеж получен и отправлен на проверку безопасности. Администратор уведомлен.",
+})
+
+
 def t(key: str, lang: str = "fr") -> str:
     """Get a translated string by key and language code.
 

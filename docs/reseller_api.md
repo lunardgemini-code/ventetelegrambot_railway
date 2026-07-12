@@ -2,6 +2,8 @@
 
 This API lets a partner bot resell VenteBot products using the reseller account wallet balance.
 
+API version: `1.0.1`. This documentation update is backward compatible with existing integrations.
+
 Interactive Swagger documentation:
 
 ```text
@@ -31,14 +33,14 @@ If a reseller generates a new key from the bot, the previous active key is autom
 
 - The reseller wallet must have enough balance.
 - API purchases debit the reseller wallet.
-- To avoid duplicate purchases if your bot retries the same request, always send `idempotency_key`.
+- To avoid duplicate purchases if your bot retries the same request, always send a stable `idempotency_key` and reuse it for every retry of that purchase.
 - For `stock` products, delivered accounts are returned in `order.items`.
 - For `activation` products, send `activation_identifier` when creating the order, or later with the dedicated endpoint.
 - If you call the API from a browser website, set `CORS_ORIGINS` on the bot backend to your website domain, for example `https://your-site.com`.
 - If your hosting plan sleeps, ping `GET /health` every few minutes instead of pinging protected reseller endpoints.
 - The default rate limit is `60` requests per `60` seconds per API key. You can adjust it with `RESELLER_API_RATE_LIMIT` and `RESELLER_API_RATE_WINDOW`.
 
-Rate limit headers are returned on protected reseller endpoints:
+Rate limit headers are returned on successful protected reseller requests:
 
 ```http
 X-RateLimit-Limit: 60
@@ -74,7 +76,7 @@ GET /api/reseller/products?lang=en
 X-Reseller-Key: YOUR_KEY
 ```
 
-`lang` accepts `en`, `fr`, `ar`, `zh`.
+`lang` accepts `en`, `fr`, `ar`, `zh`, `vi`, and `ru`. An unsupported value falls back to English.
 
 Response:
 
@@ -173,6 +175,8 @@ Response:
 
 Your bot can then send `account_data` to its customer.
 
+If the same `idempotency_key` is submitted again, the API returns the existing order with `idempotent: true` and does not debit the wallet or deliver stock again. On this replay response, `balance_after`, `unit_price`, and `total` can be `null`; use `order.amount_usd` for the original order total.
+
 ## Buy an Activation Product
 
 ```http
@@ -235,15 +239,19 @@ GET /api/reseller/wallet/transactions?limit=50&offset=0
 X-Reseller-Key: YOUR_KEY
 ```
 
+`limit` accepts values from `1` to `100`. The default is `50`.
+
 ## Common Error Codes
 
 - `401`: missing, invalid, or revoked key.
-- `400`: unavailable product, insufficient stock, invalid quantity, or missing activation identifier.
+- `400`: unavailable product, insufficient stock, invalid quantity, or an order in the wrong state.
 - `402`: insufficient wallet balance.
 - `404`: order not found or outside the reseller account.
+- `409`: the order state changed while an activation identifier was being submitted; reload the order before deciding whether to retry.
 - `422`: invalid request format, for example missing `product_id`, non-numeric `quantity`, or an activation identifier that is too short.
 - `429`: rate limit exceeded.
-- `500`: server error.
+- `500`: unexpected server error. Keep the same `idempotency_key` if you retry a purchase whose result is unknown.
+- `503`: authentication database temporarily unavailable. Wait for the `Retry-After` delay and retry with the same `idempotency_key`.
 
 Errors return a stable JSON format:
 
@@ -272,23 +280,40 @@ Validation errors include a `details` array:
 const API_URL = "https://your-domain.com";
 const KEY = "vbr_live_xxxxx_yyyyyyyy";
 
-async function buy(productId, customerId) {
-  const res = await fetch(`${API_URL}/api/reseller/orders`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Reseller-Key": KEY
-    },
-    body: JSON.stringify({
-      product_id: productId,
-      quantity: 1,
-      customer_reference: String(customerId),
-      idempotency_key: `${customerId}-${productId}-${Date.now()}`
-    })
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+async function buy(productId, customerId, idempotencyKey) {
+  const body = JSON.stringify({
+    product_id: productId,
+    quantity: 1,
+    customer_reference: String(customerId),
+    idempotency_key: idempotencyKey
   });
 
-  const data = await res.json();
-  if (!res.ok || data.success === false) throw new Error(data.message || "API error");
-  return data.order;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const res = await fetch(`${API_URL}/api/reseller/orders`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Reseller-Key": KEY
+      },
+      body
+    });
+
+    const data = await res.json();
+    if (res.ok && data.success !== false) return data.order;
+
+    if (res.status === 503 && attempt < 2) {
+      const retryAfter = Number(res.headers.get("Retry-After") || 3);
+      await sleep(retryAfter * 1000);
+      continue;
+    }
+
+    throw new Error(`${data.code || "API_ERROR"}: ${data.message || "API error"}`);
+  }
 }
+
+// Generate and persist this value when the customer starts the purchase.
+// Reuse the exact same value until that purchase succeeds or is reconciled.
+const order = await buy(10, 555, "customer-555-checkout-20260711-001");
 ```
