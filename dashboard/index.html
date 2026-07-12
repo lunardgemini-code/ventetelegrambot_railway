@@ -14,7 +14,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
     <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="revamp.css?v=20260712-supplier-balance">
+    <link rel="stylesheet" href="revamp.css?v=20260712-performance">
 </head>
 <body>
     <!-- Login Screen -->
@@ -137,6 +137,19 @@
                     <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label">Nouveaux (30J)</p><h3 id="stat-new-users">0</h3></div><div class="metric-icon color-blue"><i class="fa-solid fa-user-plus"></i></div></div>
                     <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label">Récurrents</p><h3 id="stat-returning-users">0</h3></div><div class="metric-icon color-purple"><i class="fa-solid fa-user-check"></i></div></div>
                 </div>
+                <section class="bot-performance glass-panel" aria-labelledby="bot-performance-title">
+                    <div class="panel-header">
+                        <div><p class="eyebrow">Temps reel - 5 minutes</p><h3 id="bot-performance-title"><i class="fa-solid fa-gauge-high"></i> Performance du bot</h3></div>
+                        <span id="perf-status" class="status-badge neutral">Collecte...</span>
+                    </div>
+                    <div class="performance-signals">
+                        <div><span>Workers</span><strong id="perf-workers">-</strong><small id="perf-workers-rec">Recommande : -</small></div>
+                        <div><span>File d'attente</span><strong id="perf-queue">-</strong><small id="perf-queue-wait">p95 : -</small></div>
+                        <div><span>Traitement</span><strong id="perf-processing">-</strong><small id="perf-throughput">- / min</small></div>
+                        <div><span>Turso</span><strong id="perf-database">-</strong><small id="perf-db-errors">- erreur</small></div>
+                    </div>
+                    <p id="perf-diagnosis" class="performance-diagnosis">Collecte des premieres mesures...</p>
+                </section>
                 <div class="operations-grid">
                     <section class="dashboard-col glass-panel action-center" aria-labelledby="action-center-title">
                         <div class="panel-header"><div><p class="eyebrow" data-i18n="priorities">Priorités</p><h3 id="action-center-title" data-i18n="actions_title">À traiter maintenant</h3></div></div>
@@ -1154,7 +1167,7 @@
 </div>
 
 
-    <script src="app.js?v=20260712-broadcast-jobs"></script>
+    <script src="app.js?v=20260712-performance"></script>
     <script>
     /* ── Mobile Sidebar Toggle ── */
     (function() {

@@ -6,8 +6,48 @@ import sqlite3
 import asyncio
 import logging
 import time
+from collections import deque
 
 logger = logging.getLogger(__name__)
+
+_DB_OPERATION_SAMPLES = deque(maxlen=5000)
+_DB_CONNECTION_ERROR_TIMES = deque(maxlen=1000)
+_DB_CONNECTION_STATS = {"fresh": 0, "pooled": 0, "discarded": 0}
+
+
+def _record_db_operation(operation: str, started_at: float, success: bool) -> None:
+    _DB_OPERATION_SAMPLES.append(
+        (time.monotonic(), operation, max(0.0, time.monotonic() - started_at), success)
+    )
+
+
+def _record_db_connection_error() -> None:
+    _DB_CONNECTION_ERROR_TIMES.append(time.monotonic())
+
+
+def _percentile(values: list[float], percentile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, max(0, int((len(ordered) - 1) * percentile)))
+    return ordered[index]
+
+
+def get_db_performance_snapshot(window_seconds: int = 300) -> dict:
+    """Return in-process DB latency and connection health metrics."""
+    now = time.monotonic()
+    cutoff = now - max(10, int(window_seconds))
+    samples = [sample for sample in _DB_OPERATION_SAMPLES if sample[0] >= cutoff]
+    durations = [sample[2] for sample in samples]
+    return {
+        "operations": len(samples),
+        "errors": sum(1 for sample in samples if not sample[3]),
+        "connection_errors": sum(1 for timestamp in _DB_CONNECTION_ERROR_TIMES if timestamp >= cutoff),
+        "average_ms": round((sum(durations) / len(durations) * 1000) if durations else 0, 1),
+        "p95_ms": round(_percentile(durations, 0.95) * 1000, 1),
+        "slow_operations": sum(1 for duration in durations if duration >= 1.0),
+        "connections": dict(_DB_CONNECTION_STATS),
+    }
 
 # ── Turso config ──
 TURSO_URL = os.environ.get("TURSO_DATABASE_URL", "")
@@ -48,13 +88,25 @@ class _AsyncCursor:
             self._columns = []
 
     async def fetchall(self):
-        rows = await asyncio.to_thread(self._cursor.fetchall)
+        started_at = time.monotonic()
+        try:
+            rows = await asyncio.to_thread(self._cursor.fetchall)
+            _record_db_operation("fetchall", started_at, True)
+        except Exception:
+            _record_db_operation("fetchall", started_at, False)
+            raise
         if not self._columns:
             return rows
         return [_DictRow(self._columns, row) for row in rows]
 
     async def fetchone(self):
-        row = await asyncio.to_thread(self._cursor.fetchone)
+        started_at = time.monotonic()
+        try:
+            row = await asyncio.to_thread(self._cursor.fetchone)
+            _record_db_operation("fetchone", started_at, True)
+        except Exception:
+            _record_db_operation("fetchone", started_at, False)
+            raise
         if row is None or not self._columns:
             return row
         return _DictRow(self._columns, row)
@@ -81,13 +133,19 @@ class _AsyncDB:
         self._conn = conn
 
     async def execute(self, sql, params=None):
-        if params:
-            if isinstance(params, list):
-                params = tuple(params)
-            cursor = await asyncio.to_thread(self._conn.execute, sql, params)
-        else:
-            cursor = await asyncio.to_thread(self._conn.execute, sql)
-        return _AsyncCursor(cursor)
+        started_at = time.monotonic()
+        try:
+            if params:
+                if isinstance(params, list):
+                    params = tuple(params)
+                cursor = await asyncio.to_thread(self._conn.execute, sql, params)
+            else:
+                cursor = await asyncio.to_thread(self._conn.execute, sql)
+            _record_db_operation("execute", started_at, True)
+            return _AsyncCursor(cursor)
+        except Exception:
+            _record_db_operation("execute", started_at, False)
+            raise
 
     async def executemany(self, sql, params_list):
         await asyncio.to_thread(self._conn.executemany, sql, params_list)
@@ -96,10 +154,22 @@ class _AsyncDB:
         await asyncio.to_thread(self._conn.executescript, sql)
 
     async def commit(self):
-        await asyncio.to_thread(self._conn.commit)
+        started_at = time.monotonic()
+        try:
+            await asyncio.to_thread(self._conn.commit)
+            _record_db_operation("commit", started_at, True)
+        except Exception:
+            _record_db_operation("commit", started_at, False)
+            raise
 
     async def rollback(self):
-        await asyncio.to_thread(self._conn.rollback)
+        started_at = time.monotonic()
+        try:
+            await asyncio.to_thread(self._conn.rollback)
+            _record_db_operation("rollback", started_at, True)
+        except Exception:
+            _record_db_operation("rollback", started_at, False)
+            raise
 
     async def close(self):
         try:
@@ -154,6 +224,7 @@ class _PooledAsyncDB(_AsyncDB):
         except Exception as e:
             if self._is_connection_error(e):
                 self.has_error = True
+                _record_db_connection_error()
             raise
 
     async def executemany(self, sql, params_list):
@@ -162,6 +233,7 @@ class _PooledAsyncDB(_AsyncDB):
         except Exception as e:
             if self._is_connection_error(e):
                 self.has_error = True
+                _record_db_connection_error()
             raise
 
     async def executescript(self, sql):
@@ -170,6 +242,7 @@ class _PooledAsyncDB(_AsyncDB):
         except Exception as e:
             if self._is_connection_error(e):
                 self.has_error = True
+                _record_db_connection_error()
             raise
 
     async def commit(self):
@@ -178,6 +251,7 @@ class _PooledAsyncDB(_AsyncDB):
         except Exception as e:
             if self._is_connection_error(e):
                 self.has_error = True
+                _record_db_connection_error()
             raise
 
     async def rollback(self):
@@ -186,6 +260,7 @@ class _PooledAsyncDB(_AsyncDB):
         except Exception as e:
             if self._is_connection_error(e):
                 self.has_error = True
+                _record_db_connection_error()
             raise
 
     async def close(self):
@@ -251,6 +326,7 @@ async def get_db(*, fresh: bool = False):
                 
         wrapper = None
         if conn_to_wrap:
+            _DB_CONNECTION_STATS["pooled"] += 1
             candidate = _PooledAsyncDB(conn_to_wrap, created_at=created_at)
             try:
                 # Hrana streams expire server-side while a pooled connection is idle.
@@ -260,13 +336,17 @@ async def get_db(*, fresh: bool = False):
             except Exception as exc:
                 candidate.has_error = True
                 await candidate.close()
+                _DB_CONNECTION_STATS["discarded"] += 1
                 logger.info("Discarded stale Turso connection before reuse: %s", exc)
 
         if wrapper is None:
+            connect_started_at = time.monotonic()
             conn = await asyncio.wait_for(
                 asyncio.to_thread(libsql.connect, TURSO_URL, auth_token=TURSO_TOKEN),
                 timeout=5,
             )
+            _record_db_operation("connect", connect_started_at, True)
+            _DB_CONNECTION_STATS["fresh"] += 1
             wrapper = _PooledAsyncDB(conn, return_to_pool=not fresh)
             try:
                 await asyncio.wait_for(wrapper.execute("PRAGMA foreign_keys = ON"), timeout=3)

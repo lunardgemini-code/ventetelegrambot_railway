@@ -192,6 +192,10 @@ const DOM = {
     todayRevenue:$('today-revenue'), todayOrders:$('today-orders'),
     todayRevenueDelta:$('today-revenue-delta'), todayOrdersDelta:$('today-orders-delta'),
     actionCenterList:$('action-center-list'), recentOrdersList:$('recent-orders-list'),
+    perfStatus:$('perf-status'), perfWorkers:$('perf-workers'), perfWorkersRec:$('perf-workers-rec'),
+    perfQueue:$('perf-queue'), perfQueueWait:$('perf-queue-wait'), perfProcessing:$('perf-processing'),
+    perfThroughput:$('perf-throughput'), perfDatabase:$('perf-database'), perfDbErrors:$('perf-db-errors'),
+    perfDiagnosis:$('perf-diagnosis'),
     dashboardRange:$('dashboard-range'), pageContext:$('page-context'), toastRegion:$('toast-region'),
     badgeOrders:$('badge-orders'), badgeActivations:$('badge-activations'), badgeTickets:$('badge-tickets'), apiStatusBadge:$('api-status-badge'),
     productsTableBody:$('products-table-body'),
@@ -1113,7 +1117,7 @@ async function testConnectionAndStart() {
 //  REFRESH ALL
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 const tabRefreshLoaders = {
-    'dashboard-tab': [loadDashboardOverview, loadStats, loadCharts],
+    'dashboard-tab': [loadDashboardOverview, loadPerformanceMetrics, loadStats, loadCharts],
     'stats-tab': [loadStats, loadCharts, loadProductStats, loadProductMomentum, loadDeadProductAlerts],
     'inventory-tab': [loadProducts, loadBinanceAccounts],
     'orders-tab': [loadProducts, loadAllOrders],
@@ -1129,7 +1133,7 @@ const tabRefreshLoaders = {
 };
 
 const fullRefreshLoaders = [
-    loadDashboardOverview, loadStats, loadFinance, loadProducts, loadAllOrders, loadActivations, loadResellers, loadSupplierBot,
+    loadDashboardOverview, loadPerformanceMetrics, loadStats, loadFinance, loadProducts, loadAllOrders, loadActivations, loadResellers, loadSupplierBot,
     loadTickets, loadUsers, loadPromos, loadCharts, loadWalletHistory, loadBinanceAccounts,
     loadPaymentSettings, loadProductStats, loadProductMomentum, loadDeadProductAlerts
 ];
@@ -1203,6 +1207,37 @@ function formatComparison(current, previous) {
     if (before === 0) return now === 0 ? {text:'Stable vs hier', className:''} : {text:'Nouveau vs hier', className:'positive'};
     const percent = Math.round(((now - before) / before) * 100);
     return {text:`${percent >= 0 ? '+' : ''}${percent}% vs hier`, className:percent > 0 ? 'positive' : percent < 0 ? 'negative' : ''};
+}
+
+async function loadPerformanceMetrics() {
+    if (!DOM.perfStatus) return;
+    const data = await apiCall('/api/performance');
+    const workers = data.workers || {};
+    const queue = data.queue || {};
+    const traffic = data.traffic || {};
+    const latency = data.latency || {};
+    const database = data.database || {};
+    const diagnosis = data.diagnosis || {};
+    const labels = {
+        healthy:['Fluide', 'La capacite actuelle suffit pour le trafic observe.', 'success'],
+        workers:['Workers', 'Les demandes attendent un worker libre. Augmente progressivement le nombre de workers.', 'warning'],
+        database:['Turso', 'Turso limite le debit. Ajouter des workers augmenterait la contention.', 'danger'],
+        external_api_or_handler:['API externe', 'Un handler ou une API externe ralentit le traitement. Ajouter des workers ne corrigerait pas la cause.', 'warning'],
+        insufficient_data:['Collecte', 'Au moins 20 actions sont necessaires pour une recommandation fiable.', 'neutral']
+    };
+    const [statusLabel, diagnosisText, statusClass] = labels[diagnosis.bottleneck] || labels.insufficient_data;
+
+    DOM.perfStatus.textContent = statusLabel;
+    DOM.perfStatus.className = `status-badge ${statusClass}`;
+    DOM.perfWorkers.textContent = `${Number(workers.active || 0)} / ${Number(workers.configured || 0)}`;
+    DOM.perfWorkersRec.textContent = `Recommande : ${Number(workers.recommended || workers.configured || 0)}`;
+    DOM.perfQueue.textContent = `${Number(queue.current || 0)} (pic ${Number(queue.peak_5m || 0)})`;
+    DOM.perfQueueWait.textContent = `Attente p95 : ${Number(queue.p95_wait_ms || 0).toFixed(0)} ms`;
+    DOM.perfProcessing.textContent = `${Number(latency.p95_processing_ms || 0).toFixed(0)} ms`;
+    DOM.perfThroughput.textContent = `${Number(traffic.throughput_per_minute || 0).toFixed(1)} actions/min`;
+    DOM.perfDatabase.textContent = `${Number(database.p95_ms || 0).toFixed(0)} ms`;
+    DOM.perfDbErrors.textContent = `${Number(database.connection_errors || 0)} erreur(s) connexion`;
+    DOM.perfDiagnosis.textContent = diagnosisText;
 }
 
 async function loadDashboardOverview() {

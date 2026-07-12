@@ -16,6 +16,8 @@ import logging
 import os
 import secrets
 import threading
+import math
+from collections import deque
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 from fastapi import FastAPI, Header, HTTPException, Depends, status, Request, Response
@@ -455,6 +457,12 @@ async def health_check():
     if payload["status"] != "ok":
         return JSONResponse(status_code=503, content=payload)
     return payload
+
+
+@api.get("/api/performance", dependencies=[Depends(verify_api_key)])
+async def api_performance_metrics():
+    """Return rolling worker, queue, latency, and database diagnostics."""
+    return _webhook_performance_snapshot()
 
 
 def _log_nowpayments_task_result(task: asyncio.Task) -> None:
@@ -2772,6 +2780,113 @@ WEBHOOK_QUEUE_MAX = _env_int("WEBHOOK_QUEUE_MAX", 1000, minimum=10)
 SUBSCRIPTION_CACHE_SECONDS = _env_int("SUBSCRIPTION_CACHE_SECONDS", 3600, minimum=60)
 NOWPAYMENTS_POLL_BATCH = _env_int("NOWPAYMENTS_POLL_BATCH", 10, minimum=1)
 webhook_user_locks: list[asyncio.Lock] = [asyncio.Lock() for _ in range(WEBHOOK_LOCK_STRIPES)]
+_webhook_metrics_started_at = time.monotonic()
+_webhook_enqueued_at: dict[int, float] = {}
+_webhook_samples = deque(maxlen=10000)
+_webhook_queue_samples = deque(maxlen=10000)
+_webhook_handler_error_times = deque(maxlen=2000)
+_webhook_active_workers = 0
+_webhook_peak_active_workers = 0
+
+
+def _metrics_percentile(values: list[float], percentile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, max(0, int((len(ordered) - 1) * percentile)))
+    return ordered[index]
+
+
+def _record_webhook_queue_depth() -> None:
+    depth = webhook_update_queue.qsize() if webhook_update_queue is not None else 0
+    _webhook_queue_samples.append((time.monotonic(), depth))
+
+
+def _record_webhook_handler_error() -> None:
+    _webhook_handler_error_times.append(time.monotonic())
+
+
+def _webhook_performance_snapshot() -> dict:
+    from database.db import get_db_performance_snapshot
+
+    now = time.monotonic()
+    cutoff_5m = now - 300
+    cutoff_1m = now - 60
+    samples = [sample for sample in _webhook_samples if sample[0] >= cutoff_5m]
+    one_minute = [sample for sample in samples if sample[0] >= cutoff_1m]
+    queue_waits = [sample[1] for sample in samples]
+    processing = [sample[2] for sample in samples]
+    totals = [sample[1] + sample[2] for sample in samples]
+    queue_depths = [sample[1] for sample in _webhook_queue_samples if sample[0] >= cutoff_5m]
+    handler_errors = sum(1 for timestamp in _webhook_handler_error_times if timestamp >= cutoff_5m)
+    db_metrics = get_db_performance_snapshot(300)
+    observed_1m = max(1.0, min(60.0, now - _webhook_metrics_started_at))
+    throughput_per_minute = len(one_minute) * 60.0 / observed_1m
+    average_processing = sum(processing) / len(processing) if processing else 0.0
+    estimated_workers = max(1, math.ceil((throughput_per_minute / 60.0) * average_processing * 1.5))
+    queue_p95_ms = _metrics_percentile(queue_waits, 0.95) * 1000
+    processing_p95_ms = _metrics_percentile(processing, 0.95) * 1000
+    max_queue = max(queue_depths, default=0)
+
+    if len(samples) < 20:
+        bottleneck = "insufficient_data"
+        recommended_workers = WEBHOOK_WORKERS
+        message = "Collecting traffic data. At least 20 updates are needed."
+        confidence = "low"
+    elif db_metrics["connection_errors"] > 0 or db_metrics["p95_ms"] >= 750:
+        bottleneck = "database"
+        recommended_workers = WEBHOOK_WORKERS
+        message = "Database latency is limiting throughput; adding workers would increase contention."
+        confidence = "high"
+    elif processing_p95_ms >= 3000:
+        bottleneck = "external_api_or_handler"
+        recommended_workers = WEBHOOK_WORKERS
+        message = "Handlers or external APIs are slow; more workers may only move the queue downstream."
+        confidence = "medium"
+    elif queue_p95_ms >= 500 or max_queue > WEBHOOK_WORKERS:
+        bottleneck = "workers"
+        recommended_workers = min(32, max(WEBHOOK_WORKERS + 2, estimated_workers))
+        message = "Updates wait for a free worker; increase workers gradually."
+        confidence = "high"
+    else:
+        bottleneck = "healthy"
+        recommended_workers = WEBHOOK_WORKERS
+        message = "Current worker capacity is sufficient for the observed traffic."
+        confidence = "high"
+
+    return {
+        "window_seconds": 300,
+        "workers": {
+            "configured": WEBHOOK_WORKERS,
+            "active": _webhook_active_workers,
+            "peak_active": _webhook_peak_active_workers,
+            "recommended": recommended_workers,
+            "estimated_for_observed_load": estimated_workers,
+        },
+        "queue": {
+            "current": webhook_update_queue.qsize() if webhook_update_queue is not None else 0,
+            "peak_5m": max_queue,
+            "average_wait_ms": round((sum(queue_waits) / len(queue_waits) * 1000) if queue_waits else 0, 1),
+            "p95_wait_ms": round(queue_p95_ms, 1),
+        },
+        "traffic": {
+            "processed_1m": len(one_minute),
+            "processed_5m": len(samples),
+            "throughput_per_minute": round(throughput_per_minute, 1),
+            "handler_errors_5m": handler_errors,
+        },
+        "latency": {
+            "average_processing_ms": round(average_processing * 1000, 1),
+            "p95_processing_ms": round(processing_p95_ms, 1),
+            "p95_total_ms": round(_metrics_percentile(totals, 0.95) * 1000, 1),
+        },
+        "database": db_metrics,
+        "diagnosis": {
+            "bottleneck": bottleneck,
+            "confidence": confidence,
+            "message": message,
+        },
+    }
 
 
 # ──────────────────────────────────────────────
@@ -2947,9 +3062,12 @@ async def telegram_webhook(request: StarletteRequest):
         if tg_app:
             update = Update.de_json(data, tg_app.bot)
             if webhook_update_queue is not None:
+                _webhook_enqueued_at[id(update)] = time.monotonic()
                 try:
                     webhook_update_queue.put_nowait(update)
+                    _record_webhook_queue_depth()
                 except asyncio.QueueFull:
+                    _webhook_enqueued_at.pop(id(update), None)
                     logger.error(
                         "Webhook queue full (%d updates); asking Telegram to retry",
                         WEBHOOK_QUEUE_MAX,
@@ -2993,20 +3111,33 @@ def _webhook_user_lock(update: Update) -> asyncio.Lock:
 
 
 async def _webhook_update_worker(application: Application, worker_id: int) -> None:
-    global webhook_update_queue
+    global webhook_update_queue, _webhook_active_workers, _webhook_peak_active_workers
     if webhook_update_queue is None:
         webhook_update_queue = asyncio.Queue(maxsize=WEBHOOK_QUEUE_MAX)
 
     while True:
         update = await webhook_update_queue.get()
+        started_at = time.monotonic()
+        enqueued_at = _webhook_enqueued_at.pop(id(update), started_at)
+        queue_wait = max(0.0, started_at - enqueued_at)
+        _webhook_active_workers += 1
+        _webhook_peak_active_workers = max(_webhook_peak_active_workers, _webhook_active_workers)
+        succeeded = True
         try:
             lock = _webhook_user_lock(update)
             async with lock:
                 await application.process_update(update)
         except Exception as exc:
+            succeeded = False
             logger.error("Webhook worker %s update failed: %s", worker_id, exc, exc_info=True)
         finally:
+            completed_at = time.monotonic()
+            _webhook_active_workers = max(0, _webhook_active_workers - 1)
+            _webhook_samples.append(
+                (completed_at, queue_wait, max(0.0, completed_at - started_at), succeeded)
+            )
             webhook_update_queue.task_done()
+            _record_webhook_queue_depth()
 
 
 async def get_emoji_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3242,7 +3373,8 @@ def main() -> None:
             ):
                 # Harmless error caused by users spamming inline buttons that don't change the message content
                 return
-        
+
+        _record_webhook_handler_error()
         logger.error("Exception while handling an update:", exc_info=context.error)
 
     app.add_error_handler(global_error_handler)
