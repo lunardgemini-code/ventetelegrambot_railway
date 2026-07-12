@@ -65,6 +65,7 @@
                 <a href="#" class="menu-item" data-tab="wallet-history-tab"><i class="fa-solid fa-wallet"></i> <span data-i18n="nav_wallet_history">Wallet History</span></a>
                 <a href="#" class="menu-item" data-tab="tickets-tab"><i class="fa-solid fa-ticket"></i> <span data-i18n="nav_tickets">Tickets</span><span id="badge-tickets" class="badge hidden">0</span></a>
                 <a href="#" class="menu-item" data-tab="resellers-tab"><i class="fa-solid fa-handshake"></i> <span data-i18n="nav_resellers">Revendeurs</span></a>
+                <a href="#" class="menu-item" data-tab="supplier-bots-tab"><i class="fa-solid fa-plug-circle-bolt"></i> <span data-i18n="nav_supplier_bots">API Bot Gestion</span></a>
                 <a href="#" class="menu-item" data-external="api-docs"><i class="fa-solid fa-book-open"></i> <span data-i18n="nav_api_docs">Documentation API</span></a>
                 <p class="nav-section-label">Outils</p>
                 <a href="#" class="menu-item" data-tab="binance-tab"><i class="fa-brands fa-btc"></i> <span data-i18n="nav_binance">Comptes Binance</span></a>
@@ -534,6 +535,34 @@
                     <table><thead><tr>
                         <th>#</th><th data-i18n="th_client">Client</th><th data-i18n="reseller_key_name">Nom de la clé</th><th>Prefix</th><th>Wallet</th><th data-i18n="th_orders_count">Commandes</th><th data-i18n="th_spent">Dépenses</th><th data-i18n="th_status">Statut</th><th data-i18n="th_date">Date</th><th data-i18n="th_action">Action</th>
                     </tr></thead><tbody id="resellers-table-body"><tr><td colspan="10" class="empty-state" data-i18n="no_resellers">Aucun revendeur.</td></tr></tbody></table>
+                </div>
+            </section>
+
+            <!-- External supplier bot management -->
+            <section id="supplier-bots-tab" class="tab-content">
+                <div class="flex-justify mb-4 supplier-heading">
+                    <div><p class="eyebrow">Catalogue externe</p><h2><i class="fa-solid fa-plug-circle-bolt" style="color:var(--primary-color)"></i> <span data-i18n="supplier_title">API Bot Gestion</span></h2></div>
+                    <button id="btn-supplier-sync" class="btn-primary btn-sm" type="button"><i class="fa-solid fa-arrows-rotate"></i> <span data-i18n="supplier_sync">Synchroniser</span></button>
+                </div>
+                <div class="supplier-status-strip glass-panel">
+                    <div><span>Connexion</span><strong id="supplier-connection">Non configurée</strong></div>
+                    <div><span>Dernière synchronisation</span><strong id="supplier-last-sync">Jamais</strong></div>
+                    <div><span>Produits affichés</span><strong id="supplier-selected-count">0</strong></div>
+                    <div><span>Livraisons à vérifier</span><strong id="supplier-review-count">0</strong></div>
+                </div>
+                <div class="glass-panel supplier-settings-panel">
+                    <div class="panel-header"><div><p class="eyebrow">Canboso</p><h3>Configuration du catalogue</h3></div></div>
+                    <form id="supplier-settings-form" class="supplier-settings-grid">
+                        <label class="supplier-enable-control"><input id="supplier-enabled" type="checkbox" checked><span><strong>Connexion active</strong><small>Masque tous les produits distants lorsqu'elle est désactivée.</small></span></label>
+                        <div class="form-group"><label for="supplier-margin-type">Marge globale</label><select id="supplier-margin-type"><option value="fixed">Montant fixe ($)</option><option value="percent">Pourcentage (%)</option></select></div>
+                        <div class="form-group"><label for="supplier-margin-value">Valeur</label><input id="supplier-margin-value" type="number" min="0" step="0.01" value="1"></div>
+                        <div class="supplier-settings-action"><button class="btn-primary btn-sm" type="submit"><i class="fa-solid fa-floppy-disk"></i> Enregistrer</button></div>
+                    </form>
+                    <p class="supplier-security-note"><i class="fa-solid fa-shield-halved"></i> La clé acheteur est lue depuis <code>CANBOSO_API_KEY</code> sur Railway et n'est jamais envoyée au navigateur.</p>
+                </div>
+                <div class="supplier-table-toolbar"><div><h3>Catalogue fournisseur</h3><p>Sélectionnez uniquement les articles à proposer sur votre bot.</p></div><input id="supplier-product-search" type="search" placeholder="Rechercher un produit..." aria-label="Rechercher un produit"></div>
+                <div class="glass-panel overflow-hidden">
+                    <table class="data-table supplier-products-table"><thead><tr><th>Afficher</th><th>Produit fournisseur</th><th>Prix source</th><th>Stock</th><th>Marge appliquée</th><th>Prix client</th><th>Action</th></tr></thead><tbody id="supplier-products-table-body"><tr><td colspan="7" class="empty-state">Synchronisez le catalogue pour commencer.</td></tr></tbody></table>
                 </div>
             </section>
 
@@ -1124,7 +1153,7 @@
 </div>
 
 
-    <script src="app.js?v=20260712-nowpayments"></script>
+    <script src="app.js?v=20260712-supplier-bots"></script>
     <script>
     /* ── Mobile Sidebar Toggle ── */
     (function() {

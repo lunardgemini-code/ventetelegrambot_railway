@@ -1332,6 +1332,8 @@ TRANSLATIONS["en"].update({
     "nowpayments_creation_unknown": "The payment provider may have created this payment but did not return a confirmation. Do not create another payment; contact support with order #{order_id}.",
     "nowpayments_paid_pending": "Payment confirmed, but delivery requires administrator assistance. Order #{order_id} is safely recorded.",
     "nowpayments_review": "Payment received but held for a security review. An administrator has been notified.",
+    "supplier_delivery_processing": "🔄 <b>Retrieving your product from the supplier...</b>",
+    "supplier_paid_pending": "✅ Payment confirmed. Supplier delivery is temporarily delayed. Order #{order_id} is safely recorded and the administrator has been notified.",
 })
 
 TRANSLATIONS["fr"].update({
@@ -1357,6 +1359,8 @@ TRANSLATIONS["fr"].update({
     "nowpayments_creation_unknown": "Le fournisseur a peut-etre cree le paiement sans renvoyer de confirmation. Ne creez pas un autre paiement et contactez le support avec la commande #{order_id}.",
     "nowpayments_paid_pending": "Paiement confirme, mais la livraison necessite l'aide de l'administrateur. La commande #{order_id} est bien enregistree.",
     "nowpayments_review": "Paiement recu mais place en verification de securite. Un administrateur a ete averti.",
+    "supplier_delivery_processing": "🔄 <b>Recuperation de votre produit chez le fournisseur...</b>",
+    "supplier_paid_pending": "✅ Paiement confirme. La livraison fournisseur est temporairement retardee. La commande #{order_id} est bien enregistree et l'administrateur a ete averti.",
 })
 
 TRANSLATIONS["ar"].update({
@@ -1382,6 +1386,8 @@ TRANSLATIONS["ar"].update({
     "nowpayments_creation_unknown": "ربما تم إنشاء الدفع دون تأكيد. لا تنشئ دفعة أخرى وتواصل مع الدعم مع رقم الطلب #{order_id}.",
     "nowpayments_paid_pending": "تم تأكيد الدفع، لكن التسليم يحتاج مساعدة المسؤول. الطلب #{order_id} محفوظ بأمان.",
     "nowpayments_review": "تم استلام الدفع ووضعه قيد المراجعة الأمنية. تم إشعار المسؤول.",
+    "supplier_delivery_processing": "🔄 <b>جار استلام منتجك من المورد...</b>",
+    "supplier_paid_pending": "✅ تم تأكيد الدفع. تسليم المورد متأخر مؤقتا. تم حفظ الطلب #{order_id} وإبلاغ المسؤول.",
 })
 
 TRANSLATIONS["zh"].update({
@@ -1407,6 +1413,8 @@ TRANSLATIONS["zh"].update({
     "nowpayments_creation_unknown": "付款可能已创建但未返回确认。请勿再次创建，并使用订单号 #{order_id} 联系客服。",
     "nowpayments_paid_pending": "付款已确认，但交付需要管理员处理。订单 #{order_id} 已安全记录。",
     "nowpayments_review": "付款已收到，但正在进行安全审核。管理员已收到通知。",
+    "supplier_delivery_processing": "🔄 <b>正在从供应商获取您的产品...</b>",
+    "supplier_paid_pending": "✅ 付款已确认。供应商交付暂时延迟。订单 #{order_id} 已安全记录并已通知管理员。",
 })
 
 TRANSLATIONS["vi"].update({
@@ -1432,6 +1440,8 @@ TRANSLATIONS["vi"].update({
     "nowpayments_creation_unknown": "Thanh toan co the da duoc tao nhung chua co xac nhan. Khong tao lai; hay lien he ho tro voi don #{order_id}.",
     "nowpayments_paid_pending": "Thanh toan da xac nhan, nhung can quan tri vien ho tro giao hang. Don #{order_id} da duoc ghi nhan.",
     "nowpayments_review": "Da nhan thanh toan nhung dang duoc kiem tra bao mat. Quan tri vien da duoc thong bao.",
+    "supplier_delivery_processing": "🔄 <b>Dang lay san pham cua ban tu nha cung cap...</b>",
+    "supplier_paid_pending": "✅ Da xac nhan thanh toan. Giao hang tu nha cung cap dang tam thoi cham tre. Don #{order_id} da duoc luu va quan tri vien da duoc thong bao.",
 })
 
 TRANSLATIONS["ru"].update({
@@ -1457,6 +1467,8 @@ TRANSLATIONS["ru"].update({
     "nowpayments_creation_unknown": "Платеж мог быть создан без ответа. Не создавайте новый; обратитесь в поддержку с заказом #{order_id}.",
     "nowpayments_paid_pending": "Оплата подтверждена, но для выдачи нужна помощь администратора. Заказ #{order_id} сохранен.",
     "nowpayments_review": "Платеж получен и отправлен на проверку безопасности. Администратор уведомлен.",
+    "supplier_delivery_processing": "🔄 <b>Получаем ваш товар у поставщика...</b>",
+    "supplier_paid_pending": "✅ Оплата подтверждена. Доставка поставщика временно задерживается. Заказ #{order_id} сохранен, администратор уведомлен.",
 })
 
 

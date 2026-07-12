@@ -506,6 +506,42 @@ async def init_db() -> None:
                 notified_at TIMESTAMP,
                 FOREIGN KEY (order_id) REFERENCES orders(id)
             )""",
+            """CREATE TABLE IF NOT EXISTS supplier_products (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                supplier_code TEXT NOT NULL DEFAULT 'canboso',
+                external_product_id TEXT NOT NULL,
+                local_product_id INTEGER UNIQUE,
+                name TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                base_price REAL NOT NULL DEFAULT 0,
+                remote_stock INTEGER NOT NULL DEFAULT 0,
+                warranty_days INTEGER NOT NULL DEFAULT 0,
+                image_url TEXT DEFAULT '',
+                emoji TEXT DEFAULT '📦',
+                enabled INTEGER NOT NULL DEFAULT 0,
+                margin_type TEXT NOT NULL DEFAULT 'inherit',
+                margin_value REAL,
+                raw_payload TEXT DEFAULT '{}',
+                last_synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(supplier_code, external_product_id)
+            )""",
+            """CREATE TABLE IF NOT EXISTS supplier_orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL UNIQUE,
+                supplier_code TEXT NOT NULL DEFAULT 'canboso',
+                external_product_id TEXT NOT NULL,
+                quantity INTEGER NOT NULL DEFAULT 1,
+                status TEXT NOT NULL DEFAULT 'pending',
+                external_order_id TEXT,
+                delivered_items TEXT DEFAULT '[]',
+                raw_payload TEXT DEFAULT '{}',
+                error TEXT,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP
+            )""",
             """CREATE TABLE IF NOT EXISTS product_stock_alerts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 product_id INTEGER NOT NULL,
@@ -636,6 +672,11 @@ async def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_product_views_date_product ON product_views(viewed_at, product_id)",
             "CREATE INDEX IF NOT EXISTS idx_product_views_user_product_date ON product_views(product_id, user_telegram_id, viewed_at)",
             "CREATE INDEX IF NOT EXISTS idx_orders_product_date_status ON orders(product_id, created_at, status)",
+            "CREATE TABLE IF NOT EXISTS supplier_products (id INTEGER PRIMARY KEY AUTOINCREMENT, supplier_code TEXT NOT NULL DEFAULT 'canboso', external_product_id TEXT NOT NULL, local_product_id INTEGER UNIQUE, name TEXT NOT NULL, description TEXT DEFAULT '', base_price REAL NOT NULL DEFAULT 0, remote_stock INTEGER NOT NULL DEFAULT 0, warranty_days INTEGER NOT NULL DEFAULT 0, image_url TEXT DEFAULT '', emoji TEXT DEFAULT '📦', enabled INTEGER NOT NULL DEFAULT 0, margin_type TEXT NOT NULL DEFAULT 'inherit', margin_value REAL, raw_payload TEXT DEFAULT '{}', last_synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(supplier_code, external_product_id))",
+            "CREATE TABLE IF NOT EXISTS supplier_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL UNIQUE, supplier_code TEXT NOT NULL DEFAULT 'canboso', external_product_id TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'pending', external_order_id TEXT, delivered_items TEXT DEFAULT '[]', raw_payload TEXT DEFAULT '{}', error TEXT, attempts INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, completed_at TIMESTAMP)",
+            "CREATE INDEX IF NOT EXISTS idx_supplier_products_local ON supplier_products(local_product_id)",
+            "CREATE INDEX IF NOT EXISTS idx_supplier_products_enabled ON supplier_products(supplier_code, enabled)",
+            "CREATE INDEX IF NOT EXISTS idx_supplier_orders_status ON supplier_orders(status, updated_at)",
         ]
         table_columns: dict[str, set[str]] = {}
 

@@ -38,6 +38,15 @@ NOWPAYMENTS_FEE_PAID_BY_USER: bool = os.getenv(
     "NOWPAYMENTS_FEE_PAID_BY_USER", "false"
 ).strip().lower() in {"1", "true", "yes", "on"}
 
+# External supplier catalog. Keep the buyer key in Railway, never in the dashboard bundle.
+CANBOSO_API_KEY: str = os.getenv("CANBOSO_API_KEY", "").strip()
+CANBOSO_API_BASE_URL: str = os.getenv(
+    "CANBOSO_API_BASE_URL", "https://canboso.com"
+).strip().rstrip("/")
+CANBOSO_API_AUTH_HEADER: str = os.getenv(
+    "CANBOSO_API_AUTH_HEADER", "X-API-Key"
+).strip() or "X-API-Key"
+
 
 # ── Identifiants des administrateurs (séparés par des virgules) ────
 ADMIN_IDS: list[int] = [

@@ -995,6 +995,79 @@ async def api_admin_revoke_reseller_key(key_id: int):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@api.get("/api/supplier-bots/canboso", dependencies=[Depends(verify_api_key)])
+async def api_get_canboso_supplier():
+    from database.suppliers import get_supplier_dashboard
+    from services.supplier_api import is_canboso_configured
+
+    try:
+        data = await get_supplier_dashboard()
+        data["configured"] = is_canboso_configured()
+        data["supplier"] = "Canboso"
+        data["base_url"] = "https://canboso.com"
+        return data
+    except Exception as exc:
+        logger.error("API supplier dashboard error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/supplier-bots/canboso/sync", dependencies=[Depends(verify_api_key)])
+async def api_sync_canboso_supplier():
+    from database.suppliers import get_supplier_dashboard, sync_supplier_products
+    from services.supplier_api import SupplierAPIError, list_canboso_products
+
+    try:
+        products = await list_canboso_products()
+        result = await sync_supplier_products(products)
+        return {"status": "synced", **result, "dashboard": await get_supplier_dashboard()}
+    except SupplierAPIError as exc:
+        logger.warning("Canboso catalog sync failed (HTTP %s): %s", exc.status_code or "n/a", exc)
+        raise HTTPException(status_code=502, detail=f"Supplier API: {exc}")
+    except Exception as exc:
+        logger.error("API supplier sync error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.put("/api/supplier-bots/canboso/settings", dependencies=[Depends(verify_api_key)])
+async def api_update_canboso_settings(data: dict):
+    from database.suppliers import get_supplier_dashboard, update_supplier_settings
+
+    try:
+        margin_type = str(data.get("margin_type") or "fixed").lower()
+        margin_value = float(data.get("margin_value") or 0)
+        await update_supplier_settings(
+            enabled=bool(data.get("enabled", True)),
+            margin_type=margin_type,
+            margin_value=margin_value,
+        )
+        return {"status": "updated", "dashboard": await get_supplier_dashboard()}
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("API supplier settings error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.put("/api/supplier-bots/canboso/products/{mapping_id}", dependencies=[Depends(verify_api_key)])
+async def api_update_canboso_product(mapping_id: int, data: dict):
+    from database.suppliers import get_supplier_dashboard, update_supplier_product
+
+    try:
+        await update_supplier_product(
+            mapping_id,
+            enabled=bool(data.get("enabled", False)),
+            margin_type=str(data.get("margin_type") or "inherit").lower(),
+            margin_value=data.get("margin_value"),
+        )
+        return {"status": "updated", "dashboard": await get_supplier_dashboard()}
+    except ValueError as exc:
+        code = 404 if str(exc) == "SUPPLIER_PRODUCT_NOT_FOUND" else 400
+        raise HTTPException(status_code=code, detail=str(exc))
+    except Exception as exc:
+        logger.error("API supplier product error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @api.get("/api/reseller/me")
 async def api_reseller_me(reseller: dict = Depends(verify_reseller_key)):
     return _reseller_success(
@@ -2765,6 +2838,8 @@ async def post_shutdown(application: Application) -> None:
     await asyncio.gather(*(task for task in tasks if task), return_exceptions=True)
     from services.nowpayments import close_nowpayments_client
     await close_nowpayments_client()
+    from services.supplier_api import close_supplier_client
+    await close_supplier_client()
 
 
 # ──────────────────────────────────────────────

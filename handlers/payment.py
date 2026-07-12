@@ -750,6 +750,40 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return await _prompt_activation_identifier(update, context, order_id, product, lang, "wallet")
 
         delivered = purchase["items"]
+        if purchase.get("delivery_type") == "supplier_api":
+            wallet_msg = t("wallet_paid", lang) \
+                .replace("${amount}", format_price(amount)) \
+                .replace("${balance}", format_price(new_balance))
+            await query.edit_message_text(
+                f"{wallet_msg}\n\n{t('supplier_delivery_processing', lang)}",
+                parse_mode="HTML",
+            )
+            delivered = await deliver_order(order_id, product_id)
+            if delivered:
+                await update_order_status(
+                    order_id,
+                    "COMPLETED",
+                    expected_statuses=("PAID_PENDING_DELIVERY",),
+                    payment_method="wallet",
+                )
+            else:
+                await query.edit_message_text(
+                    t("supplier_paid_pending", lang).format(order_id=order_id),
+                    parse_mode="HTML",
+                    reply_markup=main_menu_keyboard(lang),
+                )
+                try:
+                    from bot import notify_admins
+                    await notify_admins(
+                        f"⚠️ <b>Supplier delivery pending</b>\n"
+                        f"Order: #{order_id}\n"
+                        f"Client: <code>{telegram_id}</code>\n"
+                        f"Product: {escape_html((product or {}).get('name') or str(product_id))}\n"
+                        "Check API Bot Management before retrying the supplier purchase."
+                    )
+                except Exception as notify_exc:
+                    logger.warning("Could not notify admins about supplier order %s: %s", order_id, notify_exc)
+                return ConversationHandler.END
         if delivered:
             warranty_days = product.get("warranty_days", 0) if product else 0
 
@@ -1256,6 +1290,20 @@ async def process_nowpayments_payment_notification(bot, payment_id: str | int) -
     result = await finalize_nowpayments_payment(payment_id)
     action = result.get("action")
     payment = result.get("payment") or {}
+    if action == "paid_pending_delivery" and payment.get("product_id"):
+        supplier_product = await get_product(int(payment["product_id"]))
+        if (supplier_product or {}).get("delivery_type") == "supplier_api":
+            delivered = await deliver_order(int(payment["order_id"]), int(payment["product_id"]))
+            if delivered:
+                await update_order_status(
+                    int(payment["order_id"]),
+                    "COMPLETED",
+                    expected_statuses=("PAID_PENDING_DELIVERY",),
+                    payment_method="nowpayments_bep20",
+                    binance_order_id=str(payment_id),
+                )
+                result["action"] = action = "completed"
+                result["items"] = delivered
     if not payment or payment.get("notified_at"):
         return result
 

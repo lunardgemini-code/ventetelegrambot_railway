@@ -688,7 +688,7 @@ async def add_product(
     _PRODUCTS_CACHE = None
     _PRODUCT_BY_ID_CACHE.clear()
     invalidate_stats_cache()
-    delivery_type = "activation" if delivery_type == "activation" else "stock"
+    delivery_type = delivery_type if delivery_type in ("activation", "supplier_api") else "stock"
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -714,7 +714,7 @@ async def update_product(product_id: int, **kwargs) -> None:
     invalidate_stats_cache()
     safe_kwargs = {k: v for k, v in kwargs.items() if k in ALLOWED_PRODUCT_COLUMNS}
     if "delivery_type" in safe_kwargs:
-        safe_kwargs["delivery_type"] = "activation" if safe_kwargs["delivery_type"] == "activation" else "stock"
+        safe_kwargs["delivery_type"] = safe_kwargs["delivery_type"] if safe_kwargs["delivery_type"] in ("activation", "supplier_api") else "stock"
     if not safe_kwargs:
         return
     columns = ", ".join(f"{safe_k} = ?" for safe_k in safe_kwargs)
@@ -1572,6 +1572,8 @@ async def get_all_stock_counts() -> dict[int, int]:
         for p_id, total in stocks.items():
             reserved = reservations.get(p_id, 0)
             result[p_id] = max(0, total - reserved)
+        from database.suppliers import supplier_stock_counts
+        result.update(await supplier_stock_counts())
         _STOCK_COUNTS_CACHE = (now, dict(result))
         return result
     finally:
@@ -1630,6 +1632,10 @@ async def get_product_full_details(product_id: int) -> tuple[dict | None, int, l
             logger.warning("Reserved stock query failed for product %s: %s", product_id, exc)
             reserved = 0
         stock_count = max(0, total_unsold - reserved)
+        if product.get("delivery_type") == "supplier_api":
+            from database.suppliers import get_supplier_product_by_local_product
+            supplier_product = await get_supplier_product_by_local_product(product_id)
+            stock_count = max(0, int((supplier_product or {}).get("remote_stock") or 0))
 
         # 3. Paliers de prix (Tiers) via cache si possible
         global _TIERS_CACHE
@@ -1679,6 +1685,13 @@ async def get_stock_count(product_id: int) -> int:
     """Retourne le nombre d'articles en stock non vendus et non rÃ©servÃ©s pour un produit."""
     db = await get_db()
     try:
+        cursor = await db.execute(
+            "SELECT remote_stock FROM supplier_products WHERE local_product_id = ? AND enabled = 1 LIMIT 1",
+            (int(product_id),),
+        )
+        supplier_row = await cursor.fetchone()
+        if supplier_row:
+            return max(0, int(supplier_row["remote_stock"] or 0))
         # 1. Stock total non vendu en base
         cursor = await db.execute(
             "SELECT COUNT(*) as cnt FROM stock_items WHERE product_id = ? AND is_sold = 0",
@@ -2034,6 +2047,8 @@ async def purchase_order_with_wallet(order_id: int, user_telegram_id: int) -> di
 
         if delivery_type == "activation":
             next_status = "AWAITING_ACTIVATION_INFO"
+        elif delivery_type == "supplier_api":
+            next_status = "PAID_PENDING_DELIVERY"
         else:
             cursor = await db.execute(
                 """SELECT id, account_data
@@ -2620,6 +2635,21 @@ async def finalize_nowpayments_payment(payment_id: str | int) -> dict:
             await db.commit()
             payment["order_status"] = next_status
             return {"action": "activation", "payment": payment, "items": []}
+
+        if delivery_type == "supplier_api":
+            await db.execute(
+                """UPDATE orders SET status = 'PAID_PENDING_DELIVERY', payment_method = 'nowpayments_bep20',
+                          binance_order_id = ?, paid_at = COALESCE(paid_at, CURRENT_TIMESTAMP)
+                   WHERE id = ?""",
+                (str(payment_id), int(payment["order_id"])),
+            )
+            await db.execute(
+                "UPDATE nowpayments_payments SET processed_at = CURRENT_TIMESTAMP, processing_error = NULL WHERE id = ?",
+                (int(payment["id"]),),
+            )
+            await db.commit()
+            payment["order_status"] = "PAID_PENDING_DELIVERY"
+            return {"action": "paid_pending_delivery", "payment": payment, "items": []}
 
         quantity = max(1, int(payment.get("quantity") or 1))
         if not items:

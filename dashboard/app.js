@@ -158,6 +158,12 @@ Object.assign(LANG.zh, {overview_kicker:'今天', overview_title:'商店概览',
 Object.assign(LANG.vi, {overview_kicker:'Hôm nay', overview_title:'Tổng quan cửa hàng', today_revenue:'Doanh thu hôm nay', today_orders:'Lượt bán hôm nay', priorities:'Ưu tiên', actions_title:'Cần xử lý', activity:'Hoạt động', recent_orders:'Đơn gần đây', view_all:'Xem tất cả', pending_metric:'Đơn đang chờ'});
 Object.assign(LANG.ru, {overview_kicker:'Сегодня', overview_title:'Магазин в цифрах', today_revenue:'Выручка сегодня', today_orders:'Продажи сегодня', priorities:'Приоритеты', actions_title:'Требует внимания', activity:'Активность', recent_orders:'Последние заказы', view_all:'Все заказы', pending_metric:'Заказы в ожидании'});
 Object.assign(LANG.ar, {overview_kicker:'اليوم', overview_title:'نظرة عامة على المتجر', today_revenue:'إيرادات اليوم', today_orders:'مبيعات اليوم', priorities:'الأولويات', actions_title:'بحاجة إلى معالجة', activity:'النشاط', recent_orders:'أحدث الطلبات', view_all:'عرض الكل', pending_metric:'الطلبات المعلقة'});
+Object.assign(LANG.fr, {nav_supplier_bots:'API Bot Gestion', supplier_title:'API Bot Gestion', supplier_sync:'Synchroniser'});
+Object.assign(LANG.en, {nav_supplier_bots:'Bot API Management', supplier_title:'Bot API Management', supplier_sync:'Sync catalog'});
+Object.assign(LANG.ar, {nav_supplier_bots:'إدارة API للبوت', supplier_title:'إدارة API للبوت', supplier_sync:'مزامنة الكتالوج'});
+Object.assign(LANG.zh, {nav_supplier_bots:'机器人 API 管理', supplier_title:'机器人 API 管理', supplier_sync:'同步目录'});
+Object.assign(LANG.vi, {nav_supplier_bots:'Quản lý API Bot', supplier_title:'Quản lý API Bot', supplier_sync:'Đồng bộ danh mục'});
+Object.assign(LANG.ru, {nav_supplier_bots:'Управление API бота', supplier_title:'Управление API бота', supplier_sync:'Синхронизировать'});
 
 const state = {
     botUrl:'', apiKey:'', currentLang:'fr', currentTab:'dashboard-tab',
@@ -169,7 +175,7 @@ const state = {
     chartDays:30, refreshing:false, lastRefreshAt:null,
     revenueChart:null, ordersChart:null, productSalesChart:null, productMomentumChart:null,
     dynamicPriceChart:null, dynamicSimulationChart:null,
-    productStats:[], productMomentum:null, productMomentumSelected:[], deadProductAlerts:[]
+    productStats:[], productMomentum:null, productMomentumSelected:[], deadProductAlerts:[], supplierBot:null
 };
 
 function $(id) { return document.getElementById(id); }
@@ -210,6 +216,9 @@ const DOM = {
     openTicketsContainer:$('open-tickets-container'),
     resellersTableBody:$('resellers-table-body'), resellerUserId:$('reseller-user-id'), resellerKeyName:$('reseller-key-name'),
     btnCreateResellerKey:$('btn-create-reseller-key'), resellerKeyOutput:$('reseller-key-output'), resellerNewKey:$('reseller-new-key'),
+    supplierSettingsForm:$('supplier-settings-form'), supplierEnabled:$('supplier-enabled'), supplierMarginType:$('supplier-margin-type'), supplierMarginValue:$('supplier-margin-value'),
+    btnSupplierSync:$('btn-supplier-sync'), supplierConnection:$('supplier-connection'), supplierLastSync:$('supplier-last-sync'), supplierSelectedCount:$('supplier-selected-count'), supplierReviewCount:$('supplier-review-count'),
+    supplierProductSearch:$('supplier-product-search'), supplierProductsTableBody:$('supplier-products-table-body'),
     broadcastTextarea:$('broadcast-textarea'), broadcastResult:$('broadcast-result'), btnSendBroadcast:$('btn-send-broadcast'),
     broadcastPhotoUrl:$('broadcast-photo-url'), broadcastBtnType:$('broadcast-btn-type'), broadcastBtnProductId:$('broadcast-btn-product-id'),
     broadcastBtnText:$('broadcast-btn-text'), broadcastBtnUrl:$('broadcast-btn-url'),
@@ -357,6 +366,9 @@ function setupEvents() {
     DOM.btnAutoRefresh.addEventListener('click', toggleAutoRefresh);
     $('btn-export').addEventListener('click', () => showModal($('exportModal')));
     if (DOM.btnCreateResellerKey) DOM.btnCreateResellerKey.addEventListener('click', createResellerKey);
+    if (DOM.btnSupplierSync) DOM.btnSupplierSync.addEventListener('click', syncSupplierBot);
+    if (DOM.supplierSettingsForm) DOM.supplierSettingsForm.addEventListener('submit', saveSupplierSettings);
+    if (DOM.supplierProductSearch) DOM.supplierProductSearch.addEventListener('input', renderSupplierProducts);
     
     if (DOM.statsProductSearch) {
         DOM.statsProductSearch.addEventListener('input', () => {
@@ -1107,6 +1119,7 @@ const tabRefreshLoaders = {
     'orders-tab': [loadProducts, loadAllOrders],
     'activations-tab': [loadProducts, loadActivations],
     'resellers-tab': [loadResellers],
+    'supplier-bots-tab': [loadSupplierBot],
     'users-tab': [loadUsers],
     'tickets-tab': [loadTickets],
     'settings-tab': [loadProducts, loadPromos, loadPaymentSettings],
@@ -1116,7 +1129,7 @@ const tabRefreshLoaders = {
 };
 
 const fullRefreshLoaders = [
-    loadDashboardOverview, loadStats, loadFinance, loadProducts, loadAllOrders, loadActivations, loadResellers,
+    loadDashboardOverview, loadStats, loadFinance, loadProducts, loadAllOrders, loadActivations, loadResellers, loadSupplierBot,
     loadTickets, loadUsers, loadPromos, loadCharts, loadWalletHistory, loadBinanceAccounts,
     loadPaymentSettings, loadProductStats, loadProductMomentum, loadDeadProductAlerts
 ];
@@ -1728,14 +1741,20 @@ function renderStatsTable() {
 async function loadProducts() {
     const prods = await apiCall('/api/products'); state.products = prods;
     if (prods.length > 0) {
-        DOM.productsTableBody.innerHTML = prods.map(p => `<tr data-id="${p.id}">
+        DOM.productsTableBody.innerHTML = prods.map(p => {
+            const supplierProduct = p.delivery_type === 'supplier_api';
+            const stockActions = supplierProduct
+                ? `<button class="btn-table-action" onclick="switchTab('supplier-bots-tab')" title="Gérer dans API Bot Gestion" style="color:#a78bfa"><i class="fa-solid fa-plug"></i></button>`
+                : `<button class="btn-table-action" onclick="viewProductStock(${Number(p.id)})" title="Voir stock" style="color:#f59e0b;"><i class="fa-solid fa-box-open"></i></button><button class="btn-table-action stock" onclick="openStockModal(${Number(p.id)})" title="${t('stock_manage')}"><i class="fa-solid fa-warehouse"></i></button>`;
+            return `<tr data-id="${p.id}">
             <td class="drag-handle" style="cursor: grab; text-align: center;"><i class="fas fa-bars" style="color:var(--color-primary);"></i></td>
-            <td><div class="prod-badge"><span class="prod-emoji">${escapeHtml(p.emoji||'📦')}</span><strong>${escapeHtml(p.name)}</strong></div></td>
+            <td><div class="prod-badge"><span class="prod-emoji">${escapeHtml(p.emoji||'📦')}</span><strong>${escapeHtml(p.name)}</strong>${supplierProduct ? '<span class="status-badge info">API</span>' : ''}</div></td>
             <td><strong>$${parseFloat(p.price_usd).toFixed(2)}</strong>${p.dynamic_pricing_enabled ? `<span class="dynamic-price-badge" title="${p.dynamic_pricing_mode === 'suggestion' ? 'Mode suggestion' : 'Mode automatique'}"><i class="fa-solid fa-wave-square"></i> Dynamic</span>` : ''}</td><td>${p.warranty_days||0} ${t('days')}</td>
-            <td>${p.delivery_type === 'activation' ? '<span class="stock-count-badge ok">Activation</span>' : `<span class="stock-count-badge ${p.stock===0?'empty':p.stock<3?'low':'ok'}">${p.stock}</span>`}</td>
+            <td>${p.delivery_type === 'activation' ? '<span class="stock-count-badge ok">Activation</span>' : `<span class="stock-count-badge ${p.stock===0?'empty':p.stock<3?'low':'ok'}">${p.stock}${supplierProduct ? ' API' : ''}</span>`}</td>
             <td><span class="status-dot ${p.is_active?'online':''}"></span> ${p.is_active?t('active'):t('inactive')}</td>
-            <td><button class="btn-table-action" onclick="toggleProductVisibility(${Number(p.id)})" title="${p.is_active ? 'Désactiver' : 'Activer'}" style="color:${p.is_active ? '#ef4444' : '#22c55e'};"><i class="fa-solid ${p.is_active ? 'fa-xmark' : 'fa-check'}"></i></button><button class="btn-table-action" onclick="openEditProduct(${Number(p.id)})" title="Modifier" style="color:#3b82f6;"><i class="fa-solid fa-pen"></i></button><button class="btn-table-action" onclick="viewProductStock(${Number(p.id)})" title="Voir stock" style="color:#f59e0b;"><i class="fa-solid fa-box-open"></i></button><button class="btn-table-action stock" onclick="openStockModal(${Number(p.id)})" title="${t('stock_manage')}"><i class="fa-solid fa-warehouse"></i></button><button class="btn-table-action" onclick="openTiersModal(${Number(p.id)})" title="Tarifs" style="color:#a78bfa;"><i class="fa-solid fa-tags"></i></button><button class="btn-table-action delete" onclick="deleteProduct(${Number(p.id)})" title="Supprimer"><i class="fa-solid fa-trash-can"></i></button></td>
-        </tr>`).join('');
+            <td><button class="btn-table-action" onclick="toggleProductVisibility(${Number(p.id)})" title="${p.is_active ? 'Désactiver' : 'Activer'}" style="color:${p.is_active ? '#ef4444' : '#22c55e'};"><i class="fa-solid ${p.is_active ? 'fa-xmark' : 'fa-check'}"></i></button><button class="btn-table-action" onclick="openEditProduct(${Number(p.id)})" title="Modifier" style="color:#3b82f6;"><i class="fa-solid fa-pen"></i></button>${stockActions}<button class="btn-table-action" onclick="openTiersModal(${Number(p.id)})" title="Tarifs" style="color:#a78bfa;"><i class="fa-solid fa-tags"></i></button><button class="btn-table-action delete" onclick="deleteProduct(${Number(p.id)})" title="Supprimer"><i class="fa-solid fa-trash-can"></i></button></td>
+        </tr>`;
+        }).join('');
         if (DOM.broadcastBtnProductId) {
             DOM.broadcastBtnProductId.innerHTML = prods.map(p => `<option value="${Number(p.id)}">${escapeHtml(p.emoji||'📦')} ${escapeHtml(p.name)}</option>`).join('');
         }
@@ -1958,6 +1977,101 @@ window.revokeResellerKey = async function(id) {
         showLoading(false);
     }
 };
+
+async function loadSupplierBot() {
+    if (!DOM.supplierProductsTableBody) return;
+    try {
+        state.supplierBot = await apiCall('/api/supplier-bots/canboso');
+        const supplier = state.supplierBot;
+        DOM.supplierConnection.textContent = supplier.configured ? (supplier.enabled ? 'Connectée' : 'Désactivée') : 'Clé Railway absente';
+        DOM.supplierConnection.style.color = supplier.configured && supplier.enabled ? 'var(--color-success)' : 'var(--color-warning)';
+        DOM.supplierLastSync.textContent = supplier.last_sync ? parseUTCDate(supplier.last_sync).toLocaleString() : 'Jamais';
+        DOM.supplierSelectedCount.textContent = (supplier.products || []).filter(product => product.enabled).length;
+        const counts = supplier.order_counts || {};
+        DOM.supplierReviewCount.textContent = Number(counts.failed || 0) + Number(counts.unknown || 0);
+        DOM.supplierEnabled.checked = Boolean(supplier.enabled);
+        DOM.supplierMarginType.value = supplier.margin_type || 'fixed';
+        DOM.supplierMarginValue.value = Number(supplier.margin_value || 0);
+        renderSupplierProducts();
+    } catch (error) {
+        DOM.supplierProductsTableBody.innerHTML = `<tr><td colspan="7" class="empty-state">${escapeHtml(error.message || 'Impossible de charger le fournisseur.')}</td></tr>`;
+    }
+}
+
+function renderSupplierProducts() {
+    if (!DOM.supplierProductsTableBody) return;
+    const supplier = state.supplierBot || {};
+    const query = (DOM.supplierProductSearch?.value || '').trim().toLowerCase();
+    const products = (supplier.products || []).filter(product => !query || String(product.name || '').toLowerCase().includes(query) || String(product.external_product_id || '').toLowerCase().includes(query));
+    if (!products.length) {
+        DOM.supplierProductsTableBody.innerHTML = '<tr><td colspan="7" class="empty-state">Aucun produit fournisseur. Cliquez sur Synchroniser.</td></tr>';
+        return;
+    }
+    DOM.supplierProductsTableBody.innerHTML = products.map(product => {
+        const id = Number(product.id);
+        const marginType = product.margin_type || 'inherit';
+        const marginValue = marginType === 'inherit' ? '' : Number(product.margin_value || 0);
+        const stockClass = Number(product.remote_stock || 0) === 0 ? 'empty' : Number(product.remote_stock || 0) < 3 ? 'low' : 'ok';
+        return `<tr>
+            <td><input class="supplier-product-toggle" type="checkbox" id="supplier-enabled-${id}" ${product.enabled ? 'checked' : ''} aria-label="Afficher ${escapeHtml(product.name)}"></td>
+            <td><div class="supplier-product-name"><span>${escapeHtml(product.emoji || '📦')}</span><div><strong>${escapeHtml(product.name || '?')}</strong><small>ID fournisseur: ${escapeHtml(product.external_product_id)}</small></div></div></td>
+            <td><strong>$${Number(product.base_price || 0).toFixed(2)}</strong></td>
+            <td><span class="stock-count-badge ${stockClass}">${Number(product.remote_stock || 0)}</span></td>
+            <td><div class="supplier-margin-controls"><select id="supplier-margin-type-${id}" onchange="toggleSupplierMarginInput(${id})"><option value="inherit" ${marginType === 'inherit' ? 'selected' : ''}>Marge globale</option><option value="fixed" ${marginType === 'fixed' ? 'selected' : ''}>+$ fixe</option><option value="percent" ${marginType === 'percent' ? 'selected' : ''}>+%</option></select><input id="supplier-margin-value-${id}" type="number" min="0" step="0.01" value="${marginValue}" ${marginType === 'inherit' ? 'disabled' : ''}></div></td>
+            <td><strong>$${Number(product.final_price || 0).toFixed(2)}</strong><small style="display:block;color:var(--color-text-muted)">${product.effective_margin_type === 'percent' ? '+' + Number(product.effective_margin_value || 0).toFixed(2) + '%' : '+$' + Number(product.effective_margin_value || 0).toFixed(2)}</small></td>
+            <td><button class="btn-table-action" onclick="saveSupplierProduct(${id})" title="Enregistrer" style="color:var(--color-success)"><i class="fa-solid fa-floppy-disk"></i></button></td>
+        </tr>`;
+    }).join('');
+}
+
+window.toggleSupplierMarginInput = function(id) {
+    const select = $(`supplier-margin-type-${id}`);
+    const input = $(`supplier-margin-value-${id}`);
+    if (select && input) input.disabled = select.value === 'inherit';
+};
+
+window.saveSupplierProduct = async function(id) {
+    const enabled = Boolean($(`supplier-enabled-${id}`)?.checked);
+    const marginType = $(`supplier-margin-type-${id}`)?.value || 'inherit';
+    const rawValue = $(`supplier-margin-value-${id}`)?.value;
+    try {
+        showLoading(true);
+        await apiCall(`/api/supplier-bots/canboso/products/${id}`, 'PUT', {enabled, margin_type: marginType, margin_value: marginType === 'inherit' ? null : Number(rawValue || 0)});
+        await Promise.all([loadSupplierBot(), loadProducts()]);
+        showToast('Produit fournisseur mis à jour.', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+};
+
+async function saveSupplierSettings(event) {
+    event.preventDefault();
+    try {
+        showLoading(true);
+        await apiCall('/api/supplier-bots/canboso/settings', 'PUT', {enabled: Boolean(DOM.supplierEnabled.checked), margin_type: DOM.supplierMarginType.value, margin_value: Number(DOM.supplierMarginValue.value || 0)});
+        await Promise.all([loadSupplierBot(), loadProducts()]);
+        showToast('Configuration fournisseur enregistrée.', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+async function syncSupplierBot() {
+    try {
+        showLoading(true);
+        const result = await apiCall('/api/supplier-bots/canboso/sync', 'POST');
+        await Promise.all([loadSupplierBot(), loadProducts()]);
+        showToast(`${Number(result.synced || 0)} produit(s) synchronisé(s).`, 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+}
 
 async function loadWalletHistory() {
     const type = state.whFilter === 'all' ? '' : `&tx_type=${state.whFilter}`;
@@ -2626,11 +2740,12 @@ async function handleSaveCryptoSettings(e) {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // Category select removed — not needed
 
-const tabKeys = { 'dashboard-tab':'tab_dashboard','stats-tab':'tab_stats','inventory-tab':'tab_inventory','orders-tab':'tab_orders','activations-tab':'nav_activations','resellers-tab':'nav_resellers','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
+const tabKeys = { 'dashboard-tab':'tab_dashboard','stats-tab':'tab_stats','inventory-tab':'tab_inventory','orders-tab':'tab_orders','activations-tab':'nav_activations','resellers-tab':'nav_resellers','supplier-bots-tab':'nav_supplier_bots','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
 const tabContexts = {
     'dashboard-tab':'Vue opérationnelle', 'stats-tab':'Tendances de ventes et produits',
     'inventory-tab':'Produits, prix et disponibilité', 'orders-tab':'Paiements et livraisons',
     'activations-tab':'Demandes manuelles à traiter', 'resellers-tab':'Accès et activité API',
+    'supplier-bots-tab':'Catalogue distant, marges et produits affichés',
     'users-tab':'Clients, wallets et parrainages', 'tickets-tab':'Demandes de support ouvertes',
     'broadcast-tab':'Communication aux clients', 'settings-tab':'Connexion et paiements',
     'wallet-history-tab':'Mouvements des soldes clients', 'finance-tab':'Revenus et ajustements',
