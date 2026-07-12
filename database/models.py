@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 _CRITICAL_DB_CONCURRENCY = max(1, int(os.environ.get("CRITICAL_DB_CONCURRENCY", "4")))
 _CRITICAL_DB_SEMAPHORE = None
 _CRITICAL_DB_SEMAPHORE_LOOP = None
+_NOWPAYMENTS_EXPIRY_LOCK = None
+_NOWPAYMENTS_EXPIRY_LOCK_LOOP = None
 
 
 def _get_critical_db_semaphore() -> asyncio.Semaphore:
@@ -30,6 +32,15 @@ def _get_critical_db_semaphore() -> asyncio.Semaphore:
         _CRITICAL_DB_SEMAPHORE = asyncio.Semaphore(_CRITICAL_DB_CONCURRENCY)
         _CRITICAL_DB_SEMAPHORE_LOOP = loop
     return _CRITICAL_DB_SEMAPHORE
+
+
+def _get_nowpayments_expiry_lock() -> asyncio.Lock:
+    global _NOWPAYMENTS_EXPIRY_LOCK, _NOWPAYMENTS_EXPIRY_LOCK_LOOP
+    loop = asyncio.get_running_loop()
+    if _NOWPAYMENTS_EXPIRY_LOCK is None or _NOWPAYMENTS_EXPIRY_LOCK_LOOP is not loop:
+        _NOWPAYMENTS_EXPIRY_LOCK = asyncio.Lock()
+        _NOWPAYMENTS_EXPIRY_LOCK_LOOP = loop
+    return _NOWPAYMENTS_EXPIRY_LOCK
 
 
 def _utcnow() -> datetime:
@@ -2525,6 +2536,32 @@ _NOWPAYMENTS_ACTIVE_STATUSES = (
 
 
 async def expire_stale_nowpayments_payments(
+    *,
+    timeout_seconds: int = PAYMENT_TIMEOUT_SECONDS,
+    order_id: int | None = None,
+) -> list[str]:
+    """Expire checkouts serially and retry when a Turso stream disappears."""
+    async with _get_nowpayments_expiry_lock():
+        last_exc: Exception | None = None
+        for attempt in range(3):
+            try:
+                return await _expire_stale_nowpayments_payments_once(
+                    timeout_seconds=timeout_seconds,
+                    order_id=order_id,
+                )
+            except Exception as exc:
+                last_exc = exc
+                if not is_transient_db_connection_error(exc) or attempt == 2:
+                    raise
+                logger.warning(
+                    "Retrying NOWPayments expiration on a fresh Turso connection: %s",
+                    exc,
+                )
+                await asyncio.sleep(0.15 * (attempt + 1))
+        raise RuntimeError("NOWPayments expiration unavailable") from last_exc
+
+
+async def _expire_stale_nowpayments_payments_once(
     *,
     timeout_seconds: int = PAYMENT_TIMEOUT_SECONDS,
     order_id: int | None = None,

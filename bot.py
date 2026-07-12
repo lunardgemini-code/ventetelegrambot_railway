@@ -3790,6 +3790,13 @@ def main() -> None:
             from concurrent.futures import ThreadPoolExecutor
             loop.set_default_executor(ThreadPoolExecutor(max_workers=THREAD_WORKERS))
 
+            # Bind the HTTP port before Telegram and Turso finish initializing.
+            # Railway can then probe /health instead of seeing a closed port.
+            config = uvicorn.Config(api, host="0.0.0.0", port=port, log_level="warning")
+            server = uvicorn.Server(config)
+            server_task = asyncio.create_task(server.serve())
+            await asyncio.sleep(0)
+
 
             for attempt in range(1, 6):
                 try:
@@ -3829,10 +3836,8 @@ def main() -> None:
                     logger.warning("⚠️ Webhook setup failed (%s). Retrying in 4s...", err)
                     await asyncio.sleep(4)
 
-            config = uvicorn.Config(api, host="0.0.0.0", port=port, log_level="warning")
-            server = uvicorn.Server(config)
             try:
-                await server.serve()
+                await server_task
             finally:
                 # Do NOT delete the webhook on shutdown. In a rolling deployment,
                 # the old container shutting down would delete the webhook set by the new container.
