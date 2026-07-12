@@ -119,6 +119,10 @@ _TURSO_POOL_MAX_IDLE_SECONDS = max(
     1.0,
     float(os.environ.get("TURSO_POOL_MAX_IDLE_SECONDS", "10")),
 )
+_TURSO_POOL_MAX_LIFETIME_SECONDS = max(
+    5.0,
+    float(os.environ.get("TURSO_POOL_MAX_LIFETIME_SECONDS", "30")),
+)
 
 def get_pool_lock():
     global _pool_lock
@@ -130,9 +134,11 @@ def get_pool_lock():
 class _PooledAsyncDB(_AsyncDB):
     """Wraps a pooled libsql connection to return it to the pool on close."""
 
-    def __init__(self, conn):
+    def __init__(self, conn, *, created_at=None, return_to_pool=True):
         super().__init__(conn)
         self.has_error = False
+        self.created_at = created_at if created_at is not None else time.monotonic()
+        self.return_to_pool = return_to_pool
 
     @staticmethod
     def _is_connection_error(exc):
@@ -184,7 +190,11 @@ class _PooledAsyncDB(_AsyncDB):
 
     async def close(self):
         """Returns the connection to the pool or closes it if an error occurred."""
-        if self.has_error:
+        if (
+            self.has_error
+            or not self.return_to_pool
+            or time.monotonic() - self.created_at > _TURSO_POOL_MAX_LIFETIME_SECONDS
+        ):
             try:
                 await asyncio.to_thread(self._conn.close)
             except Exception:
@@ -193,7 +203,7 @@ class _PooledAsyncDB(_AsyncDB):
 
         async with get_pool_lock():
             if len(_libsql_pool) < 10:
-                _libsql_pool.append((self._conn, time.monotonic()))
+                _libsql_pool.append((self._conn, time.monotonic(), self.created_at))
             else:
                 try:
                     await asyncio.to_thread(self._conn.close)
@@ -209,17 +219,26 @@ def is_transient_db_connection_error(exc: Exception) -> bool:
     return _PooledAsyncDB._is_connection_error(exc)
 
 
-async def get_db():
-    """Ouvre et retourne une connexion à la base de données."""
+async def get_db(*, fresh: bool = False):
+    """Open a database connection, optionally bypassing the Turso pool."""
     if TURSO_URL:
         import libsql_experimental as libsql
         conn_to_wrap = None
+        created_at = None
         async with get_pool_lock():
-            if _libsql_pool:
+            if not fresh and _libsql_pool:
                 pooled_entry = _libsql_pool.pop()
                 if isinstance(pooled_entry, tuple):
-                    candidate_conn, returned_at = pooled_entry
-                    if time.monotonic() - returned_at <= _TURSO_POOL_MAX_IDLE_SECONDS:
+                    if len(pooled_entry) == 3:
+                        candidate_conn, returned_at, created_at = pooled_entry
+                    else:
+                        candidate_conn, returned_at = pooled_entry
+                        created_at = returned_at
+                    now = time.monotonic()
+                    if (
+                        now - returned_at <= _TURSO_POOL_MAX_IDLE_SECONDS
+                        and now - created_at <= _TURSO_POOL_MAX_LIFETIME_SECONDS
+                    ):
                         conn_to_wrap = candidate_conn
                     else:
                         try:
@@ -232,7 +251,7 @@ async def get_db():
                 
         wrapper = None
         if conn_to_wrap:
-            candidate = _PooledAsyncDB(conn_to_wrap)
+            candidate = _PooledAsyncDB(conn_to_wrap, created_at=created_at)
             try:
                 # Hrana streams expire server-side while a pooled connection is idle.
                 # Validate before handing the connection to a request.
@@ -248,7 +267,7 @@ async def get_db():
                 asyncio.to_thread(libsql.connect, TURSO_URL, auth_token=TURSO_TOKEN),
                 timeout=5,
             )
-            wrapper = _PooledAsyncDB(conn)
+            wrapper = _PooledAsyncDB(conn, return_to_pool=not fresh)
             try:
                 await asyncio.wait_for(wrapper.execute("PRAGMA foreign_keys = ON"), timeout=3)
                 await asyncio.wait_for(wrapper.execute("PRAGMA busy_timeout = 5000"), timeout=3)

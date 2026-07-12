@@ -98,7 +98,7 @@ async def _get_or_create_user_once(
     referred_by: int | None = None,
 ) -> dict:
     """RÃ©cupÃ¨re un utilisateur existant ou en crÃ©e un nouveau, en enregistrant le parrain si applicable."""
-    db = await get_db()
+    db = await get_db(fresh=True)
     try:
         cursor = await db.execute(
             "SELECT * FROM users WHERE telegram_id = ?", (telegram_id,)
@@ -1849,10 +1849,37 @@ async def reserve_stock_items_for_order(
         "PAID_PENDING_DELIVERY",
     ),
 ) -> list[dict] | None:
+    """Reserve stock once, retrying safely when a Turso stream disappears."""
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            return await _reserve_stock_items_for_order_once(
+                order_id,
+                product_id,
+                allowed_statuses,
+            )
+        except Exception as exc:
+            last_exc = exc
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            logger.warning(
+                "Retrying stock reservation for order %s on a fresh connection: %s",
+                order_id,
+                exc,
+            )
+            await asyncio.sleep(0.1 * (attempt + 1))
+    raise RuntimeError("Stock reservation unavailable") from last_exc
+
+
+async def _reserve_stock_items_for_order_once(
+    order_id: int,
+    product_id: int,
+    allowed_statuses: tuple[str, ...],
+) -> list[dict] | None:
     """Reserve stock for an order once, returning the same items on retries."""
     _clear_stock_cache()
     invalidate_stats_cache()
-    db = await get_db()
+    db = await get_db(fresh=True)
     try:
         await db.execute("BEGIN IMMEDIATE")
         cursor = await db.execute(
@@ -2314,6 +2341,36 @@ async def update_order_status(
     expected_statuses: tuple[str, ...] | None = None,
     **kwargs,
 ) -> bool:
+    """Update an order atomically, retrying safely on a fresh Turso stream."""
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            return await _update_order_status_once(
+                order_id,
+                status,
+                expected_statuses=expected_statuses,
+                **kwargs,
+            )
+        except Exception as exc:
+            last_exc = exc
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            logger.warning(
+                "Retrying status update for order %s on a fresh connection: %s",
+                order_id,
+                exc,
+            )
+            await asyncio.sleep(0.1 * (attempt + 1))
+    raise RuntimeError("Order status update unavailable") from last_exc
+
+
+async def _update_order_status_once(
+    order_id: int,
+    status: str,
+    *,
+    expected_statuses: tuple[str, ...] | None = None,
+    **kwargs,
+) -> bool:
     _clear_stock_cache()
     invalidate_stats_cache()
     """Met Ã  jour le statut d'une commande avec des champs optionnels."""
@@ -2324,7 +2381,7 @@ async def update_order_status(
         set_parts.append(f"{key} = ?")
         values.append(val)
     values.append(order_id)
-    db = await get_db()
+    db = await get_db(fresh=True)
     try:
         await db.execute("BEGIN IMMEDIATE")
         cursor = await db.execute("SELECT * FROM orders WHERE id = ?", (order_id,))
@@ -2530,7 +2587,7 @@ async def _save_nowpayments_update_once(payload: dict) -> dict | None:
     if not provider_status:
         return None
 
-    db = await get_db()
+    db = await get_db(fresh=True)
     try:
         await db.execute("BEGIN IMMEDIATE")
         cursor = await db.execute(
@@ -2629,7 +2686,7 @@ async def _finalize_nowpayments_payment_once(payment_id: str | int) -> dict:
     """Finalize a finished provider payment exactly once, including stock and finance."""
     _clear_stock_cache()
     invalidate_stats_cache()
-    db = await get_db()
+    db = await get_db(fresh=True)
     try:
         await db.execute("BEGIN IMMEDIATE")
         cursor = await db.execute(
@@ -3073,7 +3130,7 @@ async def _cancel_all_pending_orders_once(user_telegram_id: int) -> int:
     _clear_stock_cache()
     invalidate_stats_cache()
     """Cancel all PENDING and AWAITING_PAYMENT orders for a user. Returns count cancelled."""
-    db = await get_db()
+    db = await get_db(fresh=True)
     try:
         cursor = await db.execute(
             "UPDATE orders SET status = 'CANCELLED' WHERE user_telegram_id = ? AND status IN ('PENDING', 'AWAITING_PAYMENT')",
@@ -4299,8 +4356,37 @@ async def record_used_transaction(
     user_telegram_id: int | None = None,
     amount: float | None = None,
 ) -> bool:
+    """Record a Binance transaction, retrying its idempotent insert if needed."""
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            return await _record_used_transaction_once(
+                transaction_id,
+                order_id,
+                user_telegram_id,
+                amount,
+            )
+        except Exception as exc:
+            last_exc = exc
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            logger.warning(
+                "Retrying Binance anti-replay record for order %s: %s",
+                order_id,
+                exc,
+            )
+            await asyncio.sleep(0.1 * (attempt + 1))
+    raise RuntimeError("Binance transaction record unavailable") from last_exc
+
+
+async def _record_used_transaction_once(
+    transaction_id: str,
+    order_id: int | None = None,
+    user_telegram_id: int | None = None,
+    amount: float | None = None,
+) -> bool:
     """Enregistre un ID de transaction comme utilisÃ©. Retourne False si dÃ©jÃ  utilisÃ©."""
-    db = await get_db()
+    db = await get_db(fresh=True)
     try:
         try:
             await db.execute(
