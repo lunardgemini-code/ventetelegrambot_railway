@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
+from decimal import Decimal, InvalidOperation, ROUND_FLOOR
 from typing import Any
 
 import httpx
@@ -14,6 +16,7 @@ from config import CANBOSO_API_AUTH_HEADER, CANBOSO_API_BASE_URL, CANBOSO_API_KE
 
 logger = logging.getLogger(__name__)
 _CLIENT: httpx.AsyncClient | None = None
+_BALANCE_CACHE: tuple[float, dict] | None = None
 
 
 class SupplierAPIError(RuntimeError):
@@ -51,10 +54,11 @@ async def _client() -> httpx.AsyncClient:
 
 
 async def close_supplier_client() -> None:
-    global _CLIENT
+    global _CLIENT, _BALANCE_CACHE
     if _CLIENT is not None and not _CLIENT.is_closed:
         await _CLIENT.aclose()
     _CLIENT = None
+    _BALANCE_CACHE = None
 
 
 def _error_message(response: httpx.Response) -> str:
@@ -198,6 +202,56 @@ async def list_canboso_products() -> list[dict]:
     return products
 
 
+def normalize_balance(payload: Any) -> dict:
+    if not isinstance(payload, dict) or payload.get("success") is False:
+        raise SupplierAPIError("Canboso returned an invalid balance response")
+    currency = str(payload.get("walletCurrency") or "USD").upper()
+    raw_balance = payload.get("balanceUsd") if currency == "USD" and payload.get("balanceUsd") is not None else payload.get("balance")
+    try:
+        balance = float(raw_balance or 0)
+    except (TypeError, ValueError) as exc:
+        raise SupplierAPIError("Canboso returned an invalid wallet balance") from exc
+    return {
+        "balance": balance,
+        "currency": currency,
+        "balance_text": str(payload.get("balanceText") or f"{balance:.2f} {currency}"),
+        "updated_at": payload.get("updatedAt"),
+    }
+
+
+async def get_canboso_balance(*, force: bool = False) -> dict:
+    global _BALANCE_CACHE
+    now = time.monotonic()
+    if not force and _BALANCE_CACHE and now - _BALANCE_CACHE[0] < 30:
+        return dict(_BALANCE_CACHE[1])
+    payload = await _request("GET", "/api/telegram-buyer/balance")
+    balance = normalize_balance(payload)
+    _BALANCE_CACHE = (now, dict(balance))
+    return balance
+
+
+def invalidate_canboso_balance_cache() -> None:
+    """Force the next availability check to read the supplier wallet again."""
+    global _BALANCE_CACHE
+    _BALANCE_CACHE = None
+
+
+def calculate_affordable_stock(remote_stock: int, base_price: float, wallet_balance: float) -> int:
+    """Cap supplier stock by the number of units the supplier wallet can fund."""
+    try:
+        stock = max(0, int(remote_stock or 0))
+        price = Decimal(str(base_price or 0))
+        balance = max(Decimal("0"), Decimal(str(wallet_balance or 0)))
+    except (TypeError, ValueError, InvalidOperation):
+        return 0
+    if stock <= 0:
+        return 0
+    if price <= 0:
+        return stock
+    affordable = int((balance / price).to_integral_value(rounding=ROUND_FLOOR))
+    return min(stock, max(0, affordable))
+
+
 def _delivery_values(payload: Any) -> list[Any]:
     values = _unwrap_list(payload, ("items", "accounts", "deliveredAccounts", "credentials", "products", "deliveries"))
     if values:
@@ -259,4 +313,5 @@ async def purchase_canboso_product(product_id: str, quantity: int) -> dict:
             "Canboso purchase response did not contain all delivery items",
             outcome_unknown=True,
         )
+    invalidate_canboso_balance_cache()
     return result

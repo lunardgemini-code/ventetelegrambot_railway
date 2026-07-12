@@ -78,6 +78,8 @@ class NowPaymentsTests(unittest.IsolatedAsyncioTestCase):
         for language in LANGUAGES:
             with self.subTest(language=language):
                 self.assertNotEqual(t("btn_pay_nowpayments", language), "btn_pay_nowpayments")
+                self.assertEqual(t("btn_pay_nowpayments", language), "BEP20")
+                self.assertEqual(t("nowpayments_title", language), "<b>BEP20</b>")
                 self.assertNotEqual(t("nowpayments_partial", language), "nowpayments_partial")
                 self.assertNotEqual(
                     t("btn_copy_nowpayments_amount", language),

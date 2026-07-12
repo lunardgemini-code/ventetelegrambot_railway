@@ -258,14 +258,49 @@ async def get_supplier_product_by_local_product(local_product_id: int) -> dict |
 
 
 async def supplier_stock_counts() -> dict[int, int]:
+    from services.supplier_api import SupplierAPIError, calculate_affordable_stock, get_canboso_balance
+
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT local_product_id, remote_stock FROM supplier_products WHERE enabled = 1 AND local_product_id IS NOT NULL"
+            "SELECT local_product_id, remote_stock, base_price FROM supplier_products WHERE enabled = 1 AND local_product_id IS NOT NULL"
         )
-        return {int(row["local_product_id"]): max(0, int(row["remote_stock"] or 0)) for row in await cursor.fetchall()}
+        rows = [dict(row) for row in await cursor.fetchall()]
     finally:
         await db.close()
+    try:
+        wallet = await get_canboso_balance()
+        balance = float(wallet.get("balance") or 0)
+    except SupplierAPIError:
+        balance = 0.0
+    return {
+        int(row["local_product_id"]): calculate_affordable_stock(
+            row.get("remote_stock"), row.get("base_price"), balance
+        )
+        for row in rows
+    }
+
+
+async def get_supplier_available_stock(local_product_id: int) -> int:
+    """Return remote stock capped by the supplier wallet purchasing power."""
+    mapping = await get_supplier_product_by_local_product(local_product_id)
+    if not mapping:
+        return 0
+    return await supplier_available_stock(mapping)
+
+
+async def supplier_available_stock(mapping: dict) -> int:
+    """Apply the current supplier wallet cap to an already loaded mapping."""
+    from services.supplier_api import SupplierAPIError, calculate_affordable_stock, get_canboso_balance
+
+    try:
+        wallet = await get_canboso_balance()
+        balance = float(wallet.get("balance") or 0)
+    except SupplierAPIError:
+        return 0
+    return calculate_affordable_stock(
+        mapping.get("remote_stock"), mapping.get("base_price"), balance
+    )
 
 
 async def claim_supplier_order(order_id: int, mapping: dict, quantity: int) -> dict:

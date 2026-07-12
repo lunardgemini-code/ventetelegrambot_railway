@@ -14,7 +14,13 @@ from database.suppliers import (
     update_supplier_settings,
 )
 from services.delivery import deliver_order
-from services.supplier_api import SupplierAPIError, normalize_products, normalize_purchase
+from services.supplier_api import (
+    SupplierAPIError,
+    calculate_affordable_stock,
+    normalize_balance,
+    normalize_products,
+    normalize_purchase,
+)
 
 
 class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
@@ -93,6 +99,11 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calculate_supplier_price(2.5, "fixed", 1), 3.5)
         self.assertEqual(calculate_supplier_price(2.5, "percent", 20), 3.0)
 
+    def test_affordable_stock_is_capped_by_supplier_wallet(self):
+        self.assertEqual(calculate_affordable_stock(20, 4, 0), 0)
+        self.assertEqual(calculate_affordable_stock(20, 4, 5), 1)
+        self.assertEqual(calculate_affordable_stock(2, 4, 100), 2)
+
     def test_purchase_normalization_matches_canboso_contract(self):
         purchase = normalize_purchase({
             "success": True,
@@ -110,11 +121,25 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
             "buyer@example.com | secret | backup@example.com",
         )
 
+    def test_balance_normalization_matches_canboso_contract(self):
+        balance = normalize_balance({
+            "success": True,
+            "walletCurrency": "USD",
+            "balance": 2.5,
+            "balanceUsd": 2.5,
+            "balanceText": "$2.50",
+            "updatedAt": None,
+        })
+        self.assertEqual(balance["currency"], "USD")
+        self.assertEqual(balance["balance"], 2.5)
+        self.assertEqual(balance["balance_text"], "$2.50")
+
     async def test_selected_product_uses_remote_stock_and_margin(self):
         product = await models.get_product(self.local_product_id)
         self.assertEqual(product["delivery_type"], "supplier_api")
         self.assertAlmostEqual(float(product["price_usd"]), 3.5)
-        self.assertEqual(await models.get_stock_count(self.local_product_id), 8)
+        with patch("services.supplier_api.get_canboso_balance", AsyncMock(return_value={"balance": 5.0})):
+            self.assertEqual(await models.get_stock_count(self.local_product_id), 2)
 
     async def test_global_margin_and_master_switch_update_local_product(self):
         await update_supplier_product(

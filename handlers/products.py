@@ -239,6 +239,10 @@ async def show_products_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         all_stocks = await get_all_stock_counts()
         stock_counts = {p["id"]: all_stocks.get(p["id"], 0) for p in products}
+        products = [
+            product for product in products
+            if product.get("delivery_type") != "supplier_api" or stock_counts.get(product["id"], 0) > 0
+        ]
 
         if not products:
             text = t("no_categories", lang)

@@ -998,13 +998,33 @@ async def api_admin_revoke_reseller_key(key_id: int):
 @api.get("/api/supplier-bots/canboso", dependencies=[Depends(verify_api_key)])
 async def api_get_canboso_supplier():
     from database.suppliers import get_supplier_dashboard
-    from services.supplier_api import is_canboso_configured
+    from services.supplier_api import (
+        SupplierAPIError,
+        calculate_affordable_stock,
+        get_canboso_balance,
+        is_canboso_configured,
+    )
 
     try:
         data = await get_supplier_dashboard()
-        data["configured"] = is_canboso_configured()
+        configured = is_canboso_configured()
+        data["configured"] = configured
         data["supplier"] = "Canboso"
         data["base_url"] = "https://canboso.com"
+        data["wallet"] = None
+        data["wallet_error"] = None
+        if configured:
+            try:
+                data["wallet"] = await get_canboso_balance()
+                balance = float(data["wallet"].get("balance") or 0)
+                for product in data.get("products", []):
+                    product["affordable_stock"] = calculate_affordable_stock(
+                        product.get("remote_stock"), product.get("base_price"), balance
+                    )
+            except SupplierAPIError as exc:
+                data["wallet_error"] = str(exc)
+                for product in data.get("products", []):
+                    product["affordable_stock"] = 0
         return data
     except Exception as exc:
         logger.error("API supplier dashboard error: %s", exc, exc_info=True)

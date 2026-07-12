@@ -14,7 +14,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
     <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="revamp.css?v=20260711-dynamic-pricing-v2">
+    <link rel="stylesheet" href="revamp.css?v=20260712-supplier-balance">
 </head>
 <body>
     <!-- Login Screen -->
@@ -546,6 +546,7 @@
                 </div>
                 <div class="supplier-status-strip glass-panel">
                     <div><span>Connexion</span><strong id="supplier-connection">Non configurée</strong></div>
+                    <div><span>Solde fournisseur</span><strong id="supplier-wallet-balance">—</strong></div>
                     <div><span>Dernière synchronisation</span><strong id="supplier-last-sync">Jamais</strong></div>
                     <div><span>Produits affichés</span><strong id="supplier-selected-count">0</strong></div>
                     <div><span>Livraisons à vérifier</span><strong id="supplier-review-count">0</strong></div>
@@ -560,9 +561,9 @@
                     </form>
                     <p class="supplier-security-note"><i class="fa-solid fa-shield-halved"></i> La clé acheteur est lue depuis <code>CANBOSO_API_KEY</code> sur Railway et n'est jamais envoyée au navigateur.</p>
                 </div>
-                <div class="supplier-table-toolbar"><div><h3>Catalogue fournisseur</h3><p>Sélectionnez uniquement les articles à proposer sur votre bot.</p></div><input id="supplier-product-search" type="search" placeholder="Rechercher un produit..." aria-label="Rechercher un produit"></div>
+                <div class="supplier-table-toolbar"><div><h3>Catalogue fournisseur</h3><p>Le stock achetable est automatiquement limité par votre solde fournisseur. Un produit à 0 n'apparaît pas sur le bot.</p></div><input id="supplier-product-search" type="search" placeholder="Rechercher un produit..." aria-label="Rechercher un produit"></div>
                 <div class="glass-panel overflow-hidden">
-                    <table class="data-table supplier-products-table"><thead><tr><th>Afficher</th><th>Produit fournisseur</th><th>Prix source</th><th>Stock</th><th>Marge appliquée</th><th>Prix client</th><th>Action</th></tr></thead><tbody id="supplier-products-table-body"><tr><td colspan="7" class="empty-state">Synchronisez le catalogue pour commencer.</td></tr></tbody></table>
+                    <table class="data-table supplier-products-table"><thead><tr><th>Afficher</th><th>Produit fournisseur</th><th>Prix source</th><th>Stock API</th><th>Achetable</th><th>Marge appliquée</th><th>Prix client</th><th>Action</th></tr></thead><tbody id="supplier-products-table-body"><tr><td colspan="8" class="empty-state">Synchronisez le catalogue pour commencer.</td></tr></tbody></table>
                 </div>
             </section>
 
@@ -1153,7 +1154,7 @@
 </div>
 
 
-    <script src="app.js?v=20260712-supplier-bots"></script>
+    <script src="app.js?v=20260712-supplier-wallet-stock"></script>
     <script>
     /* ── Mobile Sidebar Toggle ── */
     (function() {

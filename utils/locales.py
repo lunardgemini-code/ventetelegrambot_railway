@@ -1310,11 +1310,11 @@ TRANSLATIONS["ru"] = {
 
 
 TRANSLATIONS["en"].update({
-    "btn_pay_nowpayments": "NOWPayments - USDT (BEP20)",
+    "btn_pay_nowpayments": "BEP20",
     "btn_check_nowpayments": "Check payment",
     "btn_copy_nowpayments_amount": "Copy amount",
     "btn_enter_activation": "Enter activation identifier",
-    "nowpayments_title": "<b>NOWPayments - USDT (BEP20)</b>",
+    "nowpayments_title": "<b>BEP20</b>",
     "nowpayments_address": "<b>Deposit address</b> (tap to copy):",
     "nowpayments_amount": "<b>Exact amount:</b> <code>{amount}</code> USDT",
     "nowpayments_network": "<b>Network:</b> BNB Smart Chain (BEP20)",
@@ -1337,11 +1337,11 @@ TRANSLATIONS["en"].update({
 })
 
 TRANSLATIONS["fr"].update({
-    "btn_pay_nowpayments": "NOWPayments - USDT (BEP20)",
+    "btn_pay_nowpayments": "BEP20",
     "btn_check_nowpayments": "Verifier le paiement",
     "btn_copy_nowpayments_amount": "Copier le montant",
     "btn_enter_activation": "Entrer l'identifiant d'activation",
-    "nowpayments_title": "<b>NOWPayments - USDT (BEP20)</b>",
+    "nowpayments_title": "<b>BEP20</b>",
     "nowpayments_address": "<b>Adresse de depot</b> (touchez pour copier) :",
     "nowpayments_amount": "<b>Montant exact :</b> <code>{amount}</code> USDT",
     "nowpayments_network": "<b>Reseau :</b> BNB Smart Chain (BEP20)",
@@ -1364,11 +1364,11 @@ TRANSLATIONS["fr"].update({
 })
 
 TRANSLATIONS["ar"].update({
-    "btn_pay_nowpayments": "NOWPayments - USDT (BEP20)",
+    "btn_pay_nowpayments": "BEP20",
     "btn_check_nowpayments": "التحقق من الدفع",
     "btn_copy_nowpayments_amount": "نسخ المبلغ",
     "btn_enter_activation": "إدخال معرف التفعيل",
-    "nowpayments_title": "<b>NOWPayments - USDT (BEP20)</b>",
+    "nowpayments_title": "<b>BEP20</b>",
     "nowpayments_address": "<b>عنوان الإيداع</b> (اضغط للنسخ):",
     "nowpayments_amount": "<b>المبلغ الدقيق:</b> <code>{amount}</code> USDT",
     "nowpayments_network": "<b>الشبكة:</b> BNB Smart Chain (BEP20)",
@@ -1391,11 +1391,11 @@ TRANSLATIONS["ar"].update({
 })
 
 TRANSLATIONS["zh"].update({
-    "btn_pay_nowpayments": "NOWPayments - USDT (BEP20)",
+    "btn_pay_nowpayments": "BEP20",
     "btn_check_nowpayments": "检查付款",
     "btn_copy_nowpayments_amount": "复制金额",
     "btn_enter_activation": "输入激活标识",
-    "nowpayments_title": "<b>NOWPayments - USDT (BEP20)</b>",
+    "nowpayments_title": "<b>BEP20</b>",
     "nowpayments_address": "<b>充值地址</b>（点击复制）：",
     "nowpayments_amount": "<b>准确金额：</b> <code>{amount}</code> USDT",
     "nowpayments_network": "<b>网络：</b> BNB Smart Chain (BEP20)",
@@ -1418,11 +1418,11 @@ TRANSLATIONS["zh"].update({
 })
 
 TRANSLATIONS["vi"].update({
-    "btn_pay_nowpayments": "NOWPayments - USDT (BEP20)",
+    "btn_pay_nowpayments": "BEP20",
     "btn_check_nowpayments": "Kiem tra thanh toan",
     "btn_copy_nowpayments_amount": "Sao chep so tien",
     "btn_enter_activation": "Nhap ma dinh danh kich hoat",
-    "nowpayments_title": "<b>NOWPayments - USDT (BEP20)</b>",
+    "nowpayments_title": "<b>BEP20</b>",
     "nowpayments_address": "<b>Dia chi nap</b> (nhan de sao chep):",
     "nowpayments_amount": "<b>So tien chinh xac:</b> <code>{amount}</code> USDT",
     "nowpayments_network": "<b>Mang:</b> BNB Smart Chain (BEP20)",
@@ -1445,11 +1445,11 @@ TRANSLATIONS["vi"].update({
 })
 
 TRANSLATIONS["ru"].update({
-    "btn_pay_nowpayments": "NOWPayments - USDT (BEP20)",
+    "btn_pay_nowpayments": "BEP20",
     "btn_check_nowpayments": "Проверить платеж",
     "btn_copy_nowpayments_amount": "Скопировать сумму",
     "btn_enter_activation": "Ввести идентификатор активации",
-    "nowpayments_title": "<b>NOWPayments - USDT (BEP20)</b>",
+    "nowpayments_title": "<b>BEP20</b>",
     "nowpayments_address": "<b>Адрес пополнения</b> (нажмите, чтобы скопировать):",
     "nowpayments_amount": "<b>Точная сумма:</b> <code>{amount}</code> USDT",
     "nowpayments_network": "<b>Сеть:</b> BNB Smart Chain (BEP20)",

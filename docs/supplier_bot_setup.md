@@ -28,6 +28,20 @@ After deployment:
 - A catalog sync updates supplier prices, remote stock, and enabled local product
   prices.
 
+## Wallet-based availability
+
+- The dashboard reads the supplier wallet through
+  `GET /api/telegram-buyer/balance`.
+- Customer-facing availability is
+  `min(remote stock, floor(supplier wallet balance / supplier unit price))`.
+- The supplier unit price is used for this calculation, before the resale margin.
+- A supplier product with zero affordable units is hidden from the Telegram
+  catalog, even when the supplier still reports remote stock.
+- Availability is checked again immediately before a customer wallet debit.
+- The balance cache is cleared after every successful supplier purchase.
+- If the supplier balance endpoint is unavailable, supplier products fail closed
+  with zero customer-facing availability until the balance can be verified.
+
 ## Delivery safety
 
 Each local order has at most one supplier purchase record. Completed purchases

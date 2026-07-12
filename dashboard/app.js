@@ -217,7 +217,7 @@ const DOM = {
     resellersTableBody:$('resellers-table-body'), resellerUserId:$('reseller-user-id'), resellerKeyName:$('reseller-key-name'),
     btnCreateResellerKey:$('btn-create-reseller-key'), resellerKeyOutput:$('reseller-key-output'), resellerNewKey:$('reseller-new-key'),
     supplierSettingsForm:$('supplier-settings-form'), supplierEnabled:$('supplier-enabled'), supplierMarginType:$('supplier-margin-type'), supplierMarginValue:$('supplier-margin-value'),
-    btnSupplierSync:$('btn-supplier-sync'), supplierConnection:$('supplier-connection'), supplierLastSync:$('supplier-last-sync'), supplierSelectedCount:$('supplier-selected-count'), supplierReviewCount:$('supplier-review-count'),
+    btnSupplierSync:$('btn-supplier-sync'), supplierConnection:$('supplier-connection'), supplierWalletBalance:$('supplier-wallet-balance'), supplierLastSync:$('supplier-last-sync'), supplierSelectedCount:$('supplier-selected-count'), supplierReviewCount:$('supplier-review-count'),
     supplierProductSearch:$('supplier-product-search'), supplierProductsTableBody:$('supplier-products-table-body'),
     broadcastTextarea:$('broadcast-textarea'), broadcastResult:$('broadcast-result'), btnSendBroadcast:$('btn-send-broadcast'),
     broadcastPhotoUrl:$('broadcast-photo-url'), broadcastBtnType:$('broadcast-btn-type'), broadcastBtnProductId:$('broadcast-btn-product-id'),
@@ -1985,6 +1985,8 @@ async function loadSupplierBot() {
         const supplier = state.supplierBot;
         DOM.supplierConnection.textContent = supplier.configured ? (supplier.enabled ? 'Connectée' : 'Désactivée') : 'Clé Railway absente';
         DOM.supplierConnection.style.color = supplier.configured && supplier.enabled ? 'var(--color-success)' : 'var(--color-warning)';
+        DOM.supplierWalletBalance.textContent = supplier.wallet?.balance_text || (supplier.wallet_error ? 'Indisponible' : '—');
+        DOM.supplierWalletBalance.style.color = supplier.wallet && Number(supplier.wallet.balance || 0) > 0 ? 'var(--color-success)' : 'var(--color-warning)';
         DOM.supplierLastSync.textContent = supplier.last_sync ? parseUTCDate(supplier.last_sync).toLocaleString() : 'Jamais';
         DOM.supplierSelectedCount.textContent = (supplier.products || []).filter(product => product.enabled).length;
         const counts = supplier.order_counts || {};
@@ -1994,7 +1996,7 @@ async function loadSupplierBot() {
         DOM.supplierMarginValue.value = Number(supplier.margin_value || 0);
         renderSupplierProducts();
     } catch (error) {
-        DOM.supplierProductsTableBody.innerHTML = `<tr><td colspan="7" class="empty-state">${escapeHtml(error.message || 'Impossible de charger le fournisseur.')}</td></tr>`;
+        DOM.supplierProductsTableBody.innerHTML = `<tr><td colspan="8" class="empty-state">${escapeHtml(error.message || 'Impossible de charger le fournisseur.')}</td></tr>`;
     }
 }
 
@@ -2004,7 +2006,7 @@ function renderSupplierProducts() {
     const query = (DOM.supplierProductSearch?.value || '').trim().toLowerCase();
     const products = (supplier.products || []).filter(product => !query || String(product.name || '').toLowerCase().includes(query) || String(product.external_product_id || '').toLowerCase().includes(query));
     if (!products.length) {
-        DOM.supplierProductsTableBody.innerHTML = '<tr><td colspan="7" class="empty-state">Aucun produit fournisseur. Cliquez sur Synchroniser.</td></tr>';
+        DOM.supplierProductsTableBody.innerHTML = '<tr><td colspan="8" class="empty-state">Aucun produit fournisseur. Cliquez sur Synchroniser.</td></tr>';
         return;
     }
     DOM.supplierProductsTableBody.innerHTML = products.map(product => {
@@ -2012,11 +2014,14 @@ function renderSupplierProducts() {
         const marginType = product.margin_type || 'inherit';
         const marginValue = marginType === 'inherit' ? '' : Number(product.margin_value || 0);
         const stockClass = Number(product.remote_stock || 0) === 0 ? 'empty' : Number(product.remote_stock || 0) < 3 ? 'low' : 'ok';
+        const affordableStock = Number(product.affordable_stock || 0);
+        const affordableClass = affordableStock === 0 ? 'empty' : affordableStock < 3 ? 'low' : 'ok';
         return `<tr>
             <td><input class="supplier-product-toggle" type="checkbox" id="supplier-enabled-${id}" ${product.enabled ? 'checked' : ''} aria-label="Afficher ${escapeHtml(product.name)}"></td>
             <td><div class="supplier-product-name"><span>${escapeHtml(product.emoji || '📦')}</span><div><strong>${escapeHtml(product.name || '?')}</strong><small>ID fournisseur: ${escapeHtml(product.external_product_id)}</small></div></div></td>
             <td><strong>$${Number(product.base_price || 0).toFixed(2)}</strong></td>
             <td><span class="stock-count-badge ${stockClass}">${Number(product.remote_stock || 0)}</span></td>
+            <td><span class="stock-count-badge ${affordableClass}" title="Limité par votre solde fournisseur">${affordableStock}</span></td>
             <td><div class="supplier-margin-controls"><select id="supplier-margin-type-${id}" onchange="toggleSupplierMarginInput(${id})"><option value="inherit" ${marginType === 'inherit' ? 'selected' : ''}>Marge globale</option><option value="fixed" ${marginType === 'fixed' ? 'selected' : ''}>+$ fixe</option><option value="percent" ${marginType === 'percent' ? 'selected' : ''}>+%</option></select><input id="supplier-margin-value-${id}" type="number" min="0" step="0.01" value="${marginValue}" ${marginType === 'inherit' ? 'disabled' : ''}></div></td>
             <td><strong>$${Number(product.final_price || 0).toFixed(2)}</strong><small style="display:block;color:var(--color-text-muted)">${product.effective_margin_type === 'percent' ? '+' + Number(product.effective_margin_value || 0).toFixed(2) + '%' : '+$' + Number(product.effective_margin_value || 0).toFixed(2)}</small></td>
             <td><button class="btn-table-action" onclick="saveSupplierProduct(${id})" title="Enregistrer" style="color:var(--color-success)"><i class="fa-solid fa-floppy-disk"></i></button></td>

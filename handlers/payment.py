@@ -715,6 +715,16 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ConversationHandler.END
 
         from database.models import get_wallet_balance
+        product = await get_product(product_id)
+        if (product or {}).get("delivery_type") == "supplier_api":
+            available = await get_stock_count(product_id)
+            if max(1, int(order.get("quantity") or 1)) > available:
+                await query.edit_message_text(
+                    t("insufficient_stock", lang).format(stock=available),
+                    parse_mode="HTML",
+                    reply_markup=main_menu_keyboard(lang),
+                )
+                return ConversationHandler.END
         try:
             purchase = await purchase_order_with_wallet(order_id, telegram_id)
         except ValueError as exc:
