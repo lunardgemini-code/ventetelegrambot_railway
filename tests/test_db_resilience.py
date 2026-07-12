@@ -32,6 +32,58 @@ class DatabaseResilienceTests(unittest.IsolatedAsyncioTestCase):
 
         operation.assert_awaited_once()
 
+    async def test_nowpayments_finalization_retries_stale_hrana_stream(self):
+        expected = {"action": "completed", "items": []}
+        operation = AsyncMock(side_effect=[
+            ValueError('Hrana: status=404 body={"error":"stream not found"}'),
+            expected,
+        ])
+        with patch("database.models._finalize_nowpayments_payment_once", operation):
+            with patch("database.models.asyncio.sleep", AsyncMock()):
+                result = await models.finalize_nowpayments_payment("payment-42")
+
+        self.assertEqual(result, expected)
+        self.assertEqual(operation.await_count, 2)
+
+    async def test_pending_order_cancellation_retries_stale_hrana_stream(self):
+        operation = AsyncMock(side_effect=[
+            ValueError('Hrana: status=404 body={"error":"stream not found"}'),
+            1,
+        ])
+        with patch("database.models._cancel_all_pending_orders_once", operation):
+            with patch("database.models.asyncio.sleep", AsyncMock()):
+                result = await models.cancel_all_pending_orders(42)
+
+        self.assertEqual(result, 1)
+        self.assertEqual(operation.await_count, 2)
+
+    async def test_nowpayments_status_update_retries_stale_hrana_stream(self):
+        expected = {"payment_id": "payment-42", "provider_status": "finished"}
+        operation = AsyncMock(side_effect=[
+            ValueError('Hrana: status=404 body={"error":"stream not found"}'),
+            expected,
+        ])
+        with patch("database.models._save_nowpayments_update_once", operation):
+            with patch("database.models.asyncio.sleep", AsyncMock()):
+                result = await models.save_nowpayments_update({"payment_id": "payment-42"})
+
+        self.assertEqual(result, expected)
+        self.assertEqual(operation.await_count, 2)
+
+    async def test_nowpayments_queue_read_retries_stale_hrana_stream(self):
+        expected = [{"payment_id": "payment-42"}]
+        operation = AsyncMock(side_effect=[
+            ValueError('Hrana: status=404 body={"error":"stream not found"}'),
+            expected,
+        ])
+        with patch("database.models._list_nowpayments_to_poll_once", operation):
+            with patch("database.models.asyncio.sleep", AsyncMock()):
+                result = await models.list_nowpayments_to_poll(limit=5)
+
+        self.assertEqual(result, expected)
+        operation.assert_awaited_with(5)
+        self.assertEqual(operation.await_count, 2)
+
     async def test_payment_start_fallback_only_ends_conversation(self):
         context = SimpleNamespace(user_data={
             "paying_order_id": 1,

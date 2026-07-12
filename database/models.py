@@ -2503,6 +2503,25 @@ async def get_nowpayments_payment(payment_id: str | int) -> dict | None:
 
 
 async def save_nowpayments_update(payload: dict) -> dict | None:
+    """Persist a provider update, retrying safely on a fresh Turso stream."""
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            return await _save_nowpayments_update_once(payload)
+        except Exception as exc:
+            last_exc = exc
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            logger.info(
+                "Retrying NOWPayments status update for %s on a fresh connection: %s",
+                payload.get("payment_id"),
+                exc,
+            )
+            await asyncio.sleep(0.1 * (attempt + 1))
+    raise RuntimeError("NOWPayments status update unavailable") from last_exc
+
+
+async def _save_nowpayments_update_once(payload: dict) -> dict | None:
     """Persist an authenticated provider update before asynchronous processing."""
     payment_id = str(payload.get("payment_id") or "").strip()
     if not payment_id:
@@ -2836,6 +2855,21 @@ async def release_nowpayments_notification(payment_id: str | int) -> None:
 
 
 async def list_nowpayments_to_finalize(limit: int = 25) -> list[dict]:
+    """Read finalizable payments with a fresh-connection retry."""
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            return await _list_nowpayments_to_finalize_once(limit)
+        except Exception as exc:
+            last_exc = exc
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            logger.info("Retrying NOWPayments finalization queue read: %s", exc)
+            await asyncio.sleep(0.1 * (attempt + 1))
+    raise RuntimeError("NOWPayments finalization queue unavailable") from last_exc
+
+
+async def _list_nowpayments_to_finalize_once(limit: int = 25) -> list[dict]:
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -2851,6 +2885,21 @@ async def list_nowpayments_to_finalize(limit: int = 25) -> list[dict]:
 
 
 async def list_nowpayments_to_poll(limit: int = 20) -> list[dict]:
+    """Read pollable payments with a fresh-connection retry."""
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            return await _list_nowpayments_to_poll_once(limit)
+        except Exception as exc:
+            last_exc = exc
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            logger.info("Retrying NOWPayments polling queue read: %s", exc)
+            await asyncio.sleep(0.1 * (attempt + 1))
+    raise RuntimeError("NOWPayments polling queue unavailable") from last_exc
+
+
+async def _list_nowpayments_to_poll_once(limit: int = 20) -> list[dict]:
     db = await get_db()
     try:
         placeholders = ",".join("?" for _ in _NOWPAYMENTS_ACTIVE_STATUSES[2:])

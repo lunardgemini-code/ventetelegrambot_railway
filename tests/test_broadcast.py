@@ -84,6 +84,26 @@ class BroadcastTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((completed["sent"], completed["failed"], completed["total"]), (2, 1, 3))
         delivery.assert_awaited_once()
 
+    async def test_admin_broadcast_updates_status_after_handler_returns(self):
+        from handlers import admin
+
+        status_message = SimpleNamespace(edit_text=AsyncMock())
+        delivery = AsyncMock(return_value=(3, 1, 4))
+        admin._admin_broadcast_tasks.clear()
+
+        with patch("services.broadcast.execute_broadcast", delivery):
+            admin._queue_admin_broadcast(
+                SimpleNamespace(),
+                status_message,
+                "Hello",
+            )
+            self.assertEqual(len(admin._admin_broadcast_tasks), 1)
+            await asyncio.gather(*list(admin._admin_broadcast_tasks))
+
+        final_call = status_message.edit_text.await_args
+        self.assertIn("Broadcast termine", final_call.args[0])
+        self.assertIn("3/4", final_call.args[0])
+
 
 if __name__ == "__main__":
     unittest.main()
