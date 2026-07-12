@@ -7,6 +7,7 @@ Multi-language support via lang parameter.
 
 from telegram import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.constants import KeyboardButtonStyle
+from config import REQUIRED_CHANNEL
 from utils.locales import t
 import re
 
@@ -82,6 +83,15 @@ def language_keyboard() -> InlineKeyboardMarkup:
 
 def main_menu_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
     """Main menu shown after /start and on 'back_main'."""
+    channel = str(REQUIRED_CHANNEL or "").strip()
+    if channel.startswith("@"):
+        channel_url = f"https://t.me/{channel[1:]}"
+    elif channel.startswith("t.me/"):
+        channel_url = f"https://{channel}"
+    elif channel.startswith(("https://", "http://")):
+        channel_url = channel
+    else:
+        channel_url = "https://t.me/Batmanstore2"
     return InlineKeyboardMarkup([
         [make_button("btn_buy", lang, callback_data="menu_buy", style=KeyboardButtonStyle.SUCCESS)],
         [make_button("btn_wallet", lang, callback_data="menu_wallet")],
@@ -94,6 +104,7 @@ def main_menu_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
             make_button("btn_referral", lang, callback_data="show_referrals"),
         ],
         [make_button("btn_api", lang, callback_data="menu_api")],
+        [make_button("btn_channel", lang, url=channel_url)],
         [make_button("btn_language", lang, callback_data="change_lang")],
     ])
 
