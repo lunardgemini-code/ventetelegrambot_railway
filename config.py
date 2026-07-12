@@ -31,6 +31,12 @@ NOWPAYMENTS_BASE_URL: str = os.getenv(
 NOWPAYMENTS_ENABLED: bool = os.getenv("NOWPAYMENTS_ENABLED", "false").strip().lower() in {
     "1", "true", "yes", "on"
 }
+NOWPAYMENTS_FIXED_RATE: bool = os.getenv("NOWPAYMENTS_FIXED_RATE", "false").strip().lower() in {
+    "1", "true", "yes", "on"
+}
+NOWPAYMENTS_FEE_PAID_BY_USER: bool = os.getenv(
+    "NOWPAYMENTS_FEE_PAID_BY_USER", "false"
+).strip().lower() in {"1", "true", "yes", "on"}
 
 
 # ── Identifiants des administrateurs (séparés par des virgules) ────

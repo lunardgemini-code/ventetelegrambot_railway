@@ -16,6 +16,8 @@ from config import (
     NOWPAYMENTS_API_KEY,
     NOWPAYMENTS_BASE_URL,
     NOWPAYMENTS_ENABLED,
+    NOWPAYMENTS_FEE_PAID_BY_USER,
+    NOWPAYMENTS_FIXED_RATE,
     NOWPAYMENTS_IPN_SECRET,
 )
 
@@ -152,9 +154,19 @@ async def create_payment(
     order_description: str,
     callback_url: str,
     pay_currency: str = "usdtbsc",
-    is_fixed_rate: bool = False,
-    is_fee_paid_by_user: bool = True,
+    is_fixed_rate: bool | None = None,
+    is_fee_paid_by_user: bool | None = None,
 ) -> dict:
+    configured_fee_mode = (
+        NOWPAYMENTS_FEE_PAID_BY_USER
+        if is_fee_paid_by_user is None
+        else bool(is_fee_paid_by_user)
+    )
+    configured_fixed_rate = (
+        NOWPAYMENTS_FIXED_RATE if is_fixed_rate is None else bool(is_fixed_rate)
+    )
+    # NOWPayments requires fee-paid-by-user payments to use a fixed rate.
+    effective_fixed_rate = bool(configured_fixed_rate or configured_fee_mode)
     payload = {
         "price_amount": round(float(price_amount), 2),
         "price_currency": "usd",
@@ -162,8 +174,8 @@ async def create_payment(
         "order_id": str(int(order_id)),
         "order_description": str(order_description)[:255],
         "ipn_callback_url": callback_url,
-        "is_fixed_rate": bool(is_fixed_rate),
-        "is_fee_paid_by_user": bool(is_fee_paid_by_user),
+        "is_fixed_rate": effective_fixed_rate,
+        "is_fee_paid_by_user": configured_fee_mode,
     }
     # POST is deliberately not retried: the provider may have created a payment
     # even when the response is lost.
@@ -191,8 +203,8 @@ async def get_minimum_amount(
             "currency_from": currency_from.lower(),
             "currency_to": currency_to.lower(),
             "fiat_equivalent": fiat_equivalent.lower(),
-            "is_fixed_rate": "false",
-            "is_fee_paid_by_user": "true",
+            "is_fixed_rate": "true" if (NOWPAYMENTS_FIXED_RATE or NOWPAYMENTS_FEE_PAID_BY_USER) else "false",
+            "is_fee_paid_by_user": "true" if NOWPAYMENTS_FEE_PAID_BY_USER else "false",
         },
     )
     _MINIMUM_CACHE = (now, dict(result))

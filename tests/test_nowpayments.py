@@ -2,7 +2,7 @@ import json
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 
@@ -79,6 +79,51 @@ class NowPaymentsTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(language=language):
                 self.assertNotEqual(t("btn_pay_nowpayments", language), "btn_pay_nowpayments")
                 self.assertNotEqual(t("nowpayments_partial", language), "nowpayments_partial")
+
+    async def test_customer_paid_fees_force_fixed_rate(self):
+        request = AsyncMock(return_value={"payment_id": "np-fixed"})
+        with patch.object(nowpayments, "_request", request):
+            await nowpayments.create_payment(
+                price_amount=1,
+                order_id=self.order["id"],
+                order_description="Test",
+                callback_url="https://example.com/webhooks/nowpayments",
+                is_fixed_rate=False,
+                is_fee_paid_by_user=True,
+            )
+        payload = request.await_args.kwargs["json"]
+        self.assertTrue(payload["is_fixed_rate"])
+        self.assertTrue(payload["is_fee_paid_by_user"])
+
+    async def test_default_checkout_uses_floating_rate_without_customer_fees(self):
+        request = AsyncMock(return_value={"payment_id": "np-floating"})
+        with (
+            patch.object(nowpayments, "_request", request),
+            patch.object(nowpayments, "NOWPAYMENTS_FIXED_RATE", False),
+            patch.object(nowpayments, "NOWPAYMENTS_FEE_PAID_BY_USER", False),
+        ):
+            await nowpayments.create_payment(
+                price_amount=1,
+                order_id=self.order["id"],
+                order_description="Test",
+                callback_url="https://example.com/webhooks/nowpayments",
+            )
+        payload = request.await_args.kwargs["json"]
+        self.assertFalse(payload["is_fixed_rate"])
+        self.assertFalse(payload["is_fee_paid_by_user"])
+
+    async def test_minimum_check_uses_the_same_floating_mode(self):
+        request = AsyncMock(return_value={"min_amount": 1, "fiat_equivalent": 1})
+        with (
+            patch.object(nowpayments, "_request", request),
+            patch.object(nowpayments, "NOWPAYMENTS_FIXED_RATE", False),
+            patch.object(nowpayments, "NOWPAYMENTS_FEE_PAID_BY_USER", False),
+        ):
+            nowpayments._MINIMUM_CACHE = None
+            await nowpayments.get_minimum_amount()
+        params = request.await_args.kwargs["params"]
+        self.assertEqual(params["is_fixed_rate"], "false")
+        self.assertEqual(params["is_fee_paid_by_user"], "false")
 
     async def test_webhook_rejects_bad_signature_and_accepts_valid_update(self):
         import bot

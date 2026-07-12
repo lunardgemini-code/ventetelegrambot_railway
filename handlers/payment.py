@@ -1392,8 +1392,12 @@ async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYP
                     reply_markup=main_menu_keyboard(lang),
                 )
                 return ConversationHandler.END
-        except (NowPaymentsError, ValueError, TypeError) as exc:
+        except NowPaymentsError as exc:
             logger.warning("Could not read NOWPayments minimum amount: %s", exc)
+            await query.edit_message_text(t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
+            return ConversationHandler.END
+        except (ValueError, TypeError) as exc:
+            logger.warning("Invalid NOWPayments minimum response: %s", exc)
 
         attempt = await prepare_nowpayments_attempt(order_id, order["amount_usd"])
         if not attempt.get("created"):
@@ -1424,6 +1428,13 @@ async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYP
             )
             payment = await attach_nowpayments_payment(attempt["request_key"], provider_payment)
         except (NowPaymentsError, ValueError, TypeError) as exc:
+            provider_status = exc.status_code if isinstance(exc, NowPaymentsError) else None
+            logger.warning(
+                "NOWPayments creation failed for order %s (HTTP %s): %s",
+                order_id,
+                provider_status or "n/a",
+                exc,
+            )
             await mark_nowpayments_creation_failed(
                 attempt["request_key"],
                 uncertain=bool(isinstance(exc, NowPaymentsError) and exc.retryable),
@@ -1435,6 +1446,14 @@ async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYP
                 else t("nowpayments_unavailable", lang)
             )
             await query.edit_message_text(text, reply_markup=main_menu_keyboard(lang))
+            for admin_id in ADMIN_IDS:
+                try:
+                    await context.bot.send_message(
+                        admin_id,
+                        f"NOWPayments creation failed for order #{order_id}. HTTP: {provider_status or 'n/a'}. Check Railway logs and NOWPayments settings.",
+                    )
+                except Exception:
+                    pass
             return ConversationHandler.END
 
         context.user_data["paying_order_id"] = order_id

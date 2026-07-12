@@ -17,6 +17,8 @@ NOWPAYMENTS_ENABLED=true
 NOWPAYMENTS_API_KEY=replace_with_a_new_api_key
 NOWPAYMENTS_IPN_SECRET=replace_with_a_new_ipn_secret
 NOWPAYMENTS_BASE_URL=https://api.nowpayments.io/v1
+NOWPAYMENTS_FIXED_RATE=false
+NOWPAYMENTS_FEE_PAID_BY_USER=false
 NOWPAYMENTS_RECONCILE_SECONDS=60
 WEBHOOK_URL=https://your-service.up.railway.app
 ```
@@ -32,6 +34,8 @@ Set `NOWPAYMENTS_CALLBACK_URL` only when the callback must use a different publi
 ## Payment rules
 
 - Delivery occurs only for `finished` payments.
+- Floating rate is the default so low-priced products can use the lowest available minimum.
+- Set both `NOWPAYMENTS_FIXED_RATE=true` and `NOWPAYMENTS_FEE_PAID_BY_USER=true` only when a higher fixed-rate minimum is acceptable.
 - `waiting`, `confirming`, `confirmed`, `sending`, and `spending` never trigger delivery.
 - `partially_paid` asks the customer to send the remainder to the same address.
 - `failed`, `refunded`, and `expired` do not trigger delivery.
