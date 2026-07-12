@@ -1875,7 +1875,9 @@ async def reserve_stock_items_for_order(
                     order_id,
                     product_id,
                     allowed_statuses,
-                    fresh_connection=attempt > 0,
+                    # Financial stock transactions must never inherit an
+                    # expiring Hrana stream from the general read pool.
+                    fresh_connection=True,
                 )
         except Exception as exc:
             last_exc = exc
@@ -2371,7 +2373,7 @@ async def update_order_status(
                     order_id,
                     status,
                     expected_statuses=expected_statuses,
-                    fresh_connection=attempt > 0,
+                    fresh_connection=True,
                     **kwargs,
                 )
         except Exception as exc:
@@ -2591,7 +2593,7 @@ async def save_nowpayments_update(payload: dict) -> dict | None:
             async with _get_critical_db_semaphore():
                 return await _save_nowpayments_update_once(
                     payload,
-                    fresh_connection=attempt > 0,
+                    fresh_connection=True,
                 )
         except Exception as exc:
             last_exc = exc
@@ -2703,7 +2705,7 @@ async def finalize_nowpayments_payment(payment_id: str | int) -> dict:
             async with _get_critical_db_semaphore():
                 return await _finalize_nowpayments_payment_once(
                     payment_id,
-                    fresh_connection=attempt > 0,
+                    fresh_connection=True,
                 )
         except Exception as exc:
             last_exc = exc
