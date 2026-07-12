@@ -165,6 +165,23 @@ async def get_user(telegram_id: int) -> dict | None:
 
 
 async def get_all_users() -> list[dict]:
+    """Return all users, retrying an expired pooled Turso stream."""
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            return await _get_all_users_once()
+        except Exception as exc:
+            last_exc = exc
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            logger.info(
+                "Retrying broadcast recipient read on a fresh connection: %s",
+                exc,
+            )
+    raise RuntimeError("Broadcast recipient database operation unavailable") from last_exc
+
+
+async def _get_all_users_once() -> list[dict]:
     """Retourne la liste de tous les utilisateurs enregistrés avec leur nombre de filleuls."""
     db = await get_db()
     try:

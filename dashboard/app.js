@@ -2698,6 +2698,18 @@ async function handleBroadcast() {
         });
         DOM.broadcastResult.textContent = `✅ ${t('broadcast_sent').replace('{sent}',r.sent).replace('{total}',r.total)} | ${t('broadcast_failed').replace('{failed}',r.failed)}`;
         
+        let result = r;
+        if (r.job_id) {
+            for (let poll = 0; poll < 600 && ['queued', 'running'].includes(result.status); poll++) {
+                DOM.broadcastResult.textContent = `En cours : ${Number(result.sent || 0)}/${Number(result.total || 0)} | Echecs : ${Number(result.failed || 0)}`;
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                result = await apiCall(`/api/broadcast/${encodeURIComponent(r.job_id)}`);
+            }
+            if (result.status === 'failed') throw new Error(result.error || 'Le broadcast a echoue.');
+            if (result.status !== 'completed') throw new Error('Le suivi du broadcast a expire. L\'envoi peut encore etre en cours.');
+            DOM.broadcastResult.textContent = `${t('broadcast_sent').replace('{sent}',result.sent).replace('{total}',result.total)} | ${t('broadcast_failed').replace('{failed}',result.failed)}`;
+        }
+
         // Reset inputs
         DOM.broadcastTextarea.value = '';
         if (DOM.broadcastPhotoUrl) DOM.broadcastPhotoUrl.value = '';

@@ -2455,9 +2455,48 @@ async def api_get_dead_product_alerts(days: int = 7, min_views: int = 10, max_co
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/broadcast", dependencies=[Depends(verify_api_key)])
+_broadcast_jobs: dict[str, dict] = {}
+_broadcast_tasks: set[asyncio.Task] = set()
+
+
+def _public_broadcast_job(job_id: str) -> dict:
+    job = _broadcast_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Broadcast job not found")
+    return dict(job)
+
+
+async def _run_broadcast_job(job_id: str, bot, message: str, photo_url: str, reply_markup) -> None:
+    from services.broadcast import execute_broadcast
+
+    job = _broadcast_jobs[job_id]
+    job.update(status="running", updated_at=time.time())
+
+    async def progress(sent: int, failed: int, total: int) -> None:
+        job.update(sent=sent, failed=failed, total=total, updated_at=time.time())
+
+    try:
+        sent, failed, total = await execute_broadcast(
+            bot,
+            message,
+            photo=photo_url,
+            reply_markup=reply_markup,
+            progress=progress,
+        )
+        job.update(status="completed", sent=sent, failed=failed, total=total, updated_at=time.time())
+    except Exception as exc:
+        logger.error("Broadcast job %s failed: %s", job_id, exc, exc_info=True)
+        job.update(status="failed", error=str(exc)[:300], updated_at=time.time())
+
+
+@api.get("/api/broadcast/{job_id}", dependencies=[Depends(verify_api_key)])
+async def api_broadcast_status(job_id: str):
+    return _public_broadcast_job(job_id)
+
+
+@api.post("/api/broadcast", dependencies=[Depends(verify_api_key)], status_code=202)
 async def api_broadcast(data: dict):
-    from database.models import get_all_users
+    from services.broadcast import execute_broadcast, validate_broadcast_content
     try:
         message = data.get("message", "").strip()
         photo_url = data.get("photo_url", "").strip()
@@ -2466,12 +2505,11 @@ async def api_broadcast(data: dict):
         btn_text = data.get("btn_text", "").strip()
         btn_url = data.get("btn_url", "").strip()
 
-        if not message and not photo_url:
-            raise HTTPException(status_code=400, detail="Empty message and photo_url")
-
-        users = await get_all_users()
-        sent = 0
-        failed = 0
+        try:
+            validate_broadcast_content(message, photo_url)
+        except ValueError as exc:
+            detail = "Message required" if str(exc) == "EMPTY_BROADCAST" else "Message exceeds Telegram's 4096 character limit"
+            raise HTTPException(status_code=400, detail=detail) from exc
 
         # Construct reply markup if button requested
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -2487,34 +2525,31 @@ async def api_broadcast(data: dict):
                 InlineKeyboardButton(btn_text, url=btn_url)
             ]])
 
-        if tg_app and tg_app.bot:
-            for user in users:
-                if user.get("is_banned"):
-                    continue
-                try:
-                    if photo_url:
-                        await tg_app.bot.send_photo(
-                            chat_id=user["telegram_id"],
-                            photo=photo_url,
-                            caption=message or None,
-                            parse_mode="HTML" if message else None,
-                            reply_markup=reply_markup
-                        )
-                    else:
-                        await tg_app.bot.send_message(
-                            chat_id=user["telegram_id"],
-                            text=message,
-                            parse_mode="HTML",
-                            reply_markup=reply_markup
-                        )
-                    sent += 1
-                except Exception as e:
-                    logger.debug("Failed sending broadcast to %s: %s", user["telegram_id"], e)
-                    failed += 1
-        else:
+        if not tg_app or not tg_app.bot:
             raise HTTPException(status_code=503, detail="Bot not initialized")
 
-        return {"sent": sent, "failed": failed, "total": len(users)}
+        now = time.time()
+        for old_id, old_job in list(_broadcast_jobs.items()):
+            if old_job.get("status") in ("completed", "failed") and now - float(old_job.get("updated_at") or now) > 3600:
+                _broadcast_jobs.pop(old_id, None)
+
+        job_id = secrets.token_urlsafe(12)
+        _broadcast_jobs[job_id] = {
+            "job_id": job_id,
+            "status": "queued",
+            "sent": 0,
+            "failed": 0,
+            "total": 0,
+            "error": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        task = asyncio.create_task(
+            _run_broadcast_job(job_id, tg_app.bot, message, photo_url, reply_markup)
+        )
+        _broadcast_tasks.add(task)
+        task.add_done_callback(_broadcast_tasks.discard)
+        return _public_broadcast_job(job_id)
     except HTTPException:
         raise
     except Exception as exc:

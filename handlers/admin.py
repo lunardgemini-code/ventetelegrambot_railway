@@ -756,32 +756,14 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Helper to execute broadcast to all users (rich media: text/photo and button)
 async def _execute_broadcast(bot, text, photo_file_id=None, reply_markup=None):
-    from database.models import get_all_users
-    users = await get_all_users()
-    sent = 0
-    failed = 0
-    for user in users:
-        if user.get("is_banned"):
-            continue
-        try:
-            if photo_file_id:
-                await bot.send_photo(
-                    chat_id=user["telegram_id"],
-                    photo=photo_file_id,
-                    caption=text,
-                    parse_mode="HTML",
-                    reply_markup=reply_markup,
-                )
-            else:
-                await bot.send_message(
-                    chat_id=user["telegram_id"],
-                    text=text,
-                    parse_mode="HTML",
-                    reply_markup=reply_markup,
-                )
-            sent += 1
-        except Exception:
-            failed += 1
+    from services.broadcast import execute_broadcast
+
+    sent, failed, _ = await execute_broadcast(
+        bot,
+        text,
+        photo=photo_file_id,
+        reply_markup=reply_markup,
+    )
     return sent, failed
 
 
