@@ -2809,7 +2809,16 @@ async def _nowpayments_worker() -> None:
         next_delay = NOWPAYMENTS_RECONCILE_SECONDS
         try:
             for payment in await list_nowpayments_to_finalize(limit=25):
-                await _process_nowpayments_payment(str(payment["payment_id"]))
+                try:
+                    await _process_nowpayments_payment(str(payment["payment_id"]))
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.exception(
+                        "NOWPayments finalization failed for %s; it will be retried: %s",
+                        payment.get("payment_id"),
+                        exc,
+                    )
 
             for payment in await list_nowpayments_to_poll(limit=20):
                 try:
@@ -2819,6 +2828,14 @@ async def _nowpayments_worker() -> None:
                         await _process_nowpayments_payment(str(saved["payment_id"]))
                 except NowPaymentsError as exc:
                     logger.warning("NOWPayments reconciliation failed for %s: %s", payment.get("payment_id"), exc)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.exception(
+                        "NOWPayments reconciliation failed for %s; continuing the cycle: %s",
+                        payment.get("payment_id"),
+                        exc,
+                    )
                 await asyncio.sleep(0.2)
         except asyncio.CancelledError:
             raise

@@ -5,6 +5,7 @@ import os
 import sqlite3
 import asyncio
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +115,10 @@ class _AsyncDB:
 _libsql_pool = []
 _pool_lock = None
 _sqlite_wal_configured = False
+_TURSO_POOL_MAX_IDLE_SECONDS = max(
+    1.0,
+    float(os.environ.get("TURSO_POOL_MAX_IDLE_SECONDS", "10")),
+)
 
 def get_pool_lock():
     global _pool_lock
@@ -188,7 +193,7 @@ class _PooledAsyncDB(_AsyncDB):
 
         async with get_pool_lock():
             if len(_libsql_pool) < 10:
-                _libsql_pool.append(self._conn)
+                _libsql_pool.append((self._conn, time.monotonic()))
             else:
                 try:
                     await asyncio.to_thread(self._conn.close)
@@ -211,7 +216,19 @@ async def get_db():
         conn_to_wrap = None
         async with get_pool_lock():
             if _libsql_pool:
-                conn_to_wrap = _libsql_pool.pop()
+                pooled_entry = _libsql_pool.pop()
+                if isinstance(pooled_entry, tuple):
+                    candidate_conn, returned_at = pooled_entry
+                    if time.monotonic() - returned_at <= _TURSO_POOL_MAX_IDLE_SECONDS:
+                        conn_to_wrap = candidate_conn
+                    else:
+                        try:
+                            await asyncio.to_thread(candidate_conn.close)
+                        except Exception:
+                            pass
+                else:
+                    # Compatibility with connections pooled before a hot reload.
+                    conn_to_wrap = pooled_entry
                 
         wrapper = None
         if conn_to_wrap:

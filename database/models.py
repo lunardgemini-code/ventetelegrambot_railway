@@ -2588,6 +2588,25 @@ async def save_nowpayments_update(payload: dict) -> dict | None:
 
 
 async def finalize_nowpayments_payment(payment_id: str | int) -> dict:
+    """Retry idempotent payment finalization when a Turso stream expires."""
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            return await _finalize_nowpayments_payment_once(payment_id)
+        except Exception as exc:
+            last_exc = exc
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            logger.warning(
+                "Retrying NOWPayments finalization for %s on a fresh Turso connection: %s",
+                payment_id,
+                exc,
+            )
+            await asyncio.sleep(0.15 * (attempt + 1))
+    raise RuntimeError("NOWPayments finalization unavailable") from last_exc
+
+
+async def _finalize_nowpayments_payment_once(payment_id: str | int) -> dict:
     """Finalize a finished provider payment exactly once, including stock and finance."""
     _clear_stock_cache()
     invalidate_stats_cache()
@@ -2983,6 +3002,25 @@ async def recover_stale_processing_wallet_orders(age_minutes: int = 5) -> dict[s
 
 
 async def cancel_all_pending_orders(user_telegram_id: int) -> int:
+    """Cancel pending orders, retrying safely after a stale Turso stream."""
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            return await _cancel_all_pending_orders_once(user_telegram_id)
+        except Exception as exc:
+            last_exc = exc
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            logger.info(
+                "Retrying pending-order cancellation for user %s on a fresh connection: %s",
+                user_telegram_id,
+                exc,
+            )
+            await asyncio.sleep(0.1 * (attempt + 1))
+    raise RuntimeError("Pending-order cancellation unavailable") from last_exc
+
+
+async def _cancel_all_pending_orders_once(user_telegram_id: int) -> int:
     _clear_stock_cache()
     invalidate_stats_cache()
     """Cancel all PENDING and AWAITING_PAYMENT orders for a user. Returns count cancelled."""
