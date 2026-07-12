@@ -137,6 +137,15 @@ async def callback_check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     user_id = query.from_user.id
 
+    # A callback query can only be answered once. Acknowledge it before the
+    # network and database checks so rapid clicks do not expire in the queue.
+    try:
+        await query.answer()
+    except Exception as exc:
+        error_text = str(exc).lower()
+        if "query is too old" not in error_text and "query id is invalid" not in error_text:
+            raise
+
     from config import REQUIRED_CHANNEL
     is_subscribed = False
     try:
@@ -154,7 +163,6 @@ async def callback_check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE)
     lang = db_user.get("language") or "fr"
 
     if is_subscribed:
-        await query.answer()
         try:
             await query.message.delete()
         except Exception:
@@ -174,10 +182,11 @@ async def callback_check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except Exception:
             pass
     else:
-        # Send an alert to the user that they are still not subscribed
+        # The callback was already acknowledged above, so use a message instead
+        # of answering the same query a second time with an alert.
         alert_msg = {
             "fr": "❌ Vous n'avez pas encore rejoint le canal.",
             "en": "❌ You have not joined the channel yet.",
             "ar": "❌ لم تنضم إلى القناة بعد."
         }
-        await query.answer(alert_msg.get(lang, alert_msg["fr"]), show_alert=True)
+        await query.message.reply_text(alert_msg.get(lang, alert_msg["fr"]))

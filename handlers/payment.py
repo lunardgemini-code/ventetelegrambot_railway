@@ -1206,13 +1206,11 @@ async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _start_redirect(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Fallback: end conversation and redirect to /start."""
+    """End payment state; the global /start handler renders the menu once."""
     context.user_data.pop("paying_order_id", None)
     context.user_data.pop("paying_amount", None)
     context.user_data.pop("paying_product_id", None)
 
-    from handlers.start import start_command
-    await start_command(update, context)
     return ConversationHandler.END
 
 

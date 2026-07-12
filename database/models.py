@@ -70,6 +70,33 @@ async def get_or_create_user(
     first_name: str,
     referred_by: int | None = None,
 ) -> dict:
+    """Retry the idempotent user upsert when a pooled Turso stream expires."""
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            return await _get_or_create_user_once(
+                telegram_id,
+                username,
+                first_name,
+                referred_by=referred_by,
+            )
+        except Exception as exc:
+            last_exc = exc
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            logger.info(
+                "Retrying user upsert on a fresh connection after stale Turso stream: %s",
+                exc,
+            )
+    raise RuntimeError("User database operation unavailable") from last_exc
+
+
+async def _get_or_create_user_once(
+    telegram_id: int,
+    username: str | None,
+    first_name: str,
+    referred_by: int | None = None,
+) -> dict:
     """RÃ©cupÃ¨re un utilisateur existant ou en crÃ©e un nouveau, en enregistrant le parrain si applicable."""
     db = await get_db()
     try:

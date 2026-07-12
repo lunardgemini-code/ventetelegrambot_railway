@@ -3174,8 +3174,12 @@ def main() -> None:
     async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Log the error and handle specific harmless errors."""
         if isinstance(context.error, BadRequest):
-            err_text = str(context.error)
-            if "Message is not modified" in err_text or "Query is too old" in err_text:
+            err_text = str(context.error).lower()
+            if (
+                "message is not modified" in err_text
+                or "query is too old" in err_text
+                or "query id is invalid" in err_text
+            ):
                 # Harmless error caused by users spamming inline buttons that don't change the message content
                 return
         
@@ -3333,9 +3337,9 @@ def main() -> None:
                 pass
             warn = WARN_MESSAGES.get(lang, WARN_MESSAGES["fr"])
             try:
-                if update.callback_query:
-                    await update.callback_query.answer(warn, show_alert=False)
-                elif update.message:
+                # Callback handlers acknowledge their own query. Answering here
+                # and then continuing causes Telegram's "query id is invalid".
+                if update.message:
                     await update.message.reply_text(warn)
             except Exception:
                 pass
