@@ -87,6 +87,14 @@ class NowPaymentsTests(unittest.IsolatedAsyncioTestCase):
                     t("nowpayments_fee_warning", language),
                     "nowpayments_fee_warning",
                 )
+                self.assertNotEqual(
+                    t("nowpayments_checking", language),
+                    "nowpayments_checking",
+                )
+                self.assertNotEqual(
+                    t("nowpayments_checking_short", language),
+                    "nowpayments_checking_short",
+                )
 
     def test_copy_button_uses_exact_provider_amount_without_surcharge(self):
         from handlers.payment import _format_crypto_amount

@@ -1478,8 +1478,8 @@ async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def check_nowpayments_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     lang = await get_user_lang(update.effective_user.id)
+    await query.answer(t("nowpayments_checking_short", lang))
     order_id = int(query.data.split(":")[1])
     order = await get_order(order_id)
     if not order or int(order.get("user_telegram_id") or 0) != update.effective_user.id:
@@ -1493,6 +1493,7 @@ async def check_nowpayments_payment(update: Update, context: ContextTypes.DEFAUL
     if not payment or not payment.get("payment_id"):
         await query.edit_message_text(t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
         return ConversationHandler.END
+    await _render_nowpayments_checkout(query, payment, lang, t("nowpayments_checking", lang))
     try:
         provider_payment = await get_payment_status(payment["payment_id"])
         payment = await save_nowpayments_update(provider_payment) or payment
