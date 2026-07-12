@@ -10,12 +10,25 @@ import json
 import secrets
 import uuid
 import logging
+import os
 import time
 from datetime import datetime, timedelta, timezone
 
 from .db import get_db, is_transient_db_connection_error
 
 logger = logging.getLogger(__name__)
+_CRITICAL_DB_CONCURRENCY = max(1, int(os.environ.get("CRITICAL_DB_CONCURRENCY", "4")))
+_CRITICAL_DB_SEMAPHORE = None
+_CRITICAL_DB_SEMAPHORE_LOOP = None
+
+
+def _get_critical_db_semaphore() -> asyncio.Semaphore:
+    global _CRITICAL_DB_SEMAPHORE, _CRITICAL_DB_SEMAPHORE_LOOP
+    loop = asyncio.get_running_loop()
+    if _CRITICAL_DB_SEMAPHORE is None or _CRITICAL_DB_SEMAPHORE_LOOP is not loop:
+        _CRITICAL_DB_SEMAPHORE = asyncio.Semaphore(_CRITICAL_DB_CONCURRENCY)
+        _CRITICAL_DB_SEMAPHORE_LOOP = loop
+    return _CRITICAL_DB_SEMAPHORE
 
 
 def _utcnow() -> datetime:
@@ -74,12 +87,13 @@ async def get_or_create_user(
     last_exc: Exception | None = None
     for attempt in range(3):
         try:
-            return await _get_or_create_user_once(
-                telegram_id,
-                username,
-                first_name,
-                referred_by=referred_by,
-            )
+            async with _get_critical_db_semaphore():
+                return await _get_or_create_user_once(
+                    telegram_id,
+                    username,
+                    first_name,
+                    referred_by=referred_by,
+                )
         except Exception as exc:
             last_exc = exc
             if not is_transient_db_connection_error(exc) or attempt == 2:
@@ -106,15 +120,15 @@ async def _get_or_create_user_once(
         row = await cursor.fetchone()
         if row:
             # Mettre Ã  jour le nom d'utilisateur et le prÃ©nom s'ils ont changÃ©
-            await db.execute(
-                "UPDATE users SET username = ?, first_name = ? WHERE telegram_id = ?",
-                (username, first_name, telegram_id),
-            )
-            await db.commit()
-            # Build updated dict without a redundant second SELECT
             user_dict = dict(row)
-            user_dict["username"] = username
-            user_dict["first_name"] = first_name
+            if user_dict.get("username") != username or user_dict.get("first_name") != first_name:
+                await db.execute(
+                    "UPDATE users SET username = ?, first_name = ? WHERE telegram_id = ?",
+                    (username, first_name, telegram_id),
+                )
+                await db.commit()
+                user_dict["username"] = username
+                user_dict["first_name"] = first_name
             _USER_LANG_CACHE[telegram_id] = user_dict.get("language") or "fr"
             _USER_BANNED_CACHE[telegram_id] = bool(user_dict.get("is_banned"))
             return user_dict
@@ -1853,11 +1867,12 @@ async def reserve_stock_items_for_order(
     last_exc: Exception | None = None
     for attempt in range(3):
         try:
-            return await _reserve_stock_items_for_order_once(
-                order_id,
-                product_id,
-                allowed_statuses,
-            )
+            async with _get_critical_db_semaphore():
+                return await _reserve_stock_items_for_order_once(
+                    order_id,
+                    product_id,
+                    allowed_statuses,
+                )
         except Exception as exc:
             last_exc = exc
             if not is_transient_db_connection_error(exc) or attempt == 2:
@@ -2345,12 +2360,13 @@ async def update_order_status(
     last_exc: Exception | None = None
     for attempt in range(3):
         try:
-            return await _update_order_status_once(
-                order_id,
-                status,
-                expected_statuses=expected_statuses,
-                **kwargs,
-            )
+            async with _get_critical_db_semaphore():
+                return await _update_order_status_once(
+                    order_id,
+                    status,
+                    expected_statuses=expected_statuses,
+                    **kwargs,
+                )
         except Exception as exc:
             last_exc = exc
             if not is_transient_db_connection_error(exc) or attempt == 2:
@@ -2564,7 +2580,8 @@ async def save_nowpayments_update(payload: dict) -> dict | None:
     last_exc: Exception | None = None
     for attempt in range(3):
         try:
-            return await _save_nowpayments_update_once(payload)
+            async with _get_critical_db_semaphore():
+                return await _save_nowpayments_update_once(payload)
         except Exception as exc:
             last_exc = exc
             if not is_transient_db_connection_error(exc) or attempt == 2:
@@ -2668,7 +2685,8 @@ async def finalize_nowpayments_payment(payment_id: str | int) -> dict:
     last_exc: Exception | None = None
     for attempt in range(3):
         try:
-            return await _finalize_nowpayments_payment_once(payment_id)
+            async with _get_critical_db_semaphore():
+                return await _finalize_nowpayments_payment_once(payment_id)
         except Exception as exc:
             last_exc = exc
             if not is_transient_db_connection_error(exc) or attempt == 2:
@@ -3112,7 +3130,8 @@ async def cancel_all_pending_orders(user_telegram_id: int) -> int:
     last_exc: Exception | None = None
     for attempt in range(3):
         try:
-            return await _cancel_all_pending_orders_once(user_telegram_id)
+            async with _get_critical_db_semaphore():
+                return await _cancel_all_pending_orders_once(user_telegram_id)
         except Exception as exc:
             last_exc = exc
             if not is_transient_db_connection_error(exc) or attempt == 2:
@@ -4360,12 +4379,13 @@ async def record_used_transaction(
     last_exc: Exception | None = None
     for attempt in range(3):
         try:
-            return await _record_used_transaction_once(
-                transaction_id,
-                order_id,
-                user_telegram_id,
-                amount,
-            )
+            async with _get_critical_db_semaphore():
+                return await _record_used_transaction_once(
+                    transaction_id,
+                    order_id,
+                    user_telegram_id,
+                    amount,
+                )
         except Exception as exc:
             last_exc = exc
             if not is_transient_db_connection_error(exc) or attempt == 2:

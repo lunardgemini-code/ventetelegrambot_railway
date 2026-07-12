@@ -7,6 +7,27 @@ from handlers.payment import _start_redirect
 
 
 class DatabaseResilienceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unchanged_user_does_not_issue_redundant_update(self):
+        cursor = SimpleNamespace(fetchone=AsyncMock(return_value={
+            "telegram_id": 42,
+            "username": "buyer",
+            "first_name": "Buyer",
+            "language": "fr",
+            "is_banned": 0,
+        }))
+        db = SimpleNamespace(
+            execute=AsyncMock(return_value=cursor),
+            commit=AsyncMock(),
+            close=AsyncMock(),
+        )
+        with patch("database.models.get_db", AsyncMock(return_value=db)):
+            result = await models._get_or_create_user_once(42, "buyer", "Buyer")
+
+        self.assertEqual(result["username"], "buyer")
+        db.execute.assert_awaited_once()
+        db.commit.assert_not_awaited()
+        db.close.assert_awaited_once()
+
     async def test_get_or_create_user_retries_stale_hrana_stream(self):
         expected = {
             "telegram_id": 42,

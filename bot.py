@@ -446,7 +446,7 @@ async def health_check():
         logger.warning("Healthcheck database failure after retry: %s", last_db_error)
 
     bot_ready = bool(tg_app and getattr(tg_app, "running", False))
-    queue_size = webhook_update_queue.qsize() if webhook_update_queue is not None else 0
+    queue_size = _current_webhook_backlog()
     ready = db_ready and (bot_ready or not HEALTHCHECK_REQUIRE_BOT)
     payload = {
         "status": "ok" if ready else "not_ready",
@@ -2775,16 +2775,20 @@ tg_app = None
 webhook_update_queue: asyncio.Queue | None = None
 webhook_worker_tasks: list[asyncio.Task] = []
 WEBHOOK_WORKERS = _env_int("WEBHOOK_WORKERS", 8, minimum=1)
-WEBHOOK_LOCK_STRIPES = _env_int("WEBHOOK_LOCK_STRIPES", 1024, minimum=8)
 WEBHOOK_QUEUE_MAX = _env_int("WEBHOOK_QUEUE_MAX", 1000, minimum=10)
 SUBSCRIPTION_CACHE_SECONDS = _env_int("SUBSCRIPTION_CACHE_SECONDS", 3600, minimum=60)
-NOWPAYMENTS_POLL_BATCH = _env_int("NOWPAYMENTS_POLL_BATCH", 10, minimum=1)
-webhook_user_locks: list[asyncio.Lock] = [asyncio.Lock() for _ in range(WEBHOOK_LOCK_STRIPES)]
+NOWPAYMENTS_POLL_BATCH = _env_int("NOWPAYMENTS_POLL_BATCH", 5, minimum=1)
 _webhook_metrics_started_at = time.monotonic()
 _webhook_enqueued_at: dict[int, float] = {}
+_webhook_dequeued_at: dict[int, float] = {}
 _webhook_samples = deque(maxlen=10000)
 _webhook_queue_samples = deque(maxlen=10000)
 _webhook_handler_error_times = deque(maxlen=2000)
+_webhook_deduplicated_times = deque(maxlen=5000)
+_webhook_pending_by_key: dict[str, deque] = {}
+_webhook_active_keys: set[str] = set()
+_webhook_active_dedupe_signatures: set[tuple[str, str]] = set()
+_webhook_dedupe_by_update: dict[int, tuple[str, str]] = {}
 _webhook_active_workers = 0
 _webhook_peak_active_workers = 0
 
@@ -2799,11 +2803,35 @@ def _metrics_percentile(values: list[float], percentile: float) -> float:
 
 def _record_webhook_queue_depth() -> None:
     depth = webhook_update_queue.qsize() if webhook_update_queue is not None else 0
+    depth += sum(len(pending) for pending in _webhook_pending_by_key.values())
     _webhook_queue_samples.append((time.monotonic(), depth))
 
 
 def _record_webhook_handler_error() -> None:
     _webhook_handler_error_times.append(time.monotonic())
+
+
+def _webhook_dedupe_signature(update: Update) -> tuple[str, str] | None:
+    """Deduplicate only identical /start commands while one is already pending."""
+    message = update.effective_message
+    text = str(getattr(message, "text", "") or "").strip()
+    if not text:
+        return None
+    command = text.split(maxsplit=1)[0].split("@", 1)[0].lower()
+    if command != "/start":
+        return None
+    return (_webhook_lock_key(update), text)
+
+
+def _release_webhook_dedupe(update: Update) -> None:
+    signature = _webhook_dedupe_by_update.pop(id(update), None)
+    if signature is not None:
+        _webhook_active_dedupe_signatures.discard(signature)
+
+
+def _current_webhook_backlog() -> int:
+    queued = webhook_update_queue.qsize() if webhook_update_queue is not None else 0
+    return queued + sum(len(pending) for pending in _webhook_pending_by_key.values())
 
 
 def _webhook_performance_snapshot() -> dict:
@@ -2815,16 +2843,19 @@ def _webhook_performance_snapshot() -> dict:
     samples = [sample for sample in _webhook_samples if sample[0] >= cutoff_5m]
     one_minute = [sample for sample in samples if sample[0] >= cutoff_1m]
     queue_waits = [sample[1] for sample in samples]
-    processing = [sample[2] for sample in samples]
-    totals = [sample[1] + sample[2] for sample in samples]
+    user_waits = [sample[2] for sample in samples]
+    processing = [sample[3] for sample in samples]
+    totals = [sample[1] + sample[2] + sample[3] for sample in samples]
     queue_depths = [sample[1] for sample in _webhook_queue_samples if sample[0] >= cutoff_5m]
     handler_errors = sum(1 for timestamp in _webhook_handler_error_times if timestamp >= cutoff_5m)
+    deduplicated = sum(1 for timestamp in _webhook_deduplicated_times if timestamp >= cutoff_5m)
     db_metrics = get_db_performance_snapshot(300)
     observed_1m = max(1.0, min(60.0, now - _webhook_metrics_started_at))
     throughput_per_minute = len(one_minute) * 60.0 / observed_1m
     average_processing = sum(processing) / len(processing) if processing else 0.0
     estimated_workers = max(1, math.ceil((throughput_per_minute / 60.0) * average_processing * 1.5))
     queue_p95_ms = _metrics_percentile(queue_waits, 0.95) * 1000
+    user_wait_p95_ms = _metrics_percentile(user_waits, 0.95) * 1000
     processing_p95_ms = _metrics_percentile(processing, 0.95) * 1000
     max_queue = max(queue_depths, default=0)
     timeline = []
@@ -2833,7 +2864,8 @@ def _webhook_performance_snapshot() -> dict:
         bucket_end = bucket_start + 30
         bucket_samples = [sample for sample in samples if bucket_start <= sample[0] < bucket_end]
         bucket_waits = [sample[1] for sample in bucket_samples]
-        bucket_processing = [sample[2] for sample in bucket_samples]
+        bucket_user_waits = [sample[2] for sample in bucket_samples]
+        bucket_processing = [sample[3] for sample in bucket_samples]
         bucket_queue_depths = [
             sample[1]
             for sample in _webhook_queue_samples
@@ -2843,21 +2875,27 @@ def _webhook_performance_snapshot() -> dict:
             "from_seconds_ago": 300 - bucket_index * 30,
             "to_seconds_ago": 270 - bucket_index * 30,
             "processed": len(bucket_samples),
-            "worker_errors": sum(1 for sample in bucket_samples if not sample[3]),
+            "worker_errors": sum(1 for sample in bucket_samples if not sample[4]),
             "queue_peak": max(bucket_queue_depths, default=0),
             "average_wait_ms": round((sum(bucket_waits) / len(bucket_waits) * 1000) if bucket_waits else 0, 1),
+            "average_user_wait_ms": round((sum(bucket_user_waits) / len(bucket_user_waits) * 1000) if bucket_user_waits else 0, 1),
             "p95_processing_ms": round(_metrics_percentile(bucket_processing, 0.95) * 1000, 1),
         })
 
-    if len(samples) < 20:
+    if db_metrics["connection_errors"] > 0 or db_metrics["p95_ms"] >= 750:
+        bottleneck = "database"
+        recommended_workers = WEBHOOK_WORKERS
+        message = "Database latency is limiting throughput; adding workers would increase contention."
+        confidence = "high"
+    elif len(samples) < 20:
         bottleneck = "insufficient_data"
         recommended_workers = WEBHOOK_WORKERS
         message = "Collecting traffic data. At least 20 updates are needed."
         confidence = "low"
-    elif db_metrics["connection_errors"] > 0 or db_metrics["p95_ms"] >= 750:
-        bottleneck = "database"
+    elif user_wait_p95_ms >= 500 and queue_p95_ms < 500:
+        bottleneck = "single_user_backlog"
         recommended_workers = WEBHOOK_WORKERS
-        message = "Database latency is limiting throughput; adding workers would increase contention."
+        message = "One or more users are sending actions faster than their ordered queue can process them."
         confidence = "high"
     elif processing_p95_ms >= 3000:
         bottleneck = "external_api_or_handler"
@@ -2885,7 +2923,7 @@ def _webhook_performance_snapshot() -> dict:
             "estimated_for_observed_load": estimated_workers,
         },
         "queue": {
-            "current": webhook_update_queue.qsize() if webhook_update_queue is not None else 0,
+            "current": _current_webhook_backlog(),
             "peak_5m": max_queue,
             "average_wait_ms": round((sum(queue_waits) / len(queue_waits) * 1000) if queue_waits else 0, 1),
             "p95_wait_ms": round(queue_p95_ms, 1),
@@ -2895,8 +2933,11 @@ def _webhook_performance_snapshot() -> dict:
             "processed_5m": len(samples),
             "throughput_per_minute": round(throughput_per_minute, 1),
             "handler_errors_5m": handler_errors,
+            "deduplicated_starts_5m": deduplicated,
         },
         "latency": {
+            "average_user_wait_ms": round((sum(user_waits) / len(user_waits) * 1000) if user_waits else 0, 1),
+            "p95_user_wait_ms": round(user_wait_p95_ms, 1),
             "average_processing_ms": round(average_processing * 1000, 1),
             "p95_processing_ms": round(processing_p95_ms, 1),
             "p95_total_ms": round(_metrics_percentile(totals, 0.95) * 1000, 1),
@@ -2916,7 +2957,7 @@ def _webhook_performance_snapshot() -> dict:
 # ──────────────────────────────────────────────
 
 DYNAMIC_PRICING_CHECK_SECONDS = _env_int("DYNAMIC_PRICING_CHECK_SECONDS", 900, minimum=60)
-NOWPAYMENTS_RECONCILE_SECONDS = _env_int("NOWPAYMENTS_RECONCILE_SECONDS", 60, minimum=30)
+NOWPAYMENTS_RECONCILE_SECONDS = _env_int("NOWPAYMENTS_RECONCILE_SECONDS", 180, minimum=30)
 
 
 async def _dynamic_pricing_worker() -> None:
@@ -2934,6 +2975,16 @@ async def _dynamic_pricing_worker() -> None:
             logger.exception("Dynamic pricing cycle failed: %s", exc)
             next_delay = 30
         await asyncio.sleep(next_delay)
+
+
+def _should_process_polled_nowpayment(saved: dict | None) -> bool:
+    if not saved:
+        return False
+    if saved.get("status_changed"):
+        return True
+    provider_status = str(saved.get("provider_status") or "").lower()
+    actionable_statuses = {"finished", "partially_paid", "expired", "failed", "refunded"}
+    return provider_status in actionable_statuses and saved.get("notified_at") is None
 
 
 async def _nowpayments_worker() -> None:
@@ -2961,7 +3012,7 @@ async def _nowpayments_worker() -> None:
 
             # Signed IPNs and already-finished payments stay prioritized. Polling
             # older pending payments can wait briefly while clients are queued.
-            queue_busy = webhook_update_queue is not None and webhook_update_queue.qsize() > 0
+            queue_busy = _current_webhook_backlog() > 0
             if queue_busy:
                 logger.debug("Deferring NOWPayments polling while webhook clients are queued")
             else:
@@ -2969,7 +3020,7 @@ async def _nowpayments_worker() -> None:
                     try:
                         provider_payment = await get_payment_status(payment["payment_id"])
                         saved = await save_nowpayments_update(provider_payment)
-                        if saved:
+                        if _should_process_polled_nowpayment(saved):
                             await _process_nowpayments_payment(str(saved["payment_id"]))
                     except NowPaymentsError as exc:
                         logger.warning("NOWPayments reconciliation failed for %s: %s", payment.get("payment_id"), exc)
@@ -3083,6 +3134,13 @@ async def telegram_webhook(request: StarletteRequest):
         logger.debug("Webhook received update: %s", data.get("update_id", "?"))
         if tg_app:
             update = Update.de_json(data, tg_app.bot)
+            dedupe_signature = _webhook_dedupe_signature(update)
+            if dedupe_signature is not None:
+                if dedupe_signature in _webhook_active_dedupe_signatures:
+                    _webhook_deduplicated_times.append(time.monotonic())
+                    return {"ok": True, "deduplicated": True}
+                _webhook_active_dedupe_signatures.add(dedupe_signature)
+                _webhook_dedupe_by_update[id(update)] = dedupe_signature
             if webhook_update_queue is not None:
                 _webhook_enqueued_at[id(update)] = time.monotonic()
                 try:
@@ -3090,6 +3148,7 @@ async def telegram_webhook(request: StarletteRequest):
                     _record_webhook_queue_depth()
                 except asyncio.QueueFull:
                     _webhook_enqueued_at.pop(id(update), None)
+                    _release_webhook_dedupe(update)
                     logger.error(
                         "Webhook queue full (%d updates); asking Telegram to retry",
                         WEBHOOK_QUEUE_MAX,
@@ -3097,7 +3156,9 @@ async def telegram_webhook(request: StarletteRequest):
                     raise HTTPException(status_code=503, detail="Webhook queue is full")
             else:
                 task = asyncio.create_task(tg_app.process_update(update))
-                task.add_done_callback(_log_update_task_result)
+                task.add_done_callback(
+                    lambda completed, queued_update=update: _finalize_direct_update_task(completed, queued_update)
+                )
         else:
             logger.error("❌ tg_app is None — cannot process update")
         return {"ok": True}
@@ -3117,6 +3178,11 @@ def _log_update_task_result(task: asyncio.Task) -> None:
         logger.error("Webhook update task failed: %s", exc, exc_info=True)
 
 
+def _finalize_direct_update_task(task: asyncio.Task, update: Update) -> None:
+    _release_webhook_dedupe(update)
+    _log_update_task_result(task)
+
+
 def _webhook_lock_key(update: Update) -> str:
     user = update.effective_user
     if user:
@@ -3127,11 +3193,6 @@ def _webhook_lock_key(update: Update) -> str:
     return f"update:{update.update_id}"
 
 
-def _webhook_user_lock(update: Update) -> asyncio.Lock:
-    key = _webhook_lock_key(update)
-    return webhook_user_locks[abs(hash(key)) % len(webhook_user_locks)]
-
-
 async def _webhook_update_worker(application: Application, worker_id: int) -> None:
     global webhook_update_queue, _webhook_active_workers, _webhook_peak_active_workers
     if webhook_update_queue is None:
@@ -3139,26 +3200,64 @@ async def _webhook_update_worker(application: Application, worker_id: int) -> No
 
     while True:
         update = await webhook_update_queue.get()
-        started_at = time.monotonic()
-        enqueued_at = _webhook_enqueued_at.pop(id(update), started_at)
-        queue_wait = max(0.0, started_at - enqueued_at)
-        _webhook_active_workers += 1
-        _webhook_peak_active_workers = max(_webhook_peak_active_workers, _webhook_active_workers)
-        succeeded = True
+        key = _webhook_lock_key(update)
+        _webhook_dequeued_at[id(update)] = time.monotonic()
+        if key in _webhook_active_keys:
+            _webhook_pending_by_key.setdefault(key, deque()).append(update)
+            _record_webhook_queue_depth()
+            continue
+
+        _webhook_active_keys.add(key)
+        current_update = update
         try:
-            lock = _webhook_user_lock(update)
-            async with lock:
-                await application.process_update(update)
-        except Exception as exc:
-            succeeded = False
-            logger.error("Webhook worker %s update failed: %s", worker_id, exc, exc_info=True)
+            while current_update is not None:
+                started_at = time.monotonic()
+                enqueued_at = _webhook_enqueued_at.pop(id(current_update), started_at)
+                dequeued_at = _webhook_dequeued_at.pop(id(current_update), started_at)
+                queue_wait = max(0.0, dequeued_at - enqueued_at)
+                user_wait = max(0.0, started_at - dequeued_at)
+                _webhook_active_workers += 1
+                _webhook_peak_active_workers = max(
+                    _webhook_peak_active_workers,
+                    _webhook_active_workers,
+                )
+                succeeded = True
+                try:
+                    await application.process_update(current_update)
+                except asyncio.CancelledError:
+                    succeeded = False
+                    raise
+                except Exception as exc:
+                    succeeded = False
+                    logger.error(
+                        "Webhook worker %s update failed: %s",
+                        worker_id,
+                        exc,
+                        exc_info=True,
+                    )
+                finally:
+                    completed_at = time.monotonic()
+                    _webhook_active_workers = max(0, _webhook_active_workers - 1)
+                    _webhook_samples.append((
+                        completed_at,
+                        queue_wait,
+                        user_wait,
+                        max(0.0, completed_at - started_at),
+                        succeeded,
+                    ))
+                    webhook_update_queue.task_done()
+                    _release_webhook_dedupe(current_update)
+                    _record_webhook_queue_depth()
+
+                pending = _webhook_pending_by_key.get(key)
+                if pending:
+                    current_update = pending.popleft()
+                    if not pending:
+                        _webhook_pending_by_key.pop(key, None)
+                else:
+                    current_update = None
         finally:
-            completed_at = time.monotonic()
-            _webhook_active_workers = max(0, _webhook_active_workers - 1)
-            _webhook_samples.append(
-                (completed_at, queue_wait, max(0.0, completed_at - started_at), succeeded)
-            )
-            webhook_update_queue.task_done()
+            _webhook_active_keys.discard(key)
             _record_webhook_queue_depth()
 
 

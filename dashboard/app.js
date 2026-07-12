@@ -1222,6 +1222,7 @@ async function loadPerformanceMetrics() {
     const labels = {
         healthy:['Fluide', 'La capacite actuelle suffit pour le trafic observe.', 'success'],
         workers:['Workers', 'Les demandes attendent un worker libre. Augmente progressivement le nombre de workers.', 'warning'],
+        single_user_backlog:['Utilisateur actif', "Un utilisateur envoie des actions plus vite que sa file ordonnee ne peut les traiter. Les autres workers restent disponibles.", 'warning'],
         database:['Turso', 'Turso limite le debit. Ajouter des workers augmenterait la contention.', 'danger'],
         external_api_or_handler:['API externe', 'Un handler ou une API externe ralentit le traitement. Ajouter des workers ne corrigerait pas la cause.', 'warning'],
         insufficient_data:['Collecte', 'Au moins 20 actions sont necessaires pour une recommandation fiable.', 'neutral']
@@ -1233,7 +1234,7 @@ async function loadPerformanceMetrics() {
     DOM.perfWorkers.textContent = `${Number(workers.active || 0)} / ${Number(workers.configured || 0)}`;
     DOM.perfWorkersRec.textContent = `Recommande : ${Number(workers.recommended || workers.configured || 0)}`;
     DOM.perfQueue.textContent = `${Number(queue.current || 0)} (pic ${Number(queue.peak_5m || 0)})`;
-    DOM.perfQueueWait.textContent = `Attente p95 : ${Number(queue.p95_wait_ms || 0).toFixed(0)} ms`;
+    DOM.perfQueueWait.textContent = `File p95 : ${Number(queue.p95_wait_ms || 0).toFixed(0)} ms - utilisateur : ${Number(latency.p95_user_wait_ms || 0).toFixed(0)} ms`;
     DOM.perfProcessing.textContent = `${Number(latency.p95_processing_ms || 0).toFixed(0)} ms`;
     DOM.perfThroughput.textContent = `${Number(traffic.throughput_per_minute || 0).toFixed(1)} actions/min`;
     DOM.perfDatabase.textContent = `${Number(database.p95_ms || 0).toFixed(0)} ms`;

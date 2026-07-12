@@ -6,12 +6,13 @@ import sqlite3
 import asyncio
 import logging
 import time
-from collections import deque
+from collections import Counter, deque
 
 logger = logging.getLogger(__name__)
 
 _DB_OPERATION_SAMPLES = deque(maxlen=5000)
 _DB_CONNECTION_ERROR_TIMES = deque(maxlen=1000)
+_DB_CONNECTION_EVENTS = deque(maxlen=5000)
 _DB_CONNECTION_STATS = {"fresh": 0, "pooled": 0, "discarded": 0}
 
 
@@ -21,8 +22,27 @@ def _record_db_operation(operation: str, started_at: float, success: bool) -> No
     )
 
 
-def _record_db_connection_error() -> None:
-    _DB_CONNECTION_ERROR_TIMES.append(time.monotonic())
+def _connection_error_category(exc: Exception) -> str:
+    message = str(exc).lower()
+    if "stream not found" in message:
+        return "stream_not_found"
+    if "timed out" in message or "timeout" in message:
+        return "timeout"
+    if "broken pipe" in message:
+        return "broken_pipe"
+    if "hrana" in message:
+        return "hrana"
+    return "connection"
+
+
+def _record_db_connection_error(exc: Exception, operation: str) -> None:
+    _DB_CONNECTION_ERROR_TIMES.append(
+        (time.monotonic(), _connection_error_category(exc), operation)
+    )
+
+
+def _record_connection_event(kind: str) -> None:
+    _DB_CONNECTION_EVENTS.append((time.monotonic(), kind))
 
 
 def _percentile(values: list[float], percentile: float) -> float:
@@ -39,14 +59,24 @@ def get_db_performance_snapshot(window_seconds: int = 300) -> dict:
     cutoff = now - max(10, int(window_seconds))
     samples = [sample for sample in _DB_OPERATION_SAMPLES if sample[0] >= cutoff]
     durations = [sample[2] for sample in samples]
+    connection_errors = [event for event in _DB_CONNECTION_ERROR_TIMES if event[0] >= cutoff]
+    connection_events = [event for event in _DB_CONNECTION_EVENTS if event[0] >= cutoff]
+    error_categories = Counter(event[1] for event in connection_errors)
+    error_operations = Counter(event[2] for event in connection_errors)
+    recent_connections = Counter(event[1] for event in connection_events)
     return {
         "operations": len(samples),
         "errors": sum(1 for sample in samples if not sample[3]),
-        "connection_errors": sum(1 for timestamp in _DB_CONNECTION_ERROR_TIMES if timestamp >= cutoff),
+        "connection_errors": len(connection_errors),
+        "connection_error_categories": dict(error_categories),
+        "connection_error_operations": dict(error_operations),
         "average_ms": round((sum(durations) / len(durations) * 1000) if durations else 0, 1),
         "p95_ms": round(_percentile(durations, 0.95) * 1000, 1),
         "slow_operations": sum(1 for duration in durations if duration >= 1.0),
-        "connections": dict(_DB_CONNECTION_STATS),
+        "connections": {
+            "totals_since_start": dict(_DB_CONNECTION_STATS),
+            "window": dict(recent_connections),
+        },
     }
 
 # ── Turso config ──
@@ -224,7 +254,7 @@ class _PooledAsyncDB(_AsyncDB):
         except Exception as e:
             if self._is_connection_error(e):
                 self.has_error = True
-                _record_db_connection_error()
+                _record_db_connection_error(e, "execute")
             raise
 
     async def executemany(self, sql, params_list):
@@ -233,7 +263,7 @@ class _PooledAsyncDB(_AsyncDB):
         except Exception as e:
             if self._is_connection_error(e):
                 self.has_error = True
-                _record_db_connection_error()
+                _record_db_connection_error(e, "executemany")
             raise
 
     async def executescript(self, sql):
@@ -242,7 +272,7 @@ class _PooledAsyncDB(_AsyncDB):
         except Exception as e:
             if self._is_connection_error(e):
                 self.has_error = True
-                _record_db_connection_error()
+                _record_db_connection_error(e, "executescript")
             raise
 
     async def commit(self):
@@ -251,7 +281,7 @@ class _PooledAsyncDB(_AsyncDB):
         except Exception as e:
             if self._is_connection_error(e):
                 self.has_error = True
-                _record_db_connection_error()
+                _record_db_connection_error(e, "commit")
             raise
 
     async def rollback(self):
@@ -260,7 +290,7 @@ class _PooledAsyncDB(_AsyncDB):
         except Exception as e:
             if self._is_connection_error(e):
                 self.has_error = True
-                _record_db_connection_error()
+                _record_db_connection_error(e, "rollback")
             raise
 
     async def close(self):
@@ -327,6 +357,7 @@ async def get_db(*, fresh: bool = False):
         wrapper = None
         if conn_to_wrap:
             _DB_CONNECTION_STATS["pooled"] += 1
+            _record_connection_event("pooled")
             candidate = _PooledAsyncDB(conn_to_wrap, created_at=created_at)
             try:
                 # Hrana streams expire server-side while a pooled connection is idle.
@@ -337,6 +368,7 @@ async def get_db(*, fresh: bool = False):
                 candidate.has_error = True
                 await candidate.close()
                 _DB_CONNECTION_STATS["discarded"] += 1
+                _record_connection_event("discarded")
                 logger.info("Discarded stale Turso connection before reuse: %s", exc)
 
         if wrapper is None:
@@ -347,6 +379,7 @@ async def get_db(*, fresh: bool = False):
             )
             _record_db_operation("connect", connect_started_at, True)
             _DB_CONNECTION_STATS["fresh"] += 1
+            _record_connection_event("fresh")
             wrapper = _PooledAsyncDB(conn, return_to_pool=not fresh)
             try:
                 await asyncio.wait_for(wrapper.execute("PRAGMA foreign_keys = ON"), timeout=3)
