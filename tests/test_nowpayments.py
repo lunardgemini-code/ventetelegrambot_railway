@@ -75,6 +75,14 @@ class NowPaymentsTests(unittest.IsolatedAsyncioTestCase):
 
         callbacks = [button.callback_data for row in markup.inline_keyboard for button in row]
         self.assertIn(f"pay_nowpayments:{self.order['id']}", callbacks)
+        nowpayments_button = next(
+            button
+            for row in markup.inline_keyboard
+            for button in row
+            if button.callback_data == f"pay_nowpayments:{self.order['id']}"
+        )
+        self.assertEqual(nowpayments_button.text, "BEP20")
+        self.assertEqual(nowpayments_button.icon_custom_emoji_id, "5359437015752401733")
         for language in LANGUAGES:
             with self.subTest(language=language):
                 self.assertNotEqual(t("btn_pay_nowpayments", language), "btn_pay_nowpayments")
@@ -89,6 +97,8 @@ class NowPaymentsTests(unittest.IsolatedAsyncioTestCase):
                     t("nowpayments_fee_warning", language),
                     "nowpayments_fee_warning",
                 )
+                self.assertNotIn("0.04", t("nowpayments_fee_warning", language))
+                self.assertNotIn("0,04", t("nowpayments_fee_warning", language))
                 self.assertNotEqual(
                     t("nowpayments_checking", language),
                     "nowpayments_checking",
@@ -108,6 +118,10 @@ class NowPaymentsTests(unittest.IsolatedAsyncioTestCase):
         markup = nowpayments_payment_keyboard(self.order["id"], amount, "en")
         copy_button = markup.inline_keyboard[0][0]
         self.assertEqual(copy_button.copy_text.text, amount)
+
+    def test_checkout_price_adds_four_cent_bep20_fee(self):
+        self.assertEqual(nowpayments.calculate_checkout_price(0.50), 0.54)
+        self.assertEqual(nowpayments.calculate_checkout_price(5), 5.04)
 
     def test_callback_url_falls_back_to_railway_public_domain(self):
         from handlers.payment import _nowpayments_callback_url

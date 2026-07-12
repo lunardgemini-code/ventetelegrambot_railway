@@ -1446,6 +1446,7 @@ async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         from services.nowpayments import (
             NowPaymentsError,
+            calculate_checkout_price,
             create_payment,
             get_minimum_amount,
             is_nowpayments_configured,
@@ -1455,10 +1456,12 @@ async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYP
             await query.edit_message_text(t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
             return ConversationHandler.END
 
+        checkout_price = calculate_checkout_price(order["amount_usd"])
+
         try:
             minimum = await get_minimum_amount()
             minimum_usd = float(minimum.get("fiat_equivalent") or minimum.get("min_amount") or 0)
-            if minimum_usd > 0 and float(order["amount_usd"]) + 0.000001 < minimum_usd:
+            if minimum_usd > 0 and checkout_price + 0.000001 < minimum_usd:
                 await query.edit_message_text(
                     t("nowpayments_below_minimum", lang).format(minimum=_format_crypto_amount(minimum_usd)),
                     reply_markup=main_menu_keyboard(lang),
@@ -1471,7 +1474,7 @@ async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYP
         except (ValueError, TypeError) as exc:
             logger.warning("Invalid NOWPayments minimum response: %s", exc)
 
-        attempt = await prepare_nowpayments_attempt(order_id, order["amount_usd"])
+        attempt = await prepare_nowpayments_attempt(order_id, checkout_price)
         if not attempt.get("created"):
             if attempt.get("payment_id"):
                 await _render_nowpayments_checkout(query, attempt, lang)
@@ -1493,7 +1496,7 @@ async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYP
 
         try:
             provider_payment = await create_payment(
-                price_amount=order["amount_usd"],
+                price_amount=checkout_price,
                 order_id=order_id,
                 order_description=description,
                 callback_url=callback_url,

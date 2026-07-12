@@ -8,6 +8,7 @@ import hmac
 import json
 import logging
 import time
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
 import httpx
@@ -25,6 +26,7 @@ from config import (
 logger = logging.getLogger(__name__)
 _HTTP_CLIENT: httpx.AsyncClient | None = None
 _MINIMUM_CACHE: tuple[float, dict] | None = None
+NOWPAYMENTS_CHECKOUT_FEE_USD = Decimal("0.04")
 
 
 class NowPaymentsError(RuntimeError):
@@ -36,6 +38,15 @@ class NowPaymentsError(RuntimeError):
 
 def is_nowpayments_configured() -> bool:
     return bool(NOWPAYMENTS_ENABLED and NOWPAYMENTS_API_KEY and NOWPAYMENTS_IPN_SECRET)
+
+
+def calculate_checkout_price(order_amount: float) -> float:
+    """Return the customer-facing NOWPayments price including the BEP20 fee."""
+    try:
+        amount = max(Decimal("0"), Decimal(str(order_amount or 0)))
+    except (TypeError, ValueError, InvalidOperation):
+        amount = Decimal("0")
+    return float((amount + NOWPAYMENTS_CHECKOUT_FEE_USD).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 def _sort_payload(value: Any) -> Any:

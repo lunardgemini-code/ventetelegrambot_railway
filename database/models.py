@@ -2575,12 +2575,20 @@ async def finalize_nowpayments_payment(payment_id: str | int) -> dict:
         expected_pay_amount = float(payment.get("pay_amount") or 0)
         actually_paid = float(payment.get("actually_paid") or 0)
         expected_price = round(float(payment.get("amount_usd") or 0), 2)
+        from services.nowpayments import calculate_checkout_price
+        expected_checkout_price = calculate_checkout_price(expected_price)
         stored_price = round(float(payment.get("price_amount") or 0), 2)
         error = None
         if expected_currency != "usdtbsc":
             error = f"Unexpected pay currency: {expected_currency or 'missing'}"
-        elif abs(stored_price - expected_price) > 0.01:
-            error = f"Order amount mismatch: expected {expected_price:.2f}, stored {stored_price:.2f}"
+        elif min(
+            abs(stored_price - expected_price),
+            abs(stored_price - expected_checkout_price),
+        ) > 0.01:
+            error = (
+                f"Order amount mismatch: expected {expected_checkout_price:.2f} "
+                f"(legacy {expected_price:.2f}), stored {stored_price:.2f}"
+            )
         elif expected_pay_amount <= 0 or actually_paid + 0.000001 < expected_pay_amount:
             error = f"Insufficient provider amount: paid {actually_paid}, expected {expected_pay_amount}"
 
