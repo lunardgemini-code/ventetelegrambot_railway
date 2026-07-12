@@ -29,7 +29,10 @@ The generated callback URL is:
 https://your-service.up.railway.app/webhooks/nowpayments
 ```
 
-Set `NOWPAYMENTS_CALLBACK_URL` only when the callback must use a different public HTTPS URL.
+Railway also injects `RAILWAY_PUBLIC_DOMAIN`, so the callback is now discovered
+automatically even when the bot runs in polling mode and `WEBHOOK_URL` is empty.
+Set `NOWPAYMENTS_CALLBACK_URL` only when the callback must use a different public
+HTTPS URL.
 
 ## Payment rules
 

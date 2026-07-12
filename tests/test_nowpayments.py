@@ -79,6 +79,54 @@ class NowPaymentsTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(language=language):
                 self.assertNotEqual(t("btn_pay_nowpayments", language), "btn_pay_nowpayments")
                 self.assertNotEqual(t("nowpayments_partial", language), "nowpayments_partial")
+                self.assertNotEqual(
+                    t("btn_copy_nowpayments_amount", language),
+                    "btn_copy_nowpayments_amount",
+                )
+                self.assertNotEqual(
+                    t("nowpayments_fee_warning", language),
+                    "nowpayments_fee_warning",
+                )
+
+    def test_copy_button_uses_exact_provider_amount_without_surcharge(self):
+        from handlers.payment import _format_crypto_amount
+        from utils.keyboards import nowpayments_payment_keyboard
+
+        amount = _format_crypto_amount("0.64936553")
+        self.assertEqual(amount, "0.64936553")
+
+        markup = nowpayments_payment_keyboard(self.order["id"], amount, "en")
+        copy_button = markup.inline_keyboard[0][0]
+        self.assertEqual(copy_button.copy_text.text, amount)
+
+    def test_callback_url_falls_back_to_railway_public_domain(self):
+        from handlers.payment import _nowpayments_callback_url
+
+        clean_env = {
+            "NOWPAYMENTS_CALLBACK_URL": "",
+            "PUBLIC_BASE_URL": "",
+            "WEBHOOK_URL": "",
+            "RAILWAY_PUBLIC_DOMAIN": "shop-example.up.railway.app",
+        }
+        with patch.dict(os.environ, clean_env):
+            self.assertEqual(
+                _nowpayments_callback_url(),
+                "https://shop-example.up.railway.app/webhooks/nowpayments",
+            )
+
+    def test_explicit_callback_url_has_priority(self):
+        from handlers.payment import _nowpayments_callback_url
+
+        with patch.dict(os.environ, {
+            "NOWPAYMENTS_CALLBACK_URL": "https://payments.example.com/ipn/",
+            "PUBLIC_BASE_URL": "https://ignored.example.com",
+            "WEBHOOK_URL": "https://ignored-too.example.com",
+            "RAILWAY_PUBLIC_DOMAIN": "ignored.up.railway.app",
+        }):
+            self.assertEqual(
+                _nowpayments_callback_url(),
+                "https://payments.example.com/ipn",
+            )
 
     async def test_customer_paid_fees_force_fixed_rate(self):
         request = AsyncMock(return_value={"payment_id": "np-fixed"})

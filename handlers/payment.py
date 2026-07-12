@@ -63,9 +63,22 @@ _nowpayments_locks = [asyncio.Lock() for _ in range(64)]
 def _nowpayments_callback_url() -> str:
     explicit = os.environ.get("NOWPAYMENTS_CALLBACK_URL", "").strip()
     if explicit:
-        return explicit
-    public_base = os.environ.get("WEBHOOK_URL", "").strip().rstrip("/")
-    return f"{public_base}/webhooks/nowpayments" if public_base else ""
+        return explicit.rstrip("/")
+
+    for env_name in ("PUBLIC_BASE_URL", "WEBHOOK_URL"):
+        public_base = os.environ.get(env_name, "").strip().rstrip("/")
+        if public_base:
+            return f"{public_base}/webhooks/nowpayments"
+
+    # Railway injects this variable for services with a generated public domain.
+    railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "").strip().strip("/")
+    if railway_domain:
+        if railway_domain.startswith(("http://", "https://")):
+            public_base = railway_domain.rstrip("/")
+        else:
+            public_base = f"https://{railway_domain}"
+        return f"{public_base}/webhooks/nowpayments"
+    return ""
 
 
 def _format_crypto_amount(value) -> str:
@@ -1218,12 +1231,13 @@ async def _render_nowpayments_checkout(query, payment: dict, lang: str, status_t
         f"{t('nowpayments_network', lang)}\n"
         f"{t('nowpayments_reference', lang).format(payment_id=escape_html(payment_id))}\n\n"
         f"{t('nowpayments_instructions', lang)}\n\n"
+        f"{t('nowpayments_fee_warning', lang)}\n\n"
         f"{status_text or t('nowpayments_waiting', lang)}"
     )
     await query.edit_message_text(
         text,
         parse_mode="HTML",
-        reply_markup=nowpayments_payment_keyboard(int(payment["order_id"]), lang),
+        reply_markup=nowpayments_payment_keyboard(int(payment["order_id"]), amount, lang),
     )
 
 

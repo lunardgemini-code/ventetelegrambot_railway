@@ -5,7 +5,7 @@ for all menus, product listings, payment flows, and admin panels.
 Multi-language support via lang parameter.
 """
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telegram import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.constants import KeyboardButtonStyle
 from utils.locales import t
 import re
@@ -306,8 +306,12 @@ async def payment_method_keyboard(order_id: int, lang: str = "fr", wallet_balanc
     return InlineKeyboardMarkup(buttons)
 
 
-def nowpayments_payment_keyboard(order_id: int, lang: str = "fr") -> InlineKeyboardMarkup:
+def nowpayments_payment_keyboard(order_id: int, amount: str, lang: str = "fr") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            t("btn_copy_nowpayments_amount", lang),
+            copy_text=CopyTextButton(text=amount),
+        )],
         [InlineKeyboardButton(t("btn_check_nowpayments", lang), callback_data=f"check_nowpayments:{order_id}")],
         [make_button("btn_cancel", lang, callback_data=f"cancel_order:{order_id}")],
     ])
