@@ -1,7 +1,9 @@
 import unittest
+import sys
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
+from database import db as db_module
 from database import models
 from handlers.payment import _start_redirect
 
@@ -20,10 +22,12 @@ class DatabaseResilienceTests(unittest.IsolatedAsyncioTestCase):
             commit=AsyncMock(),
             close=AsyncMock(),
         )
-        with patch("database.models.get_db", AsyncMock(return_value=db)):
+        get_db_mock = AsyncMock(return_value=db)
+        with patch("database.models.get_db", get_db_mock):
             result = await models._get_or_create_user_once(42, "buyer", "Buyer")
 
         self.assertEqual(result["username"], "buyer")
+        get_db_mock.assert_awaited_once_with(fresh=False)
         db.execute.assert_awaited_once()
         db.commit.assert_not_awaited()
         db.close.assert_awaited_once()
@@ -44,6 +48,45 @@ class DatabaseResilienceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, expected)
         self.assertEqual(operation.await_count, 2)
+        self.assertFalse(operation.await_args_list[0].kwargs["fresh_connection"])
+        self.assertTrue(operation.await_args_list[1].kwargs["fresh_connection"])
+
+    async def test_turso_connection_skips_remote_busy_timeout_and_is_reused(self):
+        class FakeCursor:
+            description = None
+
+        class FakeConnection:
+            def __init__(self):
+                self.statements = []
+                self.closed = False
+
+            def execute(self, sql, params=None):
+                self.statements.append(sql)
+                return FakeCursor()
+
+            def close(self):
+                self.closed = True
+
+        connection = FakeConnection()
+        connect = Mock(return_value=connection)
+        fake_libsql = SimpleNamespace(connect=connect)
+        db_module._libsql_pool.clear()
+        db_module._pool_lock = None
+
+        with patch.object(db_module, "TURSO_URL", "libsql://test.turso.io"):
+            with patch.object(db_module, "TURSO_TOKEN", "test-token"):
+                with patch.dict(sys.modules, {"libsql_experimental": fake_libsql}):
+                    first = await db_module.get_db()
+                    await first.close()
+                    second = await db_module.get_db()
+                    await second.close()
+
+        self.assertEqual(connect.call_count, 1)
+        self.assertIn("PRAGMA foreign_keys = ON", connection.statements)
+        self.assertIn("SELECT 1", connection.statements)
+        self.assertFalse(any("busy_timeout" in sql for sql in connection.statements))
+        db_module._libsql_pool.clear()
+        db_module._pool_lock = None
 
     async def test_get_or_create_user_does_not_retry_business_error(self):
         operation = AsyncMock(side_effect=ValueError("invalid user data"))

@@ -93,6 +93,7 @@ async def get_or_create_user(
                     username,
                     first_name,
                     referred_by=referred_by,
+                    fresh_connection=attempt > 0,
                 )
         except Exception as exc:
             last_exc = exc
@@ -110,9 +111,11 @@ async def _get_or_create_user_once(
     username: str | None,
     first_name: str,
     referred_by: int | None = None,
+    *,
+    fresh_connection: bool = False,
 ) -> dict:
     """RÃ©cupÃ¨re un utilisateur existant ou en crÃ©e un nouveau, en enregistrant le parrain si applicable."""
-    db = await get_db(fresh=True)
+    db = await get_db(fresh=fresh_connection)
     try:
         cursor = await db.execute(
             "SELECT * FROM users WHERE telegram_id = ?", (telegram_id,)
@@ -1872,6 +1875,7 @@ async def reserve_stock_items_for_order(
                     order_id,
                     product_id,
                     allowed_statuses,
+                    fresh_connection=attempt > 0,
                 )
         except Exception as exc:
             last_exc = exc
@@ -1890,11 +1894,13 @@ async def _reserve_stock_items_for_order_once(
     order_id: int,
     product_id: int,
     allowed_statuses: tuple[str, ...],
+    *,
+    fresh_connection: bool = False,
 ) -> list[dict] | None:
     """Reserve stock for an order once, returning the same items on retries."""
     _clear_stock_cache()
     invalidate_stats_cache()
-    db = await get_db(fresh=True)
+    db = await get_db(fresh=fresh_connection)
     try:
         await db.execute("BEGIN IMMEDIATE")
         cursor = await db.execute(
@@ -2365,6 +2371,7 @@ async def update_order_status(
                     order_id,
                     status,
                     expected_statuses=expected_statuses,
+                    fresh_connection=attempt > 0,
                     **kwargs,
                 )
         except Exception as exc:
@@ -2385,6 +2392,7 @@ async def _update_order_status_once(
     status: str,
     *,
     expected_statuses: tuple[str, ...] | None = None,
+    fresh_connection: bool = False,
     **kwargs,
 ) -> bool:
     _clear_stock_cache()
@@ -2397,7 +2405,7 @@ async def _update_order_status_once(
         set_parts.append(f"{key} = ?")
         values.append(val)
     values.append(order_id)
-    db = await get_db(fresh=True)
+    db = await get_db(fresh=fresh_connection)
     try:
         await db.execute("BEGIN IMMEDIATE")
         cursor = await db.execute("SELECT * FROM orders WHERE id = ?", (order_id,))
@@ -2581,7 +2589,10 @@ async def save_nowpayments_update(payload: dict) -> dict | None:
     for attempt in range(3):
         try:
             async with _get_critical_db_semaphore():
-                return await _save_nowpayments_update_once(payload)
+                return await _save_nowpayments_update_once(
+                    payload,
+                    fresh_connection=attempt > 0,
+                )
         except Exception as exc:
             last_exc = exc
             if not is_transient_db_connection_error(exc) or attempt == 2:
@@ -2595,7 +2606,11 @@ async def save_nowpayments_update(payload: dict) -> dict | None:
     raise RuntimeError("NOWPayments status update unavailable") from last_exc
 
 
-async def _save_nowpayments_update_once(payload: dict) -> dict | None:
+async def _save_nowpayments_update_once(
+    payload: dict,
+    *,
+    fresh_connection: bool = False,
+) -> dict | None:
     """Persist an authenticated provider update before asynchronous processing."""
     payment_id = str(payload.get("payment_id") or "").strip()
     if not payment_id:
@@ -2604,7 +2619,7 @@ async def _save_nowpayments_update_once(payload: dict) -> dict | None:
     if not provider_status:
         return None
 
-    db = await get_db(fresh=True)
+    db = await get_db(fresh=fresh_connection)
     try:
         await db.execute("BEGIN IMMEDIATE")
         cursor = await db.execute(
@@ -2686,7 +2701,10 @@ async def finalize_nowpayments_payment(payment_id: str | int) -> dict:
     for attempt in range(3):
         try:
             async with _get_critical_db_semaphore():
-                return await _finalize_nowpayments_payment_once(payment_id)
+                return await _finalize_nowpayments_payment_once(
+                    payment_id,
+                    fresh_connection=attempt > 0,
+                )
         except Exception as exc:
             last_exc = exc
             if not is_transient_db_connection_error(exc) or attempt == 2:
@@ -2700,11 +2718,15 @@ async def finalize_nowpayments_payment(payment_id: str | int) -> dict:
     raise RuntimeError("NOWPayments finalization unavailable") from last_exc
 
 
-async def _finalize_nowpayments_payment_once(payment_id: str | int) -> dict:
+async def _finalize_nowpayments_payment_once(
+    payment_id: str | int,
+    *,
+    fresh_connection: bool = False,
+) -> dict:
     """Finalize a finished provider payment exactly once, including stock and finance."""
     _clear_stock_cache()
     invalidate_stats_cache()
-    db = await get_db(fresh=True)
+    db = await get_db(fresh=fresh_connection)
     try:
         await db.execute("BEGIN IMMEDIATE")
         cursor = await db.execute(
@@ -3131,7 +3153,10 @@ async def cancel_all_pending_orders(user_telegram_id: int) -> int:
     for attempt in range(3):
         try:
             async with _get_critical_db_semaphore():
-                return await _cancel_all_pending_orders_once(user_telegram_id)
+                return await _cancel_all_pending_orders_once(
+                    user_telegram_id,
+                    fresh_connection=attempt > 0,
+                )
         except Exception as exc:
             last_exc = exc
             if not is_transient_db_connection_error(exc) or attempt == 2:
@@ -3145,11 +3170,15 @@ async def cancel_all_pending_orders(user_telegram_id: int) -> int:
     raise RuntimeError("Pending-order cancellation unavailable") from last_exc
 
 
-async def _cancel_all_pending_orders_once(user_telegram_id: int) -> int:
+async def _cancel_all_pending_orders_once(
+    user_telegram_id: int,
+    *,
+    fresh_connection: bool = False,
+) -> int:
     _clear_stock_cache()
     invalidate_stats_cache()
     """Cancel all PENDING and AWAITING_PAYMENT orders for a user. Returns count cancelled."""
-    db = await get_db(fresh=True)
+    db = await get_db(fresh=fresh_connection)
     try:
         cursor = await db.execute(
             "UPDATE orders SET status = 'CANCELLED' WHERE user_telegram_id = ? AND status IN ('PENDING', 'AWAITING_PAYMENT')",
@@ -4385,6 +4414,7 @@ async def record_used_transaction(
                     order_id,
                     user_telegram_id,
                     amount,
+                    fresh_connection=attempt > 0,
                 )
         except Exception as exc:
             last_exc = exc
@@ -4404,9 +4434,11 @@ async def _record_used_transaction_once(
     order_id: int | None = None,
     user_telegram_id: int | None = None,
     amount: float | None = None,
+    *,
+    fresh_connection: bool = False,
 ) -> bool:
     """Enregistre un ID de transaction comme utilisÃ©. Retourne False si dÃ©jÃ  utilisÃ©."""
-    db = await get_db(fresh=True)
+    db = await get_db(fresh=fresh_connection)
     try:
         try:
             await db.execute(

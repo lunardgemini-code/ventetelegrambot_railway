@@ -217,7 +217,7 @@ _pool_lock = None
 _sqlite_wal_configured = False
 _TURSO_POOL_MAX_IDLE_SECONDS = max(
     1.0,
-    float(os.environ.get("TURSO_POOL_MAX_IDLE_SECONDS", "10")),
+    float(os.environ.get("TURSO_POOL_MAX_IDLE_SECONDS", "5")),
 )
 _TURSO_POOL_MAX_LIFETIME_SECONDS = max(
     5.0,
@@ -248,13 +248,22 @@ class _PooledAsyncDB(_AsyncDB):
         msg = str(exc).lower()
         return any(kw in msg for kw in ("stream", "hrana", "connection", "broken pipe", "timed out"))
 
+    @staticmethod
+    def _execute_operation_name(sql) -> str:
+        normalized = str(sql or "").strip().lower()
+        if normalized.startswith("pragma foreign_keys"):
+            return "pragma_foreign_keys"
+        if normalized.startswith("select 1"):
+            return "pool_validation"
+        return "execute"
+
     async def execute(self, sql, params=None):
         try:
             return await super().execute(sql, params)
         except Exception as e:
             if self._is_connection_error(e):
                 self.has_error = True
-                _record_db_connection_error(e, "execute")
+                _record_db_connection_error(e, self._execute_operation_name(sql))
             raise
 
     async def executemany(self, sql, params_list):
@@ -383,9 +392,10 @@ async def get_db(*, fresh: bool = False):
             wrapper = _PooledAsyncDB(conn, return_to_pool=not fresh)
             try:
                 await asyncio.wait_for(wrapper.execute("PRAGMA foreign_keys = ON"), timeout=3)
-                await asyncio.wait_for(wrapper.execute("PRAGMA busy_timeout = 5000"), timeout=3)
-            except Exception:
-                pass
+            except Exception as exc:
+                # The request can still run, but this connection must not be pooled.
+                # The precise operation is exposed in /api/performance for diagnosis.
+                logger.warning("Turso connection initialization failed: %s", exc)
         return wrapper
     else:
         global _sqlite_wal_configured
@@ -396,7 +406,6 @@ async def get_db(*, fresh: bool = False):
             await db.execute("PRAGMA journal_mode = WAL")
             _sqlite_wal_configured = True
         await db.execute("PRAGMA synchronous = NORMAL")
-        await db.execute("PRAGMA busy_timeout = 5000")
         await db.execute("PRAGMA busy_timeout = 5000")
         await db.execute("PRAGMA foreign_keys = ON")
         return db
