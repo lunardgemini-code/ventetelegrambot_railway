@@ -292,6 +292,14 @@ body { background:var(--bg-primary); line-height:1.5; font-size:16px; }
     color: var(--color-error);
 }
 
+.performance-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.65rem;
+    flex-wrap: wrap;
+}
+
 .performance-signals {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -339,6 +347,14 @@ body { background:var(--bg-primary); line-height:1.5; font-size:16px; }
 }
 
 @media (max-width: 480px) {
+    .bot-performance .panel-header {
+        align-items: flex-start;
+    }
+
+    .performance-actions {
+        justify-content: flex-start;
+    }
+
     .performance-signals {
         grid-template-columns: 1fr;
     }

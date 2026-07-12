@@ -2827,6 +2827,27 @@ def _webhook_performance_snapshot() -> dict:
     queue_p95_ms = _metrics_percentile(queue_waits, 0.95) * 1000
     processing_p95_ms = _metrics_percentile(processing, 0.95) * 1000
     max_queue = max(queue_depths, default=0)
+    timeline = []
+    for bucket_index in range(10):
+        bucket_start = cutoff_5m + bucket_index * 30
+        bucket_end = bucket_start + 30
+        bucket_samples = [sample for sample in samples if bucket_start <= sample[0] < bucket_end]
+        bucket_waits = [sample[1] for sample in bucket_samples]
+        bucket_processing = [sample[2] for sample in bucket_samples]
+        bucket_queue_depths = [
+            sample[1]
+            for sample in _webhook_queue_samples
+            if bucket_start <= sample[0] < bucket_end
+        ]
+        timeline.append({
+            "from_seconds_ago": 300 - bucket_index * 30,
+            "to_seconds_ago": 270 - bucket_index * 30,
+            "processed": len(bucket_samples),
+            "worker_errors": sum(1 for sample in bucket_samples if not sample[3]),
+            "queue_peak": max(bucket_queue_depths, default=0),
+            "average_wait_ms": round((sum(bucket_waits) / len(bucket_waits) * 1000) if bucket_waits else 0, 1),
+            "p95_processing_ms": round(_metrics_percentile(bucket_processing, 0.95) * 1000, 1),
+        })
 
     if len(samples) < 20:
         bottleneck = "insufficient_data"
@@ -2881,6 +2902,7 @@ def _webhook_performance_snapshot() -> dict:
             "p95_total_ms": round(_metrics_percentile(totals, 0.95) * 1000, 1),
         },
         "database": db_metrics,
+        "timeline_30s": timeline,
         "diagnosis": {
             "bottleneck": bottleneck,
             "confidence": confidence,

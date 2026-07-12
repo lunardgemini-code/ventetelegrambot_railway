@@ -195,7 +195,7 @@ const DOM = {
     perfStatus:$('perf-status'), perfWorkers:$('perf-workers'), perfWorkersRec:$('perf-workers-rec'),
     perfQueue:$('perf-queue'), perfQueueWait:$('perf-queue-wait'), perfProcessing:$('perf-processing'),
     perfThroughput:$('perf-throughput'), perfDatabase:$('perf-database'), perfDbErrors:$('perf-db-errors'),
-    perfDiagnosis:$('perf-diagnosis'),
+    perfDiagnosis:$('perf-diagnosis'), btnExportPerformance:$('btn-export-performance'),
     dashboardRange:$('dashboard-range'), pageContext:$('page-context'), toastRegion:$('toast-region'),
     badgeOrders:$('badge-orders'), badgeActivations:$('badge-activations'), badgeTickets:$('badge-tickets'), apiStatusBadge:$('api-status-badge'),
     productsTableBody:$('products-table-body'),
@@ -369,6 +369,7 @@ function setupEvents() {
     DOM.btnTheme.addEventListener('click', toggleTheme);
     DOM.btnAutoRefresh.addEventListener('click', toggleAutoRefresh);
     $('btn-export').addEventListener('click', () => showModal($('exportModal')));
+    if (DOM.btnExportPerformance) DOM.btnExportPerformance.addEventListener('click', exportPerformanceDiagnostic);
     if (DOM.btnCreateResellerKey) DOM.btnCreateResellerKey.addEventListener('click', createResellerKey);
     if (DOM.btnSupplierSync) DOM.btnSupplierSync.addEventListener('click', syncSupplierBot);
     if (DOM.supplierSettingsForm) DOM.supplierSettingsForm.addEventListener('submit', saveSupplierSettings);
@@ -1238,6 +1239,40 @@ async function loadPerformanceMetrics() {
     DOM.perfDatabase.textContent = `${Number(database.p95_ms || 0).toFixed(0)} ms`;
     DOM.perfDbErrors.textContent = `${Number(database.connection_errors || 0)} erreur(s) connexion`;
     DOM.perfDiagnosis.textContent = diagnosisText;
+}
+
+async function exportPerformanceDiagnostic() {
+    if (!DOM.btnExportPerformance) return;
+    const button = DOM.btnExportPerformance;
+    const originalHtml = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i><span>Export...</span>';
+    try {
+        const metrics = await apiCall('/api/performance');
+        const exportedAt = new Date();
+        const diagnostic = {
+            export_version: 1,
+            exported_at: exportedAt.toISOString(),
+            source: 'VenteBot dashboard',
+            metrics
+        };
+        const blob = new Blob([JSON.stringify(diagnostic, null, 2)], {type:'application/json'});
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `ventebot-performance-${exportedAt.toISOString().replace(/[:.]/g, '-')}.json`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        showToast('Diagnostic de performance exporte.', 'success');
+    } catch (error) {
+        console.error('Performance export failed', error);
+        showToast("Impossible d'exporter le diagnostic.", 'error');
+    } finally {
+        button.disabled = false;
+        button.innerHTML = originalHtml;
+    }
 }
 
 async function loadDashboardOverview() {
