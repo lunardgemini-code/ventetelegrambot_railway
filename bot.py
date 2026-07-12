@@ -2766,9 +2766,11 @@ async def notify_admins(text: str, reply_markup=None):
 tg_app = None
 webhook_update_queue: asyncio.Queue | None = None
 webhook_worker_tasks: list[asyncio.Task] = []
-WEBHOOK_WORKERS = _env_int("WEBHOOK_WORKERS", 4, minimum=1)
+WEBHOOK_WORKERS = _env_int("WEBHOOK_WORKERS", 8, minimum=1)
 WEBHOOK_LOCK_STRIPES = _env_int("WEBHOOK_LOCK_STRIPES", 1024, minimum=8)
 WEBHOOK_QUEUE_MAX = _env_int("WEBHOOK_QUEUE_MAX", 1000, minimum=10)
+SUBSCRIPTION_CACHE_SECONDS = _env_int("SUBSCRIPTION_CACHE_SECONDS", 3600, minimum=60)
+NOWPAYMENTS_POLL_BATCH = _env_int("NOWPAYMENTS_POLL_BATCH", 10, minimum=1)
 webhook_user_locks: list[asyncio.Lock] = [asyncio.Lock() for _ in range(WEBHOOK_LOCK_STRIPES)]
 
 
@@ -2820,23 +2822,29 @@ async def _nowpayments_worker() -> None:
                         exc,
                     )
 
-            for payment in await list_nowpayments_to_poll(limit=20):
-                try:
-                    provider_payment = await get_payment_status(payment["payment_id"])
-                    saved = await save_nowpayments_update(provider_payment)
-                    if saved:
-                        await _process_nowpayments_payment(str(saved["payment_id"]))
-                except NowPaymentsError as exc:
-                    logger.warning("NOWPayments reconciliation failed for %s: %s", payment.get("payment_id"), exc)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:
-                    logger.exception(
-                        "NOWPayments reconciliation failed for %s; continuing the cycle: %s",
-                        payment.get("payment_id"),
-                        exc,
-                    )
-                await asyncio.sleep(0.2)
+            # Signed IPNs and already-finished payments stay prioritized. Polling
+            # older pending payments can wait briefly while clients are queued.
+            queue_busy = webhook_update_queue is not None and webhook_update_queue.qsize() > 0
+            if queue_busy:
+                logger.debug("Deferring NOWPayments polling while webhook clients are queued")
+            else:
+                for payment in await list_nowpayments_to_poll(limit=NOWPAYMENTS_POLL_BATCH):
+                    try:
+                        provider_payment = await get_payment_status(payment["payment_id"])
+                        saved = await save_nowpayments_update(provider_payment)
+                        if saved:
+                            await _process_nowpayments_payment(str(saved["payment_id"]))
+                    except NowPaymentsError as exc:
+                        logger.warning("NOWPayments reconciliation failed for %s: %s", payment.get("payment_id"), exc)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        logger.exception(
+                            "NOWPayments reconciliation failed for %s; continuing the cycle: %s",
+                            payment.get("payment_id"),
+                            exc,
+                        )
+                    await asyncio.sleep(0.2)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -3286,7 +3294,7 @@ def main() -> None:
             if not is_sub_callback:
                 now = time.time()
                 cached_time = context.user_data.get("sub_verified_at", 0) if context.user_data else 0
-                if (now - cached_time) < 900:
+                if (now - cached_time) < SUBSCRIPTION_CACHE_SECONDS:
                     is_subscribed = True
                 else:
                     is_subscribed = False

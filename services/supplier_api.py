@@ -17,6 +17,7 @@ from config import CANBOSO_API_AUTH_HEADER, CANBOSO_API_BASE_URL, CANBOSO_API_KE
 logger = logging.getLogger(__name__)
 _CLIENT: httpx.AsyncClient | None = None
 _BALANCE_CACHE: tuple[float, dict] | None = None
+_BALANCE_LOCK = asyncio.Lock()
 
 
 class SupplierAPIError(RuntimeError):
@@ -224,10 +225,16 @@ async def get_canboso_balance(*, force: bool = False) -> dict:
     now = time.monotonic()
     if not force and _BALANCE_CACHE and now - _BALANCE_CACHE[0] < 30:
         return dict(_BALANCE_CACHE[1])
-    payload = await _request("GET", "/api/telegram-buyer/balance")
-    balance = normalize_balance(payload)
-    _BALANCE_CACHE = (now, dict(balance))
-    return balance
+
+    async with _BALANCE_LOCK:
+        # Another request may have populated the cache while this caller waited.
+        now = time.monotonic()
+        if not force and _BALANCE_CACHE and now - _BALANCE_CACHE[0] < 30:
+            return dict(_BALANCE_CACHE[1])
+        payload = await _request("GET", "/api/telegram-buyer/balance")
+        balance = normalize_balance(payload)
+        _BALANCE_CACHE = (time.monotonic(), dict(balance))
+        return dict(balance)
 
 
 def invalidate_canboso_balance_cache() -> None:

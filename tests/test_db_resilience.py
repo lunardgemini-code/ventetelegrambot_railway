@@ -84,6 +84,48 @@ class DatabaseResilienceTests(unittest.IsolatedAsyncioTestCase):
         operation.assert_awaited_with(5)
         self.assertEqual(operation.await_count, 2)
 
+    async def test_order_status_update_retries_stale_hrana_stream(self):
+        operation = AsyncMock(side_effect=[
+            ValueError('Hrana: status=404 body={"error":"stream not found"}'),
+            True,
+        ])
+        with patch("database.models._update_order_status_once", operation):
+            with patch("database.models.asyncio.sleep", AsyncMock()):
+                result = await models.update_order_status(
+                    5159,
+                    "COMPLETED",
+                    expected_statuses=("PENDING",),
+                    payment_method="binance",
+                )
+
+        self.assertTrue(result)
+        self.assertEqual(operation.await_count, 2)
+
+    async def test_stock_reservation_retries_stale_hrana_stream(self):
+        expected = [{"id": 1, "account_data": "account"}]
+        operation = AsyncMock(side_effect=[
+            ValueError('Hrana: status=404 body={"error":"stream not found"}'),
+            expected,
+        ])
+        with patch("database.models._reserve_stock_items_for_order_once", operation):
+            with patch("database.models.asyncio.sleep", AsyncMock()):
+                result = await models.reserve_stock_items_for_order(5159, 16)
+
+        self.assertEqual(result, expected)
+        self.assertEqual(operation.await_count, 2)
+
+    async def test_binance_transaction_record_retries_stale_hrana_stream(self):
+        operation = AsyncMock(side_effect=[
+            ValueError('Hrana: status=404 body={"error":"stream not found"}'),
+            True,
+        ])
+        with patch("database.models._record_used_transaction_once", operation):
+            with patch("database.models.asyncio.sleep", AsyncMock()):
+                result = await models.record_used_transaction("tx-42", 5159, 42, 4.5)
+
+        self.assertTrue(result)
+        self.assertEqual(operation.await_count, 2)
+
     async def test_payment_start_fallback_only_ends_conversation(self):
         context = SimpleNamespace(user_data={
             "paying_order_id": 1,

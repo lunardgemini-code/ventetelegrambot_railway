@@ -1,3 +1,4 @@
+import asyncio
 import os
 import tempfile
 import unittest
@@ -21,6 +22,7 @@ from services.supplier_api import (
     normalize_products,
     normalize_purchase,
 )
+from services import supplier_api
 
 
 class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
@@ -133,6 +135,22 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(balance["currency"], "USD")
         self.assertEqual(balance["balance"], 2.5)
         self.assertEqual(balance["balance_text"], "$2.50")
+
+    async def test_concurrent_balance_reads_share_one_supplier_request(self):
+        supplier_api._BALANCE_CACHE = None
+        request = AsyncMock(return_value={
+            "success": True,
+            "walletCurrency": "USD",
+            "balance": 5.0,
+        })
+        with patch("services.supplier_api._request", request):
+            results = await asyncio.gather(*(
+                supplier_api.get_canboso_balance() for _ in range(5)
+            ))
+
+        self.assertEqual(request.await_count, 1)
+        self.assertTrue(all(result["balance"] == 5.0 for result in results))
+        supplier_api._BALANCE_CACHE = None
 
     async def test_selected_product_uses_remote_stock_and_margin(self):
         product = await models.get_product(self.local_product_id)

@@ -691,15 +691,7 @@ async def admin_stock_broadcast_yes(update: Update, context: ContextTypes.DEFAUL
         InlineKeyboardButton("🛒 Buy now", callback_data=f"buy:{prod_id}")
     ]])
 
-    sent, failed = await _execute_broadcast(context.bot, broadcast_text, reply_markup=markup)
-
-    await query.edit_message_text(
-        f"📢 <b>Alerte de restock diffusée !</b>\n\n"
-        f"✅ Envoyé : {sent}\n"
-        f"❌ Échoué : {failed}",
-        parse_mode="HTML",
-        reply_markup=admin_menu_keyboard(),
-    )
+    _queue_admin_broadcast(context.bot, query.message, broadcast_text, reply_markup=markup)
     return ConversationHandler.END
 
 
@@ -767,6 +759,60 @@ async def _execute_broadcast(bot, text, photo_file_id=None, reply_markup=None):
     return sent, failed
 
 
+_admin_broadcast_tasks: set[asyncio.Task] = set()
+
+
+async def _run_admin_broadcast(bot, status_message, text, photo_file_id=None, reply_markup=None):
+    """Run a broadcast outside the ConversationHandler and update its status message."""
+    from services.broadcast import execute_broadcast
+
+    last_progress_update = 0.0
+
+    async def progress(sent: int, failed: int, total: int) -> None:
+        nonlocal last_progress_update
+        now = asyncio.get_running_loop().time()
+        if sent + failed < total and now - last_progress_update < 2.0:
+            return
+        last_progress_update = now
+        try:
+            await status_message.edit_text(
+                f"Broadcast en cours...\n\nEnvoye : {sent}/{total}\nEchoue : {failed}"
+            )
+        except Exception:
+            pass
+
+    try:
+        sent, failed, total = await execute_broadcast(
+            bot,
+            text,
+            photo=photo_file_id,
+            reply_markup=reply_markup,
+            progress=progress,
+        )
+        await status_message.edit_text(
+            f"<b>Broadcast termine</b>\n\nEnvoye : {sent}/{total}\nEchoue : {failed}",
+            parse_mode="HTML",
+            reply_markup=admin_menu_keyboard(),
+        )
+    except Exception as exc:
+        logger.error("Admin broadcast failed: %s", exc, exc_info=True)
+        try:
+            await status_message.edit_text(
+                f"Broadcast interrompu : {escape_html(str(exc))}",
+                reply_markup=admin_menu_keyboard(),
+            )
+        except Exception:
+            pass
+
+
+def _queue_admin_broadcast(bot, status_message, text, photo_file_id=None, reply_markup=None) -> None:
+    task = asyncio.create_task(
+        _run_admin_broadcast(bot, status_message, text, photo_file_id, reply_markup)
+    )
+    _admin_broadcast_tasks.add(task)
+    task.add_done_callback(_admin_broadcast_tasks.discard)
+
+
 # Decision handlers for broadcasting a newly created product
 async def admin_prod_broadcast_yes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle 'prod_bc_yes' callback — broadcast product with purchase button."""
@@ -799,19 +845,12 @@ async def admin_prod_broadcast_yes(update: Update, context: ContextTypes.DEFAULT
         InlineKeyboardButton("🛒 Acheter maintenant", callback_data=f"buy:{prod_id}")
     ]])
 
-    sent, failed = await _execute_broadcast(context.bot, broadcast_text, reply_markup=markup)
+    _queue_admin_broadcast(context.bot, query.message, broadcast_text, reply_markup=markup)
 
     # Clean up
     for key in ["broadcast_prod_id", "broadcast_prod_name", "broadcast_prod_desc", "broadcast_prod_price", "broadcast_prod_emoji"]:
         ud.pop(key, None)
 
-    await query.edit_message_text(
-        f"📢 <b>Broadcast terminé !</b>\n\n"
-        f"✅ Envoyé : {sent}\n"
-        f"❌ Échoué : {failed}",
-        parse_mode="HTML",
-        reply_markup=admin_menu_keyboard(),
-    )
     return ConversationHandler.END
 
 
@@ -895,17 +934,11 @@ async def admin_broadcast_btn_type(update: Update, context: ContextTypes.DEFAULT
     if choice == "none":
         # Broadcast immediately
         await query.edit_message_text("📢 Diffusion en cours...")
-        sent, failed = await _execute_broadcast(
+        _queue_admin_broadcast(
             context.bot,
+            query.message,
             ud["bc_text"],
-            photo_file_id=ud.get("bc_photo_file_id")
-        )
-        await query.edit_message_text(
-            f"📢 <b>Broadcast terminé !</b>\n\n"
-            f"✅ Envoyé : {sent}\n"
-            f"❌ Échoué : {failed}",
-            parse_mode="HTML",
-            reply_markup=admin_menu_keyboard(),
+            photo_file_id=ud.get("bc_photo_file_id"),
         )
         return ConversationHandler.END
 
@@ -952,19 +985,12 @@ async def admin_broadcast_btn_product(update: Update, context: ContextTypes.DEFA
         InlineKeyboardButton("🛒 Acheter maintenant", callback_data=f"buy:{prod_id}")
     ]])
 
-    sent, failed = await _execute_broadcast(
+    _queue_admin_broadcast(
         context.bot,
+        query.message,
         ud["bc_text"],
         photo_file_id=ud.get("bc_photo_file_id"),
-        reply_markup=markup
-    )
-
-    await query.edit_message_text(
-        f"📢 <b>Broadcast terminé !</b>\n\n"
-        f"✅ Envoyé : {sent}\n"
-        f"❌ Échoué : {failed}",
-        parse_mode="HTML",
-        reply_markup=admin_menu_keyboard(),
+        reply_markup=markup,
     )
     return ConversationHandler.END
 
@@ -997,26 +1023,18 @@ async def admin_broadcast_btn_url(update: Update, context: ContextTypes.DEFAULT_
     if not url_target.startswith(("http://", "https://")):
         url_target = "https://" + url_target
 
-    await update.message.reply_text("📢 Diffusion en cours...")
-
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     markup = InlineKeyboardMarkup([[
         InlineKeyboardButton(btn_label, url=url_target)
     ]])
 
-    sent, failed = await _execute_broadcast(
+    status_message = await update.message.reply_text("Broadcast lance en arriere-plan...")
+    _queue_admin_broadcast(
         context.bot,
+        status_message,
         ud["bc_text"],
         photo_file_id=ud.get("bc_photo_file_id"),
-        reply_markup=markup
-    )
-
-    await update.message.reply_text(
-        f"📢 <b>Broadcast terminé !</b>\n\n"
-        f"✅ Envoyé : {sent}\n"
-        f"❌ Échoué : {failed}",
-        parse_mode="HTML",
-        reply_markup=admin_menu_keyboard(),
+        reply_markup=markup,
     )
     return ConversationHandler.END
 
