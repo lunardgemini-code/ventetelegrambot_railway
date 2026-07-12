@@ -57,6 +57,89 @@ class NowPaymentsTests(unittest.IsolatedAsyncioTestCase):
     async def test_notification_claim_prevents_duplicate_messages(self):
         self.assertTrue(await models.claim_nowpayments_notification(self.payment_id))
         self.assertFalse(await models.claim_nowpayments_notification(self.payment_id))
+
+    async def test_unpaid_payment_expires_after_five_minutes(self):
+        await models.update_order_status(
+            self.order["id"],
+            "AWAITING_PAYMENT",
+            expected_statuses=("PENDING",),
+            payment_method="nowpayments_bep20",
+        )
+        db = await db_module.get_db()
+        try:
+            await db.execute(
+                "UPDATE nowpayments_payments SET created_at = datetime('now', '-6 minutes') WHERE payment_id = ?",
+                (self.payment_id,),
+            )
+            await db.commit()
+        finally:
+            await db.close()
+
+        expired = await models.expire_stale_nowpayments_payments(timeout_seconds=300)
+        order = await models.get_order(self.order["id"])
+        payment = await models.get_nowpayments_payment(self.payment_id)
+
+        self.assertEqual(expired, [self.payment_id])
+        self.assertEqual(order["status"], "CANCELLED")
+        self.assertEqual(payment["provider_status"], "expired")
+
+    async def test_recent_unpaid_payment_is_not_expired(self):
+        expired = await models.expire_stale_nowpayments_payments(timeout_seconds=300)
+        order = await models.get_order(self.order["id"])
+
+        self.assertEqual(expired, [])
+        self.assertEqual(order["status"], "PENDING")
+
+    async def test_active_timeout_reports_remaining_time_for_restart_recovery(self):
+        db = await db_module.get_db()
+        try:
+            await db.execute(
+                "UPDATE nowpayments_payments SET created_at = datetime('now', '-4 minutes') WHERE payment_id = ?",
+                (self.payment_id,),
+            )
+            await db.commit()
+        finally:
+            await db.close()
+
+        active = await models.list_active_nowpayments_timeouts(timeout_seconds=300)
+
+        self.assertEqual(len(active), 1)
+        self.assertEqual(int(active[0]["order_id"]), int(self.order["id"]))
+        self.assertGreaterEqual(int(active[0]["remaining_seconds"]), 55)
+        self.assertLessEqual(int(active[0]["remaining_seconds"]), 60)
+
+    async def test_late_finished_payment_recovers_an_expired_order(self):
+        await models.update_order_status(
+            self.order["id"],
+            "AWAITING_PAYMENT",
+            expected_statuses=("PENDING",),
+            payment_method="nowpayments_bep20",
+        )
+        db = await db_module.get_db()
+        try:
+            await db.execute(
+                "UPDATE nowpayments_payments SET created_at = datetime('now', '-6 minutes') WHERE payment_id = ?",
+                (self.payment_id,),
+            )
+            await db.commit()
+        finally:
+            await db.close()
+        await models.expire_stale_nowpayments_payments(timeout_seconds=300)
+
+        await models.save_nowpayments_update({
+            "payment_id": self.payment_id,
+            "payment_status": "finished",
+            "order_id": str(self.order["id"]),
+            "pay_amount": 5,
+            "actually_paid": 5,
+            "pay_currency": "usdtbsc",
+        })
+        result = await models.finalize_nowpayments_payment(self.payment_id)
+        order = await models.get_order(self.order["id"])
+
+        self.assertEqual(result["action"], "completed")
+        self.assertEqual(order["status"], "COMPLETED")
+        self.assertEqual(len(result["items"]), 1)
         await models.release_nowpayments_notification(self.payment_id)
         self.assertTrue(await models.claim_nowpayments_notification(self.payment_id))
         await models.mark_nowpayments_notified(self.payment_id)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from decimal import Decimal, InvalidOperation, ROUND_FLOOR
 from typing import Any
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 _CLIENT: httpx.AsyncClient | None = None
 _BALANCE_CACHE: tuple[float, dict] | None = None
 _BALANCE_LOCK = asyncio.Lock()
+_BALANCE_CACHE_SECONDS = max(10, int(os.environ.get("SUPPLIER_BALANCE_CACHE_SECONDS", "120")))
 
 
 class SupplierAPIError(RuntimeError):
@@ -223,13 +225,13 @@ def normalize_balance(payload: Any) -> dict:
 async def get_canboso_balance(*, force: bool = False) -> dict:
     global _BALANCE_CACHE
     now = time.monotonic()
-    if not force and _BALANCE_CACHE and now - _BALANCE_CACHE[0] < 30:
+    if not force and _BALANCE_CACHE and now - _BALANCE_CACHE[0] < _BALANCE_CACHE_SECONDS:
         return dict(_BALANCE_CACHE[1])
 
     async with _BALANCE_LOCK:
         # Another request may have populated the cache while this caller waited.
         now = time.monotonic()
-        if not force and _BALANCE_CACHE and now - _BALANCE_CACHE[0] < 30:
+        if not force and _BALANCE_CACHE and now - _BALANCE_CACHE[0] < _BALANCE_CACHE_SECONDS:
             return dict(_BALANCE_CACHE[1])
         payload = await _request("GET", "/api/telegram-buyer/balance")
         balance = normalize_balance(payload)

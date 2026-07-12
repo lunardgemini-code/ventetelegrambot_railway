@@ -14,6 +14,7 @@ import os
 import time
 from datetime import datetime, timedelta, timezone
 
+from config import PAYMENT_TIMEOUT_SECONDS
 from .db import get_db, is_transient_db_connection_error
 
 logger = logging.getLogger(__name__)
@@ -2030,7 +2031,12 @@ async def create_order(
     try:
         # Cancel any existing PENDING orders for this user (prevent duplicates)
         await db.execute(
-            "UPDATE orders SET status = 'CANCELLED' WHERE user_telegram_id = ? AND status = 'PENDING'",
+            """UPDATE orders SET status = 'CANCELLED'
+               WHERE user_telegram_id = ? AND status = 'PENDING'
+                 AND NOT EXISTS (
+                     SELECT 1 FROM stock_items s
+                     WHERE s.sold_to_order_id = orders.id AND s.is_sold = 1
+                 )""",
             (user_telegram_id,),
         )
         cursor = await db.execute(
@@ -2078,6 +2084,54 @@ async def get_total_users_count() -> int:
         cursor = await db.execute("SELECT COUNT(*) AS cnt FROM users")
         row = await cursor.fetchone()
         return int(row["cnt"] if row else 0)
+    finally:
+        await db.close()
+
+
+async def get_stock_items_page_for_product(
+    product_id: int,
+    *,
+    limit: int = 200,
+    offset: int = 0,
+    sold: bool | None = None,
+) -> dict:
+    """Return a bounded stock page plus exact sold/available totals."""
+    limit = max(1, min(int(limit), 500))
+    offset = max(0, int(offset))
+    db = await get_db()
+    try:
+        totals_cursor = await db.execute(
+            """SELECT COUNT(*) AS total,
+                      COALESCE(SUM(CASE WHEN is_sold = 0 THEN 1 ELSE 0 END), 0) AS available,
+                      COALESCE(SUM(CASE WHEN is_sold = 1 THEN 1 ELSE 0 END), 0) AS sold
+               FROM stock_items WHERE product_id = ?""",
+            (product_id,),
+        )
+        totals = dict(await totals_cursor.fetchone())
+
+        where = "product_id = ?"
+        params: list = [product_id]
+        if sold is not None:
+            where += " AND is_sold = ?"
+            params.append(1 if sold else 0)
+        params.extend((limit, offset))
+        cursor = await db.execute(
+            f"""SELECT * FROM stock_items WHERE {where}
+                ORDER BY is_sold ASC, added_at DESC, id DESC
+                LIMIT ? OFFSET ?""",
+            params,
+        )
+        items = [dict(row) for row in await cursor.fetchall()]
+        filtered_total = int(totals["sold"] if sold else totals["available"]) if sold is not None else int(totals["total"])
+        return {
+            "items": items,
+            "total": filtered_total,
+            "all_total": int(totals["total"]),
+            "available": int(totals["available"]),
+            "sold": int(totals["sold"]),
+            "limit": limit,
+            "offset": offset,
+        }
     finally:
         await db.close()
 
@@ -2235,6 +2289,13 @@ async def cancel_order_if_allowed(order_id: int, allowed_statuses: tuple[str, ..
         if order.get("status") not in allowed_statuses:
             await db.rollback()
             raise ValueError(f"Order cannot be cancelled from status {order.get('status')}")
+        cursor = await db.execute(
+            "SELECT 1 FROM stock_items WHERE sold_to_order_id = ? AND is_sold = 1 LIMIT 1",
+            (int(order_id),),
+        )
+        if await cursor.fetchone():
+            await db.rollback()
+            raise ValueError("Order has reserved or delivered stock and cannot be cancelled")
         await db.execute(
             "UPDATE orders SET status = 'CANCELLED' WHERE id = ?",
             (int(order_id),),
@@ -2420,6 +2481,15 @@ async def _update_order_status_once(
             await db.rollback()
             return False
 
+        if status == "CANCELLED":
+            cursor = await db.execute(
+                "SELECT 1 FROM stock_items WHERE sold_to_order_id = ? AND is_sold = 1 LIMIT 1",
+                (order_id,),
+            )
+            if await cursor.fetchone():
+                await db.rollback()
+                return False
+
         transitioned = current_order.get("status") != status
         if status == "COMPLETED" and "paid_at" not in safe_kwargs:
             set_parts.append("paid_at = COALESCE(paid_at, CURRENT_TIMESTAMP)")
@@ -2452,6 +2522,109 @@ _NOWPAYMENTS_ACTIVE_STATUSES = (
     "spending",
     "partially_paid",
 )
+
+
+async def expire_stale_nowpayments_payments(
+    *,
+    timeout_seconds: int = PAYMENT_TIMEOUT_SECONDS,
+    order_id: int | None = None,
+) -> list[str]:
+    """Cancel unpaid NOWPayments checkouts after the normal payment timeout."""
+    timeout_seconds = max(60, int(timeout_seconds))
+    async with _get_critical_db_semaphore():
+        db = await get_db(fresh=True)
+        try:
+            await db.execute("BEGIN IMMEDIATE")
+            where_order = " AND o.id = ?" if order_id is not None else ""
+            params: list = [f"-{timeout_seconds} seconds"]
+            if order_id is not None:
+                params.append(int(order_id))
+            cursor = await db.execute(
+                f"""SELECT np.id, np.payment_id, np.order_id
+                    FROM nowpayments_payments np
+                    JOIN orders o ON o.id = np.order_id
+                    WHERE np.provider_status IN ('creating', 'creation_unknown', 'waiting')
+                      AND COALESCE(np.actually_paid, 0) <= 0
+                      AND np.created_at <= datetime('now', ?)
+                      AND o.status IN ('PENDING', 'AWAITING_PAYMENT')
+                      AND NOT EXISTS (
+                          SELECT 1 FROM stock_items s
+                          WHERE s.sold_to_order_id = o.id AND s.is_sold = 1
+                      )
+                      {where_order}""",
+                params,
+            )
+            expired = [dict(row) for row in await cursor.fetchall()]
+            if not expired:
+                await db.commit()
+                return []
+
+            payment_row_ids = [int(row["id"]) for row in expired]
+            order_ids = [int(row["order_id"]) for row in expired]
+            payment_placeholders = ",".join("?" for _ in payment_row_ids)
+            order_placeholders = ",".join("?" for _ in order_ids)
+            await db.execute(
+                f"""UPDATE nowpayments_payments
+                    SET provider_status = 'expired', updated_at = CURRENT_TIMESTAMP,
+                        notification_claimed_at = NULL, notified_at = NULL
+                    WHERE id IN ({payment_placeholders})""",
+                payment_row_ids,
+            )
+            await db.execute(
+                f"""UPDATE orders SET status = 'CANCELLED'
+                    WHERE id IN ({order_placeholders})
+                      AND status IN ('PENDING', 'AWAITING_PAYMENT')
+                      AND NOT EXISTS (
+                          SELECT 1 FROM stock_items s
+                          WHERE s.sold_to_order_id = orders.id AND s.is_sold = 1
+                      )""",
+                order_ids,
+            )
+            await db.commit()
+            _clear_stock_cache()
+            invalidate_stats_cache()
+            return [str(row["payment_id"]) for row in expired if row.get("payment_id")]
+        except Exception:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            raise
+        finally:
+            await db.close()
+
+
+async def list_active_nowpayments_timeouts(
+    *,
+    timeout_seconds: int = PAYMENT_TIMEOUT_SECONDS,
+) -> list[dict]:
+    """Return unpaid provider orders and the seconds left before expiration."""
+    timeout_seconds = max(60, int(timeout_seconds))
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT np.order_id,
+                      MAX(
+                          0,
+                          ? - MAX(
+                              0,
+                              CAST(strftime('%s', 'now') - strftime('%s', np.created_at) AS INTEGER)
+                          )
+                      ) AS remaining_seconds
+               FROM nowpayments_payments np
+               JOIN orders o ON o.id = np.order_id
+               WHERE np.provider_status IN ('creating', 'creation_unknown', 'waiting')
+                 AND COALESCE(np.actually_paid, 0) <= 0
+                 AND o.status IN ('PENDING', 'AWAITING_PAYMENT')
+                 AND NOT EXISTS (
+                     SELECT 1 FROM stock_items s
+                     WHERE s.sold_to_order_id = o.id AND s.is_sold = 1
+                 )""",
+            (timeout_seconds,),
+        )
+        return [dict(row) for row in await cursor.fetchall()]
+    finally:
+        await db.close()
 
 
 async def prepare_nowpayments_attempt(order_id: int, price_amount: float) -> dict:
@@ -3057,6 +3230,12 @@ async def recover_stale_processing_wallet_orders(age_minutes: int = 5) -> dict[s
             )
             debit = await cursor.fetchone()
             if not debit:
+                await db.execute(
+                    """UPDATE stock_items
+                       SET is_sold = 0, sold_to_order_id = NULL, sold_at = NULL
+                       WHERE sold_to_order_id = ?""",
+                    (order_id,),
+                )
                 await db.execute("UPDATE orders SET status = 'CANCELLED' WHERE id = ?", (order_id,))
                 await db.commit()
                 result["cancelled"] += 1
@@ -3131,6 +3310,12 @@ async def recover_stale_processing_wallet_orders(age_minutes: int = 5) -> dict[s
                         refund_description,
                     ),
                 )
+            await db.execute(
+                """UPDATE stock_items
+                   SET is_sold = 0, sold_to_order_id = NULL, sold_at = NULL
+                   WHERE sold_to_order_id = ?""",
+                (order_id,),
+            )
             await db.execute("UPDATE orders SET status = 'CANCELLED' WHERE id = ?", (order_id,))
             await db.commit()
             result["refunded"] += 1
@@ -3183,7 +3368,13 @@ async def _cancel_all_pending_orders_once(
     db = await get_db(fresh=fresh_connection)
     try:
         cursor = await db.execute(
-            "UPDATE orders SET status = 'CANCELLED' WHERE user_telegram_id = ? AND status IN ('PENDING', 'AWAITING_PAYMENT')",
+            """UPDATE orders SET status = 'CANCELLED'
+               WHERE user_telegram_id = ?
+                 AND status IN ('PENDING', 'AWAITING_PAYMENT')
+                 AND NOT EXISTS (
+                     SELECT 1 FROM stock_items s
+                     WHERE s.sold_to_order_id = orders.id AND s.is_sold = 1
+                 )""",
             (user_telegram_id,),
         )
         await db.commit()

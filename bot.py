@@ -48,7 +48,7 @@ from telegram.ext import (
     filters,
 )
 
-from config import BOT_TOKEN, ADMIN_IDS
+from config import ADMIN_IDS, BOT_TOKEN, PAYMENT_TIMEOUT_SECONDS
 from database import init_db
 from handlers.admin import admin_complete_activation, get_admin_conversation_handler
 from handlers.history import show_history, show_order_detail
@@ -57,6 +57,7 @@ from handlers.payment import (
     initiate_purchase,
     download_txt_delivery,
     receive_activation_identifier,
+    restore_nowpayments_timeout_tasks,
     safe_send_delivery_messages,
 )
 from handlers.products import (
@@ -2145,11 +2146,20 @@ async def api_reply_ticket(ticket_id: int, data: dict):
 
 
 @api.get("/api/products/{product_id}/stock", dependencies=[Depends(verify_api_key)])
-async def api_get_product_stock(product_id: int):
-    from database.models import get_stock_items_for_product
+async def api_get_product_stock(
+    product_id: int,
+    limit: int = 200,
+    offset: int = 0,
+    sold: bool | None = None,
+):
+    from database.models import get_stock_items_page_for_product
     try:
-        items = await get_stock_items_for_product(product_id)
-        return items
+        return await get_stock_items_page_for_product(
+            product_id,
+            limit=limit,
+            offset=offset,
+            sold=sold,
+        )
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -2190,7 +2200,6 @@ async def api_add_product_stock(product_id: int, data: dict):
                 from handlers.admin import _execute_broadcast
                 if tg_app and tg_app.bot:
                     # Run in background tasks to not block API response
-                    import asyncio
                     asyncio.create_task(_execute_broadcast(tg_app.bot, broadcast_text, reply_markup=markup))
 
         return {"status": "added", "count": count}
@@ -2352,13 +2361,33 @@ async def api_activate_order(order_id: int):
 async def api_cleanup_stale_orders():
     """Auto-cancel all PENDING/AWAITING_PAYMENT orders older than 5 minutes and notify users."""
     from database.db import get_db
+    from database.models import expire_stale_nowpayments_payments
     try:
+        expired_payment_ids = await expire_stale_nowpayments_payments(
+            timeout_seconds=PAYMENT_TIMEOUT_SECONDS,
+        )
+        if tg_app and tg_app.bot:
+            for payment_id in expired_payment_ids:
+                try:
+                    await _process_nowpayments_payment(payment_id)
+                except Exception as exc:
+                    logger.warning("Could not notify expired NOWPayments payment %s: %s", payment_id, exc)
+
         db = await get_db()
         try:
             cursor = await db.execute(
                 """SELECT id, user_telegram_id FROM orders 
                    WHERE status IN ('PENDING', 'AWAITING_PAYMENT')
-                     AND created_at <= datetime('now', '-5 minutes')"""
+                     AND created_at <= datetime('now', ?)
+                     AND NOT EXISTS (
+                         SELECT 1 FROM stock_items s
+                         WHERE s.sold_to_order_id = orders.id AND s.is_sold = 1
+                     )
+                     AND NOT EXISTS (
+                         SELECT 1 FROM nowpayments_payments np
+                         WHERE np.order_id = orders.id
+                     )""",
+                (f"-{PAYMENT_TIMEOUT_SECONDS} seconds",),
             )
             stale_orders = await cursor.fetchall()
             count = 0
@@ -2367,7 +2396,13 @@ async def api_cleanup_stale_orders():
                 stale_ids = [str(o["id"]) for o in stale_orders]
                 placeholders = ",".join(["?"] * len(stale_ids))
                 await db.execute(
-                    f"UPDATE orders SET status = 'CANCELLED' WHERE id IN ({placeholders})",
+                    f"""UPDATE orders SET status = 'CANCELLED'
+                        WHERE id IN ({placeholders})
+                          AND status IN ('PENDING', 'AWAITING_PAYMENT')
+                          AND NOT EXISTS (
+                              SELECT 1 FROM stock_items s
+                              WHERE s.sold_to_order_id = orders.id AND s.is_sold = 1
+                          )""",
                     stale_ids
                 )
                 await db.commit()
@@ -2389,7 +2424,7 @@ async def api_cleanup_stale_orders():
                         except Exception as e:
                             logger.error(f"Failed to notify user {order['user_telegram_id']} of expired order {order['id']}: {e}")
                             
-            return {"status": "ok", "cancelled": count}
+            return {"status": "ok", "cancelled": count + len(expired_payment_ids)}
         finally:
             await db.close()
     except Exception as exc:
@@ -2989,6 +3024,7 @@ def _should_process_polled_nowpayment(saved: dict | None) -> bool:
 
 async def _nowpayments_worker() -> None:
     from database.models import (
+        expire_stale_nowpayments_payments,
         list_nowpayments_to_finalize,
         list_nowpayments_to_poll,
         save_nowpayments_update,
@@ -2998,6 +3034,21 @@ async def _nowpayments_worker() -> None:
     while True:
         next_delay = NOWPAYMENTS_RECONCILE_SECONDS
         try:
+            expired_payment_ids = await expire_stale_nowpayments_payments(
+                timeout_seconds=PAYMENT_TIMEOUT_SECONDS,
+            )
+            for payment_id in expired_payment_ids:
+                try:
+                    await _process_nowpayments_payment(payment_id)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.exception(
+                        "NOWPayments expiration notification failed for %s: %s",
+                        payment_id,
+                        exc,
+                    )
+
             for payment in await list_nowpayments_to_finalize(limit=25):
                 try:
                     await _process_nowpayments_payment(str(payment["payment_id"]))
@@ -3017,6 +3068,9 @@ async def _nowpayments_worker() -> None:
                 logger.debug("Deferring NOWPayments polling while webhook clients are queued")
             else:
                 for payment in await list_nowpayments_to_poll(limit=NOWPAYMENTS_POLL_BATCH):
+                    if _current_webhook_backlog() > 0:
+                        logger.debug("Stopping NOWPayments polling because webhook clients are queued")
+                        break
                     try:
                         provider_payment = await get_payment_status(payment["payment_id"])
                         saved = await save_nowpayments_update(provider_payment)
@@ -3066,12 +3120,17 @@ async def post_init(application: Application) -> None:
             cursor = await db.execute(
                 """UPDATE orders SET status = 'CANCELLED'
                    WHERE status IN ('PENDING', 'AWAITING_PAYMENT')
-                     AND created_at <= datetime('now', '-5 minutes')
+                     AND created_at <= datetime('now', ?)
+                     AND NOT EXISTS (
+                         SELECT 1 FROM stock_items s
+                         WHERE s.sold_to_order_id = orders.id AND s.is_sold = 1
+                     )
                      AND NOT EXISTS (
                          SELECT 1 FROM nowpayments_payments np
                          WHERE np.order_id = orders.id
                            AND np.provider_status IN ('creating', 'creation_unknown', 'waiting', 'confirming', 'confirmed', 'sending', 'spending', 'partially_paid')
-                     )"""
+                     )""",
+                (f"-{PAYMENT_TIMEOUT_SECONDS} seconds",),
             )
             await db.commit()
             count = cursor.rowcount if cursor.rowcount > 0 else 0
@@ -3093,6 +3152,12 @@ async def post_init(application: Application) -> None:
         if not task or task.done():
             application.bot_data["nowpayments_task"] = asyncio.create_task(_nowpayments_worker())
             logger.info("NOWPayments reconciliation worker started (check every %ds)", NOWPAYMENTS_RECONCILE_SECONDS)
+        try:
+            restored = await restore_nowpayments_timeout_tasks(application.bot)
+            if restored:
+                logger.info("Restored %d NOWPayments expiration timer(s)", restored)
+        except Exception as exc:
+            logger.warning("Could not restore NOWPayments expiration timers: %s", exc)
 
 
 async def post_shutdown(application: Application) -> None:
@@ -3359,6 +3424,9 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
         ("ALTER TABLE nowpayments_payments ADD COLUMN notification_claimed_at TIMESTAMP", "Column 'nowpayments_payments.notification_claimed_at'"),
         ("CREATE INDEX IF NOT EXISTS idx_nowpayments_order ON nowpayments_payments(order_id, created_at)", "Index 'idx_nowpayments_order'"),
         ("CREATE INDEX IF NOT EXISTS idx_nowpayments_status ON nowpayments_payments(provider_status, updated_at)", "Index 'idx_nowpayments_status'"),
+        ("CREATE INDEX IF NOT EXISTS idx_stock_product_added ON stock_items(product_id, added_at DESC)", "Index 'idx_stock_product_added'"),
+        ("CREATE INDEX IF NOT EXISTS idx_orders_user_status ON orders(user_telegram_id, status)", "Index 'idx_orders_user_status'"),
+        ("CREATE INDEX IF NOT EXISTS idx_orders_binance_id ON orders(binance_order_id)", "Index 'idx_orders_binance_id'"),
         ("CREATE INDEX IF NOT EXISTS idx_reseller_keys_user ON reseller_api_keys(user_telegram_id)", "Index 'idx_reseller_keys_user'"),
         ("CREATE INDEX IF NOT EXISTS idx_reseller_keys_prefix ON reseller_api_keys(key_prefix)", "Index 'idx_reseller_keys_prefix'"),
         ("CREATE INDEX IF NOT EXISTS idx_reseller_orders_user ON reseller_order_links(reseller_user_telegram_id, created_at)", "Index 'idx_reseller_orders_user'"),

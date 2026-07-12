@@ -19,7 +19,7 @@ from telegram.ext import (
     filters,
 )
 
-from config import ADMIN_IDS, BINANCE_PAY_ID
+from config import ADMIN_IDS, BINANCE_PAY_ID, PAYMENT_TIMEOUT_SECONDS
 from database.models import (
     create_order,
     get_pending_activation_order_for_user,
@@ -893,7 +893,7 @@ async def pay_with_binance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id = query.message.chat_id if query.message else telegram_id
         task = asyncio.create_task(
             cancel_order_after_timeout(
-                context, chat_id, order_id, telegram_id, timeout_seconds=300
+                context, chat_id, order_id, telegram_id, timeout_seconds=PAYMENT_TIMEOUT_SECONDS
             )
         )
         _timeout_tasks[order_id] = task
@@ -1137,6 +1137,55 @@ async def cancel_order_after_timeout(
             )
     except Exception as exc:
         logger.error("Error in cancel_order_after_timeout: %s", exc, exc_info=True)
+
+
+async def expire_nowpayments_order_after_timeout(
+    bot,
+    order_id: int,
+    timeout_seconds: int = PAYMENT_TIMEOUT_SECONDS,
+    delay_seconds: float | None = None,
+):
+    """Expire an unpaid provider checkout while preserving late IPN recovery."""
+    await asyncio.sleep(timeout_seconds if delay_seconds is None else max(0, delay_seconds))
+    try:
+        from database.models import expire_stale_nowpayments_payments
+
+        payment_ids = await expire_stale_nowpayments_payments(
+            timeout_seconds=timeout_seconds,
+            order_id=order_id,
+        )
+        for payment_id in payment_ids:
+            await process_nowpayments_payment_notification(bot, payment_id)
+    except Exception as exc:
+        logger.error("Error expiring NOWPayments order #%s: %s", order_id, exc, exc_info=True)
+    finally:
+        current = asyncio.current_task()
+        if _timeout_tasks.get(order_id) is current:
+            _timeout_tasks.pop(order_id, None)
+
+
+async def restore_nowpayments_timeout_tasks(bot) -> int:
+    """Restore exact payment deadlines after a process restart."""
+    from database.models import list_active_nowpayments_timeouts
+
+    restored = 0
+    for payment in await list_active_nowpayments_timeouts(
+        timeout_seconds=PAYMENT_TIMEOUT_SECONDS,
+    ):
+        order_id = int(payment["order_id"])
+        previous_task = _timeout_tasks.pop(order_id, None)
+        if previous_task and not previous_task.done():
+            previous_task.cancel()
+        _timeout_tasks[order_id] = asyncio.create_task(
+            expire_nowpayments_order_after_timeout(
+                bot,
+                order_id,
+                timeout_seconds=PAYMENT_TIMEOUT_SECONDS,
+                delay_seconds=float(payment.get("remaining_seconds") or 0),
+            )
+        )
+        restored += 1
+    return restored
 
 
 async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1532,6 +1581,16 @@ async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYP
         context.user_data["paying_order_id"] = order_id
         context.user_data["paying_product_id"] = order.get("product_id")
         await _render_nowpayments_checkout(query, payment, lang)
+        previous_task = _timeout_tasks.pop(order_id, None)
+        if previous_task and not previous_task.done():
+            previous_task.cancel()
+        _timeout_tasks[order_id] = asyncio.create_task(
+            expire_nowpayments_order_after_timeout(
+                context.bot,
+                order_id,
+                timeout_seconds=PAYMENT_TIMEOUT_SECONDS,
+            )
+        )
         return WAITING_NOWPAYMENTS
 
 
@@ -1660,7 +1719,7 @@ async def pay_with_bep20(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=update.effective_chat.id,
                 order_id=order_id,
                 user_telegram_id=update.effective_user.id,
-                timeout_seconds=300,
+                timeout_seconds=PAYMENT_TIMEOUT_SECONDS,
             )
         )
         _timeout_tasks[order_id] = task
@@ -1939,7 +1998,7 @@ async def pay_with_trc20(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=update.effective_chat.id,
                 order_id=order_id,
                 user_telegram_id=update.effective_user.id,
-                timeout_seconds=300,
+                timeout_seconds=PAYMENT_TIMEOUT_SECONDS,
             )
         )
         _timeout_tasks[order_id] = task

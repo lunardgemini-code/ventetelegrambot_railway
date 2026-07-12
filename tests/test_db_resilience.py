@@ -108,6 +108,8 @@ class DatabaseResilienceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, expected)
         self.assertEqual(operation.await_count, 2)
+        self.assertTrue(operation.await_args_list[0].kwargs["fresh_connection"])
+        self.assertTrue(operation.await_args_list[1].kwargs["fresh_connection"])
 
     async def test_pending_order_cancellation_retries_stale_hrana_stream(self):
         operation = AsyncMock(side_effect=[
@@ -133,6 +135,8 @@ class DatabaseResilienceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, expected)
         self.assertEqual(operation.await_count, 2)
+        self.assertTrue(operation.await_args_list[0].kwargs["fresh_connection"])
+        self.assertTrue(operation.await_args_list[1].kwargs["fresh_connection"])
 
     async def test_nowpayments_queue_read_retries_stale_hrana_stream(self):
         expected = [{"payment_id": "payment-42"}]
@@ -164,6 +168,8 @@ class DatabaseResilienceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(result)
         self.assertEqual(operation.await_count, 2)
+        self.assertTrue(operation.await_args_list[0].kwargs["fresh_connection"])
+        self.assertTrue(operation.await_args_list[1].kwargs["fresh_connection"])
 
     async def test_stock_reservation_retries_stale_hrana_stream(self):
         expected = [{"id": 1, "account_data": "account"}]
@@ -177,6 +183,8 @@ class DatabaseResilienceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, expected)
         self.assertEqual(operation.await_count, 2)
+        self.assertTrue(operation.await_args_list[0].kwargs["fresh_connection"])
+        self.assertTrue(operation.await_args_list[1].kwargs["fresh_connection"])
 
     async def test_binance_transaction_record_retries_stale_hrana_stream(self):
         operation = AsyncMock(side_effect=[

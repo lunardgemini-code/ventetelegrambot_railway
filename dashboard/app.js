@@ -2463,6 +2463,61 @@ window.openOrderDetail = async function(orderId) {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  VIEW REMAINING STOCK MODAL
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+function normalizeStockPage(payload) {
+    if (Array.isArray(payload)) {
+        const available = payload.filter(item => !item.is_sold).length;
+        return { items: payload, total: payload.length, all_total: payload.length, available, sold: payload.length - available };
+    }
+    return payload || { items: [], total: 0, all_total: 0, available: 0, sold: 0 };
+}
+
+function stockRowsMarkup(items, manageable) {
+    return items.map(it => {
+        const safeData = escapeHtml(it.account_data || '');
+        return `<div class="stock-item-row">
+            <span class="stock-item-data">${it.is_sold ? '🔴' : '🟢'} ${safeData}</span>
+            <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+                <button class="btn-table-action" onclick="this.parentElement.previousElementSibling.classList.toggle('expanded')" title="Voir tout" style="color:#a78bfa;"><i class="fa-solid fa-eye"></i></button>
+                <span class="stock-item-status ${it.is_sold ? 'sold' : 'available'}">${it.is_sold ? t('sold') : t('available')}</span>
+                ${manageable && !it.is_sold ? `<button class="btn-table-action delete" onclick="deleteStockItem(${it.id})" title="Supprimer"><i class="fa-solid fa-trash-can"></i></button>` : ''}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function renderStockPage(productId, target) {
+    const key = `${target}:${productId}`;
+    const page = state.stockPages?.[key];
+    if (!page) return;
+    const manageable = target === 'manage';
+    const container = manageable ? DOM.stockItemsList : $('view-stock-list');
+    if (manageable) DOM.stockExistingCount.textContent = page.available;
+    else $('view-stock-count').textContent = `${page.available} dispo / ${page.sold} vendus`;
+    if (!page.items.length) {
+        container.innerHTML = `<p class="empty-state">${manageable ? t('no_stock') : 'Aucun article en stock.'}</p>`;
+        return;
+    }
+    const remaining = Math.max(0, Number(page.total || page.all_total || 0) - page.items.length);
+    container.innerHTML = stockRowsMarkup(page.items, manageable) + (remaining > 0 ? `
+        <button class="btn-secondary" style="width:100%;margin-top:12px;" onclick="loadMoreProductStock(${productId}, '${target}')">
+            <i class="fa-solid fa-chevron-down"></i> Afficher plus (${remaining})
+        </button>` : '');
+}
+
+window.loadMoreProductStock = async function(productId, target) {
+    const key = `${target}:${productId}`;
+    const current = state.stockPages?.[key];
+    if (!current) return;
+    try {
+        const next = normalizeStockPage(await apiCall(`/api/products/${productId}/stock?limit=200&offset=${current.items.length}`));
+        current.items.push(...next.items);
+        Object.assign(current, { total: next.total, all_total: next.all_total, available: next.available, sold: next.sold });
+        renderStockPage(productId, target);
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+};
+
 window.viewProductStock = async function(productId) {
     const product = state.products.find(item => Number(item.id) === Number(productId));
     if (!product) return showToast('Produit introuvable.', 'error');
@@ -2474,26 +2529,9 @@ window.viewProductStock = async function(productId) {
     showModal(DOM.viewStockModal);
 
     try {
-        const items = await apiCall(`/api/products/${productId}/stock`);
-        const available = items.filter(i => !i.is_sold);
-        const sold = items.filter(i => i.is_sold);
-        $('view-stock-count').textContent = `${available.length} dispo / ${sold.length} vendus`;
-
-        if (items.length > 0) {
-            $('view-stock-list').innerHTML = items.map(it => {
-                const safeData = escapeHtml(it.account_data || '');
-                return `
-                <div class="stock-item-row">
-                    <span class="stock-item-data">${it.is_sold ? '🔴' : '🟢'} ${safeData}</span>
-                    <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
-                        <button class="btn-table-action" onclick="this.parentElement.previousElementSibling.classList.toggle('expanded')" title="Voir tout" style="color:#a78bfa;"><i class="fa-solid fa-eye"></i></button>
-                        <span class="stock-item-status ${it.is_sold ? 'sold' : 'available'}">${it.is_sold ? '✗ Vendu' : '✓ Dispo'}</span>
-                    </div>
-                </div>`;
-            }).join('');
-        } else {
-            $('view-stock-list').innerHTML = '<p class="empty-state">Aucun article en stock.</p>';
-        }
+        state.stockPages = state.stockPages || {};
+        state.stockPages[`view:${productId}`] = normalizeStockPage(await apiCall(`/api/products/${productId}/stock?limit=200&offset=0`));
+        renderStockPage(productId, 'view');
     } catch(e) {
         $('view-stock-list').innerHTML = `<p style="color:var(--color-error);">Erreur: ${escapeHtml(e.message)}</p>`;
     }
@@ -2694,17 +2732,9 @@ window.openStockModal = async function(pid) {
     DOM.stockTextarea.value = ''; DOM.stockLineCount.textContent = `0 ${t('accounts_detected')}`;
     showModal(DOM.stockModal);
     try {
-        const items = await apiCall(`/api/products/${pid}/stock`);
-        DOM.stockExistingCount.textContent = items.filter(i=>!i.is_sold).length;
-        if (items.length > 0) DOM.stockItemsList.innerHTML = items.map(i => {
-            const safeData = escapeHtml(i.account_data || '');
-            return `<div class="stock-item-row">
-            <span class="stock-item-data">${safeData}</span>
-            <span class="stock-item-status ${i.is_sold?'sold':'available'}">${i.is_sold?t('sold'):t('available')}</span>
-            ${!i.is_sold ? `<button class="btn-table-action delete" onclick="deleteStockItem(${i.id})" title="Supprimer"><i class="fa-solid fa-trash-can"></i></button>` : ''}
-        </div>`;
-        }).join('');
-        else DOM.stockItemsList.innerHTML = `<p class="empty-state">${t('no_stock')}</p>`;
+        state.stockPages = state.stockPages || {};
+        state.stockPages[`manage:${pid}`] = normalizeStockPage(await apiCall(`/api/products/${pid}/stock?limit=200&offset=0`));
+        renderStockPage(pid, 'manage');
     } catch(e) { DOM.stockItemsList.innerHTML = `<p class="empty-state">Error: ${escapeHtml(e.message)}</p>`; }
 };
 

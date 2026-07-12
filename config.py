@@ -37,6 +37,10 @@ NOWPAYMENTS_FIXED_RATE: bool = os.getenv("NOWPAYMENTS_FIXED_RATE", "false").stri
 NOWPAYMENTS_FEE_PAID_BY_USER: bool = os.getenv(
     "NOWPAYMENTS_FEE_PAID_BY_USER", "false"
 ).strip().lower() in {"1", "true", "yes", "on"}
+PAYMENT_TIMEOUT_SECONDS: int = max(
+    60,
+    int(os.getenv("PAYMENT_TIMEOUT_SECONDS", "300")),
+)
 
 # External supplier catalog. Keep the buyer key in Railway, never in the dashboard bundle.
 CANBOSO_API_KEY: str = os.getenv("CANBOSO_API_KEY", "").strip()

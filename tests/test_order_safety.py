@@ -167,6 +167,42 @@ class OrderSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(delivered)
         self.assertEqual(await models.get_stock_count(self.product_id), 2)
 
+    async def test_reserved_stock_prevents_every_pending_cancellation_path(self):
+        order = await models.create_order(1001, self.product_id, 5, quantity=1)
+        reserved = await models.reserve_stock_items_for_order(order["id"], self.product_id)
+        self.assertEqual(len(reserved), 1)
+
+        transitioned = await models.update_order_status(
+            order["id"],
+            "CANCELLED",
+            expected_statuses=("PENDING", "AWAITING_PAYMENT"),
+        )
+        with self.assertRaisesRegex(ValueError, "reserved or delivered stock"):
+            await models.cancel_order_if_allowed(order["id"])
+        cancelled_count = await models.cancel_all_pending_orders(1001)
+        stored = await models.get_order(order["id"])
+        linked_stock = await models.get_stock_items_for_order(order["id"])
+
+        self.assertFalse(transitioned)
+        self.assertEqual(cancelled_count, 0)
+        self.assertEqual(stored["status"], "PENDING")
+        self.assertEqual(len(linked_stock), 1)
+
+    async def test_stock_history_page_has_exact_counts_and_bounded_rows(self):
+        first = await models.get_stock_items_page_for_product(self.product_id, limit=1)
+        second = await models.get_stock_items_page_for_product(
+            self.product_id,
+            limit=1,
+            offset=1,
+        )
+
+        self.assertEqual(first["total"], 2)
+        self.assertEqual(first["available"], 2)
+        self.assertEqual(first["sold"], 0)
+        self.assertEqual(len(first["items"]), 1)
+        self.assertEqual(len(second["items"]), 1)
+        self.assertNotEqual(first["items"][0]["id"], second["items"][0]["id"])
+
     async def test_crypto_transaction_retry_is_only_idempotent_for_same_order(self):
         first = await models.create_order(1001, self.product_id, 5, quantity=1)
         self.assertTrue(await models.record_used_transaction("tx-1", first["id"], 1001, 5))
