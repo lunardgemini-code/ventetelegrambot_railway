@@ -148,9 +148,12 @@ async def _send_product_detail_message(
     text: str,
     markup,
     image_url: str | None,
+    telegram_file_id: str | None = None,
+    product_id: int | None = None,
     query=None,
 ) -> None:
     """Send or edit product detail, with photo caption length + HTML fallbacks."""
+    stored_image_url = image_url
     image_url = _normalize_image_url(image_url)
 
     async def _edit_or_send(body: str, parse_mode: str | None = "HTML"):
@@ -178,34 +181,54 @@ async def _send_product_detail_message(
             reply_markup=markup,
         )
 
-    if image_url:
+    media_references = []
+    if telegram_file_id:
+        media_references.append(telegram_file_id)
+    if image_url and image_url not in media_references:
+        media_references.append(image_url)
+
+    if media_references:
         # Telegram photo captions max 1024 chars
         caption = text if len(text) <= 1024 else (text[:1000].rstrip() + "…")
-        try:
-            if query is not None:
-                try:
-                    await query.message.delete()
-                except Exception:
-                    pass
-            await context.bot.send_photo(
-                chat_id=chat_id,
-                photo=image_url,
-                caption=caption,
-                parse_mode="HTML",
-                reply_markup=markup if len(text) <= 1024 else None,
-            )
-            # Full text as follow-up if caption was truncated
-            if len(text) > 1024:
-                await context.bot.send_message(
+        for media_reference in media_references:
+            try:
+                if query is not None:
+                    try:
+                        await query.message.delete()
+                    except Exception:
+                        pass
+                sent_message = await context.bot.send_photo(
                     chat_id=chat_id,
-                    text=text,
+                    photo=media_reference,
+                    caption=caption,
                     parse_mode="HTML",
-                    reply_markup=markup,
+                    reply_markup=markup if len(text) <= 1024 else None,
                 )
-            return
-        except Exception as e:
-            logger.warning("Failed to send product photo (%s): %s", image_url, e)
-            # Fall through to text-only
+                if (
+                    product_id is not None
+                    and stored_image_url
+                    and media_reference == image_url
+                    and getattr(sent_message, "photo", None)
+                ):
+                    from database.models import cache_product_telegram_file_id
+
+                    cache_task = asyncio.create_task(cache_product_telegram_file_id(
+                        product_id,
+                        stored_image_url,
+                        sent_message.photo[-1].file_id,
+                    ))
+                    cache_task.add_done_callback(_log_background_task)
+                if len(text) > 1024:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=text,
+                        parse_mode="HTML",
+                        reply_markup=markup,
+                    )
+                return
+            except Exception as e:
+                logger.warning("Failed to send product photo (%s): %s", media_reference, e)
+            # A stale file_id falls through to the original URL, then to text.
 
     try:
         await _edit_or_send(text, "HTML")
@@ -348,7 +371,16 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Prefer plain emoji first if custom emoji often fails; try with custom, then without
         text = _build_product_detail_text(product, stock, tiers, sold_count, lang, use_custom_emoji=True)
         try:
-            await _send_product_detail_message(context, chat_id, text, markup, image_url, query=query)
+            await _send_product_detail_message(
+                context,
+                chat_id,
+                text,
+                markup,
+                image_url,
+                telegram_file_id=product.get("telegram_file_id"),
+                product_id=product_id,
+                query=query,
+            )
         except Exception as send_exc:
             logger.warning(
                 "Product detail send with custom emoji failed (product %s): %s — retrying plain emoji",
@@ -359,7 +391,14 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
                 product, stock, tiers, sold_count, lang, use_custom_emoji=False
             )
             await _send_product_detail_message(
-                context, chat_id, text_plain, markup, image_url, query=query
+                context,
+                chat_id,
+                text_plain,
+                markup,
+                image_url,
+                telegram_file_id=product.get("telegram_file_id"),
+                product_id=product_id,
+                query=query,
             )
 
     except Exception as exc:

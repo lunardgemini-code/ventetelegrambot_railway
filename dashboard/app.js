@@ -192,7 +192,7 @@ const DOM = {
     todayRevenue:$('today-revenue'), todayOrders:$('today-orders'),
     todayRevenueDelta:$('today-revenue-delta'), todayOrdersDelta:$('today-orders-delta'),
     actionCenterList:$('action-center-list'), recentOrdersList:$('recent-orders-list'),
-    perfStatus:$('perf-status'), perfWorkers:$('perf-workers'), perfWorkersRec:$('perf-workers-rec'),
+    perfStatus:$('perf-status'), perfWorkers:$('perf-workers'), perfWorkersRec:$('perf-workers-rec'), perfSlowestAction:$('perf-slowest-action'),
     perfQueue:$('perf-queue'), perfQueueWait:$('perf-queue-wait'), perfProcessing:$('perf-processing'),
     perfThroughput:$('perf-throughput'), perfDatabase:$('perf-database'), perfDbErrors:$('perf-db-errors'),
     perfDiagnosis:$('perf-diagnosis'), btnExportPerformance:$('btn-export-performance'),
@@ -1119,7 +1119,7 @@ async function testConnectionAndStart() {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 const tabRefreshLoaders = {
     'dashboard-tab': [loadDashboardOverview, loadPerformanceMetrics, loadStats, loadCharts],
-    'stats-tab': [loadStats, loadCharts, loadProductStats, loadProductMomentum, loadDeadProductAlerts],
+    'stats-tab': [loadStatsBundle],
     'inventory-tab': [loadProducts, loadBinanceAccounts],
     'orders-tab': [loadProducts, loadAllOrders],
     'activations-tab': [loadProducts, loadActivations],
@@ -1134,9 +1134,9 @@ const tabRefreshLoaders = {
 };
 
 const fullRefreshLoaders = [
-    loadDashboardOverview, loadPerformanceMetrics, loadStats, loadFinance, loadProducts, loadAllOrders, loadActivations, loadResellers, loadSupplierBot,
-    loadTickets, loadUsers, loadPromos, loadCharts, loadWalletHistory, loadBinanceAccounts,
-    loadPaymentSettings, loadProductStats, loadProductMomentum, loadDeadProductAlerts
+    loadDashboardOverview, loadPerformanceMetrics, loadFinance, loadProducts, loadAllOrders, loadActivations, loadResellers, loadSupplierBot,
+    loadTickets, loadUsers, loadPromos, loadWalletHistory, loadBinanceAccounts,
+    loadPaymentSettings, loadStatsBundle
 ];
 
 function uniqueLoaders(loaders) {
@@ -1239,6 +1239,12 @@ async function loadPerformanceMetrics() {
     DOM.perfThroughput.textContent = `${Number(traffic.throughput_per_minute || 0).toFixed(1)} actions/min`;
     DOM.perfDatabase.textContent = `${Number(database.p95_ms || 0).toFixed(0)} ms`;
     DOM.perfDbErrors.textContent = `${Number(database.connection_errors || 0)} erreur(s) connexion`;
+    const slowestAction = (data.actions_5m || [])[0];
+    if (DOM.perfSlowestAction) {
+        DOM.perfSlowestAction.textContent = slowestAction
+            ? `Action la plus lente : ${slowestAction.action} - p95 ${Number(slowestAction.p95_ms || 0).toFixed(0)} ms (${Number(slowestAction.count || 0)} appel(s))`
+            : 'Action la plus lente : collecte en cours';
+    }
     DOM.perfDiagnosis.textContent = diagnosisText;
 }
 
@@ -1327,8 +1333,19 @@ async function loadDashboardOverview() {
     DOM.badgeTickets.classList.toggle('hidden', Number(actions.open_tickets || 0) === 0);
 }
 
-async function loadStats() {
-    const s = state.initialStats || await apiCall('/api/stats');
+async function loadStatsBundle() {
+    const bundle = await apiCall(`/api/stats/bundle?days=${state.chartDays}`);
+    await Promise.all([
+        loadStats(bundle.stats),
+        loadCharts(bundle.daily),
+        loadProductStats(bundle.products),
+        loadProductMomentum(bundle.momentum),
+        loadDeadProductAlerts(bundle.dead_alerts),
+    ]);
+}
+
+async function loadStats(providedStats=null) {
+    const s = providedStats || state.initialStats || await apiCall('/api/stats');
     state.initialStats = null;
     state.lastStats = s; // Save for modal
     DOM.statRevenue.textContent = `$${parseFloat(s.total_revenue).toFixed(2)}`;
@@ -1362,9 +1379,9 @@ window.showRevenueDetails = function() {
     showModal(DOM.revenueModal);
 };
 
-async function loadCharts() {
+async function loadCharts(providedData=null) {
     try {
-        const data = await apiCall(`/api/stats/daily?days=${state.chartDays}`);
+        const data = providedData || await apiCall(`/api/stats/daily?days=${state.chartDays}`);
         const labels = data.map(d => d.day.slice(5));
         const revenues = data.map(d => d.revenue);
         const orders = data.map(d => d.orders);
@@ -1389,9 +1406,9 @@ async function loadCharts() {
     } catch(e) { console.warn('Charts failed:', e); }
 }
 
-async function loadProductStats() {
+async function loadProductStats(providedStats=null) {
     try {
-        const stats = await apiCall('/api/stats/products');
+        const stats = providedStats || await apiCall('/api/stats/products');
         state.productStats = stats;
         
         let topProduct = null;
@@ -1510,10 +1527,10 @@ function renderProductSalesChart(stats) {
     });
 }
 
-async function loadProductMomentum() {
+async function loadProductMomentum(providedData=null) {
     if (!DOM.chartProductMomentum) return;
     try {
-        const data = await apiCall('/api/stats/products/momentum?days=30');
+        const data = providedData || await apiCall('/api/stats/products/momentum?days=30');
         state.productMomentum = data;
         const productsWithSales = (data.products || []).filter(p => (p.total_sold || 0) > 0);
         const validSelected = new Set(productsWithSales.map(p => p.id));
@@ -1724,10 +1741,10 @@ function renderProductMomentumChart() {
     });
 }
 
-async function loadDeadProductAlerts() {
+async function loadDeadProductAlerts(providedData=null) {
     if (!DOM.deadProductsAlerts) return;
     try {
-        const data = await apiCall('/api/stats/products/dead-alerts?days=7&min_views=10&max_conversion=0.05');
+        const data = providedData || await apiCall('/api/stats/products/dead-alerts?days=7&min_views=10&max_conversion=0.05');
         state.deadProductAlerts = data.alerts || [];
         renderDeadProductAlerts();
     } catch (e) {

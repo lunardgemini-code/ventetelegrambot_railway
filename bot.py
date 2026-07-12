@@ -2498,6 +2498,32 @@ async def api_get_dead_product_alerts(days: int = 7, min_views: int = 10, max_co
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@api.get("/api/stats/bundle", dependencies=[Depends(verify_api_key)])
+async def api_get_stats_bundle(days: int = 30):
+    """Load the complete statistics tab through one browser request."""
+    days = max(1, min(int(days), 90))
+    try:
+        stats, daily, products, momentum, dead_alerts = await asyncio.gather(
+            api_get_stats(),
+            api_get_daily_stats(days=days),
+            api_get_products_stats(),
+            api_get_products_momentum(days=30),
+            api_get_dead_product_alerts(days=7, min_views=10, max_conversion=0.05),
+        )
+        return {
+            "stats": stats,
+            "daily": daily,
+            "products": products,
+            "momentum": momentum,
+            "dead_alerts": dead_alerts,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("API stats bundle error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 _broadcast_jobs: dict[str, dict] = {}
 _broadcast_tasks: set[asyncio.Task] = set()
 
@@ -2824,6 +2850,7 @@ _webhook_pending_by_key: dict[str, deque] = {}
 _webhook_active_keys: set[str] = set()
 _webhook_active_dedupe_signatures: set[tuple[str, str]] = set()
 _webhook_dedupe_by_update: dict[int, tuple[str, str]] = {}
+_webhook_action_samples = deque(maxlen=10000)
 _webhook_active_workers = 0
 _webhook_peak_active_workers = 0
 
@@ -2917,6 +2944,23 @@ def _webhook_performance_snapshot() -> dict:
             "p95_processing_ms": round(_metrics_percentile(bucket_processing, 0.95) * 1000, 1),
         })
 
+    action_groups: dict[str, list[tuple]] = {}
+    for sample in _webhook_action_samples:
+        if sample[0] >= cutoff_5m:
+            action_groups.setdefault(sample[1], []).append(sample)
+    action_stats = []
+    for action, action_samples in action_groups.items():
+        durations = [sample[2] for sample in action_samples]
+        action_stats.append({
+            "action": action,
+            "count": len(action_samples),
+            "average_ms": round(sum(durations) / len(durations) * 1000, 1),
+            "p95_ms": round(_metrics_percentile(durations, 0.95) * 1000, 1),
+            "max_ms": round(max(durations) * 1000, 1),
+            "errors": sum(1 for sample in action_samples if not sample[3]),
+        })
+    action_stats.sort(key=lambda item: (item["p95_ms"], item["count"]), reverse=True)
+
     if db_metrics["connection_errors"] > 0 or db_metrics["p95_ms"] >= 750:
         bottleneck = "database"
         recommended_workers = WEBHOOK_WORKERS
@@ -2978,6 +3022,7 @@ def _webhook_performance_snapshot() -> dict:
             "p95_total_ms": round(_metrics_percentile(totals, 0.95) * 1000, 1),
         },
         "database": db_metrics,
+        "actions_5m": action_stats,
         "timeline_30s": timeline,
         "diagnosis": {
             "bottleneck": bottleneck,
@@ -3258,6 +3303,25 @@ def _webhook_lock_key(update: Update) -> str:
     return f"update:{update.update_id}"
 
 
+def _webhook_action_name(update: Update) -> str:
+    """Return a bounded action label for performance diagnostics."""
+    callback = getattr(update, "callback_query", None)
+    if callback:
+        raw = str(callback.data or "unknown").split(":", 1)[0].lower()
+        safe = "".join(char for char in raw if char.isalnum() or char in {"_", "-"})[:40]
+        return f"callback:{safe or 'unknown'}"
+    message = getattr(update, "effective_message", None)
+    text = str(getattr(message, "text", "") or "").strip()
+    if text.startswith("/"):
+        command = text.split(maxsplit=1)[0].split("@", 1)[0].lower()[:40]
+        return f"command:{command}"
+    if getattr(message, "photo", None):
+        return "message:photo"
+    if text:
+        return "message:text"
+    return "update:other"
+
+
 async def _webhook_update_worker(application: Application, worker_id: int) -> None:
     global webhook_update_queue, _webhook_active_workers, _webhook_peak_active_workers
     if webhook_update_queue is None:
@@ -3287,6 +3351,7 @@ async def _webhook_update_worker(application: Application, worker_id: int) -> No
                     _webhook_active_workers,
                 )
                 succeeded = True
+                action_name = _webhook_action_name(current_update)
                 try:
                     await application.process_update(current_update)
                 except asyncio.CancelledError:
@@ -3307,6 +3372,12 @@ async def _webhook_update_worker(application: Application, worker_id: int) -> No
                         completed_at,
                         queue_wait,
                         user_wait,
+                        max(0.0, completed_at - started_at),
+                        succeeded,
+                    ))
+                    _webhook_action_samples.append((
+                        completed_at,
+                        action_name,
                         max(0.0, completed_at - started_at),
                         succeeded,
                     ))
@@ -3411,6 +3482,7 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
         ("ALTER TABLE products ADD COLUMN is_deleted INTEGER DEFAULT 0", "Column 'products.is_deleted'"),
         ("ALTER TABLE products ADD COLUMN binance_account_id INTEGER DEFAULT NULL", "Column 'products.binance_account_id'"),
         ("ALTER TABLE products ADD COLUMN image_url TEXT DEFAULT NULL", "Column 'products.image_url'"),
+        ("ALTER TABLE products ADD COLUMN telegram_file_id TEXT DEFAULT NULL", "Column 'products.telegram_file_id'"),
         ("ALTER TABLE products ADD COLUMN custom_emoji_id TEXT DEFAULT NULL", "Column 'products.custom_emoji_id'"),
         ("ALTER TABLE products ADD COLUMN sort_order INTEGER DEFAULT 0", "Column 'products.sort_order'"),
         ("ALTER TABLE products ADD COLUMN delivery_type TEXT DEFAULT 'stock'", "Column 'products.delivery_type'"),

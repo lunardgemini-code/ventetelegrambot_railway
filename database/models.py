@@ -56,7 +56,7 @@ _PRODUCTS_CACHE: list[dict] | None = None
 _PRODUCT_BY_ID_CACHE: dict[int, dict | None] = {}
 _TIERS_CACHE: dict[int, list[dict]] = {}
 _STOCK_COUNTS_CACHE: tuple[float, dict[int, int]] | None = None
-_STOCK_COUNTS_CACHE_TTL = 2.0
+_STOCK_COUNTS_CACHE_TTL = max(2.0, float(os.environ.get("STOCK_COUNTS_CACHE_SECONDS", "10")))
 _SETTINGS_CACHE: dict[str, str | None] = {}
 _DEFAULT_BINANCE_ACCOUNT_CACHE: dict | None = None
 _DEFAULT_BINANCE_ACCOUNT_LOADED = False
@@ -116,6 +116,100 @@ async def get_or_create_user(
                 exc,
             )
     raise RuntimeError("User database operation unavailable") from last_exc
+
+
+async def prepare_user_start(
+    telegram_id: int,
+    username: str | None,
+    first_name: str,
+    referred_by: int | None = None,
+) -> tuple[dict, int]:
+    """Prepare /start with one connection and one atomic transaction."""
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            async with _get_critical_db_semaphore():
+                return await _prepare_user_start_once(
+                    telegram_id,
+                    username,
+                    first_name,
+                    referred_by=referred_by,
+                    fresh_connection=attempt > 0,
+                )
+        except Exception as exc:
+            last_exc = exc
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            logger.info("Retrying /start preparation on a fresh Turso connection: %s", exc)
+            await asyncio.sleep(0.1 * (attempt + 1))
+    raise RuntimeError("User start preparation unavailable") from last_exc
+
+
+async def _prepare_user_start_once(
+    telegram_id: int,
+    username: str | None,
+    first_name: str,
+    referred_by: int | None = None,
+    *,
+    fresh_connection: bool = False,
+) -> tuple[dict, int]:
+    db = await get_db(fresh=fresh_connection)
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cancelled_cursor = await db.execute(
+            """UPDATE orders SET status = 'CANCELLED'
+               WHERE user_telegram_id = ?
+                 AND status IN ('PENDING', 'AWAITING_PAYMENT')
+                 AND NOT EXISTS (
+                     SELECT 1 FROM stock_items s
+                     WHERE s.sold_to_order_id = orders.id AND s.is_sold = 1
+                 )""",
+            (telegram_id,),
+        )
+        cancelled = max(0, int(cancelled_cursor.rowcount)) if cancelled_cursor.rowcount != -1 else 0
+
+        cursor = await db.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
+        row = await cursor.fetchone()
+        if row:
+            user = dict(row)
+            if user.get("username") != username or user.get("first_name") != first_name:
+                await db.execute(
+                    "UPDATE users SET username = ?, first_name = ? WHERE telegram_id = ?",
+                    (username, first_name, telegram_id),
+                )
+                user["username"] = username
+                user["first_name"] = first_name
+        else:
+            valid_referrer = None
+            if referred_by and int(referred_by) != telegram_id:
+                ref_cursor = await db.execute(
+                    "SELECT telegram_id FROM users WHERE telegram_id = ?",
+                    (int(referred_by),),
+                )
+                if await ref_cursor.fetchone():
+                    valid_referrer = int(referred_by)
+            await db.execute(
+                "INSERT INTO users (telegram_id, username, first_name, language, referred_by) VALUES (?, ?, ?, NULL, ?)",
+                (telegram_id, username, first_name, valid_referrer),
+            )
+            cursor = await db.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
+            user = dict(await cursor.fetchone())
+
+        await db.commit()
+        _USER_LANG_CACHE[telegram_id] = user.get("language") or "fr"
+        _USER_BANNED_CACHE[telegram_id] = bool(user.get("is_banned"))
+        if cancelled:
+            _clear_stock_cache()
+            invalidate_stats_cache()
+        return user, cancelled
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
 
 
 async def _get_or_create_user_once(
@@ -791,6 +885,8 @@ async def update_product(product_id: int, **kwargs) -> None:
     if not safe_kwargs:
         return
     columns = ", ".join(f"{safe_k} = ?" for safe_k in safe_kwargs)
+    if "image_url" in safe_kwargs:
+        columns += ", telegram_file_id = NULL"
     values = list(safe_kwargs.values()) + [product_id]
     db = await get_db()
     try:
@@ -1417,6 +1513,31 @@ async def recalculate_dynamic_prices(
         except Exception:
             pass
         raise
+    finally:
+        await db.close()
+
+
+async def cache_product_telegram_file_id(
+    product_id: int,
+    image_url: str,
+    file_id: str,
+) -> None:
+    """Persist Telegram's reusable media identifier for an unchanged image URL."""
+    if not image_url or not file_id:
+        return
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """UPDATE products SET telegram_file_id = ?
+               WHERE id = ? AND COALESCE(image_url, '') = ?
+                 AND COALESCE(telegram_file_id, '') != ?""",
+            (file_id, int(product_id), image_url, file_id),
+        )
+        if cursor.rowcount != 0:
+            await db.commit()
+            global _PRODUCTS_CACHE
+            _PRODUCTS_CACHE = None
+            _PRODUCT_BY_ID_CACHE.pop(int(product_id), None)
     finally:
         await db.close()
 

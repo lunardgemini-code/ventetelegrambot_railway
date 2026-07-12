@@ -7,7 +7,7 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from database.models import get_or_create_user, get_user_lang, set_user_language, is_user_banned
+from database.models import get_or_create_user, get_user_lang, prepare_user_start, set_user_language, is_user_banned
 from utils.helpers import is_admin
 from utils.keyboards import language_keyboard, main_menu_keyboard, reply_menu_keyboard
 from utils.locales import t
@@ -20,17 +20,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     # ── Cancel all pending/awaiting orders and clear conversation state ──
-    try:
-        from database.models import cancel_all_pending_orders
-        cancelled = await cancel_all_pending_orders(user.id)
-        if cancelled:
-            logger.info("Auto-cancelled %d pending order(s) for user %s on /start", cancelled, user.id)
-    except Exception as exc:
-        logger.error("Error cancelling pending orders on /start: %s", exc)
-
     # Clear ALL conversation-related user_data
     for key in list(context.user_data.keys()):
-        context.user_data.pop(key, None)
+        if key != "_reply_menu_sent":
+            context.user_data.pop(key, None)
 
     referred_by = None
     if context.args:
@@ -41,7 +34,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except (ValueError, IndexError):
                 pass
 
-    db_user = await get_or_create_user(user.id, user.username, user.first_name, referred_by=referred_by)
+    db_user, cancelled = await prepare_user_start(
+        user.id,
+        user.username,
+        user.first_name,
+        referred_by=referred_by,
+    )
+    if cancelled:
+        logger.info("Auto-cancelled %d pending order(s) for user %s on /start", cancelled, user.id)
 
     if await is_user_banned(user.id):
         return
@@ -64,11 +64,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=main_menu_keyboard(lang),
     )
     # Activate the persistent reply keyboard
+    if context.user_data.get("_reply_menu_sent"):
+        return
     try:
         await update.message.reply_text(
             "⬇️ Menu :",
             reply_markup=reply_menu_keyboard(lang),
         )
+        context.user_data["_reply_menu_sent"] = True
     except Exception:
         pass
 
@@ -107,6 +110,7 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     await get_or_create_user(telegram_id, user.username, user.first_name)
     await set_user_language(telegram_id, lang_code)
+    context.user_data.pop("_reply_menu_sent", None)
 
     await query.edit_message_text(
         t("language_set", lang_code) + "\n\n" + t("welcome", lang_code),

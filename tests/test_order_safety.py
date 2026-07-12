@@ -167,6 +167,35 @@ class OrderSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(delivered)
         self.assertEqual(await models.get_stock_count(self.product_id), 2)
 
+    async def test_prepare_user_start_cancels_and_loads_user_atomically(self):
+        order = await models.create_order(1001, self.product_id, 5, quantity=1)
+
+        user, cancelled = await models.prepare_user_start(
+            1001,
+            "buyer_updated",
+            "Buyer Updated",
+        )
+        stored_order = await models.get_order(order["id"])
+
+        self.assertEqual(cancelled, 1)
+        self.assertEqual(user["username"], "buyer_updated")
+        self.assertEqual(user["first_name"], "Buyer Updated")
+        self.assertEqual(stored_order["status"], "CANCELLED")
+
+    async def test_telegram_media_cache_is_cleared_when_image_changes(self):
+        await models.update_product(self.product_id, image_url="https://example.com/first.png")
+        await models.cache_product_telegram_file_id(
+            self.product_id,
+            "https://example.com/first.png",
+            "telegram-file-1",
+        )
+        cached = await models.get_product(self.product_id)
+        self.assertEqual(cached["telegram_file_id"], "telegram-file-1")
+
+        await models.update_product(self.product_id, image_url="https://example.com/second.png")
+        updated = await models.get_product(self.product_id)
+        self.assertIsNone(updated["telegram_file_id"])
+
     async def test_reserved_stock_prevents_every_pending_cancellation_path(self):
         order = await models.create_order(1001, self.product_id, 5, quantity=1)
         reserved = await models.reserve_stock_items_for_order(order["id"], self.product_id)

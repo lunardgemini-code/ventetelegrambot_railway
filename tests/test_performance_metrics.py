@@ -16,11 +16,13 @@ class PerformanceMetricsTests(unittest.TestCase):
         bot._webhook_queue_samples.clear()
         bot._webhook_handler_error_times.clear()
         bot._webhook_deduplicated_times.clear()
+        bot._webhook_action_samples.clear()
 
     def tearDown(self):
         bot._webhook_samples.clear()
         bot._webhook_queue_samples.clear()
         bot._webhook_handler_error_times.clear()
+        bot._webhook_action_samples.clear()
         db_module._DB_CONNECTION_ERROR_TIMES.clear()
 
     def test_recommends_more_workers_when_queue_wait_is_high(self):
@@ -106,6 +108,30 @@ class PerformanceMetricsTests(unittest.TestCase):
             "notified_at": None,
         }))
 
+    def test_performance_snapshot_groups_latency_by_action(self):
+        bot._webhook_samples.append((999.0, 0.0, 0.0, 1.2, True))
+        bot._webhook_action_samples.extend([
+            (999.0, "command:/start", 1.2, True),
+            (999.0, "command:/start", 0.8, True),
+            (999.0, "callback:prod", 0.2, True),
+        ])
+        db_metrics = {
+            "operations": 3,
+            "errors": 0,
+            "connection_errors": 0,
+            "average_ms": 20,
+            "p95_ms": 30,
+            "slow_operations": 0,
+            "connections": {},
+        }
+        with patch.object(bot.time, "monotonic", return_value=1000.0):
+            with patch.object(db_module, "get_db_performance_snapshot", return_value=db_metrics):
+                result = bot._webhook_performance_snapshot()
+
+        self.assertEqual(result["actions_5m"][0]["action"], "command:/start")
+        self.assertEqual(result["actions_5m"][0]["count"], 2)
+        self.assertEqual(result["actions_5m"][0]["max_ms"], 1200.0)
+
 
 class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -119,6 +145,7 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
         bot._webhook_dedupe_by_update.clear()
         bot._webhook_samples.clear()
         bot._webhook_queue_samples.clear()
+        bot._webhook_action_samples.clear()
 
     async def test_webhook_worker_records_queue_and_processing_latency(self):
         original_queue = bot.webhook_update_queue
@@ -147,6 +174,7 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(bot._webhook_samples[0][1], 0.0)
         self.assertGreaterEqual(bot._webhook_samples[0][2], 0.0)
         self.assertGreaterEqual(bot._webhook_samples[0][3], 0.0)
+        self.assertEqual(bot._webhook_action_samples[0][1], "update:other")
 
     async def test_identical_start_is_deduplicated_before_queueing(self):
         original_queue = bot.webhook_update_queue
@@ -248,8 +276,30 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("workers", payload)
         self.assertIn("queue", payload)
         self.assertIn("database", payload)
+        self.assertIn("actions_5m", payload)
         self.assertEqual(len(payload["timeline_30s"]), 10)
         self.assertIn("diagnosis", payload)
+
+    async def test_stats_bundle_returns_all_statistics_sections(self):
+        transport = httpx.ASGITransport(app=bot.api)
+        with (
+            patch.object(bot, "api_get_stats", AsyncMock(return_value={"total_users": 1})),
+            patch.object(bot, "api_get_daily_stats", AsyncMock(return_value=[{"day": "2026-07-12"}])),
+            patch.object(bot, "api_get_products_stats", AsyncMock(return_value=[])),
+            patch.object(bot, "api_get_products_momentum", AsyncMock(return_value={"days": [], "products": []})),
+            patch.object(bot, "api_get_dead_product_alerts", AsyncMock(return_value={"alerts": []})),
+        ):
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                response = await client.get(
+                    "/api/stats/bundle?days=30",
+                    headers={"X-API-Key": bot.ADMIN_API_KEY},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            set(response.json()),
+            {"stats", "daily", "products", "momentum", "dead_alerts"},
+        )
 
 
 if __name__ == "__main__":
