@@ -43,9 +43,11 @@ An explicit supplier rejection is marked `failed`. A paid customer order remains
 - `GET /api/telegram-buyer/products` lists available products.
 - `POST /api/telegram-buyer/purchase` purchases a product using the supplier-side
   buyer wallet.
-- Purchase body: `product_id` and `quantity`.
+- Authentication is accepted through the configured header; the documented
+  `key` query/body field is also sent for compatibility.
+- Purchase body: `key`, `product_id`, and `quantity`.
 
 The response adapter accepts common catalog envelopes such as `products`, `data`,
 or a direct list, and delivery fields such as `items`, `accounts`, `credentials`,
-or `account_data`. Verify the live response contract with a low-value test order
+or `account_data`, including Canboso's `deliveredAccounts`. Verify the live response contract with a low-value test order
 before enabling customer traffic.

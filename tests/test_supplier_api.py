@@ -14,7 +14,7 @@ from database.suppliers import (
     update_supplier_settings,
 )
 from services.delivery import deliver_order
-from services.supplier_api import SupplierAPIError, normalize_products
+from services.supplier_api import SupplierAPIError, normalize_products, normalize_purchase
 
 
 class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
@@ -65,9 +65,50 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(products[0]["base_price"], 1.25)
         self.assertEqual(products[0]["remote_stock"], 4)
 
+    def test_catalog_normalization_matches_canboso_live_contract(self):
+        products = normalize_products({
+            "success": True,
+            "walletCurrency": "USD",
+            "products": [{
+                "_id": "6a2cf7d94a0ce56b9db8228d",
+                "product_name": "Test API",
+                "emoji": "tele",
+                "usdPricing": 0.01,
+                "walletPricing": 0.01,
+                "description": "API connection test",
+                "descriptionImage": "/uploads/test.png",
+                "warrantyDays": 2,
+                "stats": {"total": 170, "sold": 74, "available": 96},
+            }],
+        })
+        self.assertEqual(len(products), 1)
+        self.assertEqual(products[0]["external_product_id"], "6a2cf7d94a0ce56b9db8228d")
+        self.assertEqual(products[0]["base_price"], 0.01)
+        self.assertEqual(products[0]["remote_stock"], 96)
+        self.assertEqual(products[0]["warranty_days"], 2)
+        self.assertEqual(products[0]["emoji"], "📦")
+        self.assertTrue(products[0]["image_url"].endswith("/uploads/test.png"))
+
     def test_fixed_and_percent_margins(self):
         self.assertEqual(calculate_supplier_price(2.5, "fixed", 1), 3.5)
         self.assertEqual(calculate_supplier_price(2.5, "percent", 20), 3.0)
+
+    def test_purchase_normalization_matches_canboso_contract(self):
+        purchase = normalize_purchase({
+            "success": True,
+            "orderCode": "ORDER1A2B3C4D5E",
+            "deliveredAccounts": [{
+                "productItemId": "item-1",
+                "user": "buyer@example.com",
+                "password": "secret",
+                "verifyEmail": "backup@example.com",
+            }],
+        })
+        self.assertEqual(purchase["external_order_id"], "ORDER1A2B3C4D5E")
+        self.assertEqual(
+            purchase["items"][0]["account_data"],
+            "buyer@example.com | secret | backup@example.com",
+        )
 
     async def test_selected_product_uses_remote_stock_and_margin(self):
         product = await models.get_product(self.local_product_id)

@@ -131,16 +131,37 @@ def normalize_products(payload: Any) -> list[dict]:
     for raw in raw_products:
         if not isinstance(raw, dict):
             continue
-        external_id = raw.get("id", raw.get("product_id", raw.get("productId")))
-        name = raw.get("name", raw.get("title", raw.get("product_name")))
-        price = raw.get("price_usd", raw.get("price", raw.get("unit_price")))
+        external_id = raw.get("id") or raw.get("_id") or raw.get("product_id") or raw.get("productId")
+        name = raw.get("name") or raw.get("title") or raw.get("product_name")
+        price = (
+            raw.get("walletPricing")
+            if raw.get("walletPricing") is not None
+            else raw.get("usdPricing")
+            if raw.get("usdPricing") is not None
+            else raw.get("price_usd")
+            if raw.get("price_usd") is not None
+            else raw.get("price")
+            if raw.get("price") is not None
+            else raw.get("unit_price")
+        )
         if external_id is None or not name or price is None:
             continue
         try:
             price_value = round(float(price), 4)
         except (TypeError, ValueError):
             continue
-        stock = raw.get("stock", raw.get("available_stock", raw.get("quantity", raw.get("available", 0))))
+        stats = raw.get("stats") if isinstance(raw.get("stats"), dict) else {}
+        stock = (
+            raw.get("stock")
+            if raw.get("stock") is not None
+            else raw.get("available_stock")
+            if raw.get("available_stock") is not None
+            else raw.get("quantity")
+            if raw.get("quantity") is not None
+            else raw.get("available")
+            if raw.get("available") is not None
+            else stats.get("available", 0)
+        )
         if isinstance(stock, bool):
             stock_value = 999999 if stock else 0
         else:
@@ -148,21 +169,28 @@ def normalize_products(payload: Any) -> list[dict]:
                 stock_value = max(0, int(float(stock or 0)))
             except (TypeError, ValueError):
                 stock_value = 0
+        image_url = str(raw.get("image_url") or raw.get("image") or raw.get("descriptionImage") or "").strip()
+        if image_url.startswith("/"):
+            image_url = f"{CANBOSO_API_BASE_URL}{image_url}"
+        raw_emoji = str(raw.get("emoji") or "").strip()
+        emoji = raw_emoji if raw_emoji and any(ord(char) > 127 for char in raw_emoji) else "📦"
         products.append({
             "external_product_id": str(external_id),
             "name": str(name).strip(),
             "description": str(raw.get("description") or raw.get("details") or "").strip(),
             "base_price": price_value,
             "remote_stock": stock_value,
-            "warranty_days": max(0, int(raw.get("warranty_days") or raw.get("warranty") or 0)),
-            "image_url": str(raw.get("image_url") or raw.get("image") or "").strip(),
-            "emoji": str(raw.get("emoji") or "📦").strip() or "📦",
+            "warranty_days": max(0, int(raw.get("warranty_days") or raw.get("warrantyDays") or raw.get("warranty") or 0)),
+            "image_url": image_url,
+            "emoji": emoji,
             "raw_payload": raw,
         })
     return products
 
 
 async def list_canboso_products() -> list[dict]:
+    # Canboso accepts the buyer key header even though Swagger documents a query
+    # field. Keeping it out of the URL prevents credentials leaking into HTTP logs.
     payload = await _request("GET", "/api/telegram-buyer/products")
     products = normalize_products(payload)
     if not products and payload not in ([], {}, None):
@@ -171,7 +199,7 @@ async def list_canboso_products() -> list[dict]:
 
 
 def _delivery_values(payload: Any) -> list[Any]:
-    values = _unwrap_list(payload, ("items", "accounts", "credentials", "products", "deliveries"))
+    values = _unwrap_list(payload, ("items", "accounts", "deliveredAccounts", "credentials", "products", "deliveries"))
     if values:
         return values
     if isinstance(payload, dict):
@@ -196,13 +224,18 @@ def normalize_purchase(payload: Any) -> dict:
     for item in raw_items:
         if isinstance(item, dict):
             value = item.get("account_data", item.get("content", item.get("credential", item.get("account"))))
+            if value is None and (item.get("user") or item.get("password")):
+                parts = [str(item.get("user") or ""), str(item.get("password") or "")]
+                if item.get("verifyEmail"):
+                    parts.append(str(item["verifyEmail"]))
+                value = " | ".join(parts)
             if value is None:
                 value = json.dumps(item, ensure_ascii=False, separators=(",", ":"))
         else:
             value = item
         if value not in (None, ""):
             items.append({"account_data": str(value)})
-    external_order_id = payload.get("order_id", payload.get("purchase_id", payload.get("id")))
+    external_order_id = payload.get("orderCode") or payload.get("order_id") or payload.get("purchase_id") or payload.get("id")
     return {
         "external_order_id": str(external_order_id or ""),
         "items": items,
@@ -214,7 +247,11 @@ async def purchase_canboso_product(product_id: str, quantity: int) -> dict:
     payload = await _request(
         "POST",
         "/api/telegram-buyer/purchase",
-        json={"product_id": product_id, "quantity": max(1, int(quantity))},
+        json={
+            "key": CANBOSO_API_KEY,
+            "product_id": product_id,
+            "quantity": max(1, int(quantity)),
+        },
     )
     result = normalize_purchase(payload)
     if len(result["items"]) < max(1, int(quantity)):
