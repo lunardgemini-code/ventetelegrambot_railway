@@ -272,6 +272,7 @@ async def payment_method_keyboard(order_id: int, lang: str = "fr", wallet_balanc
         buttons.append([InlineKeyboardButton(
             t("btn_pay_nowpayments", lang),
             callback_data=f"pay_nowpayments:{order_id}",
+            icon_custom_emoji_id="5359437015752401733",
         )])
 
     # Dynamic BEP20 button
