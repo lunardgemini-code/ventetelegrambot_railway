@@ -329,6 +329,20 @@ def nowpayments_payment_keyboard(order_id: int, amount: str, lang: str = "fr") -
     ])
 
 
+def nowpayments_wallet_topup_keyboard(topup_id: int, amount: str, lang: str = "fr") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            t("btn_copy_nowpayments_amount", lang),
+            copy_text=CopyTextButton(text=amount),
+        )],
+        [InlineKeyboardButton(
+            t("btn_check_nowpayments", lang),
+            callback_data=f"check_topup_nowpayments:{topup_id}",
+        )],
+        [make_button("btn_cancel", lang, callback_data=f"cancel_topup_nowpayments:{topup_id}")],
+    ])
+
+
 async def wallet_topup_method_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
     """Choose wallet top-up method or cancel."""
     from database.models import get_setting
@@ -342,9 +356,18 @@ async def wallet_topup_method_keyboard(lang: str = "fr") -> InlineKeyboardMarkup
         icon_custom_emoji_id="5388622778817589921"
     )])
 
-    # Dynamic BEP20 button
+    from services.nowpayments import is_nowpayments_configured
+    nowpayments_enabled = is_nowpayments_configured()
+    if nowpayments_enabled:
+        buttons.append([InlineKeyboardButton(
+            t("btn_pay_nowpayments", lang),
+            callback_data="topup_nowpayments",
+            icon_custom_emoji_id="5359437015752401733",
+        )])
+
+    # Keep the legacy manual-address flow as a fallback when NOWPayments is off.
     bep20_addr = await get_setting("bep20_address")
-    if bep20_addr:
+    if bep20_addr and not nowpayments_enabled:
         bep20_btn_text = {
             "fr": "Payer avec BEP20 (USDT)",
             "en": "Pay with BEP20 (USDT)",

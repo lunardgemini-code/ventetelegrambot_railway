@@ -161,7 +161,7 @@ async def _request(method: str, path: str, *, retry_get: bool = True, **kwargs) 
 async def create_payment(
     *,
     price_amount: float,
-    order_id: int,
+    order_id: int | str,
     order_description: str,
     callback_url: str,
     pay_currency: str = "usdtbsc",
@@ -182,7 +182,7 @@ async def create_payment(
         "price_amount": round(float(price_amount), 2),
         "price_currency": "usd",
         "pay_currency": pay_currency.lower(),
-        "order_id": str(int(order_id)),
+        "order_id": str(order_id),
         "order_description": str(order_description)[:255],
         "ipn_callback_url": callback_url,
         "is_fixed_rate": effective_fixed_rate,

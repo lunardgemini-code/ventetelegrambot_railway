@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import tempfile
@@ -190,6 +191,110 @@ class NowPaymentsTests(unittest.IsolatedAsyncioTestCase):
                     t("nowpayments_checking_short", language),
                     "nowpayments_checking_short",
                 )
+
+    async def test_wallet_topup_menu_shows_automated_bep20(self):
+        from utils.keyboards import wallet_topup_method_keyboard
+
+        with (
+            patch.object(nowpayments, "NOWPAYMENTS_ENABLED", True),
+            patch.object(nowpayments, "NOWPAYMENTS_API_KEY", "test-api-key"),
+            patch.object(nowpayments, "NOWPAYMENTS_IPN_SECRET", "test-ipn-secret"),
+        ):
+            markup = await wallet_topup_method_keyboard("en")
+
+        button = next(
+            button
+            for row in markup.inline_keyboard
+            for button in row
+            if button.callback_data == "topup_nowpayments"
+        )
+        self.assertEqual(button.text, "BEP20")
+        self.assertEqual(button.icon_custom_emoji_id, "5359437015752401733")
+
+    async def test_wallet_topup_finished_payment_credits_exactly_once(self):
+        wallet_amount = 5.0
+        checkout_price = nowpayments.calculate_checkout_price(wallet_amount)
+        attempt = await models.prepare_nowpayments_wallet_topup(
+            2001,
+            wallet_amount,
+            checkout_price,
+        )
+        payment_id = "np-wallet-double-1"
+        await models.attach_nowpayments_wallet_topup(attempt["request_key"], {
+            "payment_id": payment_id,
+            "payment_status": "waiting",
+            "pay_amount": checkout_price,
+            "pay_currency": "usdtbsc",
+            "pay_address": "0x2222222222222222222222222222222222222222",
+        })
+        saved = await models.save_nowpayments_update({
+            "payment_id": payment_id,
+            "payment_status": "finished",
+            "order_id": attempt["request_key"],
+            "pay_amount": checkout_price,
+            "actually_paid": checkout_price,
+            "pay_currency": "usdtbsc",
+        })
+        self.assertEqual(saved["payment_kind"], "wallet_topup")
+
+        first, second = await asyncio.gather(
+            models.finalize_nowpayments_wallet_topup(payment_id),
+            models.finalize_nowpayments_wallet_topup(payment_id),
+        )
+
+        self.assertEqual(first["action"], "wallet_credited")
+        self.assertEqual(second["action"], "wallet_credited")
+        self.assertAlmostEqual(await models.get_wallet_balance(2001), wallet_amount)
+        db = await db_module.get_db()
+        try:
+            cursor = await db.execute(
+                "SELECT COUNT(*) AS count FROM wallet_transactions WHERE tx_hash = ?",
+                (payment_id,),
+            )
+            self.assertEqual(int((await cursor.fetchone())["count"]), 1)
+        finally:
+            await db.close()
+
+    async def test_wallet_topup_expires_and_reports_restart_timeout(self):
+        attempt = await models.prepare_nowpayments_wallet_topup(2001, 2, 2.04)
+        payment_id = "np-wallet-expire-1"
+        topup = await models.attach_nowpayments_wallet_topup(attempt["request_key"], {
+            "payment_id": payment_id,
+            "payment_status": "waiting",
+            "pay_amount": 2.04,
+            "pay_currency": "usdtbsc",
+            "pay_address": "0x3333333333333333333333333333333333333333",
+        })
+        db = await db_module.get_db()
+        try:
+            await db.execute(
+                "UPDATE nowpayments_wallet_topups SET created_at = datetime('now', '-4 minutes') WHERE id = ?",
+                (topup["id"],),
+            )
+            await db.commit()
+        finally:
+            await db.close()
+
+        active = await models.list_active_nowpayments_wallet_topup_timeouts(timeout_seconds=300)
+        self.assertEqual(len(active), 1)
+        self.assertEqual(int(active[0]["topup_id"]), int(topup["id"]))
+        self.assertGreaterEqual(int(active[0]["remaining_seconds"]), 55)
+        self.assertLessEqual(int(active[0]["remaining_seconds"]), 60)
+
+        db = await db_module.get_db()
+        try:
+            await db.execute(
+                "UPDATE nowpayments_wallet_topups SET created_at = datetime('now', '-6 minutes') WHERE id = ?",
+                (topup["id"],),
+            )
+            await db.commit()
+        finally:
+            await db.close()
+        expired = await models.expire_stale_nowpayments_wallet_topups(timeout_seconds=300)
+        saved_topup = await models.get_nowpayments_wallet_topup(topup["id"])
+        self.assertEqual(expired, [payment_id])
+        self.assertEqual(saved_topup["provider_status"], "expired")
+        self.assertAlmostEqual(await models.get_wallet_balance(2001), 0.0)
 
     def test_copy_button_uses_exact_provider_amount_without_surcharge(self):
         from handlers.payment import _format_crypto_amount

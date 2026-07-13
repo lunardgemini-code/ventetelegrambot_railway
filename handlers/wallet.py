@@ -3,6 +3,7 @@ Wallet handler — View balance, top up via Binance Pay, view transaction histor
 Uses ConversationHandler with states WALLET_MENU, WALLET_TOPUP_AMOUNT, WALLET_TOPUP_VERIFY.
 """
 
+import asyncio
 import logging
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -14,7 +15,7 @@ from telegram.ext import (
     filters,
 )
 
-from config import BINANCE_PAY_ID
+from config import BINANCE_PAY_ID, PAYMENT_TIMEOUT_SECONDS
 from database.models import (
     get_user_lang,
     get_wallet_balance,
@@ -22,8 +23,14 @@ from database.models import (
     topup_wallet,
 )
 from services.binance_verify import verify_payment
-from utils.helpers import format_price
-from utils.keyboards import back_keyboard, main_menu_keyboard, wallet_topup_method_keyboard, make_button
+from utils.helpers import escape_html, format_price
+from utils.keyboards import (
+    back_keyboard,
+    main_menu_keyboard,
+    make_button,
+    nowpayments_wallet_topup_keyboard,
+    wallet_topup_method_keyboard,
+)
 from utils.locales import t
 
 logger = logging.getLogger(__name__)
@@ -34,6 +41,10 @@ WALLET_TOPUP_METHOD = 301
 WALLET_TOPUP_VERIFY = 302
 WALLET_TOPUP_BEP20_TX = 303
 WALLET_TOPUP_TRC20_TX = 304
+WALLET_TOPUP_NOWPAYMENTS = 305
+
+_nowpayments_topup_locks = [asyncio.Lock() for _ in range(64)]
+_nowpayments_topup_timeout_tasks: dict[int, asyncio.Task] = {}
 
 
 def wallet_menu_keyboard(balance: float, lang: str = "fr") -> InlineKeyboardMarkup:
@@ -170,6 +181,400 @@ async def wallet_topup_method_binance(update: Update, context: ContextTypes.DEFA
     lang = await get_user_lang(update.effective_user.id)
     amount = context.user_data.get("wallet_topup_amount", 0)
     return await _start_binance_topup(update, context, amount, lang, is_callback=True)
+
+
+def _format_topup_crypto_amount(value) -> str:
+    rendered = f"{float(value or 0):.8f}".rstrip("0").rstrip(".")
+    return rendered or "0"
+
+
+async def _render_nowpayments_topup_checkout(
+    query,
+    topup: dict,
+    lang: str,
+    status_text: str | None = None,
+) -> None:
+    payment_id = str(topup.get("payment_id") or "")
+    address = str(topup.get("pay_address") or "")
+    pay_amount = _format_topup_crypto_amount(topup.get("pay_amount"))
+    wallet_amount = float(topup.get("wallet_amount") or 0)
+    text = (
+        f"{t('nowpayments_title', lang)}\n\n"
+        f"{t('wallet_topup', lang)}: <b>{format_price(wallet_amount)}</b>\n\n"
+        f"{t('nowpayments_address', lang)}\n"
+        f"<code>{escape_html(address)}</code>\n\n"
+        f"{t('nowpayments_amount', lang).format(amount=pay_amount)}\n"
+        f"{t('nowpayments_network', lang)}\n"
+        f"{t('nowpayments_reference', lang).format(payment_id=escape_html(payment_id))}\n\n"
+        f"{t('nowpayments_instructions', lang)}\n\n"
+        f"{t('nowpayments_fee_warning', lang)}\n\n"
+        f"{status_text or t('nowpayments_waiting', lang)}"
+    )
+    await query.edit_message_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=nowpayments_wallet_topup_keyboard(int(topup["id"]), pay_amount, lang),
+    )
+
+
+async def process_nowpayments_wallet_topup_notification(bot, payment_id: str | int) -> dict:
+    """Finalize and notify a NOWPayments wallet credit exactly once."""
+    from database.models import (
+        claim_nowpayments_wallet_topup_notification,
+        finalize_nowpayments_wallet_topup,
+        mark_nowpayments_wallet_topup_notified,
+        release_nowpayments_wallet_topup_notification,
+    )
+
+    result = await finalize_nowpayments_wallet_topup(payment_id)
+    action = result.get("action")
+    payment = result.get("payment") or {}
+    if not payment or payment.get("notified_at"):
+        return result
+    notifiable = {
+        "wallet_credited",
+        "review_required",
+        "partially_paid",
+        "expired",
+        "failed",
+        "refunded",
+    }
+    if action not in notifiable:
+        return result
+    if not await claim_nowpayments_wallet_topup_notification(payment_id):
+        return result
+
+    user_id = int(payment.get("user_telegram_id") or 0)
+    lang = await get_user_lang(user_id) if user_id else "en"
+    notified = False
+    try:
+        if action == "wallet_credited" and user_id:
+            wallet_amount = float(payment.get("wallet_amount") or 0)
+            new_balance = float(payment.get("new_balance") or await get_wallet_balance(user_id))
+            text = t("wallet_credited", lang) \
+                .replace("${amount}", format_price(wallet_amount)) \
+                .replace("${balance}", format_price(new_balance))
+            try:
+                await bot.send_message(
+                    user_id,
+                    text,
+                    parse_mode="HTML",
+                    reply_markup=wallet_menu_keyboard(new_balance, lang),
+                )
+            except Exception as exc:
+                logger.warning("Could not notify wallet top-up user %s: %s", user_id, exc)
+            try:
+                from bot import notify_admins
+                await notify_admins(
+                    "<b>NOWPayments wallet top-up confirmed</b>\n\n"
+                    f"Client: <code>{user_id}</code>\n"
+                    f"Wallet credit: {format_price(wallet_amount)}\n"
+                    f"Payment: <code>{escape_html(str(payment_id))}</code>"
+                )
+            except Exception as exc:
+                logger.warning("Could not notify admins about wallet top-up %s: %s", payment_id, exc)
+            notified = True
+        elif action == "review_required":
+            if user_id:
+                try:
+                    await bot.send_message(user_id, t("nowpayments_review", lang), reply_markup=main_menu_keyboard(lang))
+                except Exception:
+                    pass
+            try:
+                from bot import notify_admins
+                await notify_admins(
+                    "<b>NOWPayments wallet top-up review</b>\n\n"
+                    f"Client: <code>{user_id}</code>\n"
+                    f"Payment: <code>{escape_html(str(payment_id))}</code>\n"
+                    f"Reason: {escape_html(str(payment.get('processing_error') or 'Validation mismatch'))}"
+                )
+            except Exception:
+                pass
+            notified = True
+        elif action == "partially_paid" and user_id:
+            try:
+                await bot.send_message(user_id, t("nowpayments_partial", lang))
+            except Exception:
+                pass
+            notified = True
+        elif action in ("expired", "failed", "refunded") and user_id:
+            try:
+                await bot.send_message(
+                    user_id,
+                    t("nowpayments_expired", lang),
+                    reply_markup=main_menu_keyboard(lang),
+                )
+            except Exception:
+                pass
+            notified = True
+
+        if notified:
+            await mark_nowpayments_wallet_topup_notified(payment_id)
+        else:
+            await release_nowpayments_wallet_topup_notification(payment_id)
+        return result
+    except Exception:
+        await release_nowpayments_wallet_topup_notification(payment_id)
+        raise
+
+
+async def expire_nowpayments_wallet_topup_after_timeout(
+    bot,
+    topup_id: int,
+    timeout_seconds: int = PAYMENT_TIMEOUT_SECONDS,
+    delay_seconds: float | None = None,
+) -> None:
+    await asyncio.sleep(timeout_seconds if delay_seconds is None else max(0, delay_seconds))
+    try:
+        from database.models import expire_stale_nowpayments_wallet_topups
+        payment_ids = await expire_stale_nowpayments_wallet_topups(
+            timeout_seconds=timeout_seconds,
+            topup_id=topup_id,
+        )
+        for payment_id in payment_ids:
+            await process_nowpayments_wallet_topup_notification(bot, payment_id)
+    except Exception as exc:
+        logger.error("Error expiring NOWPayments wallet top-up #%s: %s", topup_id, exc, exc_info=True)
+    finally:
+        current = asyncio.current_task()
+        if _nowpayments_topup_timeout_tasks.get(topup_id) is current:
+            _nowpayments_topup_timeout_tasks.pop(topup_id, None)
+
+
+async def restore_nowpayments_wallet_topup_timeout_tasks(bot) -> int:
+    from database.models import list_active_nowpayments_wallet_topup_timeouts
+
+    restored = 0
+    for topup in await list_active_nowpayments_wallet_topup_timeouts(
+        timeout_seconds=PAYMENT_TIMEOUT_SECONDS,
+    ):
+        topup_id = int(topup["topup_id"])
+        previous = _nowpayments_topup_timeout_tasks.pop(topup_id, None)
+        if previous and not previous.done():
+            previous.cancel()
+        _nowpayments_topup_timeout_tasks[topup_id] = asyncio.create_task(
+            expire_nowpayments_wallet_topup_after_timeout(
+                bot,
+                topup_id,
+                timeout_seconds=PAYMENT_TIMEOUT_SECONDS,
+                delay_seconds=float(topup.get("remaining_seconds") or 0),
+            )
+        )
+        restored += 1
+    return restored
+
+
+async def wallet_topup_method_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    lang = await get_user_lang(update.effective_user.id)
+    user_id = update.effective_user.id
+    amount = round(float(context.user_data.get("wallet_topup_amount") or 0), 2)
+    if amount <= 0:
+        await query.edit_message_text(t("wallet_invalid_amount", lang), reply_markup=main_menu_keyboard(lang))
+        return ConversationHandler.END
+
+    lock = _nowpayments_topup_locks[user_id % len(_nowpayments_topup_locks)]
+    async with lock:
+        from handlers.payment import _nowpayments_callback_url
+        from database.models import (
+            attach_nowpayments_wallet_topup,
+            mark_nowpayments_wallet_topup_creation_failed,
+            prepare_nowpayments_wallet_topup,
+        )
+        from services.nowpayments import (
+            NowPaymentsError,
+            calculate_checkout_price,
+            create_payment,
+            get_minimum_amount,
+            is_nowpayments_configured,
+        )
+
+        callback_url = _nowpayments_callback_url()
+        if not is_nowpayments_configured() or not callback_url.startswith("https://"):
+            logger.error("NOWPayments wallet top-up callback URL is missing or not HTTPS")
+            await query.edit_message_text(t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
+            return ConversationHandler.END
+
+        checkout_price = calculate_checkout_price(amount)
+        try:
+            minimum = await get_minimum_amount()
+            minimum_usd = float(minimum.get("fiat_equivalent") or minimum.get("min_amount") or 0)
+            if minimum_usd > 0 and checkout_price + 0.000001 < minimum_usd:
+                await query.edit_message_text(
+                    t("nowpayments_below_minimum", lang).format(minimum=_format_topup_crypto_amount(minimum_usd)),
+                    reply_markup=main_menu_keyboard(lang),
+                )
+                return ConversationHandler.END
+        except NowPaymentsError as exc:
+            logger.warning("Could not read NOWPayments top-up minimum amount: %s", exc)
+            await query.edit_message_text(t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
+            return ConversationHandler.END
+        except (TypeError, ValueError) as exc:
+            logger.warning("Invalid NOWPayments top-up minimum response: %s", exc)
+
+        try:
+            attempt = await prepare_nowpayments_wallet_topup(user_id, amount, checkout_price)
+        except Exception as exc:
+            logger.error("Could not prepare NOWPayments wallet top-up for user %s: %s", user_id, exc, exc_info=True)
+            await query.edit_message_text(t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
+            return ConversationHandler.END
+        if not attempt.get("created"):
+            if attempt.get("payment_id"):
+                await _render_nowpayments_topup_checkout(query, attempt, lang)
+                return WALLET_TOPUP_NOWPAYMENTS
+            await query.edit_message_text(
+                t("nowpayments_creation_unknown", lang).format(order_id=f"W{attempt['id']}"),
+                reply_markup=main_menu_keyboard(lang),
+            )
+            return ConversationHandler.END
+
+        try:
+            provider_payment = await create_payment(
+                price_amount=checkout_price,
+                order_id=attempt["request_key"],
+                order_description=f"Wallet top-up {amount:.2f} USD",
+                callback_url=callback_url,
+            )
+            topup = await attach_nowpayments_wallet_topup(attempt["request_key"], provider_payment)
+        except Exception as exc:
+            try:
+                await mark_nowpayments_wallet_topup_creation_failed(
+                    attempt["request_key"],
+                    uncertain=bool(isinstance(exc, NowPaymentsError) and exc.retryable),
+                    error=str(exc),
+                )
+            except Exception as mark_exc:
+                logger.error("Could not record failed NOWPayments top-up creation: %s", mark_exc)
+            logger.warning("NOWPayments wallet top-up creation failed for user %s: %s", user_id, exc)
+            text = (
+                t("nowpayments_creation_unknown", lang).format(order_id=f"W{attempt['id']}")
+                if isinstance(exc, NowPaymentsError) and exc.retryable
+                else t("nowpayments_unavailable", lang)
+            )
+            await query.edit_message_text(text, reply_markup=main_menu_keyboard(lang))
+            return ConversationHandler.END
+
+        context.user_data["wallet_topup_id"] = int(topup["id"])
+        await _render_nowpayments_topup_checkout(query, topup, lang)
+        previous = _nowpayments_topup_timeout_tasks.pop(int(topup["id"]), None)
+        if previous and not previous.done():
+            previous.cancel()
+        _nowpayments_topup_timeout_tasks[int(topup["id"])] = asyncio.create_task(
+            expire_nowpayments_wallet_topup_after_timeout(
+                context.bot,
+                int(topup["id"]),
+                timeout_seconds=PAYMENT_TIMEOUT_SECONDS,
+            )
+        )
+        return WALLET_TOPUP_NOWPAYMENTS
+
+
+async def check_nowpayments_wallet_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    lang = await get_user_lang(update.effective_user.id)
+    await query.answer(t("nowpayments_checking_short", lang))
+    topup_id = int(query.data.split(":", 1)[1])
+    from database.models import (
+        get_nowpayments_wallet_topup,
+        save_nowpayments_update,
+    )
+    from services.nowpayments import NowPaymentsError, get_payment_status
+
+    topup = await get_nowpayments_wallet_topup(topup_id)
+    if not topup or int(topup.get("user_telegram_id") or 0) != update.effective_user.id:
+        await query.edit_message_text(t("access_denied", lang))
+        return ConversationHandler.END
+    if not topup.get("payment_id"):
+        await query.edit_message_text(t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
+        return ConversationHandler.END
+
+    await _render_nowpayments_topup_checkout(query, topup, lang, t("nowpayments_checking", lang))
+    try:
+        provider_payment = await get_payment_status(topup["payment_id"])
+        topup = await save_nowpayments_update(provider_payment) or topup
+        result = await process_nowpayments_wallet_topup_notification(context.bot, topup["payment_id"])
+    except (NowPaymentsError, TypeError, ValueError):
+        await _render_nowpayments_topup_checkout(query, topup, lang, t("nowpayments_unavailable", lang))
+        return WALLET_TOPUP_NOWPAYMENTS
+
+    action = result.get("action")
+    if action == "wallet_credited":
+        payment = result.get("payment") or topup
+        balance = float(payment.get("new_balance") or await get_wallet_balance(update.effective_user.id))
+        text = t("wallet_credited", lang) \
+            .replace("${amount}", format_price(float(payment.get("wallet_amount") or 0))) \
+            .replace("${balance}", format_price(balance))
+        await query.edit_message_text(
+            text,
+            parse_mode="HTML",
+            reply_markup=wallet_menu_keyboard(balance, lang),
+        )
+        context.user_data.pop("wallet_topup_amount", None)
+        context.user_data.pop("wallet_topup_id", None)
+        task = _nowpayments_topup_timeout_tasks.pop(topup_id, None)
+        if task and not task.done():
+            task.cancel()
+        return ConversationHandler.END
+    if action == "review_required":
+        await query.edit_message_text(t("nowpayments_review", lang), reply_markup=main_menu_keyboard(lang))
+        return ConversationHandler.END
+    if action == "partially_paid":
+        status_text = t("nowpayments_partial", lang)
+    elif action in ("confirming", "confirmed", "sending", "spending"):
+        status_text = t("nowpayments_confirming", lang)
+    elif action in ("expired", "failed", "refunded"):
+        await query.edit_message_text(t("nowpayments_expired", lang), reply_markup=main_menu_keyboard(lang))
+        return ConversationHandler.END
+    else:
+        status_text = t("nowpayments_waiting", lang)
+    await _render_nowpayments_topup_checkout(query, topup, lang, status_text)
+    return WALLET_TOPUP_NOWPAYMENTS
+
+
+async def cancel_nowpayments_wallet_topup_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    lang = await get_user_lang(update.effective_user.id)
+    topup_id = int(query.data.split(":", 1)[1])
+    from database.models import cancel_nowpayments_wallet_topup, get_nowpayments_wallet_topup
+
+    topup = await get_nowpayments_wallet_topup(topup_id)
+    if not topup or int(topup.get("user_telegram_id") or 0) != update.effective_user.id:
+        await query.edit_message_text(t("access_denied", lang))
+        return ConversationHandler.END
+    cancelled = await cancel_nowpayments_wallet_topup(topup_id, update.effective_user.id)
+    if not cancelled and (
+        topup.get("processed_at") is not None
+        or str(topup.get("provider_status") or "").lower() == "finished"
+    ):
+        result = await process_nowpayments_wallet_topup_notification(
+            context.bot,
+            topup.get("payment_id"),
+        )
+        if result.get("action") == "wallet_credited":
+            payment = result.get("payment") or topup
+            balance = float(payment.get("new_balance") or await get_wallet_balance(update.effective_user.id))
+            text = t("wallet_credited", lang) \
+                .replace("${amount}", format_price(float(payment.get("wallet_amount") or 0))) \
+                .replace("${balance}", format_price(balance))
+            await query.edit_message_text(
+                text,
+                parse_mode="HTML",
+                reply_markup=wallet_menu_keyboard(balance, lang),
+            )
+            return ConversationHandler.END
+    task = _nowpayments_topup_timeout_tasks.pop(topup_id, None)
+    if task and not task.done():
+        task.cancel()
+    context.user_data.pop("wallet_topup_amount", None)
+    context.user_data.pop("wallet_topup_id", None)
+    balance = await get_wallet_balance(update.effective_user.id)
+    await query.edit_message_text(
+        t("nowpayments_expired", lang),
+        reply_markup=wallet_menu_keyboard(balance, lang),
+    )
+    return ConversationHandler.END
 
 
 async def _start_crypto_topup(update, context, crypto_type: str, setting_key: str, state_to_return: int):
@@ -487,6 +892,7 @@ def wallet_conversation_handler() -> ConversationHandler:
             WALLET_TOPUP_METHOD: [
                 CallbackQueryHandler(wallet_back, pattern=r"^back_wallet$"),
                 CallbackQueryHandler(wallet_topup_method_binance, pattern=r"^topup_binance$"),
+                CallbackQueryHandler(wallet_topup_method_nowpayments, pattern=r"^topup_nowpayments$"),
                 CallbackQueryHandler(wallet_topup_method_bep20, pattern=r"^topup_bep20$"),
                 CallbackQueryHandler(wallet_topup_method_trc20, pattern=r"^topup_trc20$"),
             ],
@@ -501,6 +907,10 @@ def wallet_conversation_handler() -> ConversationHandler:
             WALLET_TOPUP_TRC20_TX: [
                 CallbackQueryHandler(wallet_back, pattern=r"^back_wallet$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, wallet_verify_trc20),
+            ],
+            WALLET_TOPUP_NOWPAYMENTS: [
+                CallbackQueryHandler(check_nowpayments_wallet_topup, pattern=r"^check_topup_nowpayments:"),
+                CallbackQueryHandler(cancel_nowpayments_wallet_topup_callback, pattern=r"^cancel_topup_nowpayments:"),
             ],
         },
         fallbacks=[

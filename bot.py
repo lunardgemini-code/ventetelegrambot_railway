@@ -488,6 +488,11 @@ def _log_nowpayments_task_result(task: asyncio.Task) -> None:
 async def _process_nowpayments_payment(payment_id: str) -> None:
     if not tg_app or not getattr(tg_app, "bot", None):
         return
+    from database.models import get_nowpayments_wallet_topup_by_payment
+    if await get_nowpayments_wallet_topup_by_payment(payment_id):
+        from handlers.wallet import process_nowpayments_wallet_topup_notification
+        await process_nowpayments_wallet_topup_notification(tg_app.bot, payment_id)
+        return
     from handlers.payment import process_nowpayments_payment_notification
     await process_nowpayments_payment_notification(tg_app.bot, payment_id)
 
@@ -3086,8 +3091,11 @@ def _should_process_polled_nowpayment(saved: dict | None) -> bool:
 async def _nowpayments_worker() -> None:
     from database.models import (
         expire_stale_nowpayments_payments,
+        expire_stale_nowpayments_wallet_topups,
         list_nowpayments_to_finalize,
         list_nowpayments_to_poll,
+        list_nowpayments_wallet_topups_to_finalize,
+        list_nowpayments_wallet_topups_to_poll,
         save_nowpayments_update,
     )
     from services.nowpayments import NowPaymentsError, get_payment_status
@@ -3110,7 +3118,24 @@ async def _nowpayments_worker() -> None:
                         exc,
                     )
 
-            for payment in await list_nowpayments_to_finalize(limit=25):
+            expired_topup_ids = await expire_stale_nowpayments_wallet_topups(
+                timeout_seconds=PAYMENT_TIMEOUT_SECONDS,
+            )
+            for payment_id in expired_topup_ids:
+                try:
+                    await _process_nowpayments_payment(payment_id)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.exception(
+                        "NOWPayments wallet top-up expiration notification failed for %s: %s",
+                        payment_id,
+                        exc,
+                    )
+
+            finalizable = await list_nowpayments_to_finalize(limit=25)
+            finalizable += await list_nowpayments_wallet_topups_to_finalize(limit=25)
+            for payment in finalizable:
                 try:
                     await _process_nowpayments_payment(str(payment["payment_id"]))
                 except asyncio.CancelledError:
@@ -3128,7 +3153,10 @@ async def _nowpayments_worker() -> None:
             if queue_busy:
                 logger.debug("Deferring NOWPayments polling while webhook clients are queued")
             else:
-                for payment in await list_nowpayments_to_poll(limit=NOWPAYMENTS_POLL_BATCH):
+                pollable = await list_nowpayments_to_poll(limit=NOWPAYMENTS_POLL_BATCH)
+                pollable += await list_nowpayments_wallet_topups_to_poll(limit=NOWPAYMENTS_POLL_BATCH)
+                pollable.sort(key=lambda item: str(item.get("updated_at") or ""))
+                for payment in pollable[:NOWPAYMENTS_POLL_BATCH]:
                     if _current_webhook_backlog() > 0:
                         logger.debug("Stopping NOWPayments polling because webhook clients are queued")
                         break
@@ -3217,6 +3245,13 @@ async def post_init(application: Application) -> None:
             restored = await restore_nowpayments_timeout_tasks(application.bot)
             if restored:
                 logger.info("Restored %d NOWPayments expiration timer(s)", restored)
+            from handlers.wallet import restore_nowpayments_wallet_topup_timeout_tasks
+            restored_topups = await restore_nowpayments_wallet_topup_timeout_tasks(application.bot)
+            if restored_topups:
+                logger.info(
+                    "Restored %d NOWPayments wallet top-up expiration timer(s)",
+                    restored_topups,
+                )
         except Exception as exc:
             logger.warning("Could not restore NOWPayments expiration timers: %s", exc)
 
@@ -3509,9 +3544,12 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
         ("CREATE TABLE IF NOT EXISTS reseller_api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, user_telegram_id INTEGER NOT NULL, name TEXT DEFAULT '', key_prefix TEXT UNIQUE NOT NULL, key_hash TEXT NOT NULL, is_active INTEGER DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, last_used_at TIMESTAMP)", "Table 'reseller_api_keys'"),
         ("CREATE TABLE IF NOT EXISTS reseller_order_links (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER UNIQUE NOT NULL, reseller_user_telegram_id INTEGER NOT NULL, customer_reference TEXT DEFAULT '', idempotency_key TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(reseller_user_telegram_id, idempotency_key))", "Table 'reseller_order_links'"),
         ("CREATE TABLE IF NOT EXISTS nowpayments_payments (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL, request_key TEXT UNIQUE NOT NULL, payment_id TEXT UNIQUE, provider_status TEXT DEFAULT 'creating', price_amount REAL NOT NULL, price_currency TEXT DEFAULT 'usd', pay_amount REAL, pay_currency TEXT DEFAULT 'usdtbsc', pay_address TEXT, actually_paid REAL DEFAULT 0, network TEXT, valid_until TEXT, raw_payload TEXT DEFAULT '{}', processing_error TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, processed_at TIMESTAMP, notification_claimed_at TIMESTAMP, notified_at TIMESTAMP)", "Table 'nowpayments_payments'"),
+        ("CREATE TABLE IF NOT EXISTS nowpayments_wallet_topups (id INTEGER PRIMARY KEY AUTOINCREMENT, user_telegram_id INTEGER NOT NULL, request_key TEXT UNIQUE NOT NULL, payment_id TEXT UNIQUE, provider_status TEXT DEFAULT 'creating', wallet_amount REAL NOT NULL, price_amount REAL NOT NULL, price_currency TEXT DEFAULT 'usd', pay_amount REAL, pay_currency TEXT DEFAULT 'usdtbsc', pay_address TEXT, actually_paid REAL DEFAULT 0, network TEXT, valid_until TEXT, raw_payload TEXT DEFAULT '{}', processing_error TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, processed_at TIMESTAMP, notification_claimed_at TIMESTAMP, notified_at TIMESTAMP)", "Table 'nowpayments_wallet_topups'"),
         ("ALTER TABLE nowpayments_payments ADD COLUMN notification_claimed_at TIMESTAMP", "Column 'nowpayments_payments.notification_claimed_at'"),
         ("CREATE INDEX IF NOT EXISTS idx_nowpayments_order ON nowpayments_payments(order_id, created_at)", "Index 'idx_nowpayments_order'"),
         ("CREATE INDEX IF NOT EXISTS idx_nowpayments_status ON nowpayments_payments(provider_status, updated_at)", "Index 'idx_nowpayments_status'"),
+        ("CREATE INDEX IF NOT EXISTS idx_nowpayments_topups_user ON nowpayments_wallet_topups(user_telegram_id, created_at)", "Index 'idx_nowpayments_topups_user'"),
+        ("CREATE INDEX IF NOT EXISTS idx_nowpayments_topups_status ON nowpayments_wallet_topups(provider_status, updated_at)", "Index 'idx_nowpayments_topups_status'"),
         ("CREATE INDEX IF NOT EXISTS idx_stock_product_added ON stock_items(product_id, added_at DESC)", "Index 'idx_stock_product_added'"),
         ("CREATE INDEX IF NOT EXISTS idx_orders_user_status ON orders(user_telegram_id, status)", "Index 'idx_orders_user_status'"),
         ("CREATE INDEX IF NOT EXISTS idx_orders_binance_id ON orders(binance_order_id)", "Index 'idx_orders_binance_id'"),

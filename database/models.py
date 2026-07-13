@@ -2876,6 +2876,168 @@ async def attach_nowpayments_payment(request_key: str, payload: dict) -> dict:
         await db.close()
 
 
+async def prepare_nowpayments_wallet_topup(
+    user_telegram_id: int,
+    wallet_amount: float,
+    price_amount: float,
+) -> dict:
+    """Create one wallet top-up checkout or reuse the matching active one."""
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        placeholders = ",".join("?" for _ in _NOWPAYMENTS_ACTIVE_STATUSES)
+        cursor = await db.execute(
+            f"""SELECT * FROM nowpayments_wallet_topups
+                WHERE user_telegram_id = ?
+                  AND ABS(wallet_amount - ?) < 0.000001
+                  AND provider_status IN ({placeholders})
+                ORDER BY id DESC LIMIT 1""",
+            (int(user_telegram_id), float(wallet_amount), *_NOWPAYMENTS_ACTIVE_STATUSES),
+        )
+        existing = await cursor.fetchone()
+        if existing:
+            await db.commit()
+            result = dict(existing)
+            result["created"] = False
+            return result
+
+        # A user only needs one visible checkout at a time. A late finished IPN
+        # can still recover an older checkout and credit it exactly once.
+        await db.execute(
+            f"""UPDATE nowpayments_wallet_topups
+                SET provider_status = 'expired', updated_at = CURRENT_TIMESTAMP,
+                    notification_claimed_at = NULL, notified_at = NULL
+                WHERE user_telegram_id = ?
+                  AND provider_status IN ({placeholders})
+                  AND COALESCE(actually_paid, 0) <= 0""",
+            (int(user_telegram_id), *_NOWPAYMENTS_ACTIVE_STATUSES),
+        )
+        request_key = f"np-wallet-{int(user_telegram_id)}-{uuid.uuid4().hex}"
+        cursor = await db.execute(
+            """INSERT INTO nowpayments_wallet_topups
+               (user_telegram_id, request_key, provider_status, wallet_amount,
+                price_amount, price_currency, pay_currency)
+               VALUES (?, ?, 'creating', ?, ?, 'usd', 'usdtbsc')""",
+            (
+                int(user_telegram_id),
+                request_key,
+                round(float(wallet_amount), 2),
+                round(float(price_amount), 2),
+            ),
+        )
+        attempt_id = cursor.lastrowid
+        await db.commit()
+        cursor = await db.execute(
+            "SELECT * FROM nowpayments_wallet_topups WHERE id = ?",
+            (attempt_id,),
+        )
+        result = dict(await cursor.fetchone())
+        result["created"] = True
+        return result
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def attach_nowpayments_wallet_topup(request_key: str, payload: dict) -> dict:
+    payment_id = str(payload.get("payment_id") or "").strip()
+    if not payment_id:
+        raise ValueError("NOWPAYMENTS_PAYMENT_ID_MISSING")
+
+    provider_status = str(payload.get("payment_status") or "waiting").lower()
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute(
+            """UPDATE nowpayments_wallet_topups SET
+                   payment_id = ?, provider_status = ?, pay_amount = ?, pay_currency = ?,
+                   pay_address = ?, network = ?, valid_until = ?, raw_payload = ?,
+                   updated_at = CURRENT_TIMESTAMP, processing_error = NULL
+               WHERE request_key = ? AND payment_id IS NULL
+               RETURNING *""",
+            (
+                payment_id,
+                provider_status,
+                float(payload.get("pay_amount") or 0),
+                str(payload.get("pay_currency") or "usdtbsc").lower(),
+                str(payload.get("pay_address") or ""),
+                str(payload.get("network") or ""),
+                payload.get("valid_until") or payload.get("expiration_estimate_date"),
+                json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                request_key,
+            ),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            cursor = await db.execute(
+                "SELECT * FROM nowpayments_wallet_topups WHERE request_key = ?",
+                (request_key,),
+            )
+            row = await cursor.fetchone()
+        await db.commit()
+        if not row:
+            raise ValueError("NOWPAYMENTS_TOPUP_ATTEMPT_NOT_FOUND")
+        return dict(row)
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def mark_nowpayments_wallet_topup_creation_failed(
+    request_key: str,
+    *,
+    uncertain: bool,
+    error: str,
+) -> None:
+    db = await get_db()
+    try:
+        await db.execute(
+            """UPDATE nowpayments_wallet_topups
+               SET provider_status = ?, processing_error = ?, updated_at = CURRENT_TIMESTAMP
+               WHERE request_key = ? AND payment_id IS NULL""",
+            ("creation_unknown" if uncertain else "creation_failed", str(error)[:500], request_key),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def get_nowpayments_wallet_topup(topup_id: int) -> dict | None:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM nowpayments_wallet_topups WHERE id = ?",
+            (int(topup_id),),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def get_nowpayments_wallet_topup_by_payment(payment_id: str | int) -> dict | None:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM nowpayments_wallet_topups WHERE payment_id = ?",
+            (str(payment_id),),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
 async def mark_nowpayments_creation_failed(request_key: str, *, uncertain: bool, error: str) -> None:
     db = await get_db()
     try:
@@ -2955,17 +3117,32 @@ async def _save_nowpayments_update_once(
     db = await get_db(fresh=fresh_connection)
     try:
         await db.execute("BEGIN IMMEDIATE")
+        table_name = "nowpayments_payments"
+        payment_kind = "order"
         cursor = await db.execute(
             "SELECT * FROM nowpayments_payments WHERE payment_id = ?",
             (payment_id,),
         )
         existing = await cursor.fetchone()
         if not existing:
+            cursor = await db.execute(
+                "SELECT * FROM nowpayments_wallet_topups WHERE payment_id = ?",
+                (payment_id,),
+            )
+            existing = await cursor.fetchone()
+            table_name = "nowpayments_wallet_topups"
+            payment_kind = "wallet_topup"
+        if not existing:
             await db.rollback()
             return None
         existing = dict(existing)
         callback_order_id = str(payload.get("order_id") or "").strip()
-        if callback_order_id and callback_order_id != str(existing["order_id"]):
+        expected_order_id = (
+            str(existing["order_id"])
+            if payment_kind == "order"
+            else str(existing["request_key"])
+        )
+        if callback_order_id and callback_order_id != expected_order_id:
             await db.rollback()
             raise ValueError("NOWPAYMENTS_ORDER_MISMATCH")
 
@@ -2987,7 +3164,7 @@ async def _save_nowpayments_update_once(
         if provider_status != "finished" and status_rank.get(provider_status, 0) < status_rank.get(old_status, 0):
             provider_status = old_status
         cursor = await db.execute(
-            """UPDATE nowpayments_payments SET
+            f"""UPDATE {table_name} SET
                    provider_status = ?,
                    pay_amount = COALESCE(?, pay_amount),
                    pay_currency = COALESCE(?, pay_currency),
@@ -3017,6 +3194,7 @@ async def _save_nowpayments_update_once(
         await db.commit()
         result = dict(row)
         result["status_changed"] = old_status != provider_status
+        result["payment_kind"] = payment_kind
         return result
     except Exception:
         try:
@@ -3238,6 +3416,170 @@ async def _finalize_nowpayments_payment_once(
         await db.close()
 
 
+async def finalize_nowpayments_wallet_topup(payment_id: str | int) -> dict:
+    """Credit a finished NOWPayments wallet top-up exactly once."""
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            async with _get_critical_db_semaphore():
+                return await _finalize_nowpayments_wallet_topup_once(
+                    payment_id,
+                    fresh_connection=True,
+                )
+        except Exception as exc:
+            last_exc = exc
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            logger.warning(
+                "Retrying NOWPayments wallet top-up finalization for %s: %s",
+                payment_id,
+                exc,
+            )
+            await asyncio.sleep(0.15 * (attempt + 1))
+    raise RuntimeError("NOWPayments wallet top-up finalization unavailable") from last_exc
+
+
+async def _finalize_nowpayments_wallet_topup_once(
+    payment_id: str | int,
+    *,
+    fresh_connection: bool = False,
+) -> dict:
+    invalidate_stats_cache()
+    db = await get_db(fresh=fresh_connection)
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute(
+            "SELECT * FROM nowpayments_wallet_topups WHERE payment_id = ?",
+            (str(payment_id),),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            await db.rollback()
+            return {"action": "unknown"}
+        payment = dict(row)
+        provider_status = str(payment.get("provider_status") or "").lower()
+        if provider_status != "finished":
+            await db.commit()
+            return {"action": provider_status or "waiting", "payment": payment}
+
+        if payment.get("processed_at") is not None:
+            cursor = await db.execute(
+                "SELECT wallet_balance FROM users WHERE telegram_id = ?",
+                (int(payment["user_telegram_id"]),),
+            )
+            user = await cursor.fetchone()
+            payment["new_balance"] = float(user["wallet_balance"] or 0) if user else 0.0
+            await db.commit()
+            return {
+                "action": "wallet_credited",
+                "payment": payment,
+                "already_processed": True,
+            }
+
+        expected_currency = str(payment.get("pay_currency") or "").lower()
+        expected_pay_amount = float(payment.get("pay_amount") or 0)
+        actually_paid = float(payment.get("actually_paid") or 0)
+        wallet_amount = round(float(payment.get("wallet_amount") or 0), 2)
+        from services.nowpayments import calculate_checkout_price
+        expected_checkout_price = calculate_checkout_price(wallet_amount)
+        stored_price = round(float(payment.get("price_amount") or 0), 2)
+        error = None
+        if expected_currency != "usdtbsc":
+            error = f"Unexpected pay currency: {expected_currency or 'missing'}"
+        elif abs(stored_price - expected_checkout_price) > 0.01:
+            error = (
+                f"Wallet amount mismatch: expected {expected_checkout_price:.2f}, "
+                f"stored {stored_price:.2f}"
+            )
+        elif wallet_amount <= 0:
+            error = "Invalid wallet credit amount"
+        elif expected_pay_amount <= 0 or actually_paid + 0.000001 < expected_pay_amount:
+            error = f"Insufficient provider amount: paid {actually_paid}, expected {expected_pay_amount}"
+
+        if error:
+            await db.execute(
+                """UPDATE nowpayments_wallet_topups
+                   SET processing_error = ?, updated_at = CURRENT_TIMESTAMP
+                   WHERE id = ?""",
+                (error, int(payment["id"])),
+            )
+            await db.commit()
+            payment["processing_error"] = error
+            return {"action": "review_required", "payment": payment}
+
+        new_balance = await _credit_wallet_tx(
+            db,
+            int(payment["user_telegram_id"]),
+            wallet_amount,
+            "Topup via NOWPayments BEP20",
+            str(payment_id),
+        )
+        await db.execute(
+            """UPDATE nowpayments_wallet_topups
+               SET processed_at = CURRENT_TIMESTAMP, processing_error = NULL
+               WHERE id = ? AND processed_at IS NULL""",
+            (int(payment["id"]),),
+        )
+        await db.commit()
+        payment["new_balance"] = new_balance
+        payment["processed_at"] = True
+        return {"action": "wallet_credited", "payment": payment}
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def mark_nowpayments_wallet_topup_notified(payment_id: str | int) -> None:
+    db = await get_db()
+    try:
+        await db.execute(
+            """UPDATE nowpayments_wallet_topups
+               SET notified_at = CURRENT_TIMESTAMP, notification_claimed_at = NULL
+               WHERE payment_id = ?""",
+            (str(payment_id),),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def claim_nowpayments_wallet_topup_notification(payment_id: str | int) -> bool:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """UPDATE nowpayments_wallet_topups
+               SET notification_claimed_at = CURRENT_TIMESTAMP
+               WHERE payment_id = ? AND notified_at IS NULL
+                 AND (notification_claimed_at IS NULL
+                      OR notification_claimed_at <= datetime('now', '-5 minutes'))
+               RETURNING id""",
+            (str(payment_id),),
+        )
+        row = await cursor.fetchone()
+        await db.commit()
+        return row is not None
+    finally:
+        await db.close()
+
+
+async def release_nowpayments_wallet_topup_notification(payment_id: str | int) -> None:
+    db = await get_db()
+    try:
+        await db.execute(
+            """UPDATE nowpayments_wallet_topups SET notification_claimed_at = NULL
+               WHERE payment_id = ? AND notified_at IS NULL""",
+            (str(payment_id),),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
 async def mark_nowpayments_notified(payment_id: str | int) -> None:
     db = await get_db()
     try:
@@ -3342,6 +3684,167 @@ async def _list_nowpayments_to_poll_once(limit: int = 20) -> list[dict]:
             (*_NOWPAYMENTS_ACTIVE_STATUSES[2:], max(1, min(int(limit), 50))),
         )
         return [dict(row) for row in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+
+async def list_nowpayments_wallet_topups_to_finalize(limit: int = 25) -> list[dict]:
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            return await _list_nowpayments_wallet_topups_to_finalize_once(limit)
+        except Exception as exc:
+            last_exc = exc
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            logger.info("Retrying NOWPayments wallet top-up finalization queue read: %s", exc)
+            await asyncio.sleep(0.1 * (attempt + 1))
+    raise RuntimeError("NOWPayments wallet top-up finalization queue unavailable") from last_exc
+
+
+async def _list_nowpayments_wallet_topups_to_finalize_once(limit: int = 25) -> list[dict]:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT * FROM nowpayments_wallet_topups
+               WHERE provider_status = 'finished'
+                 AND ((processed_at IS NULL AND processing_error IS NULL) OR notified_at IS NULL)
+               ORDER BY updated_at ASC LIMIT ?""",
+            (max(1, min(int(limit), 100)),),
+        )
+        return [dict(row) for row in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+
+async def list_nowpayments_wallet_topups_to_poll(limit: int = 20) -> list[dict]:
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            return await _list_nowpayments_wallet_topups_to_poll_once(limit)
+        except Exception as exc:
+            last_exc = exc
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            logger.info("Retrying NOWPayments wallet top-up polling queue read: %s", exc)
+            await asyncio.sleep(0.1 * (attempt + 1))
+    raise RuntimeError("NOWPayments wallet top-up polling queue unavailable") from last_exc
+
+
+async def _list_nowpayments_wallet_topups_to_poll_once(limit: int = 20) -> list[dict]:
+    db = await get_db()
+    try:
+        placeholders = ",".join("?" for _ in _NOWPAYMENTS_ACTIVE_STATUSES[2:])
+        cursor = await db.execute(
+            f"""SELECT * FROM nowpayments_wallet_topups
+                WHERE payment_id IS NOT NULL
+                  AND provider_status IN ({placeholders})
+                  AND updated_at <= datetime('now', '-60 seconds')
+                ORDER BY updated_at ASC LIMIT ?""",
+            (*_NOWPAYMENTS_ACTIVE_STATUSES[2:], max(1, min(int(limit), 50))),
+        )
+        return [dict(row) for row in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+
+async def expire_stale_nowpayments_wallet_topups(
+    *,
+    timeout_seconds: int = PAYMENT_TIMEOUT_SECONDS,
+    topup_id: int | None = None,
+) -> list[str]:
+    """Expire unpaid wallet top-ups while preserving late payment recovery."""
+    timeout_seconds = max(60, int(timeout_seconds))
+    async with _get_nowpayments_expiry_lock():
+        last_exc: Exception | None = None
+        for attempt in range(3):
+            try:
+                async with _get_critical_db_semaphore():
+                    db = await get_db(fresh=True)
+                    try:
+                        await db.execute("BEGIN IMMEDIATE")
+                        where_topup = " AND id = ?" if topup_id is not None else ""
+                        params: list = [f"-{timeout_seconds} seconds"]
+                        if topup_id is not None:
+                            params.append(int(topup_id))
+                        cursor = await db.execute(
+                            f"""SELECT id, payment_id FROM nowpayments_wallet_topups
+                                WHERE provider_status IN ('creating', 'creation_unknown', 'waiting')
+                                  AND COALESCE(actually_paid, 0) <= 0
+                                  AND created_at <= datetime('now', ?)
+                                  {where_topup}""",
+                            params,
+                        )
+                        expired = [dict(row) for row in await cursor.fetchall()]
+                        if expired:
+                            ids = [int(row["id"]) for row in expired]
+                            placeholders = ",".join("?" for _ in ids)
+                            await db.execute(
+                                f"""UPDATE nowpayments_wallet_topups
+                                    SET provider_status = 'expired', updated_at = CURRENT_TIMESTAMP,
+                                        notification_claimed_at = NULL, notified_at = NULL
+                                    WHERE id IN ({placeholders})""",
+                                ids,
+                            )
+                        await db.commit()
+                        return [str(row["payment_id"]) for row in expired if row.get("payment_id")]
+                    except Exception:
+                        try:
+                            await db.rollback()
+                        except Exception:
+                            pass
+                        raise
+                    finally:
+                        await db.close()
+            except Exception as exc:
+                last_exc = exc
+                if not is_transient_db_connection_error(exc) or attempt == 2:
+                    raise
+                logger.warning("Retrying NOWPayments wallet top-up expiration: %s", exc)
+                await asyncio.sleep(0.15 * (attempt + 1))
+        raise RuntimeError("NOWPayments wallet top-up expiration unavailable") from last_exc
+
+
+async def list_active_nowpayments_wallet_topup_timeouts(
+    *,
+    timeout_seconds: int = PAYMENT_TIMEOUT_SECONDS,
+) -> list[dict]:
+    timeout_seconds = max(60, int(timeout_seconds))
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT id AS topup_id,
+                      MAX(0, ? - MAX(
+                          0,
+                          CAST(strftime('%s', 'now') - strftime('%s', created_at) AS INTEGER)
+                      )) AS remaining_seconds
+               FROM nowpayments_wallet_topups
+               WHERE provider_status IN ('creating', 'creation_unknown', 'waiting')
+                 AND COALESCE(actually_paid, 0) <= 0
+               GROUP BY id""",
+            (timeout_seconds,),
+        )
+        return [dict(row) for row in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+
+async def cancel_nowpayments_wallet_topup(topup_id: int, user_telegram_id: int) -> bool:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """UPDATE nowpayments_wallet_topups
+               SET provider_status = 'expired', updated_at = CURRENT_TIMESTAMP,
+                   notification_claimed_at = NULL, notified_at = NULL
+               WHERE id = ? AND user_telegram_id = ?
+                 AND provider_status IN ('creating', 'creation_unknown', 'waiting')
+                 AND processed_at IS NULL
+               RETURNING id""",
+            (int(topup_id), int(user_telegram_id)),
+        )
+        changed = await cursor.fetchone() is not None
+        await db.commit()
+        return changed
     finally:
         await db.close()
 
@@ -3962,42 +4465,58 @@ async def get_wallet_balance(telegram_id: int) -> float:
         await db.close()
 
 
+async def _credit_wallet_tx(
+    db,
+    telegram_id: int,
+    amount: float,
+    description: str = "",
+    tx_hash: str | None = None,
+) -> float:
+    """Credit a wallet using the caller's existing transaction."""
+    cursor = await db.execute(
+        "UPDATE users SET wallet_balance = COALESCE(wallet_balance, 0) + ? WHERE telegram_id = ? RETURNING wallet_balance",
+        (amount, telegram_id),
+    )
+    row = await cursor.fetchone()
+    if not row:
+        raise ValueError("WALLET_USER_NOT_FOUND")
+    new_balance = float(row["wallet_balance"])
+
+    await db.execute(
+        "INSERT INTO wallet_transactions (user_telegram_id, type, amount, balance_after, description, tx_hash) VALUES (?, 'topup', ?, ?, ?, ?)",
+        (telegram_id, amount, new_balance, description, tx_hash),
+    )
+    if not description.startswith("Admin") and not description.startswith("Refund"):
+        method_suffix = "binance"
+        if "BEP20" in description:
+            method_suffix = "bep20"
+        elif "TRC20" in description:
+            method_suffix = "trc20"
+        setting_key = f"finance_bot_balance_{method_suffix}"
+        await db.execute(
+            """INSERT INTO settings (key, value) VALUES (?, ?)
+               ON CONFLICT(key) DO UPDATE SET
+                   value = CAST(COALESCE(settings.value, '0') AS REAL) + CAST(excluded.value AS REAL)""",
+            (setting_key, str(amount)),
+        )
+    return new_balance
+
+
 async def topup_wallet(telegram_id: int, amount: float, description: str = "", tx_hash: str = None) -> float:
     """CrÃ©dite le wallet et enregistre la transaction. Retourne le nouveau solde."""
     invalidate_stats_cache()
     db = await get_db()
     try:
-        # Atomic update and fetch new balance
-        cursor = await db.execute(
-            "UPDATE users SET wallet_balance = COALESCE(wallet_balance, 0) + ? WHERE telegram_id = ? RETURNING wallet_balance",
-            (amount, telegram_id),
-        )
-        row = await cursor.fetchone()
-        new_balance = float(row["wallet_balance"]) if row else amount
-        
-        # Record transaction
-        await db.execute(
-            "INSERT INTO wallet_transactions (user_telegram_id, type, amount, balance_after, description, tx_hash) VALUES (?, 'topup', ?, ?, ?, ?)",
-            (telegram_id, amount, new_balance, description, tx_hash),
-        )
-        # Increment finance_bot_balance if it's a real topup
-        if not description.startswith("Admin") and not description.startswith("Refund"):
-            method_suffix = "binance"
-            if "BEP20" in description:
-                method_suffix = "bep20"
-            elif "TRC20" in description:
-                method_suffix = "trc20"
-            
-            setting_key = f"finance_bot_balance_{method_suffix}"
-            await db.execute(
-                """INSERT INTO settings (key, value) VALUES (?, ?)
-                   ON CONFLICT(key) DO UPDATE SET
-                       value = CAST(COALESCE(settings.value, '0') AS REAL) + CAST(excluded.value AS REAL)""",
-                (setting_key, str(amount)),
-            )
-
+        await db.execute("BEGIN IMMEDIATE")
+        new_balance = await _credit_wallet_tx(db, telegram_id, amount, description, tx_hash)
         await db.commit()
         return new_balance
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
     finally:
         await db.close()
 
