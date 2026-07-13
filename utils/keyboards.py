@@ -8,12 +8,15 @@ Multi-language support via lang parameter.
 from telegram import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.constants import KeyboardButtonStyle
 from config import REQUIRED_CHANNEL
+from utils.country_flags import format_match_teams, format_team_name
+from utils.game_odds import calculate_match_odds, format_game_odd
 from utils.locales import t
 import re
 
 CUSTOM_EMOJIS = {
     "btn_buy": "5309801015015405183",
     "btn_wallet": "5443127283898405358",
+    "btn_game": "5375312095346704820",
     "btn_profile": "5373012449597335010",
     "btn_history": "5305265301917549162",
     "btn_support": "5443038326535759644",
@@ -31,7 +34,7 @@ CUSTOM_EMOJIS = {
 
 def clean_standard_emoji(text: str) -> str:
     """Removes standard leading emojis and spaces from button label."""
-    return re.sub(r'^[🛒💳👤📜💬👥🌐↩️❌🔄⚡💸➕🎫🚀✅🪙💰◀️\s]+', '', text)
+    return re.sub(r'^[🛒💳🎮👤📜💬👥🌐↩️❌🔄⚡💸➕🎫🚀✅🪙💰◀️\s]+', '', text)
 
 def make_button(text_key: str, lang: str = "fr", callback_data: str | None = None, url: str | None = None, style = None, custom_text: str | None = None) -> InlineKeyboardButton:
     """Creates an InlineKeyboardButton with automatic animated emoji if configured."""
@@ -95,6 +98,7 @@ def main_menu_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [make_button("btn_buy", lang, callback_data="menu_buy", style=KeyboardButtonStyle.SUCCESS)],
         [make_button("btn_wallet", lang, callback_data="menu_wallet")],
+        [make_button("btn_game", lang, callback_data="menu_game")],
         [
             make_button("btn_profile", lang, callback_data="menu_profile"),
             make_button("btn_history", lang, callback_data="menu_history"),
@@ -103,7 +107,6 @@ def main_menu_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
             make_button("btn_support", lang, callback_data="menu_support"),
             make_button("btn_referral", lang, callback_data="show_referrals"),
         ],
-        [make_button("btn_game", lang, callback_data="menu_game")],
         [make_button("btn_api", lang, callback_data="menu_api")],
         [make_button("btn_channel", lang, url=channel_url)],
         [make_button("btn_language", lang, callback_data="change_lang")],
@@ -176,9 +179,7 @@ def game_home_keyboard(matches: list[dict], wallet: dict, lang: str = "fr") -> I
             )
         ])
     for match in matches:
-        home = str(match.get("home_name") or "Home")
-        away = str(match.get("away_name") or "Away")
-        label = f"⚽ {home} - {away}"
+        label = f"⚽ {format_match_teams(match)}"
         if len(label) > 60:
             label = label[:57] + "..."
         buttons.append([InlineKeyboardButton(label, callback_data=f"game_match:{match['id']}")])
@@ -191,19 +192,25 @@ def game_home_keyboard(matches: list[dict], wallet: dict, lang: str = "fr") -> I
 
 
 def game_match_keyboard(match: dict, lang: str = "fr") -> InlineKeyboardMarkup:
+    odds = calculate_match_odds(match)
+    home = format_team_name(match.get("home_name"), match.get("home_code"), "Home")
+    away = format_team_name(match.get("away_name"), match.get("away_code"), "Away")
     buttons = [[
         InlineKeyboardButton(
-            str(match.get("home_name") or "Home")[:28],
+            f"{home[:24]} · {format_game_odd(odds.get('home'))}",
             callback_data=f"game_pick:{match['id']}:home",
         ),
         InlineKeyboardButton(
-            str(match.get("away_name") or "Away")[:28],
+            f"{away[:24]} · {format_game_odd(odds.get('away'))}",
             callback_data=f"game_pick:{match['id']}:away",
         ),
     ]]
     if match.get("market_type") == "regulation":
         buttons.insert(1, [
-            InlineKeyboardButton(t("game_draw_button", lang), callback_data=f"game_pick:{match['id']}:draw")
+            InlineKeyboardButton(
+                f"{t('game_draw_button', lang)} · {format_game_odd(odds.get('draw'))}",
+                callback_data=f"game_pick:{match['id']}:draw",
+            )
         ])
     buttons.append([InlineKeyboardButton(t("game_back_matches", lang), callback_data="menu_game")])
     return InlineKeyboardMarkup(buttons)

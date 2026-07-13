@@ -514,7 +514,8 @@ async def list_user_game_bets(user_telegram_id: int, limit: int = 10) -> list[di
     db = await get_db()
     try:
         cursor = await db.execute(
-            """SELECT gb.*, gm.home_name, gm.away_name, gm.utc_date, gm.market_type,
+            """SELECT gb.*, gm.home_name, gm.home_code, gm.away_name, gm.away_code,
+                      gm.utc_date, gm.market_type,
                       gm.status AS match_status, gm.result_outcome
                FROM game_bets gb
                JOIN game_matches gm ON gm.id = gb.match_id

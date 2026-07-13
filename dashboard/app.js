@@ -1973,14 +1973,10 @@ async function handlePaymentReviewAction(button) {
         note = prompt('Indiquez pourquoi ce paiement est classe. Cette note sera conservee dans l audit.') || '';
         if (!note.trim()) return;
     } else if (action === 'accept') {
-        if (!confirm('Cette action peut livrer une commande ou crediter un wallet. NOWPayments sera verifie une derniere fois. Continuer ?')) return;
+        if (!confirm(`Confirmer l'acceptation du paiement ${paymentId} ?\n\nCette action peut livrer une commande ou créditer un wallet. NOWPayments sera vérifié une dernière fois.`)) return;
         const expected = `ACCEPT ${kind} ${paymentId}`;
-        confirmation = prompt(`Saisissez exactement :\n${expected}`) || '';
-        if (confirmation !== expected) {
-            showToast('Confirmation incorrecte. Aucune action effectuee.', 'error');
-            return;
-        }
-        note = prompt('Note d audit facultative :') || '';
+        confirmation = expected;
+        note = 'Accepté depuis la boîte de confirmation du dashboard.';
     } else if (action === 'reopen') {
         note = prompt('Motif de reouverture (facultatif) :') || '';
     }

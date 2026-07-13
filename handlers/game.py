@@ -20,6 +20,8 @@ from database.games import (
     place_game_bet,
 )
 from database.models import get_user_lang
+from utils.country_flags import format_match_teams, format_team_name
+from utils.game_odds import calculate_match_odds, estimate_bet_return, format_game_odd
 from utils.helpers import escape_html
 from utils.keyboards import (
     game_confirm_keyboard,
@@ -58,10 +60,23 @@ def _format_time(value) -> str:
 
 def _outcome_label(match: dict, outcome: str, lang: str) -> str:
     if outcome == "home":
-        return str(match.get("home_name") or "Home")
+        return format_team_name(match.get("home_name"), match.get("home_code"), "Home")
     if outcome == "away":
-        return str(match.get("away_name") or "Away")
+        return format_team_name(match.get("away_name"), match.get("away_code"), "Away")
     return t("game_draw_button", lang)
+
+
+def _odds_summary(match: dict, lang: str) -> str:
+    odds = calculate_match_odds(match)
+    outcomes = ["home", "away"]
+    if str(match.get("market_type") or "qualified") == "regulation":
+        outcomes.insert(1, "draw")
+    rows = [t("game_odds_title", lang)]
+    for outcome in outcomes:
+        label = _outcome_label(match, outcome, lang)
+        rows.append(f"{escape_html(label)}: <b>{format_game_odd(odds.get(outcome))}</b>")
+    rows.append(escape_html(t("game_odds_note", lang)))
+    return "\n".join(rows)
 
 
 async def _render_game_home(query, user_id: int, lang: str, notice: str = "") -> None:
@@ -131,12 +146,13 @@ async def show_game_match(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         market_key = "game_market_qualified" if match["market_type"] == "qualified" else "game_market_regulation"
         text = (
-            f"⚽ <b>{escape_html(match['home_name'])} - {escape_html(match['away_name'])}</b>\n"
+            f"⚽ <b>{escape_html(format_match_teams(match))}</b>\n"
             f"{escape_html(match.get('competition_name') or '')}\n\n"
             f"🎯 <b>{escape_html(t(market_key, lang))}</b>\n"
             f"{escape_html(t('game_starts', lang).format(date=_format_time(match['utc_date'])))}\n"
             f"{escape_html(t('game_locks', lang).format(date=_format_time(match['lock_at'])))}\n"
             f"{t('game_total_pool', lang).format(pool=match['total_pool'])}\n\n"
+            f"{_odds_summary(match, lang)}\n\n"
             f"{escape_html(t('game_choose', lang))}"
         )
         await safe_edit_message_text(
@@ -162,9 +178,11 @@ async def choose_game_outcome(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not match or match.get("status") != "OPEN":
             raise GameError("closed", t("game_closed", lang))
         label = _outcome_label(match, outcome, lang)
+        current_odd = format_game_odd(calculate_match_odds(match).get(outcome))
         text = (
-            f"⚽ <b>{escape_html(match['home_name'])} - {escape_html(match['away_name'])}</b>\n\n"
+            f"⚽ <b>{escape_html(format_match_teams(match))}</b>\n\n"
             f"{t('game_choose_stake', lang).format(outcome=escape_html(label))}\n"
+            f"{t('game_current_odd', lang).format(odds=current_odd)}\n"
             f"{t('game_balance_line', lang).format(balance=wallet['balance'])}\n"
             f"{t('game_stake_limits', lang).format(min=match['min_stake'], max=match['max_stake'])}"
         )
@@ -197,10 +215,13 @@ async def choose_game_amount(update: Update, context: ContextTypes.DEFAULT_TYPE)
             raise GameError("closed", t("game_closed", lang))
         amount = int(amount_text)
         label = _outcome_label(match, outcome, lang)
+        estimate = estimate_bet_return(match, outcome, amount)
+        projected_odd = format_game_odd(estimate["odds"])
         text = (
-            f"⚽ <b>{escape_html(match['home_name'])} - {escape_html(match['away_name'])}</b>\n\n"
+            f"⚽ <b>{escape_html(format_match_teams(match))}</b>\n\n"
             f"{t('game_selected', lang).format(outcome=escape_html(label))}\n"
-            f"{t('game_confirm_prompt', lang).format(amount=amount, outcome=escape_html(label))}"
+            f"{t('game_confirm_prompt', lang).format(amount=amount, outcome=escape_html(label))}\n"
+            f"{t('game_projected_return', lang).format(payout=estimate['payout'], odds=projected_odd)}"
         )
         await safe_edit_message_text(
             query,
@@ -279,7 +300,7 @@ async def show_my_game_bets(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if int(bet.get("payout") or 0) else ""
             )
             lines.append(
-                f"{status_icon} <b>{escape_html(bet['home_name'])} - {escape_html(bet['away_name'])}</b>\n"
+                f"{status_icon} <b>{escape_html(format_match_teams(bet))}</b>\n"
                 f"{escape_html(label)} · {escape_html(stake_label)}{escape_html(payout)}"
             )
         await safe_edit_message_text(
