@@ -56,6 +56,7 @@ from services.delivery import deliver_order
 from handlers.payment import safe_send_delivery_messages
 from utils.helpers import format_price, is_admin, escape_html
 from utils.locales import t, get_confirmation_message
+from utils.telegram import safe_edit_message_text
 from utils.keyboards import (
     admin_categories_keyboard,
     admin_category_detail_keyboard,
@@ -137,7 +138,7 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lang = await get_user_lang(update.effective_user.id)
     await query.answer()
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         t("admin_panel", lang),
         parse_mode="HTML",
         reply_markup=admin_menu_keyboard(lang),
@@ -160,14 +161,14 @@ async def admin_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         cats = await get_categories()
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             t("admin_categories_title", lang).format(count=len(cats)),
             parse_mode="HTML",
             reply_markup=admin_categories_keyboard(cats),
         )
     except Exception as exc:
         logger.error("admin_categories: %s", exc, exc_info=True)
-        await query.edit_message_text(t("admin_error", lang))
+        await safe_edit_message_text(query, t("admin_error", lang))
 
 
 async def admin_category_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -182,7 +183,7 @@ async def admin_category_detail(update: Update, context: ContextTypes.DEFAULT_TY
         cat_id = int(query.data.split(":")[1])
         cat = await get_category(cat_id)
         if not cat:
-            await query.edit_message_text("❌ Catégorie introuvable.")
+            await safe_edit_message_text(query, "❌ Catégorie introuvable.")
             return
 
         prods = await get_products_by_category(cat_id)
@@ -193,14 +194,14 @@ async def admin_category_detail(update: Update, context: ContextTypes.DEFAULT_TY
             f"📝 {cat_desc}\n"
             f"📦 Produits : {len(prods)}"
         )
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             text,
             parse_mode="HTML",
             reply_markup=admin_category_detail_keyboard(cat),
         )
     except Exception as exc:
         logger.error("admin_category_detail: %s", exc, exc_info=True)
-        await query.edit_message_text("⚠️ Erreur.")
+        await safe_edit_message_text(query, "⚠️ Erreur.")
 
 
 async def admin_add_cat_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -211,7 +212,7 @@ async def admin_add_cat_start(update: Update, context: ContextTypes.DEFAULT_TYPE
         return ConversationHandler.END
     await query.answer()
 
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         "➕ <b>Ajouter une catégorie</b>\n\n"
         "📝 Envoyez le <b>nom</b> de la catégorie :",
         parse_mode="HTML",
@@ -264,7 +265,7 @@ async def admin_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         prods = await get_all_products()
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             "📦 <b>Gestion des produits</b>\n\n"
             f"Total : {len(prods)} produit(s)",
             parse_mode="HTML",
@@ -272,7 +273,7 @@ async def admin_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as exc:
         logger.error("admin_products: %s", exc, exc_info=True)
-        await query.edit_message_text("⚠️ Erreur.")
+        await safe_edit_message_text(query, "⚠️ Erreur.")
 
 
 async def admin_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -287,7 +288,7 @@ async def admin_product_detail(update: Update, context: ContextTypes.DEFAULT_TYP
         prod_id = int(query.data.split(":")[1])
         product = await get_product(prod_id)
         if not product:
-            await query.edit_message_text("❌ Produit introuvable.")
+            await safe_edit_message_text(query, "❌ Produit introuvable.")
             return
 
         stock = await get_stock_count(prod_id)
@@ -304,14 +305,14 @@ async def admin_product_detail(update: Update, context: ContextTypes.DEFAULT_TYP
             f"📊 Statut : {active_label}"
         )
 
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             text,
             parse_mode="HTML",
             reply_markup=admin_product_detail_keyboard(product),
         )
     except Exception as exc:
         logger.error("admin_product_detail: %s", exc, exc_info=True)
-        await query.edit_message_text("⚠️ Erreur.")
+        await safe_edit_message_text(query, "⚠️ Erreur.")
 
 
 async def admin_add_prod_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -325,7 +326,7 @@ async def admin_add_prod_start(update: Update, context: ContextTypes.DEFAULT_TYP
     cat_id = int(query.data.split(":")[1])
     context.user_data["new_prod_cat_id"] = cat_id
 
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         "➕ <b>Ajouter un produit</b>\n\n"
         "📝 Envoyez le <b>nom</b> du produit :",
         parse_mode="HTML",
@@ -482,7 +483,7 @@ async def _create_product_and_ask_broadcast(update, context, binance_account_id=
         )
         
         if update.callback_query:
-            await update.callback_query.edit_message_text(msg_text, parse_mode="HTML", reply_markup=markup)
+            await safe_edit_message_text(update.callback_query, msg_text, parse_mode="HTML", reply_markup=markup)
         else:
             await update.message.reply_text(msg_text, parse_mode="HTML", reply_markup=markup)
         return ADMIN_ADD_PROD_BROADCAST_DECISION
@@ -490,7 +491,7 @@ async def _create_product_and_ask_broadcast(update, context, binance_account_id=
         logger.error("_create_product_and_ask_broadcast: %s", exc, exc_info=True)
         err_msg = "\u26a0\ufe0f Erreur lors de la cr\u00e9ation du produit."
         if update.callback_query:
-            await update.callback_query.edit_message_text(err_msg)
+            await safe_edit_message_text(update.callback_query, err_msg)
         else:
             await update.message.reply_text(err_msg)
         return ConversationHandler.END
@@ -525,14 +526,14 @@ async def admin_toggle_product(update: Update, context: ContextTypes.DEFAULT_TYP
                 f"📦 Stock : {stock}\n"
                 f"📊 Statut : {active_label}"
             )
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 text,
                 parse_mode="HTML",
                 reply_markup=admin_product_detail_keyboard(product),
             )
     except Exception as exc:
         logger.error("admin_toggle_product: %s", exc, exc_info=True)
-        await query.edit_message_text("⚠️ Erreur.")
+        await safe_edit_message_text(query, "⚠️ Erreur.")
 
 
 async def admin_delete_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -546,14 +547,14 @@ async def admin_delete_product(update: Update, context: ContextTypes.DEFAULT_TYP
     try:
         prod_id = int(query.data.split(":")[1])
         await delete_product(prod_id)
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             "🗑️ <b>Produit supprimé !</b>",
             parse_mode="HTML",
             reply_markup=admin_menu_keyboard(),
         )
     except Exception as exc:
         logger.error("admin_delete_product: %s", exc, exc_info=True)
-        await query.edit_message_text("⚠️ Erreur lors de la suppression.")
+        await safe_edit_message_text(query, "⚠️ Erreur lors de la suppression.")
 
 
 # ══════════════════════════════════════════════
@@ -570,7 +571,7 @@ async def admin_stock_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         prods = await get_all_products()
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             "📥 <b>Gestion du stock</b>\n\n"
             "Sélectionnez un produit pour ajouter du stock :",
             parse_mode="HTML",
@@ -578,7 +579,7 @@ async def admin_stock_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as exc:
         logger.error("admin_stock_menu: %s", exc, exc_info=True)
-        await query.edit_message_text("⚠️ Erreur.")
+        await safe_edit_message_text(query, "⚠️ Erreur.")
 
 
 async def admin_add_stock_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -592,13 +593,13 @@ async def admin_add_stock_start(update: Update, context: ContextTypes.DEFAULT_TY
     prod_id = int(query.data.split(":")[1])
     product = await get_product(prod_id)
     if not product:
-        await query.edit_message_text("❌ Produit introuvable.")
+        await safe_edit_message_text(query, "❌ Produit introuvable.")
         return ConversationHandler.END
 
     context.user_data["stock_product_id"] = prod_id
     current_stock = await get_stock_count(prod_id)
 
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"📥 <b>Ajouter du stock</b>\n\n"
         f"📦 Produit : {product['emoji']} {product['name']}\n"
         f"📊 Stock actuel : {current_stock}\n\n"
@@ -668,15 +669,15 @@ async def admin_stock_broadcast_yes(update: Update, context: ContextTypes.DEFAUL
     count = ud.pop("stock_bc_count", 0)
 
     if not prod_id:
-        await query.edit_message_text("❌ Produit introuvable.", reply_markup=admin_menu_keyboard())
+        await safe_edit_message_text(query, "❌ Produit introuvable.", reply_markup=admin_menu_keyboard())
         return ConversationHandler.END
 
     product = await get_product(prod_id)
     if not product:
-        await query.edit_message_text("❌ Produit introuvable.", reply_markup=admin_menu_keyboard())
+        await safe_edit_message_text(query, "❌ Produit introuvable.", reply_markup=admin_menu_keyboard())
         return ConversationHandler.END
 
-    await query.edit_message_text("📢 Diffusion de l'alerte en cours...")
+    await safe_edit_message_text(query, "📢 Diffusion de l'alerte en cours...")
 
     from utils.helpers import format_price
     broadcast_text = (
@@ -703,7 +704,7 @@ async def admin_stock_broadcast_no(update: Update, context: ContextTypes.DEFAULT
     ud.pop("stock_bc_prod_id", None)
     ud.pop("stock_bc_count", None)
 
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         "✅ Stock mis à jour sans diffusion.",
         reply_markup=admin_menu_keyboard()
     )
@@ -736,14 +737,14 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"💰 <b>Revenus :</b> {format_price(stats.get('total_revenue', 0))}\n"
         )
 
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             text,
             parse_mode="HTML",
             reply_markup=back_keyboard("adm_menu"),
         )
     except Exception as exc:
         logger.error("admin_stats: %s", exc, exc_info=True)
-        await query.edit_message_text("⚠️ Erreur lors du chargement des statistiques.")
+        await safe_edit_message_text(query, "⚠️ Erreur lors du chargement des statistiques.")
 
 
 # Helper to execute broadcast to all users (rich media: text/photo and button)
@@ -828,10 +829,10 @@ async def admin_prod_broadcast_yes(update: Update, context: ContextTypes.DEFAULT
     emoji = ud.get("broadcast_prod_emoji")
 
     if not prod_id:
-        await query.edit_message_text("❌ Produit introuvable.", reply_markup=admin_menu_keyboard())
+        await safe_edit_message_text(query, "❌ Produit introuvable.", reply_markup=admin_menu_keyboard())
         return ConversationHandler.END
 
-    await query.edit_message_text("📢 Diffusion en cours...")
+    await safe_edit_message_text(query, "📢 Diffusion en cours...")
 
     broadcast_text = (
         "🔔 <b>Nouveau produit disponible !</b>\n\n"
@@ -864,7 +865,7 @@ async def admin_prod_broadcast_no(update: Update, context: ContextTypes.DEFAULT_
     for key in ["broadcast_prod_id", "broadcast_prod_name", "broadcast_prod_desc", "broadcast_prod_price", "broadcast_prod_emoji"]:
         ud.pop(key, None)
 
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         "✅ Produit créé sans diffusion.",
         reply_markup=admin_menu_keyboard()
     )
@@ -882,7 +883,7 @@ async def admin_broadcast_start(update: Update, context: ContextTypes.DEFAULT_TY
         return ConversationHandler.END
     await query.answer()
 
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         "📢 <b>Broadcast (Médias Riches)</b>\n\n"
         "Envoyez votre message de diffusion (texte seul, ou photo avec légende) :",
         parse_mode="HTML",
@@ -933,7 +934,7 @@ async def admin_broadcast_btn_type(update: Update, context: ContextTypes.DEFAULT
 
     if choice == "none":
         # Broadcast immediately
-        await query.edit_message_text("📢 Diffusion en cours...")
+        await safe_edit_message_text(query, "📢 Diffusion en cours...")
         _queue_admin_broadcast(
             context.bot,
             query.message,
@@ -952,7 +953,7 @@ async def admin_broadcast_btn_type(update: Update, context: ContextTypes.DEFAULT
                 buttons.append([InlineKeyboardButton(f"{p['emoji']} {p['name']}", callback_data=f"bc_buy_prod:{p['id']}")])
         buttons.append([InlineKeyboardButton("❌ Annuler", callback_data="adm_menu")])
 
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             "🛒 <b>Sélectionner le produit</b>\n\n"
             "Choisissez le produit à lier au bouton d'achat :",
             reply_markup=InlineKeyboardMarkup(buttons)
@@ -961,7 +962,7 @@ async def admin_broadcast_btn_type(update: Update, context: ContextTypes.DEFAULT
 
     elif choice == "url":
         # Prompt for URL formatting
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             "🌐 <b>Bouton de Lien Web</b>\n\n"
             "Veuillez envoyer le texte du bouton et l'URL sous la forme :\n"
             "<code>Texte du Bouton | URL</code>\n\n"
@@ -978,7 +979,7 @@ async def admin_broadcast_btn_product(update: Update, context: ContextTypes.DEFA
     prod_id = int(query.data.split(":")[1])
     ud = context.user_data
 
-    await query.edit_message_text("📢 Diffusion en cours...")
+    await safe_edit_message_text(query, "📢 Diffusion en cours...")
 
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     markup = InlineKeyboardMarkup([[
@@ -1054,7 +1055,7 @@ async def admin_tickets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         tickets = await get_open_tickets()
         if not tickets:
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 "🎫 <b>Tickets</b>\n\n"
                 "📭 Aucun ticket ouvert.",
                 parse_mode="HTML",
@@ -1062,7 +1063,7 @@ async def admin_tickets(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"🎫 <b>Tickets ouverts ({len(tickets)})</b>\n\n"
             "Sélectionnez un ticket :",
             parse_mode="HTML",
@@ -1070,7 +1071,7 @@ async def admin_tickets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as exc:
         logger.error("admin_tickets: %s", exc, exc_info=True)
-        await query.edit_message_text("⚠️ Erreur.")
+        await safe_edit_message_text(query, "⚠️ Erreur.")
 
 
 async def admin_ticket_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1085,7 +1086,7 @@ async def admin_ticket_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
         ticket_id = int(query.data.split(":")[1])
         ticket = await get_ticket(ticket_id)
         if not ticket:
-            await query.edit_message_text("❌ Ticket introuvable.")
+            await safe_edit_message_text(query, "❌ Ticket introuvable.")
             return
 
         status_map = {"OPEN": "🟢 Ouvert", "REPLIED": "💬 Répondu", "CLOSED": "🔴 Fermé"}
@@ -1100,14 +1101,14 @@ async def admin_ticket_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
         if ticket.get("admin_reply"):
             text += f"\n💬 Réponse :\n{escape_html(ticket['admin_reply'])}\n"
 
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             text,
             parse_mode="HTML",
             reply_markup=admin_ticket_detail_keyboard(ticket),
         )
     except Exception as exc:
         logger.error("admin_ticket_detail: %s", exc, exc_info=True)
-        await query.edit_message_text("⚠️ Erreur.")
+        await safe_edit_message_text(query, "⚠️ Erreur.")
 
 
 async def admin_reply_ticket_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1121,7 +1122,7 @@ async def admin_reply_ticket_start(update: Update, context: ContextTypes.DEFAULT
     ticket_id = int(query.data.split(":")[1])
     context.user_data["reply_ticket_id"] = ticket_id
 
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         f"💬 <b>Répondre au ticket #{ticket_id}</b>\n\n"
         "Envoyez votre réponse :",
         parse_mode="HTML",
@@ -1189,14 +1190,14 @@ async def admin_close_ticket(update: Update, context: ContextTypes.DEFAULT_TYPE)
             except Exception:
                 pass
 
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"🔒 <b>Ticket #{ticket_id} fermé.</b>",
             parse_mode="HTML",
             reply_markup=admin_menu_keyboard(),
         )
     except Exception as exc:
         logger.error("admin_close_ticket: %s", exc, exc_info=True)
-        await query.edit_message_text("⚠️ Erreur.")
+        await safe_edit_message_text(query, "⚠️ Erreur.")
 
 
 # ══════════════════════════════════════════════
@@ -1214,7 +1215,7 @@ async def admin_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         orders = await get_pending_orders()
         if not orders:
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 "📋 <b>Commandes</b>\n\n"
                 "📭 Aucune commande en attente.",
                 parse_mode="HTML",
@@ -1222,7 +1223,7 @@ async def admin_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"📋 <b>Commandes en attente ({len(orders)})</b>\n\n"
             "Cliquez pour confirmer manuellement :",
             parse_mode="HTML",
@@ -1230,7 +1231,7 @@ async def admin_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as exc:
         logger.error("admin_orders: %s", exc, exc_info=True)
-        await query.edit_message_text("⚠️ Erreur.")
+        await safe_edit_message_text(query, "⚠️ Erreur.")
 
 
 async def admin_activations(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1245,7 +1246,7 @@ async def admin_activations(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         activations, _total = await get_activation_orders(limit=100, offset=0)
         if not activations:
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 t("admin_activation_empty", admin_lang),
                 parse_mode="HTML",
                 reply_markup=back_keyboard("adm_menu"),
@@ -1266,14 +1267,14 @@ async def admin_activations(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
 
         buttons.append([InlineKeyboardButton("◀️ Retour", callback_data="adm_menu")])
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             t("admin_activation_list", admin_lang).format(count=len(activations)),
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(buttons),
         )
     except Exception as exc:
         logger.error("admin_activations: %s", exc, exc_info=True)
-        await query.edit_message_text(t("admin_activation_load_error", admin_lang))
+        await safe_edit_message_text(query, t("admin_activation_load_error", admin_lang))
 
 
 async def admin_activation_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1292,7 +1293,7 @@ async def admin_activation_detail(update: Update, context: ContextTypes.DEFAULT_
         if not order:
             raw_order = await get_order(order_id)
             if not raw_order:
-                await query.edit_message_text(t("admin_activation_not_found", admin_lang), reply_markup=back_keyboard("adm_activations"))
+                await safe_edit_message_text(query, t("admin_activation_not_found", admin_lang), reply_markup=back_keyboard("adm_activations"))
                 return
             order = raw_order
 
@@ -1321,14 +1322,14 @@ async def admin_activation_detail(update: Update, context: ContextTypes.DEFAULT_
             buttons.append([InlineKeyboardButton(f"✅ {t('activation_admin_button', admin_lang)}", callback_data=f"adm_activate_order:{order_id}")])
         buttons.append([InlineKeyboardButton("◀️ Retour", callback_data="adm_activations")])
 
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             text,
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(buttons),
         )
     except Exception as exc:
         logger.error("admin_activation_detail: %s", exc, exc_info=True)
-        await query.edit_message_text(t("admin_activation_load_error", admin_lang))
+        await safe_edit_message_text(query, t("admin_activation_load_error", admin_lang))
 
 
 async def admin_confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1345,26 +1346,26 @@ async def admin_confirm_payment(update: Update, context: ContextTypes.DEFAULT_TY
         admin_lang = await get_user_lang(update.effective_user.id)
 
         if not order:
-            await query.edit_message_text("❌ Commande introuvable.")
+            await safe_edit_message_text(query, "❌ Commande introuvable.")
             return
 
         order_status = order.get("status")
         product = await get_product(order.get("product_id"))
         if product and product.get("delivery_type") == "activation":
             if order_status == "COMPLETED":
-                await query.edit_message_text(
+                await safe_edit_message_text(query, 
                     f"Commande #{order_id} deja terminee.",
                     reply_markup=admin_menu_keyboard(admin_lang),
                 )
                 return
             if order_status == "AWAITING_ACTIVATION_INFO":
-                await query.edit_message_text(
+                await safe_edit_message_text(query, 
                     t("admin_activation_user_must_send", admin_lang).format(order_id=order_id),
                     reply_markup=admin_menu_keyboard(admin_lang),
                 )
                 return
             if order_status not in ("PENDING", "AWAITING_PAYMENT"):
-                await query.edit_message_text(
+                await safe_edit_message_text(query, 
                     f"Commande #{order_id} non confirmable depuis le statut {order_status}.",
                     reply_markup=admin_menu_keyboard(admin_lang),
                 )
@@ -1377,7 +1378,7 @@ async def admin_confirm_payment(update: Update, context: ContextTypes.DEFAULT_TY
                 binance_order_id="MANUAL",
             )
             if not transitioned:
-                await query.edit_message_text(
+                await safe_edit_message_text(query, 
                     f"Commande #{order_id} deja traitee.",
                     reply_markup=admin_menu_keyboard(admin_lang),
                 )
@@ -1392,21 +1393,21 @@ async def admin_confirm_payment(update: Update, context: ContextTypes.DEFAULT_TY
             except Exception as exc:
                 logger.warning("Could not notify activation user: %s", exc)
 
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 t("admin_activation_user_must_send", admin_lang).format(order_id=order_id),
                 reply_markup=admin_menu_keyboard(admin_lang),
             )
             return
 
         if order_status == "COMPLETED":
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 f"Commande #{order_id} deja terminee.",
                 reply_markup=admin_menu_keyboard(admin_lang),
             )
             return
 
         if order_status not in ("PENDING", "AWAITING_PAYMENT", "PAID_PENDING_DELIVERY"):
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 f"Commande #{order_id} non confirmable depuis le statut {order_status}.",
                 reply_markup=admin_menu_keyboard(admin_lang),
             )
@@ -1425,7 +1426,7 @@ async def admin_confirm_payment(update: Update, context: ContextTypes.DEFAULT_TY
                 **completion_kwargs,
             )
             if not transitioned:
-                await query.edit_message_text(
+                await safe_edit_message_text(query, 
                     f"Commande #{order_id} deja traitee.",
                     reply_markup=admin_menu_keyboard(admin_lang),
                 )
@@ -1453,13 +1454,13 @@ async def admin_confirm_payment(update: Update, context: ContextTypes.DEFAULT_TY
             except Exception as exc:
                 logger.warning("Could not notify user: %s", exc)
 
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 f"✅ <b>Commande #{order_id} confirmée et livrée !</b>",
                 parse_mode="HTML",
                 reply_markup=admin_menu_keyboard(),
             )
         else:
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 f"Commande #{order_id} non confirmee.\n"
                 "Livraison automatique impossible: stock insuffisant.",
                 reply_markup=admin_menu_keyboard(admin_lang),
@@ -1467,7 +1468,7 @@ async def admin_confirm_payment(update: Update, context: ContextTypes.DEFAULT_TY
             return
     except Exception as exc:
         logger.error("admin_confirm_payment: %s", exc, exc_info=True)
-        await query.edit_message_text("⚠️ Erreur lors de la confirmation.")
+        await safe_edit_message_text(query, "⚠️ Erreur lors de la confirmation.")
 
 
 # ══════════════════════════════════════════════
@@ -1486,15 +1487,15 @@ async def admin_complete_activation(update: Update, context: ContextTypes.DEFAUL
         order_id = int(query.data.split(":")[1])
         order = await get_order(order_id)
         if not order:
-            await query.edit_message_text("Commande introuvable.")
+            await safe_edit_message_text(query, "Commande introuvable.")
             return
         if order.get("status") == "COMPLETED":
             admin_lang = await get_user_lang(update.effective_user.id)
-            await query.edit_message_text(t("admin_activation_already_done", admin_lang).format(order_id=order_id))
+            await safe_edit_message_text(query, t("admin_activation_already_done", admin_lang).format(order_id=order_id))
             return
         if order.get("status") != "AWAITING_ACTIVATION":
             admin_lang = await get_user_lang(update.effective_user.id)
-            await query.edit_message_text(t("admin_activation_wrong_status", admin_lang))
+            await safe_edit_message_text(query, t("admin_activation_wrong_status", admin_lang))
             return
 
         transitioned = await update_order_status(
@@ -1506,7 +1507,7 @@ async def admin_complete_activation(update: Update, context: ContextTypes.DEFAUL
         )
         if not transitioned:
             admin_lang = await get_user_lang(update.effective_user.id)
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 t("admin_activation_already_done", admin_lang).format(order_id=order_id)
             )
             return
@@ -1541,14 +1542,14 @@ async def admin_complete_activation(update: Update, context: ContextTypes.DEFAUL
             logger.warning("Could not notify activated user: %s", exc)
 
         admin_lang = await get_user_lang(update.effective_user.id)
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             t("admin_activation_done_admin", admin_lang).format(order_id=order_id),
             reply_markup=back_keyboard("adm_activations"),
         )
     except Exception as exc:
         logger.error("admin_complete_activation: %s", exc, exc_info=True)
         admin_lang = await get_user_lang(update.effective_user.id)
-        await query.edit_message_text(t("admin_activation_error", admin_lang))
+        await safe_edit_message_text(query, t("admin_activation_error", admin_lang))
 
 
 async def _admin_start_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):

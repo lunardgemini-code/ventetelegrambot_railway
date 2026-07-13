@@ -255,6 +255,57 @@ class OrderSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(cancelled)
         self.assertEqual(stored["status"], "COMPLETED")
 
+    async def test_periodic_expiration_cancels_only_stale_unpaid_orders(self):
+        stale = await models.create_order(1001, self.product_id, 5, quantity=1)
+        await models.get_or_create_user(1002, "recent", "Recent")
+        recent = await models.create_order(1002, self.product_id, 5, quantity=1)
+        db = await get_db()
+        try:
+            await db.execute(
+                "UPDATE orders SET created_at = datetime('now', '-10 minutes') WHERE id = ?",
+                (stale["id"],),
+            )
+            await db.commit()
+        finally:
+            await db.close()
+
+        expired = await models.expire_stale_orders(timeout_seconds=300)
+
+        self.assertEqual([row["id"] for row in expired], [stale["id"]])
+        self.assertEqual((await models.get_order(stale["id"]))["status"], "CANCELLED")
+        self.assertEqual((await models.get_order(recent["id"]))["status"], "PENDING")
+
+    async def test_cancelled_nowpayment_is_removed_from_polling_queue(self):
+        order = await models.create_order(1001, self.product_id, 5, quantity=1)
+        attempt = await models.prepare_nowpayments_attempt(order["id"], 5)
+        await models.attach_nowpayments_payment(attempt["request_key"], {
+            "payment_id": "np-cancelled-poll",
+            "payment_status": "waiting",
+            "pay_amount": 5,
+            "pay_currency": "usdtbsc",
+            "pay_address": "0x1111111111111111111111111111111111111111",
+        })
+        db = await get_db()
+        try:
+            await db.execute(
+                "UPDATE nowpayments_payments SET updated_at = datetime('now', '-2 minutes') WHERE payment_id = ?",
+                ("np-cancelled-poll",),
+            )
+            await db.commit()
+        finally:
+            await db.close()
+
+        self.assertEqual(
+            [row["payment_id"] for row in await models.list_nowpayments_to_poll()],
+            ["np-cancelled-poll"],
+        )
+        self.assertTrue(await models.update_order_status(
+            order["id"],
+            "CANCELLED",
+            expected_statuses=("PENDING", "AWAITING_PAYMENT"),
+        ))
+        self.assertEqual(await models.list_nowpayments_to_poll(), [])
+
     async def test_activation_identifier_cannot_reopen_completed_order(self):
         order = await models.create_order(1001, self.product_id, 5, quantity=1)
         await models.update_order_status(
@@ -285,6 +336,62 @@ class OrderSafetyTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await db.close()
         self.assertEqual(int(row["cnt"]), 1)
+
+    async def test_conversion_funnel_deduplicates_buy_clicks_and_counts_paid_orders(self):
+        await models.record_product_view(self.product_id, 1001)
+        await models.record_product_buy_click(self.product_id, 1001)
+        await models.record_product_buy_click(self.product_id, 1001)
+        order = await models.create_order(1001, self.product_id, 5, quantity=1)
+        db = await get_db()
+        try:
+            await db.execute(
+                "UPDATE orders SET status = 'COMPLETED', paid_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (order["id"],),
+            )
+            await db.commit()
+            click_count = await (await db.execute(
+                "SELECT COUNT(*) AS cnt FROM product_buy_clicks WHERE product_id = ?",
+                (self.product_id,),
+            )).fetchone()
+        finally:
+            await db.close()
+
+        funnel = await models.get_conversion_funnel(days=30)
+        product = next(item for item in funnel["products"] if item["product_id"] == self.product_id)
+        self.assertEqual(int(click_count["cnt"]), 1)
+        self.assertEqual(product["views"], 1)
+        self.assertEqual(product["buy_clicks"], 1)
+        self.assertEqual(product["payments_created"], 1)
+        self.assertEqual(product["payments_completed"], 1)
+        self.assertEqual(product["overall_conversion_rate"], 1.0)
+
+    async def test_conversion_funnel_excludes_events_before_exact_tracking_start(self):
+        await models.record_product_view(self.product_id, 1001)
+        await models.record_product_buy_click(self.product_id, 1001)
+        order = await models.create_order(1001, self.product_id, 5, quantity=1)
+        db = await get_db()
+        try:
+            await db.execute(
+                "UPDATE product_views SET viewed_at = datetime('now', '-2 hours') WHERE product_id = ?",
+                (self.product_id,),
+            )
+            await db.execute(
+                "UPDATE product_buy_clicks SET clicked_at = datetime('now', '-1 hour') WHERE product_id = ?",
+                (self.product_id,),
+            )
+            await db.execute(
+                "UPDATE orders SET created_at = datetime('now', '-90 minutes') WHERE id = ?",
+                (order["id"],),
+            )
+            await db.commit()
+        finally:
+            await db.close()
+
+        funnel = await models.get_conversion_funnel(days=30)
+        product = next(item for item in funnel["products"] if item["product_id"] == self.product_id)
+        self.assertEqual(product["views"], 0)
+        self.assertEqual(product["buy_clicks"], 1)
+        self.assertEqual(product["payments_created"], 0)
 
     async def test_reseller_idempotency_does_not_double_debit(self):
         first = await models.create_reseller_order(
@@ -724,6 +831,14 @@ class OrderSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["action"], "review_required")
         self.assertNotEqual(saved["status"], "COMPLETED")
         self.assertIn("Insufficient provider amount", result["payment"]["processing_error"])
+
+        accepted = await models.finalize_nowpayments_payment(
+            "np-underpaid-1",
+            allow_underpayment=True,
+        )
+        saved = await models.get_order(order["id"])
+        self.assertEqual(accepted["action"], "completed")
+        self.assertEqual(saved["status"], "COMPLETED")
 
     async def test_nowpayments_activation_waits_for_identifier(self):
         category_id = await models.add_category("Activation")

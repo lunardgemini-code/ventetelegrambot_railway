@@ -18,6 +18,7 @@ from database.models import (
 from utils.helpers import format_date, format_price, escape_html
 from utils.keyboards import back_keyboard, history_keyboard
 from utils.locales import t
+from utils.telegram import safe_edit_message_text
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
         orders = await get_user_orders(telegram_id, limit=ORDERS_PER_PAGE, offset=offset)
 
         if not orders:
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 f"{t('history_title', lang)}\n\n{t('no_orders', lang)}",
                 parse_mode="HTML",
                 reply_markup=back_keyboard("back_main", lang),
@@ -63,14 +64,14 @@ async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         text += f"📄 {page + 1}/{total_pages}"
 
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             text,
             parse_mode="HTML",
             reply_markup=history_keyboard(orders, page, total_pages, lang),
         )
     except Exception as exc:
         logger.error("show_history: %s", exc, exc_info=True)
-        await query.edit_message_text(t("error_generic", lang))
+        await safe_edit_message_text(query, t("error_generic", lang))
 
 
 async def show_order_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -84,7 +85,7 @@ async def show_order_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
         order = await get_order(order_id)
 
         if not order:
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 t("product_not_found", lang),
                 reply_markup=back_keyboard("menu_history", lang),
             )
@@ -93,7 +94,7 @@ async def show_order_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
         telegram_id = update.effective_user.id
         if order.get("user_telegram_id") != telegram_id:
             logger.warning("User %s tried to view order #%s which belongs to %s", telegram_id, order_id, order.get("user_telegram_id"))
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 "❌ Access Denied: This order does not belong to you.",
                 reply_markup=back_keyboard("menu_history", lang),
             )
@@ -133,11 +134,11 @@ async def show_order_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     text += f"🔑 <code>{escape_html(item['account_data'])}</code>\n"
                 text += f"\n{t('save_info', lang)}"
 
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             text,
             parse_mode="HTML",
             reply_markup=back_keyboard("menu_history", lang),
         )
     except Exception as exc:
         logger.error("show_order_detail: %s", exc, exc_info=True)
-        await query.edit_message_text(t("error_generic", lang))
+        await safe_edit_message_text(query, t("error_generic", lang))

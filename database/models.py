@@ -646,6 +646,127 @@ async def record_product_view(product_id: int, user_telegram_id: int) -> None:
             pass
 
 
+async def record_product_buy_click(product_id: int, user_telegram_id: int) -> None:
+    """Record a buy intent without letting repeated taps inflate the funnel."""
+    try:
+        db = await get_db()
+    except Exception as exc:
+        logger.debug("Could not open DB for product buy click %s: %s", product_id, exc)
+        return
+    try:
+        await db.execute(
+            """INSERT INTO product_buy_clicks (product_id, user_telegram_id)
+               SELECT ?, ?
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM product_buy_clicks
+                   WHERE product_id = ? AND user_telegram_id = ?
+                     AND clicked_at >= datetime('now', '-10 minutes')
+               )""",
+            (int(product_id), int(user_telegram_id), int(product_id), int(user_telegram_id)),
+        )
+        await db.commit()
+    except Exception as exc:
+        logger.debug("Could not record buy click for product %s: %s", product_id, exc)
+    finally:
+        try:
+            await db.close()
+        except Exception:
+            pass
+
+
+async def get_conversion_funnel(days: int = 30) -> dict:
+    """Return comparable product funnel stages starting with the first tracked buy click."""
+    days = max(1, min(int(days), 90))
+    requested_since = (_utcnow() - timedelta(days=days - 1)).strftime("%Y-%m-%d 00:00:00")
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT MIN(clicked_at) AS first_click FROM product_buy_clicks")
+        row = await cursor.fetchone()
+        first_click = row["first_click"] if row else None
+        if not first_click:
+            return {
+                "days": days,
+                "tracking_since": None,
+                "summary": {"views": 0, "buy_clicks": 0, "payments_created": 0, "payments_completed": 0},
+                "products": [],
+            }
+
+        # Ignore events collected before buy-click tracking actually started,
+        # even when they happened earlier on the same calendar day.
+        effective_since = max(requested_since, str(first_click))
+        cursor = await db.execute(
+            """WITH views AS (
+                   SELECT product_id, COUNT(*) AS views
+                   FROM product_views WHERE viewed_at >= ? GROUP BY product_id
+               ), clicks AS (
+                   SELECT product_id, COUNT(*) AS buy_clicks
+                   FROM product_buy_clicks WHERE clicked_at >= ? GROUP BY product_id
+               ), created AS (
+                   SELECT product_id, COUNT(*) AS payments_created
+                   FROM orders WHERE created_at >= ? GROUP BY product_id
+               ), paid AS (
+                   SELECT product_id, COUNT(*) AS payments_completed,
+                          COALESCE(SUM(quantity), 0) AS quantity_sold,
+                          COALESCE(SUM(amount_usd), 0) AS revenue
+                   FROM orders
+                   WHERE created_at >= ? AND (paid_at IS NOT NULL OR status = 'COMPLETED')
+                   GROUP BY product_id
+               )
+               SELECT p.id AS product_id, p.name, p.emoji,
+                      COALESCE(v.views, 0) AS views,
+                      COALESCE(c.buy_clicks, 0) AS buy_clicks,
+                      COALESCE(o.payments_created, 0) AS payments_created,
+                      COALESCE(pd.payments_completed, 0) AS payments_completed,
+                      COALESCE(pd.quantity_sold, 0) AS quantity_sold,
+                      COALESCE(pd.revenue, 0) AS revenue
+               FROM products p
+               LEFT JOIN views v ON v.product_id = p.id
+               LEFT JOIN clicks c ON c.product_id = p.id
+               LEFT JOIN created o ON o.product_id = p.id
+               LEFT JOIN paid pd ON pd.product_id = p.id
+               WHERE COALESCE(p.is_deleted, 0) = 0
+                 AND (COALESCE(v.views, 0) + COALESCE(c.buy_clicks, 0)
+                      + COALESCE(o.payments_created, 0) + COALESCE(pd.payments_completed, 0)) > 0""",
+            (effective_since, effective_since, effective_since, effective_since),
+        )
+        products = []
+        summary = {"views": 0, "buy_clicks": 0, "payments_created": 0, "payments_completed": 0}
+        for raw in await cursor.fetchall():
+            item = dict(raw)
+            for key in summary:
+                item[key] = int(item.get(key) or 0)
+                summary[key] += item[key]
+            item["quantity_sold"] = int(item.get("quantity_sold") or 0)
+            item["revenue"] = round(float(item.get("revenue") or 0), 2)
+            views = item["views"]
+            clicks = item["buy_clicks"]
+            created = item["payments_created"]
+            paid = item["payments_completed"]
+            item["view_to_buy_rate"] = round(clicks / views, 4) if views else 0.0
+            item["buy_to_payment_rate"] = round(created / clicks, 4) if clicks else 0.0
+            item["payment_completion_rate"] = round(paid / created, 4) if created else 0.0
+            item["overall_conversion_rate"] = round(paid / views, 4) if views else 0.0
+            item["opportunity_score"] = round(max(0, views - paid) * (1 - item["overall_conversion_rate"]), 2)
+            products.append(item)
+
+        products.sort(key=lambda item: (-item["opportunity_score"], -item["views"], item["name"]))
+        for numerator, denominator, key in (
+            ("buy_clicks", "views", "view_to_buy_rate"),
+            ("payments_created", "buy_clicks", "buy_to_payment_rate"),
+            ("payments_completed", "payments_created", "payment_completion_rate"),
+            ("payments_completed", "views", "overall_conversion_rate"),
+        ):
+            summary[key] = round(summary[numerator] / summary[denominator], 4) if summary[denominator] else 0.0
+        return {
+            "days": days,
+            "tracking_since": effective_since,
+            "summary": summary,
+            "products": products,
+        }
+    finally:
+        await db.close()
+
+
 async def get_dead_product_alerts(days: int = 7, min_views: int = 10, max_conversion: float = 0.05) -> list[dict]:
     """Products with many views but weak sales conversion."""
     days = max(1, min(int(days), 90))
@@ -2724,6 +2845,7 @@ async def _expire_stale_nowpayments_payments_once(
             await db.execute(
                 f"""UPDATE nowpayments_payments
                     SET provider_status = 'expired', updated_at = CURRENT_TIMESTAMP,
+                        cancelled_at = COALESCE(cancelled_at, CURRENT_TIMESTAMP),
                         notification_claimed_at = NULL, notified_at = NULL
                     WHERE id IN ({payment_placeholders})""",
                 payment_row_ids,
@@ -2906,6 +3028,7 @@ async def prepare_nowpayments_wallet_topup(
         await db.execute(
             f"""UPDATE nowpayments_wallet_topups
                 SET provider_status = 'expired', updated_at = CURRENT_TIMESTAMP,
+                    cancelled_at = COALESCE(cancelled_at, CURRENT_TIMESTAMP),
                     notification_claimed_at = NULL, notified_at = NULL
                 WHERE user_telegram_id = ?
                   AND provider_status IN ({placeholders})
@@ -3078,6 +3201,234 @@ async def get_nowpayments_payment(payment_id: str | int) -> dict | None:
         await db.close()
 
 
+def _payment_review_category(item: dict) -> str:
+    provider_status = str(item.get("provider_status") or "").lower()
+    error = str(item.get("processing_error") or "").lower()
+    locally_cancelled = bool(item.get("cancelled_at")) or str(item.get("order_status") or "") == "CANCELLED"
+    if provider_status == "finished" and locally_cancelled:
+        return "late_after_cancel"
+    if provider_status == "partially_paid" or "insufficient provider amount" in error:
+        return "underpaid"
+    if provider_status in {"confirming", "confirmed", "sending", "spending"}:
+        return "confirming"
+    if provider_status in {"expired", "failed", "refunded", "creation_failed"}:
+        return "expired"
+    return "validation_error"
+
+
+async def get_payment_review_items(
+    *,
+    category: str | None = None,
+    include_resolved: bool = False,
+    limit: int = 100,
+) -> dict:
+    """Collect NOWPayments anomalies and pending confirmations for the dashboard."""
+    limit = max(1, min(int(limit), 250))
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT 'order' AS payment_kind, np.payment_id, np.provider_status,
+                      np.pay_amount, np.actually_paid, np.pay_currency,
+                      np.processing_error, np.created_at, np.updated_at,
+                      np.processed_at, np.cancelled_at, np.order_id,
+                      o.status AS order_status, o.user_telegram_id,
+                      p.name AS product_name, p.emoji AS product_emoji,
+                      o.amount_usd AS business_amount,
+                      (SELECT pra.action FROM payment_review_actions pra
+                       WHERE pra.payment_kind = 'order' AND pra.payment_id = np.payment_id
+                       ORDER BY pra.id DESC LIMIT 1) AS last_action,
+                      (SELECT pra.note FROM payment_review_actions pra
+                       WHERE pra.payment_kind = 'order' AND pra.payment_id = np.payment_id
+                       ORDER BY pra.id DESC LIMIT 1) AS last_note
+               FROM nowpayments_payments np
+               JOIN orders o ON o.id = np.order_id
+               LEFT JOIN products p ON p.id = o.product_id
+               WHERE np.payment_id IS NOT NULL
+                 AND ((np.processed_at IS NULL
+                       AND (np.processing_error IS NOT NULL
+                            OR np.provider_status IN ('confirming', 'confirmed', 'sending', 'spending',
+                                                      'partially_paid', 'expired', 'failed', 'refunded',
+                                                      'creation_failed')
+                            OR (np.provider_status = 'finished'
+                                AND (o.status = 'CANCELLED' OR np.cancelled_at IS NOT NULL))))
+                      OR EXISTS (
+                          SELECT 1 FROM payment_review_actions accepted
+                          WHERE accepted.payment_kind = 'order'
+                            AND accepted.payment_id = np.payment_id
+                            AND accepted.action IN ('accept', 'accept_requested')
+                      ))
+               ORDER BY np.updated_at DESC LIMIT ?""",
+            (limit,),
+        )
+        rows = [dict(row) for row in await cursor.fetchall()]
+
+        cursor = await db.execute(
+            """SELECT 'wallet_topup' AS payment_kind, np.payment_id, np.provider_status,
+                      np.pay_amount, np.actually_paid, np.pay_currency,
+                      np.processing_error, np.created_at, np.updated_at,
+                      np.processed_at, np.cancelled_at, NULL AS order_id,
+                      NULL AS order_status, np.user_telegram_id,
+                      'Wallet top-up' AS product_name, 'Wallet' AS product_emoji,
+                      np.wallet_amount AS business_amount,
+                      (SELECT pra.action FROM payment_review_actions pra
+                       WHERE pra.payment_kind = 'wallet_topup' AND pra.payment_id = np.payment_id
+                       ORDER BY pra.id DESC LIMIT 1) AS last_action,
+                      (SELECT pra.note FROM payment_review_actions pra
+                       WHERE pra.payment_kind = 'wallet_topup' AND pra.payment_id = np.payment_id
+                       ORDER BY pra.id DESC LIMIT 1) AS last_note
+               FROM nowpayments_wallet_topups np
+               WHERE np.payment_id IS NOT NULL
+                 AND ((np.processed_at IS NULL
+                       AND (np.processing_error IS NOT NULL
+                            OR np.provider_status IN ('confirming', 'confirmed', 'sending', 'spending',
+                                                      'partially_paid', 'expired', 'failed', 'refunded',
+                                                      'creation_failed')
+                            OR (np.provider_status = 'finished' AND np.cancelled_at IS NOT NULL)))
+                      OR EXISTS (
+                          SELECT 1 FROM payment_review_actions accepted
+                          WHERE accepted.payment_kind = 'wallet_topup'
+                            AND accepted.payment_id = np.payment_id
+                            AND accepted.action IN ('accept', 'accept_requested')
+                      ))
+               ORDER BY np.updated_at DESC LIMIT ?""",
+            (limit,),
+        )
+        rows.extend(dict(row) for row in await cursor.fetchall())
+    finally:
+        await db.close()
+
+    items = []
+    summary = {key: 0 for key in ("all", "underpaid", "expired", "confirming", "late_after_cancel", "validation_error", "accepted")}
+    for item in rows:
+        item["resolved"] = item.get("last_action") in {"dismiss", "accept"}
+        item["category"] = (
+            "accepted"
+            if item.get("last_action") == "accept" and item.get("processed_at")
+            else _payment_review_category(item)
+        )
+        if not item["resolved"]:
+            summary["all"] += 1
+            summary[item["category"]] += 1
+        if item["resolved"] and not include_resolved:
+            continue
+        if category and category != "all" and item["category"] != category:
+            continue
+        item["pay_amount"] = float(item.get("pay_amount") or 0)
+        item["actually_paid"] = float(item.get("actually_paid") or 0)
+        item["business_amount"] = float(item.get("business_amount") or 0)
+        items.append(item)
+    items.sort(key=lambda item: str(item.get("updated_at") or item.get("created_at") or ""), reverse=True)
+    return {"summary": summary, "items": items[:limit]}
+
+
+async def record_payment_review_action(
+    payment_kind: str,
+    payment_id: str | int,
+    action: str,
+    *,
+    note: str = "",
+    actor: str = "dashboard",
+    result_action: str = "",
+) -> dict:
+    if payment_kind not in {"order", "wallet_topup"}:
+        raise ValueError("Unsupported payment kind")
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """INSERT INTO payment_review_actions
+                   (payment_kind, payment_id, action, note, actor, result_action)
+               VALUES (?, ?, ?, ?, ?, ?)
+               RETURNING *""",
+            (
+                payment_kind,
+                str(payment_id),
+                str(action)[:40],
+                str(note or "")[:1000],
+                str(actor or "dashboard")[:120],
+                str(result_action or "")[:80],
+            ),
+        )
+        row = await cursor.fetchone()
+        await db.commit()
+        return dict(row)
+    finally:
+        await db.close()
+
+
+async def claim_payment_review_accept(
+    payment_kind: str,
+    payment_id: str | int,
+    *,
+    note: str = "",
+    actor: str = "dashboard-admin",
+) -> dict:
+    """Atomically claim a manual acceptance so it cannot run twice."""
+    if payment_kind not in {"order", "wallet_topup"}:
+        raise ValueError("Unsupported payment kind")
+
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute(
+            """SELECT 1 FROM payment_review_actions
+               WHERE payment_kind = ? AND payment_id = ? AND action = 'accept'
+               LIMIT 1""",
+            (payment_kind, str(payment_id)),
+        )
+        if await cursor.fetchone():
+            await db.rollback()
+            return {"claimed": False, "last_action": "accept"}
+
+        cursor = await db.execute(
+            """SELECT action FROM payment_review_actions
+               WHERE payment_kind = ? AND payment_id = ?
+               ORDER BY id DESC LIMIT 1""",
+            (payment_kind, str(payment_id)),
+        )
+        latest = await cursor.fetchone()
+        latest_action = str(latest["action"] or "") if latest else ""
+        if latest_action in {"accept", "accept_requested", "dismiss"}:
+            await db.rollback()
+            return {"claimed": False, "last_action": latest_action}
+
+        cursor = await db.execute(
+            """INSERT INTO payment_review_actions
+                   (payment_kind, payment_id, action, note, actor, result_action)
+               VALUES (?, ?, 'accept_requested', ?, ?, '')
+               RETURNING *""",
+            (
+                payment_kind,
+                str(payment_id),
+                str(note or "")[:1000],
+                str(actor or "dashboard-admin")[:120],
+            ),
+        )
+        audit = await cursor.fetchone()
+        await db.commit()
+        return {"claimed": True, "audit": dict(audit)}
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def reset_nowpayments_notification(payment_id: str | int, *, wallet_topup: bool = False) -> None:
+    table = "nowpayments_wallet_topups" if wallet_topup else "nowpayments_payments"
+    db = await get_db()
+    try:
+        await db.execute(
+            f"UPDATE {table} SET notified_at = NULL, notification_claimed_at = NULL WHERE payment_id = ?",
+            (str(payment_id),),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
 async def save_nowpayments_update(payload: dict) -> dict | None:
     """Persist a provider update, retrying safely on a fresh Turso stream."""
     last_exc: Exception | None = None
@@ -3206,7 +3557,12 @@ async def _save_nowpayments_update_once(
         await db.close()
 
 
-async def finalize_nowpayments_payment(payment_id: str | int) -> dict:
+async def finalize_nowpayments_payment(
+    payment_id: str | int,
+    *,
+    allow_underpayment: bool = False,
+    allow_cancelled: bool = False,
+) -> dict:
     """Retry idempotent payment finalization when a Turso stream expires."""
     last_exc: Exception | None = None
     for attempt in range(3):
@@ -3215,6 +3571,8 @@ async def finalize_nowpayments_payment(payment_id: str | int) -> dict:
                 return await _finalize_nowpayments_payment_once(
                     payment_id,
                     fresh_connection=True,
+                    allow_underpayment=allow_underpayment,
+                    allow_cancelled=allow_cancelled,
                 )
         except Exception as exc:
             last_exc = exc
@@ -3233,6 +3591,8 @@ async def _finalize_nowpayments_payment_once(
     payment_id: str | int,
     *,
     fresh_connection: bool = False,
+    allow_underpayment: bool = False,
+    allow_cancelled: bool = False,
 ) -> dict:
     """Finalize a finished provider payment exactly once, including stock and finance."""
     _clear_stock_cache()
@@ -3268,6 +3628,7 @@ async def _finalize_nowpayments_payment_once(
         from services.nowpayments import calculate_checkout_price
         expected_checkout_price = calculate_checkout_price(expected_price)
         stored_price = round(float(payment.get("price_amount") or 0), 2)
+        order_status = str(payment.get("order_status") or "")
         error = None
         if expected_currency != "usdtbsc":
             error = f"Unexpected pay currency: {expected_currency or 'missing'}"
@@ -3279,8 +3640,12 @@ async def _finalize_nowpayments_payment_once(
                 f"Order amount mismatch: expected {expected_checkout_price:.2f} "
                 f"(legacy {expected_price:.2f}), stored {stored_price:.2f}"
             )
-        elif expected_pay_amount <= 0 or actually_paid + 0.000001 < expected_pay_amount:
+        elif expected_pay_amount <= 0 or actually_paid <= 0:
+            error = f"Invalid provider amount: paid {actually_paid}, expected {expected_pay_amount}"
+        elif actually_paid + 0.000001 < expected_pay_amount and not allow_underpayment:
             error = f"Insufficient provider amount: paid {actually_paid}, expected {expected_pay_amount}"
+        elif order_status == "CANCELLED" and not allow_cancelled:
+            error = "Payment finished after local order cancellation"
 
         if error:
             await db.execute(
@@ -3291,7 +3656,6 @@ async def _finalize_nowpayments_payment_once(
             payment["processing_error"] = error
             return {"action": "review_required", "payment": payment}
 
-        order_status = str(payment.get("order_status") or "")
         payment_method = str(payment.get("payment_method") or "")
         if order_status == "COMPLETED" and payment_method != "nowpayments_bep20":
             error = f"Order already completed with {payment_method or 'another method'}"
@@ -3416,7 +3780,12 @@ async def _finalize_nowpayments_payment_once(
         await db.close()
 
 
-async def finalize_nowpayments_wallet_topup(payment_id: str | int) -> dict:
+async def finalize_nowpayments_wallet_topup(
+    payment_id: str | int,
+    *,
+    allow_underpayment: bool = False,
+    allow_cancelled: bool = False,
+) -> dict:
     """Credit a finished NOWPayments wallet top-up exactly once."""
     last_exc: Exception | None = None
     for attempt in range(3):
@@ -3425,6 +3794,8 @@ async def finalize_nowpayments_wallet_topup(payment_id: str | int) -> dict:
                 return await _finalize_nowpayments_wallet_topup_once(
                     payment_id,
                     fresh_connection=True,
+                    allow_underpayment=allow_underpayment,
+                    allow_cancelled=allow_cancelled,
                 )
         except Exception as exc:
             last_exc = exc
@@ -3443,6 +3814,8 @@ async def _finalize_nowpayments_wallet_topup_once(
     payment_id: str | int,
     *,
     fresh_connection: bool = False,
+    allow_underpayment: bool = False,
+    allow_cancelled: bool = False,
 ) -> dict:
     invalidate_stats_cache()
     db = await get_db(fresh=fresh_connection)
@@ -3493,8 +3866,12 @@ async def _finalize_nowpayments_wallet_topup_once(
             )
         elif wallet_amount <= 0:
             error = "Invalid wallet credit amount"
-        elif expected_pay_amount <= 0 or actually_paid + 0.000001 < expected_pay_amount:
+        elif expected_pay_amount <= 0 or actually_paid <= 0:
+            error = f"Invalid provider amount: paid {actually_paid}, expected {expected_pay_amount}"
+        elif actually_paid + 0.000001 < expected_pay_amount and not allow_underpayment:
             error = f"Insufficient provider amount: paid {actually_paid}, expected {expected_pay_amount}"
+        elif payment.get("cancelled_at") and not allow_cancelled:
+            error = "Payment finished after local wallet top-up cancellation"
 
         if error:
             await db.execute(
@@ -3676,11 +4053,13 @@ async def _list_nowpayments_to_poll_once(limit: int = 20) -> list[dict]:
     try:
         placeholders = ",".join("?" for _ in _NOWPAYMENTS_ACTIVE_STATUSES[2:])
         cursor = await db.execute(
-            f"""SELECT * FROM nowpayments_payments
-                WHERE payment_id IS NOT NULL
-                  AND provider_status IN ({placeholders})
-                  AND updated_at <= datetime('now', '-60 seconds')
-                ORDER BY updated_at ASC LIMIT ?""",
+            f"""SELECT np.* FROM nowpayments_payments np
+                JOIN orders o ON o.id = np.order_id
+                WHERE np.payment_id IS NOT NULL
+                  AND np.provider_status IN ({placeholders})
+                  AND np.updated_at <= datetime('now', '-60 seconds')
+                  AND o.status IN ('PENDING', 'AWAITING_PAYMENT')
+                ORDER BY np.updated_at ASC LIMIT ?""",
             (*_NOWPAYMENTS_ACTIVE_STATUSES[2:], max(1, min(int(limit), 50))),
         )
         return [dict(row) for row in await cursor.fetchall()]
@@ -3782,6 +4161,7 @@ async def expire_stale_nowpayments_wallet_topups(
                             await db.execute(
                                 f"""UPDATE nowpayments_wallet_topups
                                     SET provider_status = 'expired', updated_at = CURRENT_TIMESTAMP,
+                                        cancelled_at = COALESCE(cancelled_at, CURRENT_TIMESTAMP),
                                         notification_claimed_at = NULL, notified_at = NULL
                                     WHERE id IN ({placeholders})""",
                                 ids,
@@ -3835,6 +4215,7 @@ async def cancel_nowpayments_wallet_topup(topup_id: int, user_telegram_id: int) 
         cursor = await db.execute(
             """UPDATE nowpayments_wallet_topups
                SET provider_status = 'expired', updated_at = CURRENT_TIMESTAMP,
+                   cancelled_at = COALESCE(cancelled_at, CURRENT_TIMESTAMP),
                    notification_claimed_at = NULL, notified_at = NULL
                WHERE id = ? AND user_telegram_id = ?
                  AND provider_status IN ('creating', 'creation_unknown', 'waiting')
@@ -4230,6 +4611,65 @@ async def get_dashboard_overview() -> dict:
         }
     finally:
         await db.close()
+
+
+async def expire_stale_orders(
+    *,
+    timeout_seconds: int = PAYMENT_TIMEOUT_SECONDS,
+) -> list[dict]:
+    """Atomically cancel stale unpaid orders that have no reserved stock.
+
+    Active NOWPayments checkouts are left to the provider reconciliation worker,
+    which can distinguish an unpaid checkout from a payment being confirmed.
+    """
+    timeout_seconds = max(60, int(timeout_seconds))
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            async with _get_critical_db_semaphore():
+                db = await get_db(fresh=attempt > 0)
+                try:
+                    cursor = await db.execute(
+                        """UPDATE orders SET status = 'CANCELLED'
+                           WHERE status IN ('PENDING', 'AWAITING_PAYMENT')
+                             AND created_at <= datetime('now', ?)
+                             AND NOT EXISTS (
+                                 SELECT 1 FROM stock_items s
+                                 WHERE s.sold_to_order_id = orders.id AND s.is_sold = 1
+                             )
+                             AND NOT EXISTS (
+                                 SELECT 1 FROM nowpayments_payments np
+                                 WHERE np.order_id = orders.id
+                                   AND np.provider_status IN (
+                                       'creating', 'creation_unknown', 'waiting',
+                                       'confirming', 'confirmed', 'sending',
+                                       'spending', 'partially_paid'
+                                   )
+                             )
+                           RETURNING id, user_telegram_id, payment_method""",
+                        (f"-{timeout_seconds} seconds",),
+                    )
+                    expired = [dict(row) for row in await cursor.fetchall()]
+                    await db.commit()
+                    if expired:
+                        _clear_stock_cache()
+                        invalidate_stats_cache()
+                    return expired
+                except Exception:
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                    raise
+                finally:
+                    await db.close()
+        except Exception as exc:
+            last_exc = exc
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            logger.info("Retrying stale-order expiration on a fresh connection: %s", exc)
+            await asyncio.sleep(0.1 * (attempt + 1))
+    raise RuntimeError("Stale-order expiration unavailable") from last_exc
 
 async def _get_stats_uncached(days: int = 30, method: str = None) -> dict:
     """Return dashboard statistics with four grouped database queries."""

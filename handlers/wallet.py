@@ -32,6 +32,7 @@ from utils.keyboards import (
     wallet_topup_method_keyboard,
 )
 from utils.locales import t
+from utils.telegram import safe_edit_message_text
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,7 @@ async def wallet_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query:
         try:
-            await query.edit_message_text(text, parse_mode="HTML", reply_markup=wallet_menu_keyboard(balance, lang))
+            await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=wallet_menu_keyboard(balance, lang))
         except Exception:
             pass  # Message already shows this content
     else:
@@ -99,7 +100,7 @@ async def wallet_topup_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.answer()
     lang = await get_user_lang(update.effective_user.id)
 
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         t("wallet_topup_title", lang),
         parse_mode="HTML",
         reply_markup=wallet_topup_amounts_keyboard(lang),
@@ -168,7 +169,7 @@ async def _start_binance_topup(update, context, amount, lang, is_callback=True):
     ])
 
     if is_callback:
-        await update.callback_query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
+        await safe_edit_message_text(update.callback_query, text, parse_mode="HTML", reply_markup=markup)
     else:
         await update.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
 
@@ -210,14 +211,20 @@ async def _render_nowpayments_topup_checkout(
         f"{t('nowpayments_fee_warning', lang)}\n\n"
         f"{status_text or t('nowpayments_waiting', lang)}"
     )
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         text,
         parse_mode="HTML",
         reply_markup=nowpayments_wallet_topup_keyboard(int(topup["id"]), pay_amount, lang),
     )
 
 
-async def process_nowpayments_wallet_topup_notification(bot, payment_id: str | int) -> dict:
+async def process_nowpayments_wallet_topup_notification(
+    bot,
+    payment_id: str | int,
+    *,
+    finalized_result: dict | None = None,
+    force_notification: bool = False,
+) -> dict:
     """Finalize and notify a NOWPayments wallet credit exactly once."""
     from database.models import (
         claim_nowpayments_wallet_topup_notification,
@@ -226,10 +233,10 @@ async def process_nowpayments_wallet_topup_notification(bot, payment_id: str | i
         release_nowpayments_wallet_topup_notification,
     )
 
-    result = await finalize_nowpayments_wallet_topup(payment_id)
+    result = finalized_result or await finalize_nowpayments_wallet_topup(payment_id)
     action = result.get("action")
     payment = result.get("payment") or {}
-    if not payment or payment.get("notified_at"):
+    if not payment or (payment.get("notified_at") and not force_notification):
         return result
     notifiable = {
         "wallet_credited",
@@ -371,7 +378,7 @@ async def wallet_topup_method_nowpayments(update: Update, context: ContextTypes.
     user_id = update.effective_user.id
     amount = round(float(context.user_data.get("wallet_topup_amount") or 0), 2)
     if amount <= 0:
-        await query.edit_message_text(t("wallet_invalid_amount", lang), reply_markup=main_menu_keyboard(lang))
+        await safe_edit_message_text(query, t("wallet_invalid_amount", lang), reply_markup=main_menu_keyboard(lang))
         return ConversationHandler.END
 
     lock = _nowpayments_topup_locks[user_id % len(_nowpayments_topup_locks)]
@@ -393,7 +400,7 @@ async def wallet_topup_method_nowpayments(update: Update, context: ContextTypes.
         callback_url = _nowpayments_callback_url()
         if not is_nowpayments_configured() or not callback_url.startswith("https://"):
             logger.error("NOWPayments wallet top-up callback URL is missing or not HTTPS")
-            await query.edit_message_text(t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
+            await safe_edit_message_text(query, t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
             return ConversationHandler.END
 
         checkout_price = calculate_checkout_price(amount)
@@ -401,14 +408,14 @@ async def wallet_topup_method_nowpayments(update: Update, context: ContextTypes.
             minimum = await get_minimum_amount()
             minimum_usd = float(minimum.get("fiat_equivalent") or minimum.get("min_amount") or 0)
             if minimum_usd > 0 and checkout_price + 0.000001 < minimum_usd:
-                await query.edit_message_text(
+                await safe_edit_message_text(query, 
                     t("nowpayments_below_minimum", lang).format(minimum=_format_topup_crypto_amount(minimum_usd)),
                     reply_markup=main_menu_keyboard(lang),
                 )
                 return ConversationHandler.END
         except NowPaymentsError as exc:
             logger.warning("Could not read NOWPayments top-up minimum amount: %s", exc)
-            await query.edit_message_text(t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
+            await safe_edit_message_text(query, t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
             return ConversationHandler.END
         except (TypeError, ValueError) as exc:
             logger.warning("Invalid NOWPayments top-up minimum response: %s", exc)
@@ -417,13 +424,13 @@ async def wallet_topup_method_nowpayments(update: Update, context: ContextTypes.
             attempt = await prepare_nowpayments_wallet_topup(user_id, amount, checkout_price)
         except Exception as exc:
             logger.error("Could not prepare NOWPayments wallet top-up for user %s: %s", user_id, exc, exc_info=True)
-            await query.edit_message_text(t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
+            await safe_edit_message_text(query, t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
             return ConversationHandler.END
         if not attempt.get("created"):
             if attempt.get("payment_id"):
                 await _render_nowpayments_topup_checkout(query, attempt, lang)
                 return WALLET_TOPUP_NOWPAYMENTS
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 t("nowpayments_creation_unknown", lang).format(order_id=f"W{attempt['id']}"),
                 reply_markup=main_menu_keyboard(lang),
             )
@@ -452,7 +459,7 @@ async def wallet_topup_method_nowpayments(update: Update, context: ContextTypes.
                 if isinstance(exc, NowPaymentsError) and exc.retryable
                 else t("nowpayments_unavailable", lang)
             )
-            await query.edit_message_text(text, reply_markup=main_menu_keyboard(lang))
+            await safe_edit_message_text(query, text, reply_markup=main_menu_keyboard(lang))
             return ConversationHandler.END
 
         context.user_data["wallet_topup_id"] = int(topup["id"])
@@ -483,10 +490,10 @@ async def check_nowpayments_wallet_topup(update: Update, context: ContextTypes.D
 
     topup = await get_nowpayments_wallet_topup(topup_id)
     if not topup or int(topup.get("user_telegram_id") or 0) != update.effective_user.id:
-        await query.edit_message_text(t("access_denied", lang))
+        await safe_edit_message_text(query, t("access_denied", lang))
         return ConversationHandler.END
     if not topup.get("payment_id"):
-        await query.edit_message_text(t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
+        await safe_edit_message_text(query, t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
         return ConversationHandler.END
 
     await _render_nowpayments_topup_checkout(query, topup, lang, t("nowpayments_checking", lang))
@@ -505,7 +512,7 @@ async def check_nowpayments_wallet_topup(update: Update, context: ContextTypes.D
         text = t("wallet_credited", lang) \
             .replace("${amount}", format_price(float(payment.get("wallet_amount") or 0))) \
             .replace("${balance}", format_price(balance))
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             text,
             parse_mode="HTML",
             reply_markup=wallet_menu_keyboard(balance, lang),
@@ -517,14 +524,14 @@ async def check_nowpayments_wallet_topup(update: Update, context: ContextTypes.D
             task.cancel()
         return ConversationHandler.END
     if action == "review_required":
-        await query.edit_message_text(t("nowpayments_review", lang), reply_markup=main_menu_keyboard(lang))
+        await safe_edit_message_text(query, t("nowpayments_review", lang), reply_markup=main_menu_keyboard(lang))
         return ConversationHandler.END
     if action == "partially_paid":
         status_text = t("nowpayments_partial", lang)
     elif action in ("confirming", "confirmed", "sending", "spending"):
         status_text = t("nowpayments_confirming", lang)
     elif action in ("expired", "failed", "refunded"):
-        await query.edit_message_text(t("nowpayments_expired", lang), reply_markup=main_menu_keyboard(lang))
+        await safe_edit_message_text(query, t("nowpayments_expired", lang), reply_markup=main_menu_keyboard(lang))
         return ConversationHandler.END
     else:
         status_text = t("nowpayments_waiting", lang)
@@ -541,7 +548,7 @@ async def cancel_nowpayments_wallet_topup_callback(update: Update, context: Cont
 
     topup = await get_nowpayments_wallet_topup(topup_id)
     if not topup or int(topup.get("user_telegram_id") or 0) != update.effective_user.id:
-        await query.edit_message_text(t("access_denied", lang))
+        await safe_edit_message_text(query, t("access_denied", lang))
         return ConversationHandler.END
     cancelled = await cancel_nowpayments_wallet_topup(topup_id, update.effective_user.id)
     if not cancelled and (
@@ -558,7 +565,7 @@ async def cancel_nowpayments_wallet_topup_callback(update: Update, context: Cont
             text = t("wallet_credited", lang) \
                 .replace("${amount}", format_price(float(payment.get("wallet_amount") or 0))) \
                 .replace("${balance}", format_price(balance))
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 text,
                 parse_mode="HTML",
                 reply_markup=wallet_menu_keyboard(balance, lang),
@@ -570,7 +577,7 @@ async def cancel_nowpayments_wallet_topup_callback(update: Update, context: Cont
     context.user_data.pop("wallet_topup_amount", None)
     context.user_data.pop("wallet_topup_id", None)
     balance = await get_wallet_balance(update.effective_user.id)
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         t("nowpayments_expired", lang),
         reply_markup=wallet_menu_keyboard(balance, lang),
     )
@@ -602,7 +609,7 @@ async def _start_crypto_topup(update, context, crypto_type: str, setting_key: st
         [InlineKeyboardButton(t("btn_cancel", lang), callback_data="back_wallet")],
     ])
 
-    await query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
+    await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=markup)
     return state_to_return
 
 
@@ -852,7 +859,7 @@ async def wallet_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txs = await get_wallet_transactions(update.effective_user.id, limit=10)
 
     if not txs:
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             t("wallet_no_transactions", lang),
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
@@ -869,7 +876,7 @@ async def wallet_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
         date_str = tx.get("created_at", "")[:16].replace("T", " ")
         lines.append(f"{icon} {sign}{format_price(tx['amount'])} — {label}\n   💰 {format_price(tx['balance_after'])} | {date_str}")
 
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         "\n".join(lines),
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([

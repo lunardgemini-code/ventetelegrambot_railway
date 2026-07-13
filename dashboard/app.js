@@ -165,6 +165,13 @@ Object.assign(LANG.zh, {nav_supplier_bots:'机器人 API 管理', supplier_title
 Object.assign(LANG.vi, {nav_supplier_bots:'Quản lý API Bot', supplier_title:'Quản lý API Bot', supplier_sync:'Đồng bộ danh mục'});
 Object.assign(LANG.ru, {nav_supplier_bots:'Управление API бота', supplier_title:'Управление API бота', supplier_sync:'Синхронизировать'});
 
+Object.assign(LANG.fr, {nav_payment_review:'Centre paiements', payment_review_title:'Centre de contrôle des paiements', conversion_title:'Tunnel de conversion'});
+Object.assign(LANG.en, {nav_payment_review:'Payment control', payment_review_title:'Payment control center', conversion_title:'Conversion funnel'});
+Object.assign(LANG.ar, {nav_payment_review:'Payment center', payment_review_title:'Payment control center', conversion_title:'Conversion funnel'});
+Object.assign(LANG.zh, {nav_payment_review:'Payment center', payment_review_title:'Payment control center', conversion_title:'Conversion funnel'});
+Object.assign(LANG.vi, {nav_payment_review:'Payment center', payment_review_title:'Payment control center', conversion_title:'Conversion funnel'});
+Object.assign(LANG.ru, {nav_payment_review:'Payment center', payment_review_title:'Payment control center', conversion_title:'Conversion funnel'});
+
 const state = {
     botUrl:'', apiKey:'', currentLang:'fr', currentTab:'dashboard-tab',
     categories:[], products:[], orders:[], activations:[], resellers:[], users:[], promos:[], tickets:[], walletHistory:[], binanceAccounts:[],
@@ -174,6 +181,7 @@ const state = {
     currentStockProductId:null, autoRefresh:false, autoRefreshTimer:null,
     chartDays:30, refreshing:false, lastRefreshAt:null,
     revenueChart:null, ordersChart:null, productSalesChart:null, productMomentumChart:null,
+    paymentReviewCategory:'all', paymentReviewIncludeResolved:false, paymentReviewItems:[],
     dynamicPriceChart:null, dynamicSimulationChart:null,
     productStats:[], productMomentum:null, productMomentumSelected:[], deadProductAlerts:[], supplierBot:null
 };
@@ -197,7 +205,7 @@ const DOM = {
     perfThroughput:$('perf-throughput'), perfDatabase:$('perf-database'), perfDbErrors:$('perf-db-errors'),
     perfDiagnosis:$('perf-diagnosis'), btnExportPerformance:$('btn-export-performance'),
     dashboardRange:$('dashboard-range'), pageContext:$('page-context'), toastRegion:$('toast-region'),
-    badgeOrders:$('badge-orders'), badgeActivations:$('badge-activations'), badgeTickets:$('badge-tickets'), apiStatusBadge:$('api-status-badge'),
+    badgeOrders:$('badge-orders'), badgePaymentReview:$('badge-payment-review'), badgeActivations:$('badge-activations'), badgeTickets:$('badge-tickets'), apiStatusBadge:$('api-status-badge'),
     productsTableBody:$('products-table-body'),
     statsProductsTableBody:$('stats-products-table-body'),
     statsProductSearch:$('stats-product-search'),
@@ -212,6 +220,12 @@ const DOM = {
     productMomentumYesterday:$('product-momentum-yesterday'),
     productMomentumRange:$('product-momentum-range'),
     deadProductsAlerts:$('dead-products-alerts'),
+    conversionFunnelStages:$('conversion-funnel-stages'), conversionProductsBody:$('conversion-products-body'),
+    conversionTrackingNote:$('conversion-tracking-note'), conversionOverallRate:$('conversion-overall-rate'),
+    paymentReviewTableBody:$('payment-review-table-body'), paymentReviewIncludeResolved:$('payment-review-include-resolved'),
+    btnPaymentReviewRefresh:$('btn-payment-review-refresh'), paymentReviewTotal:$('payment-review-total'),
+    paymentReviewUnderpaid:$('payment-review-underpaid'), paymentReviewConfirming:$('payment-review-confirming'),
+    paymentReviewLate:$('payment-review-late'), paymentReviewExpired:$('payment-review-expired'),
     promosTableBody:$('promos-table-body'),
     ordersTableBody:$('orders-table-body'), activationsTableBody:$('activations-table-body'), ordersPagination:$('orders-pagination'),
     ordersPrev:$('orders-prev'), ordersNext:$('orders-next'), ordersPageInfo:$('orders-page-info'),
@@ -380,6 +394,21 @@ function setupEvents() {
             renderStatsTable();
         });
     }
+    $$('.payment-review-filter').forEach(button => button.addEventListener('click', () => {
+        $$('.payment-review-filter').forEach(item => item.classList.remove('active'));
+        button.classList.add('active');
+        state.paymentReviewCategory = button.dataset.category || 'all';
+        loadPaymentReview();
+    }));
+    if (DOM.paymentReviewIncludeResolved) DOM.paymentReviewIncludeResolved.addEventListener('change', () => {
+        state.paymentReviewIncludeResolved = DOM.paymentReviewIncludeResolved.checked;
+        loadPaymentReview();
+    });
+    if (DOM.btnPaymentReviewRefresh) DOM.btnPaymentReviewRefresh.addEventListener('click', loadPaymentReview);
+    if (DOM.paymentReviewTableBody) DOM.paymentReviewTableBody.addEventListener('click', event => {
+        const button = event.target.closest('[data-payment-review-action]');
+        if (button) handlePaymentReviewAction(button);
+    });
 
     $$('.sub-tab').forEach(t => t.addEventListener('click', () => {
         t.closest('.action-bar').querySelectorAll('.sub-tab').forEach(s => s.classList.remove('active'));
@@ -1063,7 +1092,7 @@ async function massTranslate() {
     
     setTimeout(() => {
         overlay.style.display = 'none';
-        fetchProducts(); // Refresh the product list
+        loadProducts(); // Refresh the product list
         if (successCount > 0) {
             alert(`✅ Traduction terminée : ${successCount} produit(s) mis à jour avec succès.`);
         }
@@ -1118,10 +1147,11 @@ async function testConnectionAndStart() {
 //  REFRESH ALL
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 const tabRefreshLoaders = {
-    'dashboard-tab': [loadDashboardOverview, loadPerformanceMetrics, loadStats, loadCharts],
+    'dashboard-tab': [loadDashboardOverview, loadPerformanceMetrics, loadStats, loadCharts, loadPaymentReview],
     'stats-tab': [loadStatsBundle],
     'inventory-tab': [loadProducts, loadBinanceAccounts],
     'orders-tab': [loadProducts, loadAllOrders],
+    'payment-review-tab': [loadPaymentReview],
     'activations-tab': [loadProducts, loadActivations],
     'resellers-tab': [loadResellers],
     'supplier-bots-tab': [loadSupplierBot],
@@ -1136,7 +1166,7 @@ const tabRefreshLoaders = {
 const fullRefreshLoaders = [
     loadDashboardOverview, loadPerformanceMetrics, loadFinance, loadProducts, loadAllOrders, loadActivations, loadResellers, loadSupplierBot,
     loadTickets, loadUsers, loadPromos, loadWalletHistory, loadBinanceAccounts,
-    loadPaymentSettings, loadStatsBundle
+    loadPaymentSettings, loadStatsBundle, loadPaymentReview
 ];
 
 function uniqueLoaders(loaders) {
@@ -1342,6 +1372,7 @@ async function loadStatsBundle() {
         loadProductStats(bundle.products),
         loadProductMomentum(bundle.momentum),
         loadDeadProductAlerts(bundle.dead_alerts),
+        loadConversionFunnel(bundle.conversion),
     ]);
 }
 
@@ -1778,6 +1809,158 @@ function renderDeadProductAlerts() {
             </div>
         `;
     }).join('');
+}
+
+async function loadConversionFunnel(providedData=null) {
+    if (!DOM.conversionFunnelStages) return;
+    try {
+        const data = providedData || await apiCall(`/api/stats/conversion?days=${state.chartDays}`);
+        renderConversionFunnel(data || {});
+    } catch (error) {
+        console.warn('Conversion funnel failed:', error);
+        DOM.conversionFunnelStages.innerHTML = '<p class="empty-state">Impossible de charger le tunnel de conversion.</p>';
+        if (DOM.conversionProductsBody) DOM.conversionProductsBody.innerHTML = '<tr><td colspan="6" class="empty-state">Donnees indisponibles.</td></tr>';
+    }
+}
+
+function renderConversionFunnel(data) {
+    const summary = data.summary || {};
+    const stages = [
+        {label:'Produit affiché', value:Number(summary.views || 0), icon:'eye', rate:null},
+        {label:'Clic Acheter', value:Number(summary.buy_clicks || 0), icon:'cart-shopping', rate:summary.view_to_buy_rate},
+        {label:'Paiement créé', value:Number(summary.payments_created || 0), icon:'file-invoice-dollar', rate:summary.buy_to_payment_rate},
+        {label:'Paiement terminé', value:Number(summary.payments_completed || 0), icon:'circle-check', rate:summary.payment_completion_rate},
+    ];
+    DOM.conversionFunnelStages.innerHTML = stages.map((stage, index) => {
+        const rate = stage.rate === null ? null : Number(stage.rate || 0);
+        const rateDetail = rate === null
+            ? 'Point d entree'
+            : rate > 1
+                ? 'Entrees directes incluses'
+                : `${(rate * 100).toFixed(1)}% de l etape precedente`;
+        return `
+        <div class="conversion-stage">
+            <span class="conversion-stage-icon"><i class="fa-solid fa-${stage.icon}"></i></span>
+            <span class="conversion-stage-copy"><small>${stage.label}</small><strong>${stage.value.toLocaleString()}</strong><em>${rateDetail}</em></span>
+        </div>${index < stages.length - 1 ? '<i class="fa-solid fa-chevron-right conversion-arrow"></i>' : ''}
+    `;
+    }).join('');
+    const overall = Number(summary.overall_conversion_rate || 0) * 100;
+    if (DOM.conversionOverallRate) DOM.conversionOverallRate.textContent = `Conversion globale: ${overall.toFixed(1)}%`;
+    if (DOM.conversionTrackingNote) {
+        DOM.conversionTrackingNote.textContent = data.tracking_since
+            ? `Fenetre comparable depuis ${parseUTCDate(data.tracking_since).toLocaleString()}. Les achats directs sont inclus.`
+            : 'Le suivi des clics Acheter commencera apres le deploiement de cette version.';
+    }
+    const products = (data.products || []).slice(0, 12);
+    if (!DOM.conversionProductsBody) return;
+    if (!products.length) {
+        DOM.conversionProductsBody.innerHTML = '<tr><td colspan="6" class="empty-state">Pas encore assez de données comparables.</td></tr>';
+        return;
+    }
+    DOM.conversionProductsBody.innerHTML = products.map(product => `
+        <tr>
+            <td><span class="prod-badge"><span class="prod-emoji">${escapeHtml(product.emoji || '')}</span><span class="prod-name-lbl">${escapeHtml(product.name || `Produit #${product.product_id}`)}</span></span></td>
+            <td>${Number(product.views || 0).toLocaleString()}</td>
+            <td>${Number(product.buy_clicks || 0).toLocaleString()}</td>
+            <td>${Number(product.payments_created || 0).toLocaleString()}</td>
+            <td>${Number(product.payments_completed || 0).toLocaleString()}</td>
+            <td><span class="status-badge ${Number(product.overall_conversion_rate || 0) < 0.05 ? 'warning' : 'success'}">${(Number(product.overall_conversion_rate || 0) * 100).toFixed(1)}%</span></td>
+        </tr>
+    `).join('');
+}
+
+async function loadPaymentReview() {
+    const category = encodeURIComponent(state.paymentReviewCategory || 'all');
+    const includeResolved = state.paymentReviewIncludeResolved ? 'true' : 'false';
+    const data = await apiCall(`/api/payments/review?category=${category}&include_resolved=${includeResolved}&limit=150`);
+    state.paymentReviewItems = data.items || [];
+    renderPaymentReview(data);
+}
+
+function renderPaymentReview(data) {
+    const summary = data.summary || {};
+    if (DOM.paymentReviewTotal) DOM.paymentReviewTotal.textContent = Number(summary.all || 0);
+    if (DOM.paymentReviewUnderpaid) DOM.paymentReviewUnderpaid.textContent = Number(summary.underpaid || 0);
+    if (DOM.paymentReviewConfirming) DOM.paymentReviewConfirming.textContent = Number(summary.confirming || 0);
+    if (DOM.paymentReviewLate) DOM.paymentReviewLate.textContent = Number(summary.late_after_cancel || 0);
+    if (DOM.paymentReviewExpired) DOM.paymentReviewExpired.textContent = Number(summary.expired || 0);
+    if (DOM.badgePaymentReview) {
+        const total = Number(summary.all || 0);
+        DOM.badgePaymentReview.textContent = total;
+        DOM.badgePaymentReview.classList.toggle('hidden', total === 0);
+    }
+    if (!DOM.paymentReviewTableBody) return;
+    const items = data.items || [];
+    if (!items.length) {
+        DOM.paymentReviewTableBody.innerHTML = '<tr><td colspan="8" class="empty-state">Aucun paiement dans cette categorie.</td></tr>';
+        return;
+    }
+    const categoryLabels = {
+        underpaid:'Sous-payé', expired:'Expiré', confirming:'Confirmation',
+        late_after_cancel:'Reçu après annulation', validation_error:'Validation requise',
+        accepted:'Traité manuellement',
+    };
+    DOM.paymentReviewTableBody.innerHTML = items.map(item => {
+        const received = Number(item.actually_paid || 0);
+        const expected = Number(item.pay_amount || 0);
+        const canAccept = !item.resolved && ['underpaid', 'late_after_cancel'].includes(item.category);
+        const acceptancePending = item.last_action === 'accept_requested';
+        const buttons = item.resolved
+            ? item.last_action === 'accept'
+                ? '<span class="status-badge success"><i class="fa-solid fa-lock"></i> Finalisé</span>'
+                : `<button class="btn-secondary btn-sm" data-payment-review-action="reopen" data-kind="${escapeHtml(item.payment_kind)}" data-payment-id="${escapeHtml(item.payment_id)}"><i class="fa-solid fa-folder-open"></i> Reouvrir</button>`
+            : acceptancePending
+                ? item.processed_at
+                    ? '<span class="status-badge warning"><i class="fa-solid fa-triangle-exclamation"></i> Audit à contrôler</span>'
+                    : `<button class="btn-secondary btn-sm" data-payment-review-action="reopen" data-kind="${escapeHtml(item.payment_kind)}" data-payment-id="${escapeHtml(item.payment_id)}"><i class="fa-solid fa-rotate-left"></i> Réinitialiser</button>`
+                : `<button class="btn-secondary btn-sm" data-payment-review-action="recheck" data-kind="${escapeHtml(item.payment_kind)}" data-payment-id="${escapeHtml(item.payment_id)}" title="Relire NOWPayments"><i class="fa-solid fa-rotate"></i></button>
+                   ${canAccept ? `<button class="btn-primary btn-sm" data-payment-review-action="accept" data-kind="${escapeHtml(item.payment_kind)}" data-payment-id="${escapeHtml(item.payment_id)}"><i class="fa-solid fa-check"></i> Accepter</button>` : ''}
+                   <button class="btn-secondary btn-sm" data-payment-review-action="dismiss" data-kind="${escapeHtml(item.payment_kind)}" data-payment-id="${escapeHtml(item.payment_id)}"><i class="fa-solid fa-box-archive"></i> Classer</button>`;
+        return `<tr>
+            <td><strong>${item.payment_kind === 'wallet_topup' ? 'Wallet' : `#${escapeHtml(item.order_id || '')}`}</strong><small class="table-secondary">${escapeHtml(item.payment_id)}</small></td>
+            <td><code>${escapeHtml(item.user_telegram_id || '')}</code></td>
+            <td>${escapeHtml(item.product_emoji || '')} ${escapeHtml(item.product_name || '-')}</td>
+            <td><span class="status-badge ${item.category === 'accepted' ? 'success' : item.category === 'confirming' ? 'info' : item.category === 'expired' ? 'neutral' : 'warning'}">${categoryLabels[item.category] || item.category}</span><small class="table-secondary">${escapeHtml(item.provider_status || '')}</small></td>
+            <td><strong>${received.toFixed(8).replace(/0+$/, '').replace(/\.$/, '') || '0'} USDT</strong><small class="table-secondary">attendu ${expected.toFixed(8).replace(/0+$/, '').replace(/\.$/, '') || '0'}</small></td>
+            <td class="payment-review-reason">${escapeHtml(item.processing_error || item.last_note || '-')}</td>
+            <td>${parseUTCDate(item.updated_at || item.created_at).toLocaleString()}</td>
+            <td><div class="table-actions">${buttons}</div></td>
+        </tr>`;
+    }).join('');
+}
+
+async function handlePaymentReviewAction(button) {
+    const action = button.dataset.paymentReviewAction;
+    const kind = button.dataset.kind;
+    const paymentId = button.dataset.paymentId;
+    let note = '';
+    let confirmation = '';
+    if (action === 'dismiss') {
+        note = prompt('Indiquez pourquoi ce paiement est classe. Cette note sera conservee dans l audit.') || '';
+        if (!note.trim()) return;
+    } else if (action === 'accept') {
+        if (!confirm('Cette action peut livrer une commande ou crediter un wallet. NOWPayments sera verifie une derniere fois. Continuer ?')) return;
+        const expected = `ACCEPT ${kind} ${paymentId}`;
+        confirmation = prompt(`Saisissez exactement :\n${expected}`) || '';
+        if (confirmation !== expected) {
+            showToast('Confirmation incorrecte. Aucune action effectuee.', 'error');
+            return;
+        }
+        note = prompt('Note d audit facultative :') || '';
+    } else if (action === 'reopen') {
+        note = prompt('Motif de reouverture (facultatif) :') || '';
+    }
+    button.disabled = true;
+    try {
+        const response = await apiCall(`/api/payments/review/${encodeURIComponent(kind)}/${encodeURIComponent(paymentId)}/action`, 'POST', {action, note, confirmation});
+        showToast(response.warning || (action === 'accept' ? 'Paiement accepté et traité.' : 'Dossier mis à jour.'), response.warning ? 'error' : 'success');
+        await Promise.all([loadPaymentReview(), loadStatsBundle()]);
+    } catch (error) {
+        showToast(error.message || 'Action impossible.', 'error');
+    } finally {
+        button.disabled = false;
+    }
 }
 
 function renderStatsTable() {
@@ -2876,12 +3059,13 @@ async function handleSaveCryptoSettings(e) {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // Category select removed — not needed
 
-const tabKeys = { 'dashboard-tab':'tab_dashboard','stats-tab':'tab_stats','inventory-tab':'tab_inventory','orders-tab':'tab_orders','activations-tab':'nav_activations','resellers-tab':'nav_resellers','supplier-bots-tab':'nav_supplier_bots','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
+const tabKeys = { 'dashboard-tab':'tab_dashboard','stats-tab':'tab_stats','inventory-tab':'tab_inventory','orders-tab':'tab_orders','payment-review-tab':'payment_review_title','activations-tab':'nav_activations','resellers-tab':'nav_resellers','supplier-bots-tab':'nav_supplier_bots','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
 const tabContexts = {
     'dashboard-tab':'Vue opérationnelle', 'stats-tab':'Tendances de ventes et produits',
     'inventory-tab':'Produits, prix et disponibilité', 'orders-tab':'Paiements et livraisons',
     'activations-tab':'Demandes manuelles à traiter', 'resellers-tab':'Accès et activité API',
     'supplier-bots-tab':'Catalogue distant, marges et produits affichés',
+    'payment-review-tab':'Anomalies NOWPayments et actions manuelles',
     'users-tab':'Clients, wallets et parrainages', 'tickets-tab':'Demandes de support ouvertes',
     'broadcast-tab':'Communication aux clients', 'settings-tab':'Connexion et paiements',
     'wallet-history-tab':'Mouvements des soldes clients', 'finance-tab':'Revenus et ajustements',

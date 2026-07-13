@@ -11,6 +11,7 @@ from database.models import get_user, get_user_lang, get_user_order_count
 from utils.helpers import format_date, format_price
 from utils.keyboards import back_keyboard, profile_keyboard
 from utils.locales import t
+from utils.telegram import safe_edit_message_text
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user = await get_user(telegram_id)
         if not user:
-            await query.edit_message_text(t("error_generic", lang))
+            await safe_edit_message_text(query, t("error_generic", lang))
             return
 
         order_count = await get_user_order_count(telegram_id)
@@ -42,14 +43,14 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         is_reseller = bool(user.get('is_reseller', 0))
 
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             text,
             parse_mode="HTML",
             reply_markup=profile_keyboard(lang, is_reseller=is_reseller),
         )
     except Exception as exc:
         logger.error("show_profile: %s", exc, exc_info=True)
-        await query.edit_message_text(t("error_generic", lang))
+        await safe_edit_message_text(query, t("error_generic", lang))
 
 
 async def show_referrals(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -63,7 +64,7 @@ async def show_referrals(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user = await get_user(telegram_id)
         if not user:
-            await query.edit_message_text(t("error_generic", lang))
+            await safe_edit_message_text(query, t("error_generic", lang))
             return
 
         # Get stats
@@ -88,14 +89,14 @@ async def show_referrals(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         from utils.keyboards import referral_dashboard_keyboard
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             text,
             parse_mode="HTML",
             reply_markup=referral_dashboard_keyboard(lang),
         )
     except Exception as exc:
         logger.error("show_referrals: %s", exc, exc_info=True)
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"⚠️ An error occurred:\n<code>{str(exc)}</code>",
             parse_mode="HTML",
             reply_markup=back_keyboard("back_main", lang),
@@ -106,7 +107,6 @@ async def view_referrals_list(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
     telegram_id = update.effective_user.id
-    from utils.locales import get_user_lang
     lang = await get_user_lang(telegram_id)
     
     try:
@@ -117,7 +117,7 @@ async def view_referrals_list(update: Update, context: ContextTypes.DEFAULT_TYPE
             from utils.locales import t
             msg = {"fr": "Vous n'avez pas encore de filleuls.", "en": "You don't have any referrals yet.", "ar": "ليس لديك أي إحالات بعد."}.get(lang, "Vous n'avez pas encore de filleuls.")
             from utils.keyboards import back_keyboard
-            await query.edit_message_text(msg, reply_markup=back_keyboard("show_referrals", lang))
+            await safe_edit_message_text(query, msg, reply_markup=back_keyboard("show_referrals", lang))
             return
         
         title = {"fr": "👥 <b>Vos filleuls récents :</b>\n\n", "en": "👥 <b>Your recent referrals:</b>\n\n", "ar": "👥 <b>إحالاتك الأخيرة:</b>\n\n"}.get(lang, "👥 <b>Vos filleuls récents :</b>\n\n")
@@ -133,9 +133,9 @@ async def view_referrals_list(update: Update, context: ContextTypes.DEFAULT_TYPE
             text = text[:4000] + "..."
             
         from utils.keyboards import back_keyboard
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=back_keyboard("show_referrals", lang))
+        await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=back_keyboard("show_referrals", lang))
     except Exception as exc:
         import logging
         logging.error("view_referrals_list: %s", exc, exc_info=True)
         from utils.keyboards import back_keyboard
-        await query.edit_message_text("An error occurred.", reply_markup=back_keyboard("show_referrals", lang))
+        await safe_edit_message_text(query, "An error occurred.", reply_markup=back_keyboard("show_referrals", lang))

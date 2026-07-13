@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 
+import bot
 from database import db as db_module
 from database.db import init_db
 from database import models
@@ -59,6 +60,118 @@ class NowPaymentsTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await models.claim_nowpayments_notification(self.payment_id))
         self.assertFalse(await models.claim_nowpayments_notification(self.payment_id))
 
+    async def test_payment_review_can_be_audited_and_dismissed(self):
+        await models.save_nowpayments_update({
+            "payment_id": self.payment_id,
+            "payment_status": "finished",
+            "order_id": str(self.order["id"]),
+            "pay_amount": 5,
+            "actually_paid": 4,
+            "pay_currency": "usdtbsc",
+        })
+        result = await models.finalize_nowpayments_payment(self.payment_id)
+        self.assertEqual(result["action"], "review_required")
+
+        review = await models.get_payment_review_items(category="underpaid")
+        self.assertEqual(review["summary"]["underpaid"], 1)
+        self.assertEqual(review["items"][0]["payment_id"], self.payment_id)
+
+        await models.record_payment_review_action(
+            "order",
+            self.payment_id,
+            "dismiss",
+            note="Customer abandoned the balance",
+            actor="test-admin",
+        )
+        unresolved = await models.get_payment_review_items(category="underpaid")
+        resolved = await models.get_payment_review_items(category="underpaid", include_resolved=True)
+        self.assertEqual(unresolved["summary"]["all"], 0)
+        self.assertEqual(unresolved["items"], [])
+        self.assertEqual(len(resolved["items"]), 1)
+        self.assertTrue(resolved["items"][0]["resolved"])
+
+    async def test_payment_review_accept_requires_exact_payment_confirmation(self):
+        transport = httpx.ASGITransport(app=bot.api)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                f"/api/payments/review/order/{self.payment_id}/action",
+                headers={"X-API-Key": bot.ADMIN_API_KEY},
+                json={"action": "accept", "confirmation": "ACCEPT"},
+            )
+        self.assertEqual(response.status_code, 409)
+        self.assertIn(self.payment_id, response.json()["detail"])
+
+    async def test_manual_accept_is_audited_archived_and_cannot_run_twice(self):
+        provider_payload = {
+            "payment_id": self.payment_id,
+            "payment_status": "finished",
+            "order_id": str(self.order["id"]),
+            "pay_amount": 5,
+            "actually_paid": 4,
+            "pay_currency": "usdtbsc",
+        }
+        await models.save_nowpayments_update(provider_payload)
+        result = await models.finalize_nowpayments_payment(self.payment_id)
+        self.assertEqual(result["action"], "review_required")
+
+        transport = httpx.ASGITransport(app=bot.api)
+        headers = {
+            "X-API-Key": bot.ADMIN_API_KEY,
+            "X-Admin-Actor": "spoofed-browser-identity",
+        }
+        payload = {
+            "action": "accept",
+            "confirmation": f"ACCEPT order {self.payment_id}",
+            "note": "Approved after checking the received amount",
+        }
+        with (
+            patch("services.nowpayments.get_payment_status", AsyncMock(return_value=provider_payload)),
+            patch.object(bot, "tg_app", None),
+        ):
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                accepted = await client.post(
+                    f"/api/payments/review/order/{self.payment_id}/action",
+                    headers=headers,
+                    json=payload,
+                )
+                duplicate = await client.post(
+                    f"/api/payments/review/order/{self.payment_id}/action",
+                    headers=headers,
+                    json=payload,
+                )
+                reopen = await client.post(
+                    f"/api/payments/review/order/{self.payment_id}/action",
+                    headers=headers,
+                    json={"action": "reopen", "note": "Should be refused"},
+                )
+
+        self.assertEqual(accepted.status_code, 200)
+        self.assertEqual(duplicate.status_code, 409)
+        self.assertIn("already", duplicate.json()["detail"].lower())
+        self.assertEqual(reopen.status_code, 409)
+
+        unresolved = await models.get_payment_review_items()
+        archived = await models.get_payment_review_items(
+            category="accepted",
+            include_resolved=True,
+        )
+        self.assertEqual(unresolved["summary"]["all"], 0)
+        self.assertEqual(len(archived["items"]), 1)
+        self.assertTrue(archived["items"][0]["resolved"])
+        self.assertEqual(archived["items"][0]["last_action"], "accept")
+
+        db = await db_module.get_db()
+        try:
+            rows = await (await db.execute(
+                """SELECT action, actor FROM payment_review_actions
+                   WHERE payment_kind = 'order' AND payment_id = ? ORDER BY id""",
+                (self.payment_id,),
+            )).fetchall()
+        finally:
+            await db.close()
+        self.assertEqual([row["action"] for row in rows], ["accept_requested", "accept"])
+        self.assertTrue(all(row["actor"] == "dashboard-admin" for row in rows))
+
     async def test_unpaid_payment_expires_after_five_minutes(self):
         await models.update_order_status(
             self.order["id"],
@@ -109,7 +222,7 @@ class NowPaymentsTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(int(active[0]["remaining_seconds"]), 55)
         self.assertLessEqual(int(active[0]["remaining_seconds"]), 60)
 
-    async def test_late_finished_payment_recovers_an_expired_order(self):
+    async def test_late_finished_payment_requires_review_before_recovery(self):
         await models.update_order_status(
             self.order["id"],
             "AWAITING_PAYMENT",
@@ -138,6 +251,15 @@ class NowPaymentsTests(unittest.IsolatedAsyncioTestCase):
         result = await models.finalize_nowpayments_payment(self.payment_id)
         order = await models.get_order(self.order["id"])
 
+        self.assertEqual(result["action"], "review_required")
+        self.assertEqual(order["status"], "CANCELLED")
+        self.assertIn("local order cancellation", result["payment"]["processing_error"])
+
+        result = await models.finalize_nowpayments_payment(
+            self.payment_id,
+            allow_cancelled=True,
+        )
+        order = await models.get_order(self.order["id"])
         self.assertEqual(result["action"], "completed")
         self.assertEqual(order["status"], "COMPLETED")
         self.assertEqual(len(result["items"]), 1)

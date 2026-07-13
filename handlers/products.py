@@ -24,6 +24,7 @@ from utils.keyboards import (
     products_keyboard,
 )
 from utils.locales import t
+from utils.telegram import safe_edit_message_text
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +160,7 @@ async def _send_product_detail_message(
     async def _edit_or_send(body: str, parse_mode: str | None = "HTML"):
         if query is not None:
             try:
-                await query.edit_message_text(
+                await safe_edit_message_text(query, 
                     body,
                     parse_mode=parse_mode,
                     reply_markup=markup,
@@ -274,7 +275,7 @@ async def show_products_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     await update.callback_query.answer()
                 except Exception:
                     pass
-                await update.callback_query.edit_message_text(
+                await safe_edit_message_text(update.callback_query, 
                     text, reply_markup=back_keyboard("back_main", lang)
                 )
             else:
@@ -290,7 +291,7 @@ async def show_products_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
             except Exception:
                 pass
             try:
-                await update.callback_query.edit_message_text(
+                await safe_edit_message_text(update.callback_query, 
                     text, parse_mode="HTML", reply_markup=markup
                 )
             except Exception as e:
@@ -314,7 +315,7 @@ async def show_products_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.error("show_products_list: %s", exc, exc_info=True)
         if update.callback_query:
             try:
-                await update.callback_query.edit_message_text(t("error_generic", lang))
+                await safe_edit_message_text(update.callback_query, t("error_generic", lang))
             except Exception:
                 try:
                     await update.callback_query.message.reply_text(t("error_generic", lang))
@@ -343,7 +344,7 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
         product_id = int(parts[1])
     except (ValueError, IndexError, AttributeError):
         try:
-            await query.edit_message_text(t("product_not_found", lang))
+            await safe_edit_message_text(query, t("product_not_found", lang))
         except Exception:
             pass
         return
@@ -353,7 +354,7 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
         product, stock, tiers, sold_count = await get_product_full_details(product_id)
 
         if not product:
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 t("product_not_found", lang),
                 reply_markup=back_keyboard("back_products", lang),
             )
@@ -405,7 +406,7 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
         logger.error("show_product_detail: %s", exc, exc_info=True)
         err = t("error_generic", lang)
         try:
-            await query.edit_message_text(err, reply_markup=back_keyboard("back_products", lang))
+            await safe_edit_message_text(query, err, reply_markup=back_keyboard("back_products", lang))
         except Exception:
             try:
                 await context.bot.send_message(

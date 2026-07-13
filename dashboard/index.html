@@ -58,6 +58,7 @@
                 <a href="#" class="menu-item" data-tab="finance-tab"><i class="fa-solid fa-sack-dollar"></i> <span data-i18n="nav_finance">Finance</span></a>
                 <p class="nav-section-label">Ventes</p>
                 <a href="#" class="menu-item" data-tab="orders-tab"><i class="fa-solid fa-receipt"></i> <span data-i18n="nav_orders">Commandes</span><span id="badge-orders" class="badge hidden">0</span></a>
+                <a href="#" class="menu-item" data-tab="payment-review-tab"><i class="fa-solid fa-shield-halved"></i> <span data-i18n="nav_payment_review">Centre paiements</span><span id="badge-payment-review" class="badge hidden">0</span></a>
                 <a href="#" class="menu-item" data-tab="activations-tab"><i class="fa-solid fa-bolt"></i> <span data-i18n="nav_activations">Activations</span><span id="badge-activations" class="badge hidden">0</span></a>
                 <a href="#" class="menu-item" data-tab="inventory-tab"><i class="fa-solid fa-box-open"></i> <span data-i18n="nav_inventory">Catalogue & Stock</span></a>
                 <p class="nav-section-label">Relations</p>
@@ -244,6 +245,28 @@
                     <div id="product-momentum-controls" style="display:flex; flex-wrap:wrap; gap:0.6rem; margin-bottom:1rem;"></div>
                     <div class="chart-wrapper" style="height: 340px; position: relative;">
                         <canvas id="chart-product-momentum"></canvas>
+                    </div>
+                </div>
+
+                <div class="glass-panel mb-4 conversion-panel">
+                    <div class="flex-justify mb-4 conversion-heading">
+                        <div>
+                            <h3><i class="fa-solid fa-filter-circle-dollar"></i> <span data-i18n="conversion_title">Tunnel de conversion</span></h3>
+                            <p id="conversion-tracking-note" class="panel-description">Mesure comparable depuis le premier clic Acheter suivi.</p>
+                        </div>
+                        <span id="conversion-overall-rate" class="status-badge neutral">Conversion: -</span>
+                    </div>
+                    <div id="conversion-funnel-stages" class="conversion-funnel-stages">
+                        <p class="empty-state">Chargement du tunnel...</p>
+                    </div>
+                    <div class="panel-header conversion-opportunity-header">
+                        <h4><i class="fa-solid fa-magnifying-glass-chart"></i> Produits populaires qui convertissent mal</h4>
+                    </div>
+                    <div class="overflow-hidden">
+                        <table class="data-table">
+                            <thead><tr><th>Produit</th><th>Vues</th><th>Clics Acheter</th><th>Paiements créés</th><th>Terminés</th><th>Conversion</th></tr></thead>
+                            <tbody id="conversion-products-body"><tr><td colspan="6" class="empty-state">Chargement...</td></tr></tbody>
+                        </table>
                     </div>
                 </div>
 
@@ -445,6 +468,41 @@
                     <button id="orders-prev" class="btn-secondary btn-sm"><i class="fa-solid fa-chevron-left"></i></button>
                     <span id="orders-page-info">1 / 1</span>
                     <button id="orders-next" class="btn-secondary btn-sm"><i class="fa-solid fa-chevron-right"></i></button>
+                </div>
+            </section>
+
+            <!-- Payment Review Tab -->
+            <section id="payment-review-tab" class="tab-content">
+                <div class="flex-justify mb-4 payment-review-heading">
+                    <div>
+                        <h2><i class="fa-solid fa-shield-halved" style="color:var(--primary-color)"></i> <span data-i18n="payment_review_title">Centre de contrôle des paiements</span></h2>
+                        <p class="panel-description">Sous-paiements, confirmations, expirations et paiements reçus après annulation.</p>
+                    </div>
+                    <button id="btn-payment-review-refresh" class="btn-secondary" type="button" title="Actualiser"><i class="fa-solid fa-rotate"></i> Actualiser</button>
+                </div>
+                <div class="metrics-grid mb-4 payment-review-metrics">
+                    <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label">À traiter</p><h3 id="payment-review-total">0</h3></div><div class="metric-icon color-red"><i class="fa-solid fa-triangle-exclamation"></i></div></div>
+                    <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label">Sous-payés</p><h3 id="payment-review-underpaid">0</h3></div><div class="metric-icon color-amber"><i class="fa-solid fa-arrow-down-short-wide"></i></div></div>
+                    <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label">En confirmation</p><h3 id="payment-review-confirming">0</h3></div><div class="metric-icon color-blue"><i class="fa-solid fa-hourglass-half"></i></div></div>
+                    <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label">Après annulation</p><h3 id="payment-review-late">0</h3></div><div class="metric-icon color-red"><i class="fa-solid fa-clock-rotate-left"></i></div></div>
+                    <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label">Expirés</p><h3 id="payment-review-expired">0</h3></div><div class="metric-icon color-amber"><i class="fa-solid fa-calendar-xmark"></i></div></div>
+                </div>
+                <div class="action-bar mb-4 payment-review-toolbar">
+                    <div class="tabs-sub" id="payment-review-filters">
+                        <button class="payment-review-filter active" data-category="all">Tous</button>
+                        <button class="payment-review-filter" data-category="underpaid">Sous-payés</button>
+                        <button class="payment-review-filter" data-category="confirming">Confirmations</button>
+                        <button class="payment-review-filter" data-category="late_after_cancel">Après annulation</button>
+                        <button class="payment-review-filter" data-category="expired">Expirés</button>
+                        <button class="payment-review-filter" data-category="validation_error">Validation</button>
+                    </div>
+                    <label class="payment-review-resolved-toggle"><input id="payment-review-include-resolved" type="checkbox"> Afficher les dossiers classés</label>
+                </div>
+                <div class="glass-panel overflow-hidden">
+                    <table class="data-table payment-review-table">
+                        <thead><tr><th>Paiement</th><th>Client</th><th>Produit</th><th>État</th><th>Reçu / attendu</th><th>Problème</th><th>Mis à jour</th><th>Actions</th></tr></thead>
+                        <tbody id="payment-review-table-body"><tr><td colspan="8" class="empty-state">Chargement des paiements...</td></tr></tbody>
+                    </table>
                 </div>
             </section>
 

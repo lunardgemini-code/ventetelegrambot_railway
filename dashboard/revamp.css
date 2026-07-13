@@ -369,3 +369,172 @@ body { background:var(--bg-primary); line-height:1.5; font-size:16px; }
         border-bottom: 0;
     }
 }
+
+.conversion-panel {
+    padding: 1.5rem;
+}
+
+.conversion-heading {
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.conversion-funnel-stages {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: stretch;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+
+.conversion-stage {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    gap: 0.85rem;
+    padding: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--color-surface-soft, rgba(127, 127, 127, 0.06));
+}
+
+.conversion-stage-icon {
+    display: grid;
+    flex: 0 0 2.5rem;
+    width: 2.5rem;
+    height: 2.5rem;
+    place-items: center;
+    border-radius: 8px;
+    color: var(--primary-color);
+    background: color-mix(in srgb, var(--primary-color) 14%, transparent);
+}
+
+.conversion-stage-copy,
+.conversion-stage-copy small,
+.conversion-stage-copy strong,
+.conversion-stage-copy em,
+.table-secondary {
+    display: block;
+}
+
+.conversion-stage-copy {
+    min-width: 0;
+}
+
+.conversion-stage-copy small,
+.conversion-stage-copy em,
+.table-secondary {
+    color: var(--color-text-muted);
+    font-style: normal;
+}
+
+.conversion-stage-copy strong {
+    margin: 0.15rem 0;
+    font-size: 1.65rem;
+}
+
+.conversion-arrow {
+    align-self: center;
+    color: var(--color-text-muted);
+}
+
+.conversion-opportunity-header {
+    margin-top: 0.25rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.payment-review-heading,
+.payment-review-toolbar {
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.payment-review-toolbar {
+    align-items: center;
+}
+
+.payment-review-filter {
+    border: 0;
+    border-radius: 4px;
+    padding: 0.55rem 0.85rem;
+    background: transparent;
+    color: var(--color-text-muted);
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 650;
+    cursor: pointer;
+}
+
+.payment-review-filter:hover {
+    color: var(--color-text-main);
+    background: var(--bg-elevated);
+}
+
+.payment-review-filter.active {
+    color: white;
+    background: var(--primary-color);
+    box-shadow: 0 4px 12px var(--primary-glow);
+}
+
+.payment-review-metrics {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.payment-review-resolved-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin-left: auto;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
+
+.payment-review-table td {
+    vertical-align: middle;
+}
+
+.payment-review-table td:first-child {
+    min-width: 11rem;
+}
+
+.payment-review-reason {
+    min-width: 14rem;
+    max-width: 24rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.table-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+    min-width: 12rem;
+}
+
+@media (max-width: 1100px) {
+    .conversion-funnel-stages {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .conversion-arrow {
+        display: none;
+    }
+
+    .payment-review-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 640px) {
+    .conversion-funnel-stages,
+    .payment-review-metrics {
+        grid-template-columns: 1fr;
+    }
+
+    .payment-review-resolved-toggle {
+        width: 100%;
+        margin-left: 0;
+    }
+}

@@ -19,6 +19,7 @@ from telegram.ext import (
 from database.models import get_user_lang
 from utils.keyboards import support_menu_keyboard
 from utils.locales import t
+from utils.telegram import safe_edit_message_text
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ async def support_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.callback_query:
         query = update.callback_query
         await query.answer()
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             t("support_title", lang),
             parse_mode="HTML",
             reply_markup=support_menu_keyboard(lang),

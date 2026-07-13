@@ -1,4 +1,5 @@
 import asyncio
+import json
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -249,6 +250,48 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
             bot.webhook_update_queue = original_queue
             bot.tg_app = original_app
 
+    async def test_identical_callback_is_deduplicated_before_queueing(self):
+        original_queue = bot.webhook_update_queue
+        original_app = bot.tg_app
+        bot.webhook_update_queue = asyncio.Queue()
+        bot.tg_app = SimpleNamespace(bot=TelegramBot("123456:TEST_TOKEN"))
+        payload = {
+            "update_id": 200,
+            "callback_query": {
+                "id": "callback-1",
+                "from": {"id": 42, "is_bot": False, "first_name": "Buyer"},
+                "chat_instance": "instance-1",
+                "data": "menu_products",
+                "message": {
+                    "message_id": 10,
+                    "date": 0,
+                    "chat": {"id": 42, "type": "private"},
+                    "text": "Menu",
+                },
+            },
+        }
+        second_payload = json.loads(json.dumps(payload))
+        second_payload["update_id"] = 201
+        second_payload["callback_query"]["id"] = "callback-2"
+        transport = httpx.ASGITransport(app=bot.api)
+        try:
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                first = await client.post("/webhook", json=payload)
+                second = await client.post("/webhook", json=second_payload)
+
+            self.assertEqual(first.status_code, 200)
+            self.assertEqual(second.status_code, 200)
+            self.assertTrue(second.json().get("deduplicated"))
+            self.assertEqual(bot.webhook_update_queue.qsize(), 1)
+        finally:
+            while not bot.webhook_update_queue.empty():
+                queued = bot.webhook_update_queue.get_nowait()
+                bot.webhook_update_queue.task_done()
+                bot._webhook_enqueued_at.pop(id(queued), None)
+                bot._release_webhook_dedupe(queued)
+            bot.webhook_update_queue = original_queue
+            bot.tg_app = original_app
+
     async def test_one_user_backlog_does_not_occupy_multiple_workers(self):
         original_queue = bot.webhook_update_queue
         bot.webhook_update_queue = asyncio.Queue()
@@ -319,6 +362,31 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(payload["timeline_30s"]), 10)
         self.assertIn("diagnosis", payload)
 
+    async def test_admin_validation_preserves_client_error_statuses(self):
+        transport = httpx.ASGITransport(app=bot.api)
+        headers = {"X-API-Key": bot.ADMIN_API_KEY}
+        with patch("database.models.get_ticket", AsyncMock(return_value=None)):
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                finance = await client.post(
+                    "/api/finance/adjust",
+                    headers=headers,
+                    json={"amount": 1, "method": "all"},
+                )
+                missing_ticket = await client.post(
+                    "/api/tickets/999/reply",
+                    headers=headers,
+                    json={"reply_text": "Hello"},
+                )
+                invalid_payload = await client.post(
+                    "/api/tickets/999/reply",
+                    headers=headers,
+                    json={},
+                )
+
+        self.assertEqual(finance.status_code, 400)
+        self.assertEqual(missing_ticket.status_code, 404)
+        self.assertEqual(invalid_payload.status_code, 422)
+
     async def test_stats_bundle_returns_all_statistics_sections(self):
         transport = httpx.ASGITransport(app=bot.api)
         with (
@@ -327,6 +395,7 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
             patch.object(bot, "api_get_products_stats", AsyncMock(return_value=[])),
             patch.object(bot, "api_get_products_momentum", AsyncMock(return_value={"days": [], "products": []})),
             patch.object(bot, "api_get_dead_product_alerts", AsyncMock(return_value={"alerts": []})),
+            patch.object(bot, "api_get_conversion_funnel", AsyncMock(return_value={"summary": {}, "products": []})),
         ):
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 response = await client.get(
@@ -337,7 +406,7 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             set(response.json()),
-            {"stats", "daily", "products", "momentum", "dead_alerts"},
+            {"stats", "daily", "products", "momentum", "dead_alerts", "conversion"},
         )
 
 

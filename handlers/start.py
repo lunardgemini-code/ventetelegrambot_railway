@@ -11,6 +11,7 @@ from database.models import get_or_create_user, get_user_lang, prepare_user_star
 from utils.helpers import is_admin
 from utils.keyboards import language_keyboard, main_menu_keyboard, reply_menu_keyboard
 from utils.locales import t
+from utils.telegram import safe_edit_message_text
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,7 @@ async def change_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.callback_query:
         query = update.callback_query
         await query.answer()
-        await query.edit_message_text(text, reply_markup=markup)
+        await safe_edit_message_text(query, text, reply_markup=markup)
     else:
         await update.message.reply_text(text, reply_markup=markup)
 
@@ -112,7 +113,7 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await set_user_language(telegram_id, lang_code)
     context.user_data.pop("_reply_menu_sent", None)
 
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         t("language_set", lang_code) + "\n\n" + t("welcome", lang_code),
         parse_mode="HTML",
         reply_markup=main_menu_keyboard(lang_code),
@@ -127,7 +128,7 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     text = t("welcome", lang) or t("welcome", "fr")
     try:
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             text,
             parse_mode="HTML",
             reply_markup=main_menu_keyboard(lang),

@@ -28,6 +28,7 @@ from database.models import (
     get_stock_count,
     get_user_lang,
     purchase_order_with_wallet,
+    record_product_buy_click,
     submit_activation_identifier,
     update_order_status,
     record_used_transaction,
@@ -44,6 +45,7 @@ from utils.keyboards import (
     quantity_keyboard,
 )
 from utils.locales import t, get_confirmation_message
+from utils.telegram import safe_edit_message_text
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +118,7 @@ async def _prompt_activation_identifier(update: Update, context: ContextTypes.DE
         product=escape_html(product_name),
     )
     if update.callback_query:
-        await update.callback_query.edit_message_text(text, parse_mode="HTML")
+        await safe_edit_message_text(update.callback_query, text, parse_mode="HTML")
     else:
         await update.effective_message.reply_text(text, parse_mode="HTML")
     return WAITING_ACTIVATION_IDENTIFIER
@@ -271,6 +273,8 @@ async def initiate_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return ConversationHandler.END
 
+        asyncio.create_task(record_product_buy_click(product_id, update.effective_user.id))
+
         is_activation = _is_activation_product(product)
         stock = await get_stock_count(product_id)
         if not is_activation and stock <= 0:
@@ -313,7 +317,7 @@ async def initiate_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         markup = quantity_keyboard(product_id, stock, lang)
         
         try:
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 text,
                 parse_mode="HTML",
                 reply_markup=markup,
@@ -386,7 +390,7 @@ async def _process_quantity(
     if not product:
         msg = t("product_not_found", lang)
         if is_callback:
-            await update.callback_query.edit_message_text(msg)
+            await safe_edit_message_text(update.callback_query, msg)
         else:
             await update.message.reply_text(msg)
         return ConversationHandler.END
@@ -397,7 +401,7 @@ async def _process_quantity(
         msg = t("insufficient_stock", lang).format(stock=stock)
         if is_callback:
             try:
-                await update.callback_query.edit_message_text(
+                await safe_edit_message_text(update.callback_query, 
                     msg,
                     reply_markup=quantity_keyboard(product_id, stock, lang),
                 )
@@ -455,7 +459,7 @@ async def show_payment_method_screen(
     if not order:
         msg = t("product_not_found", lang)
         if is_callback and update.callback_query:
-            await update.callback_query.edit_message_text(msg)
+            await safe_edit_message_text(update.callback_query, msg)
         else:
             await update.effective_message.reply_text(msg)
         return ConversationHandler.END
@@ -464,7 +468,7 @@ async def show_payment_method_screen(
     if order.get("user_telegram_id") != telegram_id:
         msg = t("access_denied", lang)
         if is_callback and update.callback_query:
-            await update.callback_query.edit_message_text(msg)
+            await safe_edit_message_text(update.callback_query, msg)
         else:
             await update.effective_message.reply_text(msg)
         return ConversationHandler.END
@@ -473,7 +477,7 @@ async def show_payment_method_screen(
     if not product:
         msg = t("product_not_found", lang)
         if is_callback and update.callback_query:
-            await update.callback_query.edit_message_text(msg)
+            await safe_edit_message_text(update.callback_query, msg)
         else:
             await update.effective_message.reply_text(msg)
         return ConversationHandler.END
@@ -516,7 +520,7 @@ async def show_payment_method_screen(
 
     if is_callback and update.callback_query:
         try:
-            await update.callback_query.edit_message_text(
+            await safe_edit_message_text(update.callback_query, 
                 summary,
                 parse_mode="HTML",
                 reply_markup=markup,
@@ -543,13 +547,13 @@ async def start_apply_promo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Verify order ownership
     order = await get_order(order_id)
     if not order or order.get("user_telegram_id") != update.effective_user.id:
-        await query.edit_message_text(t("access_denied", lang))
+        await safe_edit_message_text(query, t("access_denied", lang))
         return ConversationHandler.END
 
     # Store order_id in user_data so we know which order to apply it to
     context.user_data["promo_order_id"] = order_id
 
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         t("promo_prompt", lang),
         parse_mode="HTML",
         reply_markup=back_keyboard(f"back_pay_method:{order_id}", lang),
@@ -687,13 +691,13 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
         order = await get_order(order_id)
 
         if not order:
-            await query.edit_message_text(t("product_not_found", lang))
+            await safe_edit_message_text(query, t("product_not_found", lang))
             return ConversationHandler.END
 
         telegram_id = update.effective_user.id
         if order.get("user_telegram_id") != telegram_id:
             logger.warning("User %s tried to pay order #%s which belongs to %s", telegram_id, order_id, order.get("user_telegram_id"))
-            await query.edit_message_text(t("access_denied", lang))
+            await safe_edit_message_text(query, t("access_denied", lang))
             return ConversationHandler.END
 
         amount = order["amount_usd"]
@@ -707,7 +711,7 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if order.get("status") == "PROCESSING":
                 await query.answer(t("payment_processing", lang), show_alert=True)
                 return ConversationHandler.END
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 t("order_cancelled", lang),
                 parse_mode="HTML",
                 reply_markup=main_menu_keyboard(lang),
@@ -719,7 +723,7 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if (product or {}).get("delivery_type") == "supplier_api":
             available = await get_stock_count(product_id)
             if max(1, int(order.get("quantity") or 1)) > available:
-                await query.edit_message_text(
+                await safe_edit_message_text(query, 
                     t("insufficient_stock", lang).format(stock=available),
                     parse_mode="HTML",
                     reply_markup=main_menu_keyboard(lang),
@@ -744,7 +748,7 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text = t("order_cancelled", lang)
             else:
                 text = t("pay_error", lang)
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 text,
                 parse_mode="HTML",
                 reply_markup=main_menu_keyboard(lang),
@@ -764,7 +768,7 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             wallet_msg = t("wallet_paid", lang) \
                 .replace("${amount}", format_price(amount)) \
                 .replace("${balance}", format_price(new_balance))
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 f"{wallet_msg}\n\n{t('supplier_delivery_processing', lang)}",
                 parse_mode="HTML",
             )
@@ -777,7 +781,7 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     payment_method="wallet",
                 )
             else:
-                await query.edit_message_text(
+                await safe_edit_message_text(query, 
                     t("supplier_paid_pending", lang).format(order_id=order_id),
                     parse_mode="HTML",
                     reply_markup=main_menu_keyboard(lang),
@@ -801,7 +805,7 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 .replace("${amount}", format_price(amount)) \
                 .replace("${balance}", format_price(new_balance))
 
-            await query.edit_message_text(f"{wallet_msg}\n\n✅ Préparation de votre commande...", parse_mode="HTML")
+            await safe_edit_message_text(query, f"{wallet_msg}\n\n✅ Préparation de votre commande...", parse_mode="HTML")
 
             header = f"{wallet_msg}"
             conf_msg = get_confirmation_message(product, lang, order_id)
@@ -830,7 +834,7 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as exc:
         logger.error("pay_with_wallet: %s", exc, exc_info=True)
-        await query.edit_message_text(t("pay_error", lang))
+        await safe_edit_message_text(query, t("pay_error", lang))
         return ConversationHandler.END
 
 
@@ -845,13 +849,13 @@ async def pay_with_binance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         order = await get_order(order_id)
 
         if not order:
-            await query.edit_message_text(t("product_not_found", lang))
+            await safe_edit_message_text(query, t("product_not_found", lang))
             return ConversationHandler.END
 
         telegram_id = update.effective_user.id
         if order.get("user_telegram_id") != telegram_id:
             logger.warning("User %s tried to pay order #%s via Binance which belongs to %s", telegram_id, order_id, order.get("user_telegram_id"))
-            await query.edit_message_text(t("access_denied", lang))
+            await safe_edit_message_text(query, t("access_denied", lang))
             return ConversationHandler.END
 
         await update_order_status(
@@ -875,7 +879,7 @@ async def pay_with_binance(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if acc and acc.get("uid"):
                     uid_to_show = acc["uid"]
 
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"{t('binance_title', lang)}\n\n"
             f"{t('binance_id_lbl', lang)}\n"
             f"<code>{uid_to_show}</code>\n\n"
@@ -905,7 +909,7 @@ async def pay_with_binance(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return WAITING_ORDER_ID
         logger.error("pay_with_binance: %s", exc, exc_info=True)
         try:
-            await query.edit_message_text(t("pay_error", lang))
+            await safe_edit_message_text(query, t("pay_error", lang))
         except Exception:
             pass
         return ConversationHandler.END
@@ -1086,16 +1090,16 @@ async def check_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         order = await get_order(order_id)
 
         if not order:
-            await query.edit_message_text(t("product_not_found", lang))
+            await safe_edit_message_text(query, t("product_not_found", lang))
             return
 
         telegram_id = update.effective_user.id
         if order.get("user_telegram_id") != telegram_id:
             logger.warning("User %s tried to check payment of order #%s which belongs to %s", telegram_id, order_id, order.get("user_telegram_id"))
-            await query.edit_message_text(t("access_denied", lang))
+            await safe_edit_message_text(query, t("access_denied", lang))
             return
 
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"{t('check_title', lang)}\n\n"
             f"{t('order_lbl', lang)} #{order_id}\n"
             f"{t('amount_lbl', lang)} {format_price(order['amount_usd'])}\n\n"
@@ -1105,7 +1109,7 @@ async def check_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as exc:
         logger.error("check_payment: %s", exc, exc_info=True)
-        await query.edit_message_text(t("verify_error", lang))
+        await safe_edit_message_text(query, t("verify_error", lang))
 
 
 async def cancel_order_after_timeout(
@@ -1198,18 +1202,18 @@ async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         order_id = int(query.data.split(":")[1])
         order = await get_order(order_id)
         if not order:
-            await query.edit_message_text(t("product_not_found", lang))
+            await safe_edit_message_text(query, t("product_not_found", lang))
             return
 
         telegram_id = update.effective_user.id
         if order.get("user_telegram_id") != telegram_id:
             logger.warning("User %s tried to cancel order #%s which belongs to %s", telegram_id, order_id, order.get("user_telegram_id"))
-            await query.edit_message_text(t("access_denied", lang))
+            await safe_edit_message_text(query, t("access_denied", lang))
             return
 
         # Only allow cancelling PENDING or AWAITING_PAYMENT orders
         if order.get("status") not in ("PENDING", "AWAITING_PAYMENT"):
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 t("cannot_cancel", lang).format(status=order.get("status")),
                 reply_markup=main_menu_keyboard(lang),
             )
@@ -1227,7 +1231,7 @@ async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         if not transitioned:
             latest = await get_order(order_id)
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 t("cannot_cancel", lang).format(status=(latest or {}).get("status", "?")),
                 reply_markup=main_menu_keyboard(lang),
             )
@@ -1239,14 +1243,14 @@ async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("pending_order_id", None)
         context.user_data.pop("pending_product_id", None)
 
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             t("order_cancelled", lang),
             parse_mode="HTML",
             reply_markup=main_menu_keyboard(lang),
         )
     except Exception as exc:
         logger.error("cancel_order: %s", exc, exc_info=True)
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             t("cancel_error", lang),
             reply_markup=main_menu_keyboard(lang),
         )
@@ -1325,14 +1329,20 @@ async def _render_nowpayments_checkout(query, payment: dict, lang: str, status_t
         f"{t('nowpayments_fee_warning', lang)}\n\n"
         f"{status_text or t('nowpayments_waiting', lang)}"
     )
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         text,
         parse_mode="HTML",
         reply_markup=nowpayments_payment_keyboard(int(payment["order_id"]), amount, lang),
     )
 
 
-async def process_nowpayments_payment_notification(bot, payment_id: str | int) -> dict:
+async def process_nowpayments_payment_notification(
+    bot,
+    payment_id: str | int,
+    *,
+    finalized_result: dict | None = None,
+    force_notification: bool = False,
+) -> dict:
     """Finalize and notify a NOWPayments status update without requiring a Telegram Update."""
     from database.models import (
         claim_nowpayments_notification,
@@ -1344,7 +1354,7 @@ async def process_nowpayments_payment_notification(bot, payment_id: str | int) -
         update_order_status,
     )
 
-    result = await finalize_nowpayments_payment(payment_id)
+    result = finalized_result or await finalize_nowpayments_payment(payment_id)
     action = result.get("action")
     payment = result.get("payment") or {}
     if action == "paid_pending_delivery" and payment.get("product_id"):
@@ -1361,7 +1371,7 @@ async def process_nowpayments_payment_notification(bot, payment_id: str | int) -
                 )
                 result["action"] = action = "completed"
                 result["items"] = delivered
-    if not payment or payment.get("notified_at"):
+    if not payment or (payment.get("notified_at") and not force_notification):
         return result
 
     notifiable_actions = {
@@ -1468,22 +1478,22 @@ async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYP
     async with lock:
         order = await get_order(order_id)
         if not order:
-            await query.edit_message_text(t("product_not_found", lang))
+            await safe_edit_message_text(query, t("product_not_found", lang))
             return ConversationHandler.END
         if int(order.get("user_telegram_id") or 0) != update.effective_user.id:
-            await query.edit_message_text(t("access_denied", lang))
+            await safe_edit_message_text(query, t("access_denied", lang))
             return ConversationHandler.END
         if order.get("status") not in ("PENDING", "AWAITING_PAYMENT"):
             if order.get("status") == "COMPLETED":
-                await query.edit_message_text(t("payment_confirmed", lang), reply_markup=main_menu_keyboard(lang))
+                await safe_edit_message_text(query, t("payment_confirmed", lang), reply_markup=main_menu_keyboard(lang))
             else:
-                await query.edit_message_text(t("order_cancelled", lang), reply_markup=main_menu_keyboard(lang))
+                await safe_edit_message_text(query, t("order_cancelled", lang), reply_markup=main_menu_keyboard(lang))
             return ConversationHandler.END
 
         callback_url = _nowpayments_callback_url()
         if not callback_url.startswith("https://"):
             logger.error("NOWPayments callback URL is missing or not HTTPS")
-            await query.edit_message_text(t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
+            await safe_edit_message_text(query, t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
             return ConversationHandler.END
 
         from database.models import (
@@ -1500,7 +1510,7 @@ async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYP
         )
 
         if not is_nowpayments_configured():
-            await query.edit_message_text(t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
+            await safe_edit_message_text(query, t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
             return ConversationHandler.END
 
         checkout_price = calculate_checkout_price(order["amount_usd"])
@@ -1509,14 +1519,14 @@ async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYP
             minimum = await get_minimum_amount()
             minimum_usd = float(minimum.get("fiat_equivalent") or minimum.get("min_amount") or 0)
             if minimum_usd > 0 and checkout_price + 0.000001 < minimum_usd:
-                await query.edit_message_text(
+                await safe_edit_message_text(query, 
                     t("nowpayments_below_minimum", lang).format(minimum=_format_crypto_amount(minimum_usd)),
                     reply_markup=main_menu_keyboard(lang),
                 )
                 return ConversationHandler.END
         except NowPaymentsError as exc:
             logger.warning("Could not read NOWPayments minimum amount: %s", exc)
-            await query.edit_message_text(t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
+            await safe_edit_message_text(query, t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
             return ConversationHandler.END
         except (ValueError, TypeError) as exc:
             logger.warning("Invalid NOWPayments minimum response: %s", exc)
@@ -1526,7 +1536,7 @@ async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYP
             if attempt.get("payment_id"):
                 await _render_nowpayments_checkout(query, attempt, lang)
                 return WAITING_NOWPAYMENTS
-            await query.edit_message_text(
+            await safe_edit_message_text(query, 
                 t("nowpayments_creation_unknown", lang).format(order_id=order_id),
                 reply_markup=main_menu_keyboard(lang),
             )
@@ -1567,7 +1577,7 @@ async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYP
                 if isinstance(exc, NowPaymentsError) and exc.retryable
                 else t("nowpayments_unavailable", lang)
             )
-            await query.edit_message_text(text, reply_markup=main_menu_keyboard(lang))
+            await safe_edit_message_text(query, text, reply_markup=main_menu_keyboard(lang))
             for admin_id in ADMIN_IDS:
                 try:
                     await context.bot.send_message(
@@ -1601,7 +1611,7 @@ async def check_nowpayments_payment(update: Update, context: ContextTypes.DEFAUL
     order_id = int(query.data.split(":")[1])
     order = await get_order(order_id)
     if not order or int(order.get("user_telegram_id") or 0) != update.effective_user.id:
-        await query.edit_message_text(t("access_denied", lang))
+        await safe_edit_message_text(query, t("access_denied", lang))
         return ConversationHandler.END
 
     from database.models import get_nowpayments_payment_for_order, save_nowpayments_update
@@ -1609,7 +1619,7 @@ async def check_nowpayments_payment(update: Update, context: ContextTypes.DEFAUL
 
     payment = await get_nowpayments_payment_for_order(order_id)
     if not payment or not payment.get("payment_id"):
-        await query.edit_message_text(t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
+        await safe_edit_message_text(query, t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
         return ConversationHandler.END
     await _render_nowpayments_checkout(query, payment, lang, t("nowpayments_checking", lang))
     try:
@@ -1622,17 +1632,17 @@ async def check_nowpayments_payment(update: Update, context: ContextTypes.DEFAUL
 
     action = result.get("action")
     if action in ("completed", "activation", "paid_pending_delivery"):
-        await query.edit_message_text(t("payment_confirmed", lang), parse_mode="HTML", reply_markup=main_menu_keyboard(lang))
+        await safe_edit_message_text(query, t("payment_confirmed", lang), parse_mode="HTML", reply_markup=main_menu_keyboard(lang))
         return ConversationHandler.END
     if action == "review_required":
-        await query.edit_message_text(t("nowpayments_review", lang), reply_markup=main_menu_keyboard(lang))
+        await safe_edit_message_text(query, t("nowpayments_review", lang), reply_markup=main_menu_keyboard(lang))
         return ConversationHandler.END
     if action == "partially_paid":
         status_text = t("nowpayments_partial", lang)
     elif action in ("confirming", "confirmed", "sending", "spending"):
         status_text = t("nowpayments_confirming", lang)
     elif action in ("expired", "failed", "refunded"):
-        await query.edit_message_text(t("nowpayments_expired", lang), reply_markup=main_menu_keyboard(lang))
+        await safe_edit_message_text(query, t("nowpayments_expired", lang), reply_markup=main_menu_keyboard(lang))
         return ConversationHandler.END
     else:
         status_text = t("nowpayments_waiting", lang)
@@ -1647,10 +1657,10 @@ async def start_activation_identifier(update: Update, context: ContextTypes.DEFA
     order_id = int(query.data.split(":")[1])
     order = await get_order(order_id)
     if not order or int(order.get("user_telegram_id") or 0) != update.effective_user.id:
-        await query.edit_message_text(t("access_denied", lang))
+        await safe_edit_message_text(query, t("access_denied", lang))
         return ConversationHandler.END
     if order.get("status") != "AWAITING_ACTIVATION_INFO":
-        await query.edit_message_text(t("order_cancelled", lang), reply_markup=main_menu_keyboard(lang))
+        await safe_edit_message_text(query, t("order_cancelled", lang), reply_markup=main_menu_keyboard(lang))
         return ConversationHandler.END
     product = await get_product(order.get("product_id"))
     context.user_data["activation_order_id"] = order_id
@@ -1658,7 +1668,7 @@ async def start_activation_identifier(update: Update, context: ContextTypes.DEFA
         payment_confirmed=t("payment_confirmed", lang),
         product=escape_html((product or {}).get("name") or f"#{order_id}"),
     )
-    await query.edit_message_text(text, parse_mode="HTML")
+    await safe_edit_message_text(query, text, parse_mode="HTML")
     return WAITING_ACTIVATION_IDENTIFIER
 
 
@@ -1673,19 +1683,19 @@ async def pay_with_bep20(update: Update, context: ContextTypes.DEFAULT_TYPE):
         order = await get_order(order_id)
 
         if not order:
-            await query.edit_message_text(t("product_not_found", lang))
+            await safe_edit_message_text(query, t("product_not_found", lang))
             return ConversationHandler.END
 
         telegram_id = update.effective_user.id
         if order.get("user_telegram_id") != telegram_id:
             logger.warning("User %s tried to pay order #%s via BEP20 which belongs to %s", telegram_id, order_id, order.get("user_telegram_id"))
-            await query.edit_message_text(t("access_denied", lang))
+            await safe_edit_message_text(query, t("access_denied", lang))
             return ConversationHandler.END
 
         from database.models import get_setting
         bep20_address = await get_setting("bep20_address")
         if not bep20_address:
-            await query.edit_message_text("❌ BEP20 USDT payment is not configured by admin.")
+            await safe_edit_message_text(query, "❌ BEP20 USDT payment is not configured by admin.")
             return ConversationHandler.END
 
         await update_order_status(
@@ -1700,7 +1710,7 @@ async def pay_with_bep20(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         from utils.keyboards import payment_check_keyboard
         
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"{t('bep20_title', lang)}\n\n"
             f"{t('bep20_address_lbl', lang)}\n"
             f"<code>{bep20_address}</code>\n\n"
@@ -1731,7 +1741,7 @@ async def pay_with_bep20(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return WAITING_BEP20_TX_HASH
         logger.error("pay_with_bep20: %s", exc, exc_info=True)
         try:
-            await query.edit_message_text(t("pay_error", lang))
+            await safe_edit_message_text(query, t("pay_error", lang))
         except Exception:
             pass
         return ConversationHandler.END
@@ -1748,18 +1758,18 @@ async def check_bep20_payment(update: Update, context: ContextTypes.DEFAULT_TYPE
         order = await get_order(order_id)
 
         if not order:
-            await query.edit_message_text(t("product_not_found", lang))
+            await safe_edit_message_text(query, t("product_not_found", lang))
             return
 
         telegram_id = update.effective_user.id
         if order.get("user_telegram_id") != telegram_id:
             logger.warning("User %s tried to check BEP20 payment of order #%s which belongs to %s", telegram_id, order_id, order.get("user_telegram_id"))
-            await query.edit_message_text(t("access_denied", lang))
+            await safe_edit_message_text(query, t("access_denied", lang))
             return
 
         from utils.keyboards import bep20_payment_check_keyboard
         
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"{t('bep20_title', lang)}\n\n"
             f"{t('order_lbl', lang)} #{order_id}\n"
             f"{t('amount_lbl', lang)} {format_price(order['amount_usd'])}\n\n"
@@ -1769,7 +1779,7 @@ async def check_bep20_payment(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
     except Exception as exc:
         logger.error("check_bep20_payment: %s", exc, exc_info=True)
-        await query.edit_message_text(t("verify_error", lang))
+        await safe_edit_message_text(query, t("verify_error", lang))
 
 
 async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1952,19 +1962,19 @@ async def pay_with_trc20(update: Update, context: ContextTypes.DEFAULT_TYPE):
         order = await get_order(order_id)
 
         if not order:
-            await query.edit_message_text(t("product_not_found", lang))
+            await safe_edit_message_text(query, t("product_not_found", lang))
             return ConversationHandler.END
 
         telegram_id = update.effective_user.id
         if order.get("user_telegram_id") != telegram_id:
             logger.warning("User %s tried to pay order #%s via TRC20 which belongs to %s", telegram_id, order_id, order.get("user_telegram_id"))
-            await query.edit_message_text(t("access_denied", lang))
+            await safe_edit_message_text(query, t("access_denied", lang))
             return ConversationHandler.END
 
         from database.models import get_setting
         trc20_address = await get_setting("trc20_address")
         if not trc20_address:
-            await query.edit_message_text("⚠️ TRC20 USDT payment is not configured by admin.")
+            await safe_edit_message_text(query, "⚠️ TRC20 USDT payment is not configured by admin.")
             return ConversationHandler.END
 
         await update_order_status(
@@ -1979,7 +1989,7 @@ async def pay_with_trc20(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         from utils.keyboards import payment_check_keyboard
         
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"{t('trc20_title', lang)}\n\n"
             f"{t('trc20_address_lbl', lang)}\n"
             f"<code>{trc20_address}</code>\n\n"
@@ -2010,7 +2020,7 @@ async def pay_with_trc20(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return WAITING_TRC20_TX_HASH
         logger.error("pay_with_trc20: %s", exc, exc_info=True)
         try:
-            await query.edit_message_text(t("pay_error", lang))
+            await safe_edit_message_text(query, t("pay_error", lang))
         except Exception:
             pass
         return ConversationHandler.END
@@ -2027,18 +2037,18 @@ async def check_trc20_payment(update: Update, context: ContextTypes.DEFAULT_TYPE
         order = await get_order(order_id)
 
         if not order:
-            await query.edit_message_text(t("product_not_found", lang))
+            await safe_edit_message_text(query, t("product_not_found", lang))
             return
 
         telegram_id = update.effective_user.id
         if order.get("user_telegram_id") != telegram_id:
             logger.warning("User %s tried to check TRC20 payment of order #%s which belongs to %s", telegram_id, order_id, order.get("user_telegram_id"))
-            await query.edit_message_text(t("access_denied", lang))
+            await safe_edit_message_text(query, t("access_denied", lang))
             return
 
         from utils.keyboards import trc20_payment_check_keyboard
         
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             f"{t('trc20_title', lang)}\n\n"
             f"{t('order_lbl', lang)} #{order_id}\n"
             f"{t('amount_lbl', lang)} {format_price(order['amount_usd'])}\n\n"
@@ -2048,7 +2058,7 @@ async def check_trc20_payment(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
     except Exception as exc:
         logger.error("check_trc20_payment: %s", exc, exc_info=True)
-        await query.edit_message_text(t("verify_error", lang))
+        await safe_edit_message_text(query, t("verify_error", lang))
 
 
 async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):

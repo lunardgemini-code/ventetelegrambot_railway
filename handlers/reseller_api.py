@@ -18,6 +18,7 @@ from database.models import (
 from utils.helpers import escape_html, format_price
 from utils.keyboards import reseller_api_confirm_keyboard, reseller_api_keyboard
 from utils.locales import t
+from utils.telegram import safe_edit_message_text
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ async def reseller_api_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     markup = reseller_api_keyboard(lang, docs_url=docs_url)
 
     if query:
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=markup, disable_web_page_preview=True)
+        await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=markup, disable_web_page_preview=True)
     else:
         await update.message.reply_text(text, parse_mode="HTML", reply_markup=markup, disable_web_page_preview=True)
 
@@ -85,13 +86,13 @@ async def generate_reseller_api_key(update: Update, context: ContextTypes.DEFAUL
     lang = await get_user_lang(user.id)
 
     if update.effective_chat.type != "private":
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             t("api_private_only", lang),
             reply_markup=reseller_api_keyboard(lang, docs_url=_api_docs_url()),
         )
         return
 
-    await query.edit_message_text(
+    await safe_edit_message_text(query, 
         t("api_generate_confirm", lang),
         parse_mode="HTML",
         reply_markup=reseller_api_confirm_keyboard(lang),
@@ -106,7 +107,7 @@ async def confirm_generate_reseller_api_key(update: Update, context: ContextType
     lang = await get_user_lang(user.id)
 
     if update.effective_chat.type != "private":
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             t("api_private_only", lang),
             reply_markup=reseller_api_keyboard(lang, docs_url=_api_docs_url()),
         )
@@ -124,7 +125,7 @@ async def confirm_generate_reseller_api_key(update: Update, context: ContextType
         ]
         if docs_url:
             parts.extend(["", t("api_docs_line", lang).format(docs_url=escape_html(docs_url))])
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             "\n".join(parts),
             parse_mode="HTML",
             reply_markup=reseller_api_keyboard(lang, docs_url=docs_url),
@@ -132,7 +133,7 @@ async def confirm_generate_reseller_api_key(update: Update, context: ContextType
         )
     except Exception as exc:
         logger.error("Error generating reseller API key for %s: %s", user.id, exc, exc_info=True)
-        await query.edit_message_text(
+        await safe_edit_message_text(query, 
             t("api_generate_error", lang),
             reply_markup=reseller_api_keyboard(lang, docs_url=_api_docs_url()),
         )

@@ -2,13 +2,58 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from telegram.error import BadRequest
+
+from handlers.profile import view_referrals_list
 from handlers.products import _send_product_detail_message
 from handlers.start import callback_check_sub, start_command
 from utils.keyboards import main_menu_keyboard
 from utils.locales import LANGUAGES, t
+from utils.telegram import safe_edit_message_text
 
 
 class CallbackSafetyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_safe_edit_ignores_an_unchanged_message(self):
+        query = SimpleNamespace(
+            edit_message_text=AsyncMock(side_effect=BadRequest("Message is not modified")),
+            message=SimpleNamespace(reply_text=AsyncMock()),
+        )
+
+        result = await safe_edit_message_text(query, "Same text")
+
+        self.assertIsNone(result)
+        query.message.reply_text.assert_not_awaited()
+
+    async def test_safe_edit_falls_back_when_the_original_message_is_gone(self):
+        query = SimpleNamespace(
+            edit_message_text=AsyncMock(side_effect=BadRequest("Message to edit not found")),
+            message=SimpleNamespace(reply_text=AsyncMock(return_value="sent")),
+        )
+
+        result = await safe_edit_message_text(query, "Fresh text", parse_mode="HTML")
+
+        self.assertEqual(result, "sent")
+        query.message.reply_text.assert_awaited_once_with(
+            "Fresh text",
+            parse_mode="HTML",
+        )
+
+    async def test_referrals_list_uses_database_language_lookup(self):
+        query = SimpleNamespace(answer=AsyncMock(), edit_message_text=AsyncMock())
+        update = SimpleNamespace(
+            callback_query=query,
+            effective_user=SimpleNamespace(id=1234),
+        )
+
+        with (
+            patch("handlers.profile.get_user_lang", AsyncMock(return_value="en")),
+            patch("database.models.get_referred_users_list", AsyncMock(return_value=[])),
+        ):
+            await view_referrals_list(update, SimpleNamespace())
+
+        query.answer.assert_awaited_once_with()
+        query.edit_message_text.assert_awaited_once()
+
     async def test_main_menu_channel_button_is_translated_and_uses_configured_channel(self):
         for language in LANGUAGES:
             with self.subTest(language=language):

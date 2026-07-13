@@ -411,6 +411,21 @@ class ResellerActivationIdentifierRequest(BaseModel):
     activation_identifier: str = Field(..., min_length=2, max_length=500)
 
 
+class FinanceAdjustRequest(BaseModel):
+    amount: float
+    method: str = Field(..., min_length=1, max_length=40)
+
+
+class TicketReplyRequest(BaseModel):
+    reply_text: str = Field(..., min_length=1, max_length=4000)
+
+
+class PaymentReviewActionRequest(BaseModel):
+    action: str = Field(..., pattern="^(recheck|dismiss|reopen|accept)$")
+    note: str = Field("", max_length=1000)
+    confirmation: str = Field("", max_length=300)
+
+
 @api.get("/health/live")
 async def liveness_check():
     return {"status": "ok"}
@@ -1316,11 +1331,11 @@ async def api_get_finance(method: str = None):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @api.post("/api/finance/adjust", dependencies=[Depends(verify_api_key)])
-async def api_adjust_finance(data: dict):
+async def api_adjust_finance(data: FinanceAdjustRequest):
     from database.models import get_setting, set_setting
     try:
-        amount = float(data.get("amount", 0))
-        method = data.get("method")
+        amount = float(data.amount)
+        method = data.method.strip().lower()
         
         if not method or method == "all":
             raise HTTPException(status_code=400, detail="Veuillez sélectionner une méthode spécifique (Binance, BEP20, etc.) pour ajuster le solde.")
@@ -1336,6 +1351,8 @@ async def api_adjust_finance(data: dict):
         await set_setting(setting_key, str(new_balance))
         _clear_api_stats_cache()
         return {"status": "success", "new_balance": new_balance}
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -2130,14 +2147,16 @@ async def api_get_tickets():
 
 
 @api.post("/api/tickets/{ticket_id}/reply", dependencies=[Depends(verify_api_key)])
-async def api_reply_ticket(ticket_id: int, data: dict):
+async def api_reply_ticket(ticket_id: int, data: TicketReplyRequest):
     from database.models import get_ticket, reply_ticket, get_user_lang
     try:
         ticket = await get_ticket(ticket_id)
         if not ticket:
             raise HTTPException(status_code=404, detail="Ticket not found")
-            
-        reply_text = data["reply_text"]
+
+        reply_text = data.reply_text.strip()
+        if not reply_text:
+            raise HTTPException(status_code=400, detail="Reply text cannot be empty")
         await reply_ticket(ticket_id, reply_text)
         
         # Notify user
@@ -2155,6 +2174,8 @@ async def api_reply_ticket(ticket_id: int, data: dict):
             logger.warning("Failed to notify user reply via API: %s", notify_exc)
             
         return {"status": "replied"}
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -2375,7 +2396,6 @@ async def api_activate_order(order_id: int):
 @api.post("/api/orders/cleanup", dependencies=[Depends(verify_api_key)])
 async def api_cleanup_stale_orders():
     """Auto-cancel all PENDING/AWAITING_PAYMENT orders older than 5 minutes and notify users."""
-    from database.db import get_db
     from database.models import expire_stale_nowpayments_payments
     try:
         expired_payment_ids = await expire_stale_nowpayments_payments(
@@ -2387,61 +2407,14 @@ async def api_cleanup_stale_orders():
                     await _process_nowpayments_payment(payment_id)
                 except Exception as exc:
                     logger.warning("Could not notify expired NOWPayments payment %s: %s", payment_id, exc)
-
-        db = await get_db()
-        try:
-            cursor = await db.execute(
-                """SELECT id, user_telegram_id FROM orders 
-                   WHERE status IN ('PENDING', 'AWAITING_PAYMENT')
-                     AND created_at <= datetime('now', ?)
-                     AND NOT EXISTS (
-                         SELECT 1 FROM stock_items s
-                         WHERE s.sold_to_order_id = orders.id AND s.is_sold = 1
-                     )
-                     AND NOT EXISTS (
-                         SELECT 1 FROM nowpayments_payments np
-                         WHERE np.order_id = orders.id
-                     )""",
-                (f"-{PAYMENT_TIMEOUT_SECONDS} seconds",),
-            )
-            stale_orders = await cursor.fetchall()
-            count = 0
-            
-            if stale_orders:
-                stale_ids = [str(o["id"]) for o in stale_orders]
-                placeholders = ",".join(["?"] * len(stale_ids))
-                await db.execute(
-                    f"""UPDATE orders SET status = 'CANCELLED'
-                        WHERE id IN ({placeholders})
-                          AND status IN ('PENDING', 'AWAITING_PAYMENT')
-                          AND NOT EXISTS (
-                              SELECT 1 FROM stock_items s
-                              WHERE s.sold_to_order_id = orders.id AND s.is_sold = 1
-                          )""",
-                    stale_ids
-                )
-                await db.commit()
-                count = len(stale_ids)
-                
-                from database.models import get_user_lang
-                from utils.locales import t
-                
-                if tg_app and tg_app.bot:
-                    for order in stale_orders:
-                        try:
-                            lang = await get_user_lang(order["user_telegram_id"])
-                            msg = t("order_expired_notification", lang).format(order_id=order["id"])
-                            await tg_app.bot.send_message(
-                                chat_id=order["user_telegram_id"],
-                                text=msg,
-                                parse_mode="HTML"
-                            )
-                        except Exception as e:
-                            logger.error(f"Failed to notify user {order['user_telegram_id']} of expired order {order['id']}: {e}")
-                            
-            return {"status": "ok", "cancelled": count + len(expired_payment_ids)}
-        finally:
-            await db.close()
+        bot = tg_app.bot if tg_app and tg_app.bot else None
+        expired_orders = await _expire_stale_orders_and_notify(bot)
+        return {
+            "status": "ok",
+            "cancelled": len(expired_orders) + len(expired_payment_ids),
+        }
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -2513,17 +2486,212 @@ async def api_get_dead_product_alerts(days: int = 7, min_views: int = 10, max_co
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@api.get("/api/payments/review", dependencies=[Depends(verify_api_key)])
+async def api_get_payment_review(
+    category: str = "all",
+    include_resolved: bool = False,
+    limit: int = 100,
+):
+    allowed = {"all", "underpaid", "expired", "confirming", "late_after_cancel", "validation_error", "accepted"}
+    if category not in allowed:
+        raise HTTPException(status_code=422, detail="Unsupported payment review category")
+    from database.models import get_payment_review_items
+    try:
+        return await get_payment_review_items(
+            category=category,
+            include_resolved=include_resolved,
+            limit=limit,
+        )
+    except Exception as exc:
+        logger.error("API payment review error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Could not load payment review")
+
+
+@api.post("/api/payments/review/{payment_kind}/{payment_id}/action", dependencies=[Depends(verify_api_key)])
+async def api_payment_review_action(
+    payment_kind: str,
+    payment_id: str,
+    payload: PaymentReviewActionRequest,
+):
+    if payment_kind not in {"order", "wallet_topup"}:
+        raise HTTPException(status_code=404, detail="Unknown payment kind")
+
+    from database.models import (
+        claim_payment_review_accept,
+        finalize_nowpayments_payment,
+        finalize_nowpayments_wallet_topup,
+        get_nowpayments_payment,
+        get_nowpayments_wallet_topup_by_payment,
+        record_payment_review_action,
+        reset_nowpayments_notification,
+        save_nowpayments_update,
+    )
+
+    getter = get_nowpayments_payment if payment_kind == "order" else get_nowpayments_wallet_topup_by_payment
+    payment = await getter(payment_id)
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+
+    # The authenticated browser cannot choose its own audit identity.
+    actor = "dashboard-admin"
+    if payload.action == "dismiss":
+        if not payload.note.strip():
+            raise HTTPException(status_code=422, detail="A note is required to dismiss a payment")
+        audit = await record_payment_review_action(
+            payment_kind, payment_id, "dismiss", note=payload.note, actor=actor,
+        )
+        return {"status": "dismissed", "audit": audit}
+    if payload.action == "reopen":
+        if payment.get("processed_at") is not None:
+            raise HTTPException(status_code=409, detail="A processed payment cannot be reopened")
+        audit = await record_payment_review_action(
+            payment_kind, payment_id, "reopen", note=payload.note, actor=actor,
+        )
+        return {"status": "reopened", "audit": audit}
+
+    if payload.action == "accept":
+        expected_confirmation = f"ACCEPT {payment_kind} {payment_id}"
+        if not hmac.compare_digest(payload.confirmation.strip(), expected_confirmation):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Confirmation must exactly match: {expected_confirmation}",
+            )
+
+    try:
+        from services.nowpayments import get_payment_status
+        provider_payment = await get_payment_status(payment_id)
+        payment = await save_nowpayments_update(provider_payment) or payment
+    except Exception as exc:
+        logger.warning("Manual NOWPayments recheck failed for %s: %s", payment_id, exc)
+        raise HTTPException(status_code=502, detail="NOWPayments could not be reached")
+
+    if payload.action == "recheck":
+        result_action = str(payment.get("provider_status") or "waiting")
+        if tg_app and getattr(tg_app, "bot", None):
+            await _process_nowpayments_payment(payment_id)
+        audit = await record_payment_review_action(
+            payment_kind, payment_id, "recheck", note=payload.note,
+            actor=actor, result_action=result_action,
+        )
+        return {"status": "rechecked", "provider_status": result_action, "audit": audit}
+
+    if str(payment.get("provider_status") or "").lower() != "finished":
+        raise HTTPException(status_code=409, detail="Provider payment is not finished")
+    if float(payment.get("actually_paid") or 0) <= 0:
+        raise HTTPException(status_code=409, detail="No received amount can be accepted")
+
+    claim = await claim_payment_review_accept(
+        payment_kind,
+        payment_id,
+        note=payload.note,
+        actor=actor,
+    )
+    if not claim.get("claimed"):
+        last_action = str(claim.get("last_action") or "")
+        details = {
+            "accept": "Payment was already manually accepted",
+            "accept_requested": "A manual acceptance is already in progress",
+            "dismiss": "Reopen the dismissed payment before accepting it",
+        }
+        raise HTTPException(status_code=409, detail=details.get(last_action, "Payment cannot be claimed"))
+
+    try:
+        if payment_kind == "order":
+            result = await finalize_nowpayments_payment(
+                payment_id,
+                allow_underpayment=True,
+                allow_cancelled=True,
+            )
+        else:
+            result = await finalize_nowpayments_wallet_topup(
+                payment_id,
+                allow_underpayment=True,
+                allow_cancelled=True,
+            )
+    except Exception as exc:
+        await record_payment_review_action(
+            payment_kind, payment_id, "accept_failed", note=payload.note,
+            actor=actor, result_action=str(exc)[:80],
+        )
+        logger.error("Manual payment acceptance failed for %s: %s", payment_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Payment finalization failed") from exc
+    result_action = str(result.get("action") or "unknown")
+    if result_action == "review_required":
+        reason = str((result.get("payment") or {}).get("processing_error") or "Validation failed")
+        await record_payment_review_action(
+            payment_kind, payment_id, "accept_failed", note=payload.note,
+            actor=actor, result_action=reason,
+        )
+        raise HTTPException(status_code=409, detail=reason)
+    accepted_actions = {"completed", "activation", "paid_pending_delivery", "wallet_credited"}
+    if result_action not in accepted_actions:
+        raise HTTPException(status_code=409, detail=f"Payment cannot be accepted from state: {result_action}")
+
+    audit = await record_payment_review_action(
+        payment_kind, payment_id, "accept", note=payload.note,
+        actor=actor, result_action=result_action,
+    )
+    notification_warning = None
+    try:
+        await reset_nowpayments_notification(payment_id, wallet_topup=payment_kind == "wallet_topup")
+        if tg_app and getattr(tg_app, "bot", None):
+            if payment_kind == "order":
+                from handlers.payment import process_nowpayments_payment_notification
+                result = await process_nowpayments_payment_notification(
+                    tg_app.bot,
+                    payment_id,
+                    finalized_result=result,
+                    force_notification=True,
+                )
+            else:
+                from handlers.wallet import process_nowpayments_wallet_topup_notification
+                result = await process_nowpayments_wallet_topup_notification(
+                    tg_app.bot,
+                    payment_id,
+                    finalized_result=result,
+                    force_notification=True,
+                )
+    except Exception as exc:
+        notification_warning = "Payment accepted, but Telegram notification must be retried"
+        logger.error("Accepted payment %s notification failed: %s", payment_id, exc, exc_info=True)
+    _clear_api_stats_cache()
+    return {
+        "status": "accepted",
+        "result": result.get("action"),
+        "audit": audit,
+        "warning": notification_warning,
+    }
+
+
+@api.get("/api/stats/conversion", dependencies=[Depends(verify_api_key)])
+async def api_get_conversion_funnel(days: int = 30):
+    days = max(1, min(int(days), 90))
+    cache_key = f"conversion_funnel_{days}"
+    current_time = time.time()
+    if cache_key in _stats_cache and current_time - _stats_cache[cache_key]["time"] < _stats_cache_ttl:
+        return _stats_cache[cache_key]["data"]
+    from database.models import get_conversion_funnel
+    try:
+        data = await get_conversion_funnel(days=days)
+        _stats_cache[cache_key] = {"time": current_time, "data": data}
+        return data
+    except Exception as exc:
+        logger.error("API conversion funnel error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @api.get("/api/stats/bundle", dependencies=[Depends(verify_api_key)])
 async def api_get_stats_bundle(days: int = 30):
     """Load the complete statistics tab through one browser request."""
     days = max(1, min(int(days), 90))
     try:
-        stats, daily, products, momentum, dead_alerts = await asyncio.gather(
+        stats, daily, products, momentum, dead_alerts, conversion = await asyncio.gather(
             api_get_stats(),
             api_get_daily_stats(days=days),
             api_get_products_stats(),
             api_get_products_momentum(days=30),
             api_get_dead_product_alerts(days=7, min_views=10, max_conversion=0.05),
+            api_get_conversion_funnel(days=days),
         )
         return {
             "stats": stats,
@@ -2531,6 +2699,7 @@ async def api_get_stats_bundle(days: int = 30):
             "products": products,
             "momentum": momentum,
             "dead_alerts": dead_alerts,
+            "conversion": conversion,
         }
     except HTTPException:
         raise
@@ -2889,7 +3058,20 @@ def _record_webhook_handler_error() -> None:
 
 
 def _webhook_dedupe_signature(update: Update) -> tuple[str, str] | None:
-    """Deduplicate only identical /start commands while one is already pending."""
+    """Deduplicate identical expensive actions while one is already pending."""
+    callback = getattr(update, "callback_query", None)
+    if callback is not None:
+        message = getattr(callback, "message", None)
+        chat = getattr(message, "chat", None)
+        chat_id = getattr(chat, "id", None)
+        message_id = getattr(message, "message_id", None)
+        inline_message_id = getattr(callback, "inline_message_id", None)
+        target = inline_message_id or f"{chat_id}:{message_id}"
+        return (
+            _webhook_lock_key(update),
+            f"callback:{target}:{str(callback.data or '')}",
+        )
+
     message = update.effective_message
     text = str(getattr(message, "text", "") or "").strip()
     if not text:
@@ -3059,6 +3241,7 @@ def _webhook_performance_snapshot() -> dict:
 
 DYNAMIC_PRICING_CHECK_SECONDS = _env_int("DYNAMIC_PRICING_CHECK_SECONDS", 900, minimum=60)
 NOWPAYMENTS_RECONCILE_SECONDS = _env_int("NOWPAYMENTS_RECONCILE_SECONDS", 180, minimum=30)
+STALE_ORDER_CLEANUP_SECONDS = _env_int("STALE_ORDER_CLEANUP_SECONDS", 60, minimum=30)
 
 
 async def _dynamic_pricing_worker() -> None:
@@ -3074,6 +3257,52 @@ async def _dynamic_pricing_worker() -> None:
             raise
         except Exception as exc:
             logger.exception("Dynamic pricing cycle failed: %s", exc)
+            next_delay = 30
+        await asyncio.sleep(next_delay)
+
+
+async def _expire_stale_orders_and_notify(bot=None) -> list[dict]:
+    from database.models import expire_stale_orders, get_user_lang
+
+    expired_orders = await expire_stale_orders(
+        timeout_seconds=PAYMENT_TIMEOUT_SECONDS,
+    )
+    if expired_orders:
+        logger.info("Auto-cancelled %d stale unpaid order(s)", len(expired_orders))
+
+    if bot:
+        for order in expired_orders:
+            try:
+                lang = await get_user_lang(int(order["user_telegram_id"]))
+                message = t("order_expired_notification", lang).format(
+                    order_id=order["id"],
+                )
+                await bot.send_message(
+                    chat_id=order["user_telegram_id"],
+                    text=message,
+                    parse_mode="HTML",
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning(
+                    "Could not notify user %s about expired order %s: %s",
+                    order.get("user_telegram_id"),
+                    order.get("id"),
+                    exc,
+                )
+    return expired_orders
+
+
+async def _stale_order_worker(bot) -> None:
+    while True:
+        next_delay = STALE_ORDER_CLEANUP_SECONDS
+        try:
+            await _expire_stale_orders_and_notify(bot)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("Stale-order cleanup cycle failed: %s", exc)
             next_delay = 30
         await asyncio.sleep(next_delay)
 
@@ -3200,35 +3429,20 @@ async def post_init(application: Application) -> None:
     except Exception as exc:
         logger.exception("Could not recover interrupted wallet orders: %s", exc)
 
-    # Auto-cancel stale PENDING/AWAITING_PAYMENT orders older than 5 minutes
-    # This handles orders that were left hanging after a bot restart
     try:
-        from database.db import get_db
-        db = await get_db()
-        try:
-            cursor = await db.execute(
-                """UPDATE orders SET status = 'CANCELLED'
-                   WHERE status IN ('PENDING', 'AWAITING_PAYMENT')
-                     AND created_at <= datetime('now', ?)
-                     AND NOT EXISTS (
-                         SELECT 1 FROM stock_items s
-                         WHERE s.sold_to_order_id = orders.id AND s.is_sold = 1
-                     )
-                     AND NOT EXISTS (
-                         SELECT 1 FROM nowpayments_payments np
-                         WHERE np.order_id = orders.id
-                           AND np.provider_status IN ('creating', 'creation_unknown', 'waiting', 'confirming', 'confirmed', 'sending', 'spending', 'partially_paid')
-                     )""",
-                (f"-{PAYMENT_TIMEOUT_SECONDS} seconds",),
-            )
-            await db.commit()
-            count = cursor.rowcount if cursor.rowcount > 0 else 0
-            if count:
-                logger.info("🧹 Auto-cancelled %d stale PENDING/AWAITING_PAYMENT orders on startup", count)
-        finally:
-            await db.close()
+        await _expire_stale_orders_and_notify(application.bot)
     except Exception as exc:
         logger.warning("Could not clean stale orders: %s", exc)
+
+    task = application.bot_data.get("stale_order_task")
+    if not task or task.done():
+        application.bot_data["stale_order_task"] = asyncio.create_task(
+            _stale_order_worker(application.bot)
+        )
+        logger.info(
+            "Stale-order cleanup worker started (check every %ds)",
+            STALE_ORDER_CLEANUP_SECONDS,
+        )
 
     task = application.bot_data.get("dynamic_pricing_task")
     if not task or task.done():
@@ -3260,6 +3474,7 @@ async def post_shutdown(application: Application) -> None:
     tasks = [
         application.bot_data.pop("dynamic_pricing_task", None),
         application.bot_data.pop("nowpayments_task", None),
+        application.bot_data.pop("stale_order_task", None),
     ]
     for task in tasks:
         if task and not task.done():

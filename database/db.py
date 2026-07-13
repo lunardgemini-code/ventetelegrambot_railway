@@ -911,6 +911,24 @@ async def init_db() -> None:
                 FOREIGN KEY (product_id) REFERENCES products(id),
                 FOREIGN KEY (user_telegram_id) REFERENCES users(telegram_id)
             )""",
+            """CREATE TABLE IF NOT EXISTS product_buy_clicks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER NOT NULL,
+                user_telegram_id INTEGER NOT NULL,
+                clicked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (product_id) REFERENCES products(id),
+                FOREIGN KEY (user_telegram_id) REFERENCES users(telegram_id)
+            )""",
+            """CREATE TABLE IF NOT EXISTS payment_review_actions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                payment_kind TEXT NOT NULL,
+                payment_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                note TEXT DEFAULT '',
+                actor TEXT NOT NULL DEFAULT 'dashboard',
+                result_action TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )""",
         ]
 
         for sql in tables:
@@ -1028,6 +1046,14 @@ async def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_product_views_product_date ON product_views(product_id, viewed_at)",
             "CREATE INDEX IF NOT EXISTS idx_product_views_date_product ON product_views(viewed_at, product_id)",
             "CREATE INDEX IF NOT EXISTS idx_product_views_user_product_date ON product_views(product_id, user_telegram_id, viewed_at)",
+            "CREATE TABLE IF NOT EXISTS product_buy_clicks (id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL, user_telegram_id INTEGER NOT NULL, clicked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+            "CREATE INDEX IF NOT EXISTS idx_product_buy_clicks_product_date ON product_buy_clicks(product_id, clicked_at)",
+            "CREATE INDEX IF NOT EXISTS idx_product_buy_clicks_date_product ON product_buy_clicks(clicked_at, product_id)",
+            "CREATE INDEX IF NOT EXISTS idx_product_buy_clicks_user_product_date ON product_buy_clicks(product_id, user_telegram_id, clicked_at)",
+            "CREATE TABLE IF NOT EXISTS payment_review_actions (id INTEGER PRIMARY KEY AUTOINCREMENT, payment_kind TEXT NOT NULL, payment_id TEXT NOT NULL, action TEXT NOT NULL, note TEXT DEFAULT '', actor TEXT NOT NULL DEFAULT 'dashboard', result_action TEXT DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+            "CREATE INDEX IF NOT EXISTS idx_payment_review_actions_payment ON payment_review_actions(payment_kind, payment_id, created_at DESC)",
+            "ALTER TABLE nowpayments_payments ADD COLUMN cancelled_at TIMESTAMP DEFAULT NULL",
+            "ALTER TABLE nowpayments_wallet_topups ADD COLUMN cancelled_at TIMESTAMP DEFAULT NULL",
             "CREATE INDEX IF NOT EXISTS idx_orders_product_date_status ON orders(product_id, created_at, status)",
             "CREATE TABLE IF NOT EXISTS supplier_products (id INTEGER PRIMARY KEY AUTOINCREMENT, supplier_code TEXT NOT NULL DEFAULT 'canboso', external_product_id TEXT NOT NULL, local_product_id INTEGER UNIQUE, name TEXT NOT NULL, description TEXT DEFAULT '', base_price REAL NOT NULL DEFAULT 0, remote_stock INTEGER NOT NULL DEFAULT 0, warranty_days INTEGER NOT NULL DEFAULT 0, image_url TEXT DEFAULT '', emoji TEXT DEFAULT '📦', enabled INTEGER NOT NULL DEFAULT 0, margin_type TEXT NOT NULL DEFAULT 'inherit', margin_value REAL, raw_payload TEXT DEFAULT '{}', last_synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(supplier_code, external_product_id))",
             "CREATE TABLE IF NOT EXISTS supplier_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL UNIQUE, supplier_code TEXT NOT NULL DEFAULT 'canboso', external_product_id TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'pending', external_order_id TEXT, delivered_items TEXT DEFAULT '[]', raw_payload TEXT DEFAULT '{}', error TEXT, attempts INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, completed_at TIMESTAMP)",
