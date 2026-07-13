@@ -233,8 +233,16 @@ async def get_canboso_balance(*, force: bool = False) -> dict:
         now = time.monotonic()
         if not force and _BALANCE_CACHE and now - _BALANCE_CACHE[0] < _BALANCE_CACHE_SECONDS:
             return dict(_BALANCE_CACHE[1])
-        payload = await _request("GET", "/api/telegram-buyer/balance")
-        balance = normalize_balance(payload)
+        try:
+            payload = await _request("GET", "/api/telegram-buyer/balance")
+            balance = normalize_balance(payload)
+        except SupplierAPIError as exc:
+            if _BALANCE_CACHE:
+                stale = dict(_BALANCE_CACHE[1])
+                stale["stale"] = True
+                logger.warning("Serving stale Canboso balance after refresh failure: %s", exc)
+                return stale
+            raise
         _BALANCE_CACHE = (time.monotonic(), dict(balance))
         return dict(balance)
 

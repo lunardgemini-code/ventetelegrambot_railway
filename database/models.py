@@ -66,11 +66,22 @@ _RESELLER_AUTH_CACHE: dict[str, tuple[float, dict]] = {}
 _RESELLER_AUTH_CACHE_TTL = 30.0
 _GET_STATS_CACHE = {}
 _GET_STATS_CACHE_TTL = 30
+_CATALOG_CACHE_GENERATION = 0
+
+
+def _bump_catalog_cache_generation() -> None:
+    global _CATALOG_CACHE_GENERATION
+    _CATALOG_CACHE_GENERATION += 1
+
+
+def get_catalog_cache_generation() -> int:
+    return _CATALOG_CACHE_GENERATION
 
 
 def _clear_stock_cache() -> None:
     global _STOCK_COUNTS_CACHE
     _STOCK_COUNTS_CACHE = None
+    _bump_catalog_cache_generation()
 
 
 def invalidate_stats_cache() -> None:
@@ -154,24 +165,44 @@ async def _prepare_user_start_once(
     fresh_connection: bool = False,
 ) -> tuple[dict, int]:
     db = await get_db(fresh=fresh_connection)
+    wrote = False
     try:
-        await db.execute("BEGIN IMMEDIATE")
-        cancelled_cursor = await db.execute(
-            """UPDATE orders SET status = 'CANCELLED'
-               WHERE user_telegram_id = ?
-                 AND status IN ('PENDING', 'AWAITING_PAYMENT')
-                 AND NOT EXISTS (
-                     SELECT 1 FROM stock_items s
-                     WHERE s.sold_to_order_id = orders.id AND s.is_sold = 1
-                 )""",
+        cursor = await db.execute(
+            """SELECT u.*,
+                      EXISTS(
+                          SELECT 1 FROM orders o
+                          WHERE o.user_telegram_id = u.telegram_id
+                            AND o.status IN ('PENDING', 'AWAITING_PAYMENT')
+                            AND NOT EXISTS (
+                                SELECT 1 FROM stock_items s
+                                WHERE s.sold_to_order_id = o.id AND s.is_sold = 1
+                            )
+                      ) AS has_cancellable_order
+               FROM users u WHERE u.telegram_id = ?""",
             (telegram_id,),
         )
-        cancelled = max(0, int(cancelled_cursor.rowcount)) if cancelled_cursor.rowcount != -1 else 0
-
-        cursor = await db.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
         row = await cursor.fetchone()
+        cancelled = 0
         if row:
             user = dict(row)
+            has_cancellable_order = bool(user.pop("has_cancellable_order", 0))
+            if has_cancellable_order:
+                await db.execute("BEGIN IMMEDIATE")
+                cancelled_cursor = await db.execute(
+                    """UPDATE orders SET status = 'CANCELLED'
+                       WHERE user_telegram_id = ?
+                         AND status IN ('PENDING', 'AWAITING_PAYMENT')
+                         AND NOT EXISTS (
+                             SELECT 1 FROM stock_items s
+                             WHERE s.sold_to_order_id = orders.id AND s.is_sold = 1
+                         )""",
+                    (telegram_id,),
+                )
+                cancelled = (
+                    max(0, int(cancelled_cursor.rowcount))
+                    if cancelled_cursor.rowcount != -1 else 0
+                )
+                wrote = True
             if user.get("username") != username or user.get("first_name") != first_name:
                 await db.execute(
                     "UPDATE users SET username = ?, first_name = ? WHERE telegram_id = ?",
@@ -179,6 +210,7 @@ async def _prepare_user_start_once(
                 )
                 user["username"] = username
                 user["first_name"] = first_name
+                wrote = True
         else:
             valid_referrer = None
             if referred_by and int(referred_by) != telegram_id:
@@ -192,10 +224,12 @@ async def _prepare_user_start_once(
                 "INSERT INTO users (telegram_id, username, first_name, language, referred_by) VALUES (?, ?, ?, NULL, ?)",
                 (telegram_id, username, first_name, valid_referrer),
             )
+            wrote = True
             cursor = await db.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,))
             user = dict(await cursor.fetchone())
 
-        await db.commit()
+        if wrote:
+            await db.commit()
         _USER_LANG_CACHE[telegram_id] = user.get("language") or "fr"
         _USER_BANNED_CACHE[telegram_id] = bool(user.get("is_banned"))
         if cancelled:
@@ -385,6 +419,7 @@ def clear_products_cache():
     global _PRODUCTS_CACHE, _PRODUCT_BY_ID_CACHE
     _PRODUCTS_CACHE = None
     _PRODUCT_BY_ID_CACHE.clear()
+    _bump_catalog_cache_generation()
     invalidate_stats_cache()
 
 async def get_user_lang(telegram_id: int) -> str:
@@ -1857,13 +1892,16 @@ async def get_all_stock_counts() -> dict[int, int]:
     """
     global _STOCK_COUNTS_CACHE
     now = time.monotonic()
+    stale_counts: dict[int, int] | None = None
     if _STOCK_COUNTS_CACHE is not None:
         cached_at, cached_counts = _STOCK_COUNTS_CACHE
+        stale_counts = dict(cached_counts)
         if now - cached_at < _STOCK_COUNTS_CACHE_TTL:
-            return dict(cached_counts)
+            return stale_counts
 
-    db = await get_db()
+    db = None
     try:
+        db = await get_db()
         # 1. Obtenir le stock total non vendu pour chaque produit
         cursor = await db.execute(
             "SELECT product_id, COUNT(*) as cnt FROM stock_items WHERE is_sold = 0 GROUP BY product_id"
@@ -1891,8 +1929,14 @@ async def get_all_stock_counts() -> dict[int, int]:
         result.update(await supplier_stock_counts())
         _STOCK_COUNTS_CACHE = (now, dict(result))
         return result
+    except Exception as exc:
+        if stale_counts is not None:
+            logger.warning("Serving stale stock snapshot after refresh failure: %s", exc)
+            return stale_counts
+        raise
     finally:
-        await db.close()
+        if db is not None:
+            await db.close()
 
 def _row_int(row, *keys, default: int = 0) -> int:
     """Safely extract an int from a DB row (dict / sqlite3.Row / tuple)."""

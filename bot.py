@@ -10,6 +10,7 @@ from telegram.warnings import PTBUserWarning
 warnings.filterwarnings("ignore", category=PTBUserWarning)
 
 import hmac
+import hashlib
 import asyncio
 import json
 import logging
@@ -17,14 +18,16 @@ import os
 import secrets
 import threading
 import math
+import re
 from collections import deque
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlparse
-from fastapi import FastAPI, Header, HTTPException, Depends, status, Request, Response
+from fastapi import FastAPI, Header, HTTPException, Depends, Query, status, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
@@ -52,6 +55,16 @@ from config import ADMIN_IDS, BOT_TOKEN, PAYMENT_TIMEOUT_SECONDS
 from database import init_db
 from handlers.admin import admin_complete_activation, get_admin_conversation_handler
 from handlers.history import show_history, show_order_detail
+from handlers.game import (
+    choose_game_amount,
+    choose_game_outcome,
+    claim_game_coins,
+    confirm_game_bet,
+    show_game_leaderboard,
+    show_game_match,
+    show_game_menu,
+    show_my_game_bets,
+)
 from handlers.payment import (
     get_payment_conversation_handler,
     initiate_purchase,
@@ -86,6 +99,10 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
+# Keep application warnings and errors while avoiding one INFO line per
+# Telegram/supplier HTTP call in Railway logs.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
@@ -160,8 +177,12 @@ api.add_middleware(
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
-    expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After"],
+    expose_headers=[
+        "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset",
+        "Retry-After", "ETag", "X-Catalog-Version", "X-Catalog-Stale",
+    ],
 )
+api.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # ── Serve dashboard static files directly from Railway ──
 import pathlib
@@ -178,13 +199,14 @@ if _dashboard_dir.is_dir():
 
 
 @api.middleware("http")
-async def disable_dashboard_cache(request: Request, call_next):
-    """Always load the dashboard version shipped with the current deployment."""
+async def configure_dashboard_cache(request: Request, call_next):
+    """Revalidate the shell while caching versioned dashboard assets briefly."""
     response = await call_next(request)
-    if request.url.path == "/dashboard" or request.url.path.startswith("/dashboard/"):
-        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        response.headers["Pragma"] = "no-cache"
-        response.headers["Expires"] = "0"
+    path = request.url.path
+    if path in {"/dashboard", "/dashboard/", "/dashboard/index.html"}:
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    elif path.startswith("/dashboard/"):
+        response.headers["Cache-Control"] = "public, max-age=3600, stale-while-revalidate=86400"
     return response
 
 ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "")
@@ -213,10 +235,23 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 RESELLER_API_RATE_LIMIT = _env_int("RESELLER_API_RATE_LIMIT", 60)
 RESELLER_API_RATE_WINDOW = _env_int("RESELLER_API_RATE_WINDOW", 60)
+RESELLER_CATALOG_CACHE_SECONDS = _env_int("RESELLER_CATALOG_CACHE_SECONDS", 15)
 THREAD_WORKERS = _env_int("THREAD_WORKERS", 32, minimum=4)
 HEALTHCHECK_REQUIRE_BOT = _env_bool("HEALTHCHECK_REQUIRE_BOT", True)
 _reseller_rate_buckets: dict[str, dict[str, int]] = {}
 _reseller_rate_last_cleanup = 0
+_reseller_catalog_cache: dict[str, dict] = {}
+_reseller_catalog_lock: asyncio.Lock | None = None
+_reseller_catalog_lock_loop = None
+
+
+def _get_reseller_catalog_lock() -> asyncio.Lock:
+    global _reseller_catalog_lock, _reseller_catalog_lock_loop
+    loop = asyncio.get_running_loop()
+    if _reseller_catalog_lock is None or _reseller_catalog_lock_loop is not loop:
+        _reseller_catalog_lock = asyncio.Lock()
+        _reseller_catalog_lock_loop = loop
+    return _reseller_catalog_lock
 
 
 def _is_reseller_api_path(path: str) -> bool:
@@ -369,7 +404,9 @@ async def verify_reseller_key(
     rate_headers = _check_reseller_rate_limit(str(reseller.get("id") or reseller.get("key_prefix") or reseller["user_telegram_id"]))
     for key, value in rate_headers.items():
         response.headers[key] = value
-    return reseller
+    authenticated = dict(reseller)
+    authenticated["_rate_headers"] = rate_headers
+    return authenticated
 
 
 def _api_order_payload(order: dict | None) -> dict | None:
@@ -424,6 +461,33 @@ class PaymentReviewActionRequest(BaseModel):
     action: str = Field(..., pattern="^(recheck|dismiss|reopen|accept)$")
     note: str = Field("", max_length=1000)
     confirmation: str = Field("", max_length=300)
+
+
+class GameMatchImportRequest(BaseModel):
+    external_match_id: str = Field(..., min_length=1, max_length=80)
+    market_type: str = Field("qualified", pattern="^(qualified|regulation)$")
+    lock_minutes: int = Field(10, ge=0, le=1440)
+    min_stake: int = Field(25, ge=1, le=1000000)
+    max_stake: int = Field(500, ge=1, le=1000000)
+    fee_bps: int = Field(500, ge=0, le=2500)
+    publish: bool = True
+
+
+class GameMatchConfigurationRequest(BaseModel):
+    market_type: str = Field("qualified", pattern="^(qualified|regulation)$")
+    lock_minutes: int = Field(10, ge=0, le=1440)
+    min_stake: int = Field(25, ge=1, le=1000000)
+    max_stake: int = Field(500, ge=1, le=1000000)
+    fee_bps: int = Field(500, ge=0, le=2500)
+
+
+class GameMatchSettlementRequest(BaseModel):
+    result_outcome: str = Field(..., pattern="^(home|draw|away)$")
+    confirmation: str = Field(..., min_length=3, max_length=120)
+
+
+class GameMatchActionRequest(BaseModel):
+    confirmation: str = Field(..., min_length=3, max_length=120)
 
 
 @api.get("/health/live")
@@ -488,7 +552,15 @@ async def health_check():
 @api.get("/api/performance", dependencies=[Depends(verify_api_key)])
 async def api_performance_metrics():
     """Return rolling worker, queue, latency, and database diagnostics."""
-    return _webhook_performance_snapshot()
+    snapshot = _webhook_performance_snapshot()
+    try:
+        from database.jobs import get_performance_action_history
+
+        snapshot["history_24h"] = await get_performance_action_history(24)
+    except Exception as exc:
+        logger.debug("Performance history is temporarily unavailable: %s", exc)
+        snapshot["history_24h"] = {"hours": 24, "actions": [], "available": False}
+    return snapshot
 
 
 def _log_nowpayments_task_result(task: asyncio.Task) -> None:
@@ -554,7 +626,7 @@ def _reseller_openapi_schema() -> dict:
         "openapi": "3.0.3",
         "info": {
             "title": "VenteBot Reseller API",
-            "version": "1.0.1",
+            "version": "1.1.0",
             "description": (
                 "Public API for connecting a reseller bot to VenteBot. "
                 "Purchases debit the reseller account wallet.\n\n"
@@ -779,7 +851,14 @@ def _reseller_openapi_schema() -> dict:
                             "in": "query",
                             "schema": {"type": "string", "enum": ["en", "fr", "ar", "zh", "vi", "ru"], "default": "en"},
                             "description": "Product description language.",
-                        }
+                        },
+                        {
+                            "name": "If-None-Match",
+                            "in": "header",
+                            "required": False,
+                            "schema": {"type": "string"},
+                            "description": "ETag from the previous catalog response. Returns 304 when unchanged.",
+                        },
                     ],
                     "responses": {
                         "200": {
@@ -975,6 +1054,25 @@ def _reseller_openapi_schema() -> dict:
                 operation["responses"]["429"].setdefault("headers", rate_limit_response["headers"])
                 if "200" in operation["responses"]:
                     operation["responses"]["200"].setdefault("headers", rate_limit_headers)
+    catalog_responses = schema["paths"]["/api/reseller/products"]["get"]["responses"]
+    catalog_responses["200"]["headers"].update({
+        "ETag": {
+            "description": "Stable catalog entity tag for conditional requests.",
+            "schema": {"type": "string"},
+        },
+        "X-Catalog-Version": {
+            "description": "In-process catalog generation used for cache invalidation.",
+            "schema": {"type": "integer"},
+        },
+        "X-Catalog-Stale": {
+            "description": "True when a cached snapshot is served during a temporary dependency failure.",
+            "schema": {"type": "boolean"},
+        },
+    })
+    catalog_responses["304"] = {
+        "description": "Catalog unchanged. Reuse the previously cached response body.",
+        "headers": catalog_responses["200"]["headers"],
+    }
     return schema
 
 
@@ -1127,6 +1225,242 @@ async def api_update_canboso_product(mapping_id: int, data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+def _raise_game_api_error(exc) -> None:
+    from database.games import GameError
+    from services.sports_api import SportsAPIError
+
+    if isinstance(exc, GameError):
+        status_code = {
+            "not_found": 404,
+            "bets_exist": 409,
+            "already_settled": 409,
+            "invalid_status": 409,
+            "match_started": 409,
+            "invalid_provider_status": 409,
+        }.get(exc.code, 400)
+        raise HTTPException(status_code=status_code, detail={"code": exc.code, "message": str(exc)})
+    if isinstance(exc, SportsAPIError):
+        status_code = 429 if exc.status_code == 429 else 503 if exc.retryable else 502
+        raise HTTPException(
+            status_code=status_code,
+            detail={"code": "SPORTS_PROVIDER_ERROR", "message": str(exc)},
+            headers={"Retry-After": "10"} if status_code in {429, 503} else None,
+        )
+    logger.error("Unhandled game API error: %s", exc, exc_info=True)
+    raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/api/game/provider", dependencies=[Depends(verify_api_key)])
+async def api_game_provider_status():
+    from services.sports_api import sports_provider_status
+
+    try:
+        return sports_provider_status()
+    except Exception as exc:
+        logger.error("Game provider status failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/api/game/catalog", dependencies=[Depends(verify_api_key)])
+async def api_game_catalog(
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    competition: str = Query("", max_length=20),
+    provider_status: str = Query("", max_length=30),
+    search: str = Query("", max_length=120),
+    force: bool = Query(False),
+):
+    from database.games import selected_external_match_ids
+    from services.sports_api import (
+        is_sports_api_configured,
+        list_football_matches,
+        sports_provider_status,
+    )
+
+    try:
+        start = date.fromisoformat(date_from) if date_from else date.today()
+        end = date.fromisoformat(date_to) if date_to else start + timedelta(days=7)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="date_from and date_to must use YYYY-MM-DD")
+    if end < start or (end - start).days > 31:
+        raise HTTPException(status_code=422, detail="The catalog range must be between 0 and 31 days")
+    if not is_sports_api_configured():
+        return {
+            **sports_provider_status(),
+            "date_from": start.isoformat(),
+            "date_to": end.isoformat(),
+            "competitions": [],
+            "matches": [],
+        }
+
+    try:
+        matches = await list_football_matches(
+            start,
+            end,
+            competition=competition,
+            force=force,
+        )
+        selected = await selected_external_match_ids()
+        status_filter = provider_status.strip().upper()
+        search_filter = search.strip().casefold()
+        filtered = []
+        for match in matches:
+            if status_filter and match.get("provider_status") != status_filter:
+                continue
+            haystack = " ".join((
+                str(match.get("home_name") or ""),
+                str(match.get("away_name") or ""),
+                str(match.get("competition_name") or ""),
+                str(match.get("stage") or ""),
+            )).casefold()
+            if search_filter and search_filter not in haystack:
+                continue
+            item = dict(match)
+            item.pop("raw_payload", None)
+            item["selected"] = str(item["external_match_id"]) in selected
+            filtered.append(item)
+        competitions = sorted(
+            {
+                (str(item.get("competition_code") or ""), str(item.get("competition_name") or "Football"))
+                for item in matches
+            },
+            key=lambda item: item[1].casefold(),
+        )
+        return {
+            **sports_provider_status(),
+            "date_from": start.isoformat(),
+            "date_to": end.isoformat(),
+            "competitions": [{"code": code, "name": name} for code, name in competitions],
+            "matches": filtered,
+        }
+    except Exception as exc:
+        try:
+            _raise_game_api_error(exc)
+        except HTTPException:
+            raise
+        logger.error("Game catalog failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/api/game/matches", dependencies=[Depends(verify_api_key)])
+async def api_game_matches(include_cancelled: bool = Query(False)):
+    from database.games import list_game_matches, summarize_game_matches
+
+    try:
+        matches = await list_game_matches(include_cancelled=include_cancelled)
+        return {
+            "summary": summarize_game_matches(matches),
+            "matches": matches,
+        }
+    except Exception as exc:
+        logger.error("Game matches failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/game/matches", dependencies=[Depends(verify_api_key)], status_code=201)
+async def api_game_import_match(data: GameMatchImportRequest):
+    from database.games import import_game_match
+    from services.sports_api import get_football_match
+
+    if data.max_stake < data.min_stake:
+        raise HTTPException(status_code=422, detail="max_stake must be greater than or equal to min_stake")
+    try:
+        provider_match = await get_football_match(data.external_match_id)
+        match = await import_game_match(
+            provider_match,
+            market_type=data.market_type,
+            lock_minutes=data.lock_minutes,
+            min_stake=data.min_stake,
+            max_stake=data.max_stake,
+            fee_bps=data.fee_bps,
+            publish=data.publish,
+        )
+        return {"status": "published" if data.publish else "draft", "match": match}
+    except Exception as exc:
+        try:
+            _raise_game_api_error(exc)
+        except HTTPException:
+            raise
+        logger.error("Game match import failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.put("/api/game/matches/{match_id}", dependencies=[Depends(verify_api_key)])
+async def api_game_update_match(match_id: int, data: GameMatchConfigurationRequest):
+    from database.games import update_game_match_configuration
+
+    if data.max_stake < data.min_stake:
+        raise HTTPException(status_code=422, detail="max_stake must be greater than or equal to min_stake")
+    try:
+        return {
+            "status": "updated",
+            "match": await update_game_match_configuration(
+                match_id,
+                market_type=data.market_type,
+                lock_minutes=data.lock_minutes,
+                min_stake=data.min_stake,
+                max_stake=data.max_stake,
+                fee_bps=data.fee_bps,
+            ),
+        }
+    except Exception as exc:
+        try:
+            _raise_game_api_error(exc)
+        except HTTPException:
+            raise
+        logger.error("Game match update failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/game/matches/{match_id}/publish", dependencies=[Depends(verify_api_key)])
+async def api_game_publish_match(match_id: int):
+    from database.games import publish_game_match
+
+    try:
+        return {"status": "published", "match": await publish_game_match(match_id)}
+    except Exception as exc:
+        try:
+            _raise_game_api_error(exc)
+        except HTTPException:
+            raise
+        logger.error("Game match publish failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/game/matches/{match_id}/settle", dependencies=[Depends(verify_api_key)])
+async def api_game_settle_match(match_id: int, data: GameMatchSettlementRequest):
+    from database.games import settle_game_match
+
+    if not hmac.compare_digest(data.confirmation.strip().upper(), f"SETTLE {match_id}"):
+        raise HTTPException(status_code=400, detail=f"Type SETTLE {match_id} to confirm")
+    try:
+        return {"status": "settled", "match": await settle_game_match(match_id, data.result_outcome)}
+    except Exception as exc:
+        try:
+            _raise_game_api_error(exc)
+        except HTTPException:
+            raise
+        logger.error("Game match settlement failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/game/matches/{match_id}/cancel", dependencies=[Depends(verify_api_key)])
+async def api_game_cancel_match(match_id: int, data: GameMatchActionRequest):
+    from database.games import cancel_game_match
+
+    if not hmac.compare_digest(data.confirmation.strip().upper(), f"CANCEL {match_id}"):
+        raise HTTPException(status_code=400, detail=f"Type CANCEL {match_id} to confirm")
+    try:
+        return {"status": "cancelled", "match": await cancel_game_match(match_id)}
+    except Exception as exc:
+        try:
+            _raise_game_api_error(exc)
+        except HTTPException:
+            raise
+        logger.error("Game match cancellation failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @api.get("/api/reseller/me")
 async def api_reseller_me(reseller: dict = Depends(verify_reseller_key)):
     return _reseller_success(
@@ -1139,43 +1473,160 @@ async def api_reseller_me(reseller: dict = Depends(verify_reseller_key)):
     )
 
 
+async def _build_reseller_catalog(lang: str) -> dict:
+    from database.models import (
+        dynamic_tier_price,
+        get_all_products,
+        get_all_stock_counts,
+        get_price_tiers_for_products,
+    )
+
+    products = await get_all_products()
+    stock_counts = await get_all_stock_counts()
+    active_products = [
+        p for p in products
+        if p.get("is_active", 1) and not p.get("is_deleted", 0)
+    ]
+    tiers_by_product = await get_price_tiers_for_products([p["id"] for p in active_products])
+    result = []
+    for p in active_products:
+        desc = p.get(f"description_{lang}") if lang in {"fr", "ar", "zh", "vi", "ru"} else p.get("description")
+        if not desc:
+            desc = p.get("description", "")
+        tiers = tiers_by_product.get(p["id"], [])
+        result.append({
+            "id": p["id"],
+            "name": p["name"],
+            "description": desc or "",
+            "emoji": p.get("emoji"),
+            "image_url": p.get("image_url"),
+            "price_usd": float(p.get("price_usd") or 0),
+            "warranty_days": p.get("warranty_days", 0),
+            "delivery_type": p.get("delivery_type") or "stock",
+            "stock": None if p.get("delivery_type") == "activation" else stock_counts.get(p["id"], 0),
+            "price_tiers": [
+                {
+                    "min_qty": item["min_qty"],
+                    "max_qty": item["max_qty"],
+                    "price_usd": dynamic_tier_price(p, float(item["price_usd"])),
+                }
+                for item in tiers
+            ],
+        })
+    return _reseller_success(products=result)
+
+
+def _catalog_response(
+    payload: dict,
+    etag: str,
+    generation: int,
+    *,
+    stale: bool = False,
+    rate_headers: dict | None = None,
+) -> JSONResponse:
+    return JSONResponse(
+        content=jsonable_encoder(payload),
+        headers={
+            **(rate_headers or {}),
+            "Cache-Control": (
+                f"private, max-age={RESELLER_CATALOG_CACHE_SECONDS}, stale-while-revalidate=30"
+            ),
+            "ETag": etag,
+            "X-Catalog-Version": str(generation),
+            "X-Catalog-Stale": "true" if stale else "false",
+        },
+    )
+
+
 @api.get("/api/reseller/products")
-async def api_reseller_products(lang: str = "en", reseller: dict = Depends(verify_reseller_key)):
-    from database.models import get_all_products, get_all_stock_counts, get_price_tiers_for_products, dynamic_tier_price
-    try:
-        lang = lang if lang in {"en", "fr", "ar", "zh", "vi", "ru"} else "en"
-        products = await get_all_products()
-        stock_counts = await get_all_stock_counts()
-        active_products = [
-            p for p in products
-            if p.get("is_active", 1) and not p.get("is_deleted", 0)
-        ]
-        tiers_by_product = await get_price_tiers_for_products([p["id"] for p in active_products])
-        result = []
-        for p in active_products:
-            desc = p.get(f"description_{lang}") if lang in {"fr", "ar", "zh", "vi", "ru"} else p.get("description")
-            if not desc:
-                desc = p.get("description", "")
-            tiers = tiers_by_product.get(p["id"], [])
-            result.append({
-                "id": p["id"],
-                "name": p["name"],
-                "description": desc or "",
-                "emoji": p.get("emoji"),
-                "image_url": p.get("image_url"),
-                "price_usd": float(p.get("price_usd") or 0),
-                "warranty_days": p.get("warranty_days", 0),
-                "delivery_type": p.get("delivery_type") or "stock",
-                "stock": None if p.get("delivery_type") == "activation" else stock_counts.get(p["id"], 0),
-                "price_tiers": [
-                    {"min_qty": t_item["min_qty"], "max_qty": t_item["max_qty"], "price_usd": dynamic_tier_price(p, float(t_item["price_usd"]))}
-                    for t_item in tiers
-                ],
-            })
-        return _reseller_success(products=result)
-    except Exception as exc:
-        logger.error("API error reseller products: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+async def api_reseller_products(
+    request: Request,
+    lang: str = "en",
+    reseller: dict = Depends(verify_reseller_key),
+):
+    from database.models import get_catalog_cache_generation
+
+    lang = lang if lang in {"en", "fr", "ar", "zh", "vi", "ru"} else "en"
+    rate_headers = dict(reseller.get("_rate_headers") or {})
+    generation = get_catalog_cache_generation()
+    now = time.monotonic()
+    cached = _reseller_catalog_cache.get(lang)
+    if (
+        cached
+        and cached["generation"] == generation
+        and now - cached["created_at"] < RESELLER_CATALOG_CACHE_SECONDS
+    ):
+        if request.headers.get("if-none-match") == cached["etag"]:
+            return Response(
+                status_code=304,
+                headers={
+                    **rate_headers,
+                    "ETag": cached["etag"],
+                    "X-Catalog-Version": str(generation),
+                    "X-Catalog-Stale": "false",
+                },
+            )
+        return _catalog_response(
+            cached["payload"], cached["etag"], generation, rate_headers=rate_headers
+        )
+
+    async with _get_reseller_catalog_lock():
+        generation = get_catalog_cache_generation()
+        now = time.monotonic()
+        cached = _reseller_catalog_cache.get(lang)
+        if (
+            cached
+            and cached["generation"] == generation
+            and now - cached["created_at"] < RESELLER_CATALOG_CACHE_SECONDS
+        ):
+            if request.headers.get("if-none-match") == cached["etag"]:
+                return Response(
+                    status_code=304,
+                    headers={
+                        **rate_headers,
+                        "ETag": cached["etag"],
+                        "X-Catalog-Version": str(generation),
+                        "X-Catalog-Stale": "false",
+                    },
+                )
+            return _catalog_response(
+                cached["payload"], cached["etag"], generation, rate_headers=rate_headers
+            )
+        try:
+            payload = await _build_reseller_catalog(lang)
+            encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            etag = f'"{hashlib.sha256(encoded).hexdigest()[:24]}"'
+            cached = {
+                "payload": payload,
+                "etag": etag,
+                "generation": generation,
+                "created_at": time.monotonic(),
+            }
+            _reseller_catalog_cache[lang] = cached
+            if request.headers.get("if-none-match") == etag:
+                return Response(
+                    status_code=304,
+                    headers={
+                        **rate_headers,
+                        "ETag": etag,
+                        "X-Catalog-Version": str(generation),
+                        "X-Catalog-Stale": "false",
+                    },
+                )
+            return _catalog_response(payload, etag, generation, rate_headers=rate_headers)
+        except Exception as exc:
+            stale = _reseller_catalog_cache.get(lang)
+            if stale:
+                logger.warning("Serving stale reseller catalog after refresh failure: %s", exc)
+                return _catalog_response(
+                    stale["payload"],
+                    stale["etag"],
+                    int(stale["generation"]),
+                    stale=True,
+                    rate_headers=rate_headers,
+                )
+            logger.error("API error reseller products: %s", exc, exc_info=True)
+            raise HTTPException(status_code=503, detail="Catalog temporarily unavailable")
 
 
 @api.post("/api/reseller/quote")
@@ -2212,10 +2663,17 @@ async def api_add_product_stock(product_id: int, data: dict):
         _clear_api_stats_cache()
         if tg_app and tg_app.bot:
             try:
-                from handlers.products import notify_restock_subscribers
-                asyncio.create_task(notify_restock_subscribers(tg_app.bot, product_id))
+                from services.background_jobs import enqueue_restock_notification
+
+                await enqueue_restock_notification(product_id)
             except Exception:
-                logger.warning("Could not schedule restock subscriber notifications", exc_info=True)
+                logger.warning(
+                    "Could not persist restock notifications; using direct fallback",
+                    exc_info=True,
+                )
+                from handlers.products import notify_restock_subscribers
+
+                asyncio.create_task(notify_restock_subscribers(tg_app.bot, product_id))
         
         broadcast = data.get("broadcast_restock", False)
         if broadcast:
@@ -2708,48 +3166,20 @@ async def api_get_stats_bundle(days: int = 30):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-_broadcast_jobs: dict[str, dict] = {}
-_broadcast_tasks: set[asyncio.Task] = set()
-
-
-def _public_broadcast_job(job_id: str) -> dict:
-    job = _broadcast_jobs.get(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Broadcast job not found")
-    return dict(job)
-
-
-async def _run_broadcast_job(job_id: str, bot, message: str, photo_url: str, reply_markup) -> None:
-    from services.broadcast import execute_broadcast
-
-    job = _broadcast_jobs[job_id]
-    job.update(status="running", updated_at=time.time())
-
-    async def progress(sent: int, failed: int, total: int) -> None:
-        job.update(sent=sent, failed=failed, total=total, updated_at=time.time())
-
-    try:
-        sent, failed, total = await execute_broadcast(
-            bot,
-            message,
-            photo=photo_url,
-            reply_markup=reply_markup,
-            progress=progress,
-        )
-        job.update(status="completed", sent=sent, failed=failed, total=total, updated_at=time.time())
-    except Exception as exc:
-        logger.error("Broadcast job %s failed: %s", job_id, exc, exc_info=True)
-        job.update(status="failed", error=str(exc)[:300], updated_at=time.time())
-
-
 @api.get("/api/broadcast/{job_id}", dependencies=[Depends(verify_api_key)])
 async def api_broadcast_status(job_id: str):
-    return _public_broadcast_job(job_id)
+    from services.background_jobs import get_public_background_job
+
+    job = await get_public_background_job(job_id)
+    if not job or job.get("job_type") != "broadcast":
+        raise HTTPException(status_code=404, detail="Broadcast job not found")
+    return job
 
 
 @api.post("/api/broadcast", dependencies=[Depends(verify_api_key)], status_code=202)
 async def api_broadcast(data: dict):
-    from services.broadcast import execute_broadcast, validate_broadcast_content
+    from services.background_jobs import enqueue_broadcast_job
+    from services.broadcast import validate_broadcast_content
     try:
         message = data.get("message", "").strip()
         photo_url = data.get("photo_url", "").strip()
@@ -2781,28 +3211,12 @@ async def api_broadcast(data: dict):
         if not tg_app or not tg_app.bot:
             raise HTTPException(status_code=503, detail="Bot not initialized")
 
-        now = time.time()
-        for old_id, old_job in list(_broadcast_jobs.items()):
-            if old_job.get("status") in ("completed", "failed") and now - float(old_job.get("updated_at") or now) > 3600:
-                _broadcast_jobs.pop(old_id, None)
-
-        job_id = secrets.token_urlsafe(12)
-        _broadcast_jobs[job_id] = {
-            "job_id": job_id,
-            "status": "queued",
-            "sent": 0,
-            "failed": 0,
-            "total": 0,
-            "error": None,
-            "created_at": now,
-            "updated_at": now,
-        }
-        task = asyncio.create_task(
-            _run_broadcast_job(job_id, tg_app.bot, message, photo_url, reply_markup)
+        return await enqueue_broadcast_job(
+            message,
+            photo=photo_url,
+            reply_markup=reply_markup,
+            source="dashboard",
         )
-        _broadcast_tasks.add(task)
-        task.add_done_callback(_broadcast_tasks.discard)
-        return _public_broadcast_job(job_id)
     except HTTPException:
         raise
     except Exception as exc:
@@ -3034,9 +3448,73 @@ _webhook_pending_by_key: dict[str, deque] = {}
 _webhook_active_keys: set[str] = set()
 _webhook_active_dedupe_signatures: set[tuple[str, str]] = set()
 _webhook_dedupe_by_update: dict[int, tuple[str, str]] = {}
+_webhook_recent_start_signatures: dict[tuple[str, str], float] = {}
+_WEBHOOK_START_DEBOUNCE_SECONDS = 2.0
 _webhook_action_samples = deque(maxlen=10000)
 _webhook_active_workers = 0
 _webhook_peak_active_workers = 0
+_webhook_pending_hourly: dict[tuple[str, str], dict[str, float | int | str]] = {}
+
+
+def _record_persistent_action_sample(action: str, duration_seconds: float, succeeded: bool) -> None:
+    bucket = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:00:00")
+    key = (bucket, action)
+    item = _webhook_pending_hourly.setdefault(key, {
+        "bucket_hour": bucket,
+        "action": action,
+        "sample_count": 0,
+        "error_count": 0,
+        "total_duration_ms": 0.0,
+        "max_duration_ms": 0.0,
+    })
+    duration_ms = max(0.0, float(duration_seconds) * 1000.0)
+    item["sample_count"] = int(item["sample_count"]) + 1
+    if not succeeded:
+        item["error_count"] = int(item["error_count"]) + 1
+    item["total_duration_ms"] = float(item["total_duration_ms"]) + duration_ms
+    item["max_duration_ms"] = max(float(item["max_duration_ms"]), duration_ms)
+
+
+def _merge_pending_performance_rows(rows: list[dict]) -> None:
+    for row in rows:
+        key = (str(row["bucket_hour"]), str(row["action"]))
+        item = _webhook_pending_hourly.setdefault(key, {
+            "bucket_hour": key[0],
+            "action": key[1],
+            "sample_count": 0,
+            "error_count": 0,
+            "total_duration_ms": 0.0,
+            "max_duration_ms": 0.0,
+        })
+        item["sample_count"] = int(item["sample_count"]) + int(row["sample_count"])
+        item["error_count"] = int(item["error_count"]) + int(row["error_count"])
+        item["total_duration_ms"] = float(item["total_duration_ms"]) + float(row["total_duration_ms"])
+        item["max_duration_ms"] = max(float(item["max_duration_ms"]), float(row["max_duration_ms"]))
+
+
+async def _flush_performance_metrics() -> None:
+    if not _webhook_pending_hourly:
+        return
+    rows = [dict(item) for item in _webhook_pending_hourly.values()]
+    _webhook_pending_hourly.clear()
+    try:
+        from database.jobs import flush_performance_action_hourly
+
+        await flush_performance_action_hourly(rows)
+    except Exception:
+        _merge_pending_performance_rows(rows)
+        raise
+
+
+async def _performance_history_worker() -> None:
+    while True:
+        try:
+            await asyncio.sleep(60)
+            await _flush_performance_metrics()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("Could not persist performance metrics: %s", exc)
 
 
 def _metrics_percentile(values: list[float], percentile: float) -> float:
@@ -3082,10 +3560,12 @@ def _webhook_dedupe_signature(update: Update) -> tuple[str, str] | None:
     return (_webhook_lock_key(update), text)
 
 
-def _release_webhook_dedupe(update: Update) -> None:
+def _release_webhook_dedupe(update: Update, *, completed: bool = True) -> None:
     signature = _webhook_dedupe_by_update.pop(id(update), None)
     if signature is not None:
         _webhook_active_dedupe_signatures.discard(signature)
+        if completed and signature[1].lower().startswith("/start"):
+            _webhook_recent_start_signatures[signature] = time.monotonic()
 
 
 def _current_webhook_backlog() -> int:
@@ -3449,6 +3929,35 @@ async def post_init(application: Application) -> None:
         application.bot_data["dynamic_pricing_task"] = asyncio.create_task(_dynamic_pricing_worker())
         logger.info("Dynamic pricing worker started (check every %ds)", DYNAMIC_PRICING_CHECK_SECONDS)
 
+    task = application.bot_data.get("background_job_task")
+    if not task or task.done():
+        from services.background_jobs import background_job_worker
+
+        application.bot_data["background_job_task"] = asyncio.create_task(
+            background_job_worker(application.bot)
+        )
+        logger.info("Persistent background job worker started")
+
+    task = application.bot_data.get("performance_history_task")
+    if not task or task.done():
+        try:
+            from database.jobs import cleanup_performance_history
+
+            await cleanup_performance_history(retention_days=8)
+        except Exception as exc:
+            logger.warning("Could not clean performance history: %s", exc)
+        application.bot_data["performance_history_task"] = asyncio.create_task(
+            _performance_history_worker()
+        )
+        logger.info("Persistent performance history worker started")
+
+    task = application.bot_data.get("game_sync_task")
+    if not task or task.done():
+        from services.game_sync import game_sync_worker
+
+        application.bot_data["game_sync_task"] = asyncio.create_task(game_sync_worker())
+        logger.info("Lightweight game match synchronization worker started")
+
     from services.nowpayments import is_nowpayments_configured
     if is_nowpayments_configured():
         task = application.bot_data.get("nowpayments_task")
@@ -3475,15 +3984,24 @@ async def post_shutdown(application: Application) -> None:
         application.bot_data.pop("dynamic_pricing_task", None),
         application.bot_data.pop("nowpayments_task", None),
         application.bot_data.pop("stale_order_task", None),
+        application.bot_data.pop("background_job_task", None),
+        application.bot_data.pop("performance_history_task", None),
+        application.bot_data.pop("game_sync_task", None),
     ]
     for task in tasks:
         if task and not task.done():
             task.cancel()
     await asyncio.gather(*(task for task in tasks if task), return_exceptions=True)
+    try:
+        await _flush_performance_metrics()
+    except Exception as exc:
+        logger.warning("Final performance metric flush failed: %s", exc)
     from services.nowpayments import close_nowpayments_client
     await close_nowpayments_client()
     from services.supplier_api import close_supplier_client
     await close_supplier_client()
+    from services.sports_api import close_sports_client
+    await close_sports_client()
 
 
 # ──────────────────────────────────────────────
@@ -3512,9 +4030,22 @@ async def telegram_webhook(request: StarletteRequest):
             update = Update.de_json(data, tg_app.bot)
             dedupe_signature = _webhook_dedupe_signature(update)
             if dedupe_signature is not None:
-                if dedupe_signature in _webhook_active_dedupe_signatures:
+                now = time.monotonic()
+                recent_start = _webhook_recent_start_signatures.get(dedupe_signature)
+                if (
+                    dedupe_signature in _webhook_active_dedupe_signatures
+                    or (
+                        recent_start is not None
+                        and now - recent_start < _WEBHOOK_START_DEBOUNCE_SECONDS
+                    )
+                ):
                     _webhook_deduplicated_times.append(time.monotonic())
                     return {"ok": True, "deduplicated": True}
+                if len(_webhook_recent_start_signatures) > 2000:
+                    cutoff = now - _WEBHOOK_START_DEBOUNCE_SECONDS
+                    for signature, completed_at in list(_webhook_recent_start_signatures.items()):
+                        if completed_at < cutoff:
+                            _webhook_recent_start_signatures.pop(signature, None)
                 _webhook_active_dedupe_signatures.add(dedupe_signature)
                 _webhook_dedupe_by_update[id(update)] = dedupe_signature
             if webhook_update_queue is not None:
@@ -3524,7 +4055,7 @@ async def telegram_webhook(request: StarletteRequest):
                     _record_webhook_queue_depth()
                 except asyncio.QueueFull:
                     _webhook_enqueued_at.pop(id(update), None)
-                    _release_webhook_dedupe(update)
+                    _release_webhook_dedupe(update, completed=False)
                     logger.error(
                         "Webhook queue full (%d updates); asking Telegram to retry",
                         WEBHOOK_QUEUE_MAX,
@@ -3584,7 +4115,18 @@ def _webhook_action_name(update: Update) -> str:
     if getattr(message, "photo", None):
         return "message:photo"
     if text:
-        return "message:text"
+        compact = text.replace(" ", "")
+        if re.fullmatch(r"0x[a-fA-F0-9]{64}", compact):
+            return "message:evm_tx_hash"
+        if re.fullmatch(r"[a-fA-F0-9]{64}", compact):
+            return "message:tx_hash"
+        if re.fullmatch(r"[0-9]+(?:[.,][0-9]+)?", text):
+            return "message:number"
+        if "@" in text or re.fullmatch(r"[A-Za-z0-9_.-]{3,}", text):
+            return "message:identifier"
+        if len(text) > 200:
+            return "message:long_text"
+        return "message:short_text"
     return "update:other"
 
 
@@ -3647,6 +4189,11 @@ async def _webhook_update_worker(application: Application, worker_id: int) -> No
                         max(0.0, completed_at - started_at),
                         succeeded,
                     ))
+                    _record_persistent_action_sample(
+                        action_name,
+                        max(0.0, completed_at - started_at),
+                        succeeded,
+                    )
                     webhook_update_queue.task_done()
                     _release_webhook_dedupe(current_update)
                     _record_webhook_queue_depth()
@@ -4112,6 +4659,14 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(wallet_menu, pattern=r"^back_wallet$"))
     app.add_handler(CallbackQueryHandler(wallet_history, pattern=r"^wallet_history$"))
     app.add_handler(CallbackQueryHandler(wallet_noop, pattern=r"^wallet_noop$"))
+    app.add_handler(CallbackQueryHandler(show_game_menu, pattern=r"^menu_game$"))
+    app.add_handler(CallbackQueryHandler(claim_game_coins, pattern=r"^game_claim$"))
+    app.add_handler(CallbackQueryHandler(show_game_match, pattern=r"^game_match:"))
+    app.add_handler(CallbackQueryHandler(choose_game_outcome, pattern=r"^game_pick:"))
+    app.add_handler(CallbackQueryHandler(choose_game_amount, pattern=r"^game_amount:"))
+    app.add_handler(CallbackQueryHandler(confirm_game_bet, pattern=r"^game_confirm:"))
+    app.add_handler(CallbackQueryHandler(show_my_game_bets, pattern=r"^game_my_bets$"))
+    app.add_handler(CallbackQueryHandler(show_game_leaderboard, pattern=r"^game_leaderboard$"))
 
     # ── Reply keyboard text handlers ─────────────────────────────
     app.add_handler(MessageHandler(filters.Regex(r"(?i)(Produits|Products|المنتجات|产品)"), show_products_list))
@@ -4200,6 +4755,10 @@ def main() -> None:
 
             try:
                 await server_task
+                if not server.should_exit:
+                    raise RuntimeError(
+                        "Uvicorn stopped unexpectedly; exiting so Railway can restart the service"
+                    )
             finally:
                 _service_ready = False
                 from services.process_watchdog import stop_process_watchdog

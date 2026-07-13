@@ -2,7 +2,7 @@
 
 This API lets a partner bot resell VenteBot products using the reseller account wallet balance.
 
-API version: `1.0.1`. This documentation update is backward compatible with existing integrations.
+API version: `1.1.0`. This documentation update is backward compatible with existing integrations.
 
 Interactive Swagger documentation:
 
@@ -101,6 +101,24 @@ Response:
   ]
 }
 ```
+
+The catalog supports conditional HTTP caching. Save the `ETag` response header, then send it on the next request:
+
+```http
+GET /api/reseller/products?lang=en
+X-Reseller-Key: YOUR_KEY
+If-None-Match: "CATALOG_ETAG"
+```
+
+If nothing changed, the API returns `304 Not Modified` with no response body. Continue using your cached catalog. A normal `200` response also includes:
+
+```http
+ETag: "CATALOG_ETAG"
+X-Catalog-Version: 12
+X-Catalog-Stale: false
+```
+
+`X-Catalog-Stale: true` means a temporary database or supplier failure occurred and the API safely returned its last known catalog snapshot. Purchases still perform their own live balance and stock checks.
 
 ## Quote Before Buying
 

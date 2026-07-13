@@ -171,6 +171,12 @@ Object.assign(LANG.ar, {nav_payment_review:'Payment center', payment_review_titl
 Object.assign(LANG.zh, {nav_payment_review:'Payment center', payment_review_title:'Payment control center', conversion_title:'Conversion funnel'});
 Object.assign(LANG.vi, {nav_payment_review:'Payment center', payment_review_title:'Payment control center', conversion_title:'Conversion funnel'});
 Object.assign(LANG.ru, {nav_payment_review:'Payment center', payment_review_title:'Payment control center', conversion_title:'Conversion funnel'});
+Object.assign(LANG.fr, {nav_game:'Jeu & Matchs', tab_game:'Jeu & Matchs'});
+Object.assign(LANG.en, {nav_game:'Game & Matches', tab_game:'Game & Matches'});
+Object.assign(LANG.ar, {nav_game:'اللعبة والمباريات', tab_game:'اللعبة والمباريات'});
+Object.assign(LANG.zh, {nav_game:'游戏与比赛', tab_game:'游戏与比赛'});
+Object.assign(LANG.vi, {nav_game:'Trò chơi & Trận đấu', tab_game:'Trò chơi & Trận đấu'});
+Object.assign(LANG.ru, {nav_game:'Игра и матчи', tab_game:'Игра и матчи'});
 
 const state = {
     botUrl:'', apiKey:'', currentLang:'fr', currentTab:'dashboard-tab',
@@ -183,7 +189,8 @@ const state = {
     revenueChart:null, ordersChart:null, productSalesChart:null, productMomentumChart:null,
     paymentReviewCategory:'all', paymentReviewIncludeResolved:false, paymentReviewItems:[],
     dynamicPriceChart:null, dynamicSimulationChart:null,
-    productStats:[], productMomentum:null, productMomentumSelected:[], deadProductAlerts:[], supplierBot:null
+    productStats:[], productMomentum:null, productMomentumSelected:[], deadProductAlerts:[], supplierBot:null,
+    gameProvider:null, gameCatalog:[], gameMatches:[], gameCompetitions:[], gameView:'catalog', currentGameMatch:null
 };
 
 function $(id) { return document.getElementById(id); }
@@ -237,6 +244,16 @@ const DOM = {
     supplierSettingsForm:$('supplier-settings-form'), supplierEnabled:$('supplier-enabled'), supplierMarginType:$('supplier-margin-type'), supplierMarginValue:$('supplier-margin-value'),
     btnSupplierSync:$('btn-supplier-sync'), supplierConnection:$('supplier-connection'), supplierWalletBalance:$('supplier-wallet-balance'), supplierLastSync:$('supplier-last-sync'), supplierSelectedCount:$('supplier-selected-count'), supplierReviewCount:$('supplier-review-count'),
     supplierProductSearch:$('supplier-product-search'), supplierProductsTableBody:$('supplier-products-table-body'),
+    btnGameRefresh:$('btn-game-refresh'), gameProviderStatus:$('game-provider-status'), gameProviderWarning:$('game-provider-warning'),
+    gameOpenCount:$('game-open-count'), gameSettleCount:$('game-settle-count'), gameBetCount:$('game-bet-count'), gameCoinsStaked:$('game-coins-staked'),
+    gameCatalogFilters:$('game-catalog-filters'), gameDateFrom:$('game-date-from'), gameDateTo:$('game-date-to'),
+    gameCompetitionFilter:$('game-competition-filter'), gameStatusFilter:$('game-status-filter'), gameSearch:$('game-search'),
+    gameCatalogBody:$('game-catalog-body'), gameCatalogMeta:$('game-catalog-meta'), gamePublishedBody:$('game-published-body'),
+    gameSettlementBody:$('game-settlement-body'), gameHistoryBody:$('game-history-body'), badgeGameResults:$('badge-game-results'),
+    gameMatchModal:$('game-match-modal'), gameMatchForm:$('game-match-form'), gameExternalMatchId:$('game-external-match-id'),
+    gameLocalMatchId:$('game-local-match-id'), gameModalTitle:$('game-modal-title'), gameModalPreview:$('game-modal-preview'),
+    gameMarketType:$('game-market-type'), gameLockMinutes:$('game-lock-minutes'), gameMinStake:$('game-min-stake'),
+    gameMaxStake:$('game-max-stake'), gameFeePercent:$('game-fee-percent'), gamePublishNow:$('game-publish-now'),
     broadcastTextarea:$('broadcast-textarea'), broadcastResult:$('broadcast-result'), btnSendBroadcast:$('btn-send-broadcast'),
     broadcastPhotoUrl:$('broadcast-photo-url'), broadcastBtnType:$('broadcast-btn-type'), broadcastBtnProductId:$('broadcast-btn-product-id'),
     broadcastBtnText:$('broadcast-btn-text'), broadcastBtnUrl:$('broadcast-btn-url'),
@@ -388,6 +405,16 @@ function setupEvents() {
     if (DOM.btnSupplierSync) DOM.btnSupplierSync.addEventListener('click', syncSupplierBot);
     if (DOM.supplierSettingsForm) DOM.supplierSettingsForm.addEventListener('submit', saveSupplierSettings);
     if (DOM.supplierProductSearch) DOM.supplierProductSearch.addEventListener('input', renderSupplierProducts);
+    if (DOM.btnGameRefresh) DOM.btnGameRefresh.addEventListener('click', () => loadGameManagement({forceCatalog:true}));
+    if (DOM.gameCatalogFilters) DOM.gameCatalogFilters.addEventListener('submit', event => {
+        event.preventDefault();
+        loadGameCatalog({force:false});
+    });
+    if (DOM.gameMatchForm) DOM.gameMatchForm.addEventListener('submit', saveGameMatch);
+    $$('.game-view-tab').forEach(button => button.addEventListener('click', () => setGameView(button.dataset.gameView)));
+    [DOM.gameCatalogBody, DOM.gamePublishedBody, DOM.gameSettlementBody].filter(Boolean).forEach(container => {
+        container.addEventListener('click', handleGameTableAction);
+    });
     
     if (DOM.statsProductSearch) {
         DOM.statsProductSearch.addEventListener('input', () => {
@@ -471,7 +498,7 @@ function setupEvents() {
         showModal(DOM.promoModal);
     });
     $('btn-open-binance-modal').addEventListener('click', openBinanceModal);
-    $$('.btn-close-modal').forEach(b => b.addEventListener('click', () => { [DOM.prodModal,DOM.stockModal,DOM.promoModal,DOM.tiersModal,DOM.orderDetailModal,DOM.viewStockModal,DOM.editProdModal,DOM.revenueModal,DOM.binanceModal,$('banModal'),$('finance-withdraw-modal'),$('finance-adjust-modal'), $('exportModal')].forEach(m => { if (m) hideModal(m); }); }));
+    $$('.btn-close-modal').forEach(b => b.addEventListener('click', () => { [DOM.prodModal,DOM.stockModal,DOM.promoModal,DOM.tiersModal,DOM.orderDetailModal,DOM.viewStockModal,DOM.editProdModal,DOM.revenueModal,DOM.binanceModal,DOM.gameMatchModal,$('banModal'),$('finance-withdraw-modal'),$('finance-adjust-modal'), $('exportModal')].forEach(m => { if (m) hideModal(m); }); }));
 
     
     if (DOM.prodDeliveryType) {
@@ -1155,6 +1182,7 @@ const tabRefreshLoaders = {
     'activations-tab': [loadProducts, loadActivations],
     'resellers-tab': [loadResellers],
     'supplier-bots-tab': [loadSupplierBot],
+    'game-tab': [loadGameManagement],
     'users-tab': [loadUsers],
     'tickets-tab': [loadTickets],
     'settings-tab': [loadProducts, loadPromos, loadPaymentSettings],
@@ -1271,10 +1299,15 @@ async function loadPerformanceMetrics() {
     DOM.perfDatabase.textContent = `${Number(database.p95_ms || 0).toFixed(0)} ms`;
     DOM.perfDbErrors.textContent = `${Number(database.connection_errors || 0)} erreur(s) connexion - ecriture p95 ${Number(databaseWrites.p95_wait_ms || 0).toFixed(0)} ms - ${Number(databaseWrites.timeouts || 0)} timeout(s)`;
     const slowestAction = (data.actions_5m || [])[0];
+    const slowestAction24h = (((data.history_24h || {}).actions) || [])[0];
     if (DOM.perfSlowestAction) {
-        DOM.perfSlowestAction.textContent = slowestAction
+        const recentText = slowestAction
             ? `Action la plus lente : ${slowestAction.action} - p95 ${Number(slowestAction.p95_ms || 0).toFixed(0)} ms (${Number(slowestAction.count || 0)} appel(s))`
             : 'Action la plus lente : collecte en cours';
+        const historyText = slowestAction24h
+            ? `24 h : ${slowestAction24h.action} - moyenne ${Number(slowestAction24h.average_ms || 0).toFixed(0)} ms (${Number(slowestAction24h.count || 0)} appel(s))`
+            : '24 h : collecte en cours';
+        DOM.perfSlowestAction.textContent = `${recentText} | ${historyText}`;
     }
     DOM.perfDiagnosis.textContent = diagnosisText;
 }
@@ -1886,9 +1919,9 @@ function renderPaymentReview(data) {
     if (DOM.paymentReviewLate) DOM.paymentReviewLate.textContent = Number(summary.late_after_cancel || 0);
     if (DOM.paymentReviewExpired) DOM.paymentReviewExpired.textContent = Number(summary.expired || 0);
     if (DOM.badgePaymentReview) {
-        const total = Number(summary.all || 0);
-        DOM.badgePaymentReview.textContent = total;
-        DOM.badgePaymentReview.classList.toggle('hidden', total === 0);
+        const underpaidAlerts = Number(summary.underpaid || 0);
+        DOM.badgePaymentReview.textContent = underpaidAlerts;
+        DOM.badgePaymentReview.classList.toggle('hidden', underpaidAlerts === 0);
     }
     if (!DOM.paymentReviewTableBody) return;
     const items = data.items || [];
@@ -2249,6 +2282,297 @@ window.revokeResellerKey = async function(id) {
         showLoading(false);
     }
 };
+
+function gameDateInputValue(dateValue) {
+    const date = dateValue instanceof Date ? dateValue : new Date(dateValue);
+    const offset = date.getTimezoneOffset() * 60000;
+    return new Date(date.getTime() - offset).toISOString().slice(0, 10);
+}
+
+function ensureGameDateRange() {
+    if (!DOM.gameDateFrom || !DOM.gameDateTo) return;
+    const today = new Date();
+    const week = new Date(today);
+    week.setDate(week.getDate() + 7);
+    if (!DOM.gameDateFrom.value) DOM.gameDateFrom.value = gameDateInputValue(today);
+    if (!DOM.gameDateTo.value) DOM.gameDateTo.value = gameDateInputValue(week);
+}
+
+function gameStatusBadge(status) {
+    const normalized = String(status || 'UNKNOWN').toUpperCase();
+    const labels = {
+        DRAFT:'Brouillon', OPEN:'Ouvert', LOCKED:'Verrouillé', SETTLING:'Règlement',
+        SETTLED:'Terminé', CANCELLED:'Annulé', SCHEDULED:'Programmé', TIMED:'Planifié',
+        IN_PLAY:'En cours', PAUSED:'Pause', FINISHED:'Terminé', POSTPONED:'Reporté', SUSPENDED:'Suspendu'
+    };
+    const cls = ['SETTLED','FINISHED'].includes(normalized) ? 'status-completed'
+        : ['CANCELLED','SUSPENDED'].includes(normalized) ? 'status-cancelled'
+        : ['OPEN','IN_PLAY'].includes(normalized) ? 'status-active' : 'status-pending';
+    return `<span class="status-badge ${cls}">${escapeHtml(labels[normalized] || normalized)}</span>`;
+}
+
+function gameTeamsHtml(match) {
+    const homeImage = match.home_crest ? `<img src="${escapeHtml(match.home_crest)}" alt="" loading="lazy">` : '';
+    const awayImage = match.away_crest ? `<img src="${escapeHtml(match.away_crest)}" alt="" loading="lazy">` : '';
+    return `<div class="game-team-cell">
+        <div class="game-team-line">${homeImage}<strong>${escapeHtml(match.home_name || 'Home')}</strong></div>
+        <div class="game-team-line">${awayImage}<strong>${escapeHtml(match.away_name || 'Away')}</strong></div>
+    </div>`;
+}
+
+function gameMarketLabel(market) {
+    return market === 'regulation' ? 'Résultat après 90 minutes' : 'Équipe qualifiée';
+}
+
+function gameSuggestedResult(match) {
+    if (match.market_type === 'qualified') return match.provider_winner || '';
+    if (match.regular_score_home == null || match.regular_score_away == null) return '';
+    const home = Number(match.regular_score_home);
+    const away = Number(match.regular_score_away);
+    if (!Number.isFinite(home) || !Number.isFinite(away)) return '';
+    return home > away ? 'home' : away > home ? 'away' : 'draw';
+}
+
+function gameCanConfigure(match) {
+    const status = String(match.provider_status || '').toUpperCase();
+    const startsAt = parseUTCDate(match.utc_date);
+    return ['SCHEDULED', 'TIMED'].includes(status)
+        && Number.isFinite(startsAt.getTime())
+        && startsAt.getTime() > Date.now();
+}
+
+function gameOutcomeLabel(match, outcome) {
+    if (outcome === 'home') return match.home_name || 'Home';
+    if (outcome === 'away') return match.away_name || 'Away';
+    if (outcome === 'draw') return 'Match nul';
+    return 'À choisir';
+}
+
+function setGameView(view) {
+    state.gameView = view || 'catalog';
+    $$('.game-view-tab').forEach(button => button.classList.toggle('active', button.dataset.gameView === state.gameView));
+    $$('.game-view').forEach(panel => panel.classList.toggle('active', panel.id === `game-${state.gameView}-view`));
+}
+
+async function loadGameManagement(options={}) {
+    ensureGameDateRange();
+    const [provider, saved] = await Promise.all([
+        apiCall('/api/game/provider'),
+        apiCall('/api/game/matches?include_cancelled=true'),
+    ]);
+    state.gameProvider = provider;
+    state.gameMatches = saved.matches || [];
+    renderGameManagement(saved.summary || provider.summary || {});
+    if (provider.configured) {
+        await loadGameCatalog({force:Boolean(options.forceCatalog)});
+    } else {
+        state.gameCatalog = [];
+        renderGameCatalog();
+    }
+}
+
+async function loadGameCatalog(options={}) {
+    ensureGameDateRange();
+    if (!state.gameProvider?.configured) return;
+    const params = new URLSearchParams({
+        date_from: DOM.gameDateFrom.value,
+        date_to: DOM.gameDateTo.value,
+    });
+    if (DOM.gameCompetitionFilter.value) params.set('competition', DOM.gameCompetitionFilter.value);
+    if (DOM.gameStatusFilter.value) params.set('provider_status', DOM.gameStatusFilter.value);
+    if (DOM.gameSearch.value.trim()) params.set('search', DOM.gameSearch.value.trim());
+    if (options.force) params.set('force', 'true');
+    const data = await apiCall(`/api/game/catalog?${params.toString()}`);
+    state.gameCatalog = data.matches || [];
+    const mergedCompetitions = new Map((state.gameCompetitions || []).map(item => [item.code, item]));
+    (data.competitions || []).forEach(item => mergedCompetitions.set(item.code, item));
+    state.gameCompetitions = [...mergedCompetitions.values()].sort((a,b) => a.name.localeCompare(b.name));
+    const selectedCode = DOM.gameCompetitionFilter.value;
+    DOM.gameCompetitionFilter.innerHTML = '<option value="">Toutes</option>' + state.gameCompetitions.map(item =>
+        `<option value="${escapeHtml(item.code)}">${escapeHtml(item.name)}</option>`
+    ).join('');
+    DOM.gameCompetitionFilter.value = selectedCode;
+    renderGameCatalog();
+}
+
+function renderGameManagement(summary={}) {
+    const configured = Boolean(state.gameProvider?.configured);
+    DOM.gameProviderStatus.textContent = configured ? 'football-data.org connecté' : 'Non configuré';
+    DOM.gameProviderWarning.classList.toggle('hidden', configured);
+    DOM.gameOpenCount.textContent = Number(summary.open || 0).toLocaleString();
+    DOM.gameSettleCount.textContent = Number(summary.locked || 0).toLocaleString();
+    DOM.gameBetCount.textContent = Number(summary.bets || 0).toLocaleString();
+    DOM.gameCoinsStaked.textContent = Number(summary.coins_staked || 0).toLocaleString();
+    renderSavedGameMatches();
+}
+
+function renderGameCatalog() {
+    if (!state.gameProvider?.configured) {
+        DOM.gameCatalogMeta.textContent = 'Configurez la clé du fournisseur dans Railway.';
+        DOM.gameCatalogBody.innerHTML = '<tr><td colspan="6" class="empty-state">API sportive non configurée.</td></tr>';
+        return;
+    }
+    DOM.gameCatalogMeta.textContent = `${state.gameCatalog.length} match(s) trouvé(s) pour la période sélectionnée.`;
+    if (!state.gameCatalog.length) {
+        DOM.gameCatalogBody.innerHTML = '<tr><td colspan="6" class="empty-state">Aucun match ne correspond aux filtres.</td></tr>';
+        return;
+    }
+    DOM.gameCatalogBody.innerHTML = state.gameCatalog.map(match => `
+        <tr>
+            <td><strong>${parseUTCDate(match.utc_date).toLocaleDateString()}</strong><span class="table-secondary">${parseUTCDate(match.utc_date).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span></td>
+            <td><strong>${escapeHtml(match.competition_name || 'Football')}</strong><span class="table-secondary">${escapeHtml(match.competition_code || '')}</span></td>
+            <td>${gameTeamsHtml(match)}</td>
+            <td>${escapeHtml(String(match.stage || '—').replaceAll('_', ' '))}</td>
+            <td>${gameStatusBadge(match.provider_status)}</td>
+            <td>${match.selected
+                ? '<span class="status-badge status-completed">Déjà ajouté</span>'
+                : gameCanConfigure(match)
+                    ? `<button class="btn-primary btn-sm" type="button" data-game-action="configure" data-external-id="${escapeHtml(match.external_match_id)}"><i class="fa-solid fa-plus"></i> Configurer</button>`
+                    : '<span class="status-badge status-pending">Indisponible</span>'}
+            </td>
+        </tr>`).join('');
+}
+
+function renderSavedGameMatches() {
+    const active = state.gameMatches.filter(match => ['DRAFT','OPEN','LOCKED','SETTLING'].includes(match.status));
+    const settlement = active.filter(match => ['FINISHED','AWARDED'].includes(String(match.provider_status || '').toUpperCase()));
+    const history = state.gameMatches.filter(match => ['SETTLED','CANCELLED'].includes(match.status));
+    DOM.gameSettleCount.textContent = settlement.length.toLocaleString();
+    DOM.badgeGameResults.textContent = settlement.length;
+    DOM.badgeGameResults.classList.toggle('hidden', settlement.length === 0);
+
+    DOM.gamePublishedBody.innerHTML = active.length ? active.map(match => `
+        <tr>
+            <td>${parseUTCDate(match.utc_date).toLocaleString()}</td>
+            <td>${gameTeamsHtml(match)}</td>
+            <td>${escapeHtml(gameMarketLabel(match.market_type))}</td>
+            <td>${parseUTCDate(match.lock_at).toLocaleString()}</td>
+            <td><strong>${Number(match.total_pool || 0).toLocaleString()}</strong><span class="table-secondary">${Number(match.bet_count || 0)} joueur(s)</span></td>
+            <td>${gameStatusBadge(match.status)}<span class="table-secondary">API: ${escapeHtml(match.provider_status || '—')}</span></td>
+            <td><div class="table-actions">
+                ${match.status === 'DRAFT' ? `<button class="btn-primary btn-sm" data-game-action="publish" data-match-id="${match.id}"><i class="fa-solid fa-paper-plane"></i> Publier</button>` : ''}
+                ${Number(match.bet_count || 0) === 0 ? `<button class="btn-secondary btn-sm" data-game-action="edit" data-match-id="${match.id}" title="Configurer"><i class="fa-solid fa-pen"></i></button>` : ''}
+                <button class="btn-secondary btn-sm" data-game-action="cancel" data-match-id="${match.id}" title="Annuler et rembourser"><i class="fa-solid fa-ban"></i></button>
+            </div></td>
+        </tr>`).join('') : '<tr><td colspan="7" class="empty-state">Aucun match publié.</td></tr>';
+
+    DOM.gameSettlementBody.innerHTML = settlement.length ? settlement.map(match => {
+        const suggestion = gameSuggestedResult(match);
+        const drawOption = match.market_type === 'regulation' ? '<option value="draw">Match nul</option>' : '';
+        return `<tr>
+            <td>${gameTeamsHtml(match)}</td>
+            <td><strong>${match.score_home ?? '—'} - ${match.score_away ?? '—'}</strong><span class="table-secondary">${escapeHtml(match.provider_status || '')}</span></td>
+            <td>${escapeHtml(gameMarketLabel(match.market_type))}</td>
+            <td><select id="game-result-${match.id}" class="form-control"><option value="">Choisir...</option><option value="home" ${suggestion === 'home' ? 'selected' : ''}>${escapeHtml(match.home_name)}</option>${drawOption}<option value="away" ${suggestion === 'away' ? 'selected' : ''}>${escapeHtml(match.away_name)}</option></select></td>
+            <td><strong>${Number(match.total_pool || 0).toLocaleString()} Batman Coins</strong><span class="table-secondary">${Number(match.bet_count || 0)} pronostic(s)</span></td>
+            <td><button class="btn-primary btn-sm" data-game-action="settle" data-match-id="${match.id}"><i class="fa-solid fa-check-double"></i> Confirmer</button></td>
+        </tr>`;
+    }).join('') : '<tr><td colspan="6" class="empty-state">Aucun résultat en attente.</td></tr>';
+
+    DOM.gameHistoryBody.innerHTML = history.length ? history.map(match => `
+        <tr><td>${parseUTCDate(match.utc_date).toLocaleString()}</td><td>${gameTeamsHtml(match)}</td>
+        <td>${escapeHtml(gameOutcomeLabel(match, match.result_outcome))}</td><td>${Number(match.bet_count || 0).toLocaleString()}</td><td>${gameStatusBadge(match.status)}</td></tr>
+    `).join('') : '<tr><td colspan="5" class="empty-state">Aucun historique.</td></tr>';
+}
+
+function openGameMatchModal(match, localMatch=null) {
+    state.currentGameMatch = match;
+    DOM.gameExternalMatchId.value = match.external_match_id || '';
+    DOM.gameLocalMatchId.value = localMatch?.id || '';
+    DOM.gameModalTitle.textContent = localMatch ? 'Configurer le match' : 'Publier un match';
+    DOM.gameModalPreview.innerHTML = `<strong>${escapeHtml(match.home_name)} - ${escapeHtml(match.away_name)}</strong><span>${escapeHtml(match.competition_name || 'Football')} · ${parseUTCDate(match.utc_date).toLocaleString()}</span>`;
+    DOM.gameMarketType.value = localMatch?.market_type || 'qualified';
+    const start = parseUTCDate(match.utc_date);
+    const lock = localMatch ? parseUTCDate(localMatch.lock_at) : new Date(start.getTime() - 10 * 60000);
+    const lockMinutes = Math.max(0, Math.round((start.getTime() - lock.getTime()) / 60000));
+    if (![...DOM.gameLockMinutes.options].some(option => Number(option.value) === lockMinutes)) {
+        DOM.gameLockMinutes.add(new Option(`${lockMinutes} minutes`, String(lockMinutes)));
+    }
+    DOM.gameLockMinutes.value = String(lockMinutes || 10);
+    DOM.gameMinStake.value = localMatch?.min_stake || 25;
+    DOM.gameMaxStake.value = localMatch?.max_stake || 500;
+    DOM.gameFeePercent.value = Number(localMatch?.fee_bps ?? 500) / 100;
+    DOM.gamePublishNow.checked = localMatch ? localMatch.status !== 'DRAFT' : true;
+    DOM.gamePublishNow.disabled = Boolean(localMatch);
+    $('game-match-submit').innerHTML = localMatch ? '<i class="fa-solid fa-floppy-disk"></i> Enregistrer' : '<i class="fa-solid fa-paper-plane"></i> Publier sur le bot';
+    showModal(DOM.gameMatchModal);
+}
+
+async function saveGameMatch(event) {
+    event.preventDefault();
+    const payload = {
+        market_type: DOM.gameMarketType.value,
+        lock_minutes: Number(DOM.gameLockMinutes.value),
+        min_stake: Number(DOM.gameMinStake.value),
+        max_stake: Number(DOM.gameMaxStake.value),
+        fee_bps: Math.round(Number(DOM.gameFeePercent.value) * 100),
+    };
+    if (payload.max_stake < payload.min_stake) {
+        showToast('La mise maximum doit être supérieure à la mise minimum.', 'error');
+        return;
+    }
+    showLoading(true);
+    try {
+        if (DOM.gameLocalMatchId.value) {
+            await apiCall(`/api/game/matches/${DOM.gameLocalMatchId.value}`, 'PUT', payload);
+            showToast('Configuration du match enregistrée.', 'success');
+        } else {
+            await apiCall('/api/game/matches', 'POST', {
+                ...payload,
+                external_match_id: DOM.gameExternalMatchId.value,
+                publish: DOM.gamePublishNow.checked,
+            });
+            showToast(DOM.gamePublishNow.checked ? 'Match publié sur le bot.' : 'Match enregistré en brouillon.', 'success');
+        }
+        hideModal(DOM.gameMatchModal);
+        await loadGameManagement();
+    } catch (error) {
+        showToast(`Impossible d'enregistrer le match : ${error.message}`, 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+async function handleGameTableAction(event) {
+    const button = event.target.closest('[data-game-action]');
+    if (!button) return;
+    const action = button.dataset.gameAction;
+    const matchId = Number(button.dataset.matchId || 0);
+    if (action === 'configure') {
+        const match = state.gameCatalog.find(item => String(item.external_match_id) === String(button.dataset.externalId));
+        if (match) openGameMatchModal(match);
+        return;
+    }
+    const localMatch = state.gameMatches.find(item => Number(item.id) === matchId);
+    if (!localMatch) return;
+    if (action === 'edit') {
+        openGameMatchModal(localMatch, localMatch);
+        return;
+    }
+    try {
+        showLoading(true);
+        if (action === 'publish') {
+            await apiCall(`/api/game/matches/${matchId}/publish`, 'POST');
+            showToast('Match publié.', 'success');
+        } else if (action === 'cancel') {
+            if (!confirm(`Annuler ${localMatch.home_name} - ${localMatch.away_name} et rembourser toutes les mises ?`)) return;
+            await apiCall(`/api/game/matches/${matchId}/cancel`, 'POST', {confirmation:`CANCEL ${matchId}`});
+            showToast('Match annulé et mises remboursées.', 'success');
+        } else if (action === 'settle') {
+            const result = $(`game-result-${matchId}`)?.value || '';
+            if (!result) throw new Error('Choisissez le résultat à appliquer.');
+            const label = gameOutcomeLabel(localMatch, result);
+            if (!confirm(`Distribuer les gains avec le résultat « ${label} » ? Cette opération est définitive.`)) return;
+            await apiCall(`/api/game/matches/${matchId}/settle`, 'POST', {result_outcome:result, confirmation:`SETTLE ${matchId}`});
+            showToast('Résultat confirmé et gains distribués.', 'success');
+        }
+        await loadGameManagement();
+    } catch (error) {
+        showToast(`Action impossible : ${error.message}`, 'error');
+    } finally {
+        showLoading(false);
+    }
+}
 
 async function loadSupplierBot() {
     if (!DOM.supplierProductsTableBody) return;
@@ -3059,12 +3383,13 @@ async function handleSaveCryptoSettings(e) {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // Category select removed — not needed
 
-const tabKeys = { 'dashboard-tab':'tab_dashboard','stats-tab':'tab_stats','inventory-tab':'tab_inventory','orders-tab':'tab_orders','payment-review-tab':'payment_review_title','activations-tab':'nav_activations','resellers-tab':'nav_resellers','supplier-bots-tab':'nav_supplier_bots','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
+const tabKeys = { 'dashboard-tab':'tab_dashboard','stats-tab':'tab_stats','inventory-tab':'tab_inventory','orders-tab':'tab_orders','payment-review-tab':'payment_review_title','activations-tab':'nav_activations','resellers-tab':'nav_resellers','supplier-bots-tab':'nav_supplier_bots','game-tab':'tab_game','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
 const tabContexts = {
     'dashboard-tab':'Vue opérationnelle', 'stats-tab':'Tendances de ventes et produits',
     'inventory-tab':'Produits, prix et disponibilité', 'orders-tab':'Paiements et livraisons',
     'activations-tab':'Demandes manuelles à traiter', 'resellers-tab':'Accès et activité API',
     'supplier-bots-tab':'Catalogue distant, marges et produits affichés',
+    'game-tab':'Catalogue sportif, matchs publiés et règlements',
     'payment-review-tab':'Anomalies NOWPayments et actions manuelles',
     'users-tab':'Clients, wallets et parrainages', 'tickets-tab':'Demandes de support ouvertes',
     'broadcast-tab':'Communication aux clients', 'settings-tab':'Connexion et paiements',

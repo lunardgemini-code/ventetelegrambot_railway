@@ -119,6 +119,19 @@ def parent_is_alive(parent_pid: int) -> bool:
         return False
 
 
+def resolve_restart_target_pid(parent_pid: int) -> int:
+    """Target PID 1 on Railway so a watchdog restart stops the whole container."""
+    railway_runtime = any(
+        os.environ.get(name)
+        for name in (
+            "RAILWAY_ENVIRONMENT_ID",
+            "RAILWAY_SERVICE_ID",
+            "RAILWAY_PUBLIC_DOMAIN",
+        )
+    )
+    return 1 if railway_runtime else int(parent_pid)
+
+
 def _stderr_log(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
@@ -135,6 +148,7 @@ def monitor_parent(
     log: Callable[[str], None] = _stderr_log,
     diagnostic_signal: int | None = None,
     kill_signal: int | None = None,
+    restart_pid: int | None = None,
 ) -> int:
     """Monitor the parent without sharing its interpreter or event loop."""
     if not is_alive(parent_pid):
@@ -151,6 +165,7 @@ def monitor_parent(
         else diagnostic_signal
     )
     kill_signal = getattr(signal, "SIGKILL", signal.SIGTERM) if kill_signal is None else kill_signal
+    restart_pid = int(parent_pid if restart_pid is None else restart_pid)
 
     while is_alive(parent_pid):
         healthy = False
@@ -181,9 +196,17 @@ def monitor_parent(
                         return 0
                 if config.diagnostic_delay_seconds:
                     sleeper(config.diagnostic_delay_seconds)
-                if is_alive(parent_pid):
+                # On Railway the Python process may be wrapped by PID 1. Kill
+                # PID 1 even if Python disappeared while diagnostics ran, so
+                # the platform observes a real container failure and applies
+                # its restart policy.
+                if restart_pid != parent_pid or is_alive(parent_pid):
                     try:
-                        send_signal(parent_pid, kill_signal)
+                        log(
+                            "Process watchdog: terminating restart target "
+                            f"PID {restart_pid}"
+                        )
+                        send_signal(restart_pid, kill_signal)
                     except (ProcessLookupError, PermissionError, OSError):
                         return 0
                 return 2
@@ -212,6 +235,8 @@ def start_process_watchdog(
         "--monitor",
         "--parent-pid",
         str(int(parent_pid)),
+        "--restart-pid",
+        str(resolve_restart_target_pid(parent_pid)),
         "--port",
         str(int(port)),
         "--startup-grace",
@@ -230,7 +255,12 @@ def start_process_watchdog(
         stdin=subprocess.DEVNULL,
         close_fds=True,
     )
-    logger.info("Process watchdog started (pid=%s)", process.pid)
+    logger.info(
+        "Process watchdog started (pid=%s, parent_pid=%s, restart_pid=%s)",
+        process.pid,
+        parent_pid,
+        resolve_restart_target_pid(parent_pid),
+    )
     return process
 
 
@@ -254,6 +284,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Monitor a VenteBot web process")
     parser.add_argument("--monitor", action="store_true", required=True)
     parser.add_argument("--parent-pid", type=int, required=True)
+    parser.add_argument("--restart-pid", type=int)
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--startup-grace", type=float, required=True)
     parser.add_argument("--interval", type=float, required=True)
@@ -273,7 +304,12 @@ def main(argv: list[str] | None = None) -> int:
         failure_threshold=max(2, args.failures),
         diagnostic_delay_seconds=max(0.0, args.diagnostic_delay),
     )
-    return monitor_parent(args.parent_pid, args.port, config)
+    return monitor_parent(
+        args.parent_pid,
+        args.port,
+        config,
+        restart_pid=args.restart_pid,
+    )
 
 
 if __name__ == "__main__":

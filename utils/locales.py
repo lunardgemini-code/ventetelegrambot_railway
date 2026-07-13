@@ -1478,6 +1478,12 @@ TRANSLATIONS["ru"].update({
 })
 
 
+from utils.game_locales import GAME_TRANSLATIONS
+
+for _game_lang, _game_strings in GAME_TRANSLATIONS.items():
+    TRANSLATIONS.setdefault(_game_lang, {}).update(_game_strings)
+
+
 def t(key: str, lang: str = "fr") -> str:
     """Get a translated string by key and language code.
 

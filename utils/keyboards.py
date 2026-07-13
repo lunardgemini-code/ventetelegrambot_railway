@@ -103,6 +103,7 @@ def main_menu_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
             make_button("btn_support", lang, callback_data="menu_support"),
             make_button("btn_referral", lang, callback_data="show_referrals"),
         ],
+        [make_button("btn_game", lang, callback_data="menu_game")],
         [make_button("btn_api", lang, callback_data="menu_api")],
         [make_button("btn_channel", lang, url=channel_url)],
         [make_button("btn_language", lang, callback_data="change_lang")],
@@ -161,6 +162,85 @@ def reseller_api_confirm_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [make_button("btn_confirm_generate_api_key", lang, callback_data="api_confirm_generate_key")],
         [make_button("btn_back", lang, callback_data="menu_api")],
+    ])
+
+
+def game_home_keyboard(matches: list[dict], wallet: dict, lang: str = "fr") -> InlineKeyboardMarkup:
+    buttons = []
+    if wallet.get("claim_available"):
+        buttons.append([
+            InlineKeyboardButton(
+                t("game_claim_button", lang).format(amount=wallet.get("daily_claim", 300)),
+                callback_data="game_claim",
+                style=KeyboardButtonStyle.SUCCESS,
+            )
+        ])
+    for match in matches:
+        home = str(match.get("home_name") or "Home")
+        away = str(match.get("away_name") or "Away")
+        label = f"⚽ {home} - {away}"
+        if len(label) > 60:
+            label = label[:57] + "..."
+        buttons.append([InlineKeyboardButton(label, callback_data=f"game_match:{match['id']}")])
+    buttons.append([
+        InlineKeyboardButton(t("game_my_bets_button", lang), callback_data="game_my_bets"),
+        InlineKeyboardButton(t("game_leaderboard_button", lang), callback_data="game_leaderboard"),
+    ])
+    buttons.append([make_button("btn_back", lang, callback_data="back_main")])
+    return InlineKeyboardMarkup(buttons)
+
+
+def game_match_keyboard(match: dict, lang: str = "fr") -> InlineKeyboardMarkup:
+    buttons = [[
+        InlineKeyboardButton(
+            str(match.get("home_name") or "Home")[:28],
+            callback_data=f"game_pick:{match['id']}:home",
+        ),
+        InlineKeyboardButton(
+            str(match.get("away_name") or "Away")[:28],
+            callback_data=f"game_pick:{match['id']}:away",
+        ),
+    ]]
+    if match.get("market_type") == "regulation":
+        buttons.insert(1, [
+            InlineKeyboardButton(t("game_draw_button", lang), callback_data=f"game_pick:{match['id']}:draw")
+        ])
+    buttons.append([InlineKeyboardButton(t("game_back_matches", lang), callback_data="menu_game")])
+    return InlineKeyboardMarkup(buttons)
+
+
+def game_stake_keyboard(match: dict, outcome: str, balance: int, lang: str = "fr") -> InlineKeyboardMarkup:
+    minimum = int(match.get("min_stake") or 25)
+    maximum = min(int(match.get("max_stake") or 500), max(0, int(balance)))
+    amounts = sorted({minimum, 50, 100, 200, 300, maximum})
+    amounts = [amount for amount in amounts if minimum <= amount <= maximum]
+    rows = []
+    for index in range(0, len(amounts), 3):
+        rows.append([
+            InlineKeyboardButton(
+                f"{amount} coins",
+                callback_data=f"game_amount:{match['id']}:{outcome}:{amount}",
+            )
+            for amount in amounts[index:index + 3]
+        ])
+    rows.append([InlineKeyboardButton(t("game_back_match", lang), callback_data=f"game_match:{match['id']}")])
+    return InlineKeyboardMarkup(rows)
+
+
+def game_confirm_keyboard(match_id: int, outcome: str, amount: int, lang: str = "fr") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            t("game_confirm_button", lang),
+            callback_data=f"game_confirm:{match_id}:{outcome}:{amount}",
+            style=KeyboardButtonStyle.SUCCESS,
+        )],
+        [InlineKeyboardButton(t("btn_cancel", lang), callback_data=f"game_match:{match_id}")],
+    ])
+
+
+def game_simple_back_keyboard(callback_data: str, lang: str = "fr") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(t("game_back_matches", lang), callback_data=callback_data)]
     ])
 
 

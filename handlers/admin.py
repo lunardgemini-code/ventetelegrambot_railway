@@ -629,10 +629,17 @@ async def admin_add_stock_receive(update: Update, context: ContextTypes.DEFAULT_
         count = await add_stock_items(prod_id, items)
         new_stock = await get_stock_count(prod_id)
         try:
-            from handlers.products import notify_restock_subscribers
-            asyncio.create_task(notify_restock_subscribers(context.bot, prod_id))
+            from services.background_jobs import enqueue_restock_notification
+
+            await enqueue_restock_notification(prod_id)
         except Exception:
-            logger.warning("Could not schedule restock subscriber notifications", exc_info=True)
+            logger.warning(
+                "Could not persist restock notifications; using direct fallback",
+                exc_info=True,
+            )
+            from handlers.products import notify_restock_subscribers
+
+            asyncio.create_task(notify_restock_subscribers(context.bot, prod_id))
 
         # Store stock info in user_data for potential broadcast
         ud = context.user_data
@@ -806,9 +813,33 @@ async def _run_admin_broadcast(bot, status_message, text, photo_file_id=None, re
             pass
 
 
+async def _persist_admin_broadcast(bot, status_message, text, photo_file_id=None, reply_markup=None) -> None:
+    try:
+        from services.background_jobs import enqueue_broadcast_job
+
+        chat_id = getattr(status_message, "chat_id", None)
+        if chat_id is None:
+            chat_id = getattr(getattr(status_message, "chat", None), "id", None)
+        await enqueue_broadcast_job(
+            text,
+            photo=photo_file_id,
+            reply_markup=reply_markup,
+            source="telegram_admin",
+            status_chat_id=chat_id,
+            status_message_id=getattr(status_message, "message_id", None),
+        )
+        try:
+            await status_message.edit_text("Broadcast ajoute a la file persistante...")
+        except Exception:
+            pass
+    except Exception:
+        logger.warning("Could not persist admin broadcast; using direct fallback", exc_info=True)
+        await _run_admin_broadcast(bot, status_message, text, photo_file_id, reply_markup)
+
+
 def _queue_admin_broadcast(bot, status_message, text, photo_file_id=None, reply_markup=None) -> None:
     task = asyncio.create_task(
-        _run_admin_broadcast(bot, status_message, text, photo_file_id, reply_markup)
+        _persist_admin_broadcast(bot, status_message, text, photo_file_id, reply_markup)
     )
     _admin_broadcast_tasks.add(task)
     task.add_done_callback(_admin_broadcast_tasks.discard)

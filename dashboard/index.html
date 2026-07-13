@@ -8,13 +8,13 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
-    <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="revamp.css?v=20260712-load-scheduling">
+    <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+    <link rel="stylesheet" href="style.css?v=20260713-performance">
+    <link rel="stylesheet" href="revamp.css?v=20260713-performance">
 </head>
 <body>
     <!-- Login Screen -->
@@ -67,6 +67,7 @@
                 <a href="#" class="menu-item" data-tab="tickets-tab"><i class="fa-solid fa-ticket"></i> <span data-i18n="nav_tickets">Tickets</span><span id="badge-tickets" class="badge hidden">0</span></a>
                 <a href="#" class="menu-item" data-tab="resellers-tab"><i class="fa-solid fa-handshake"></i> <span data-i18n="nav_resellers">Revendeurs</span></a>
                 <a href="#" class="menu-item" data-tab="supplier-bots-tab"><i class="fa-solid fa-plug-circle-bolt"></i> <span data-i18n="nav_supplier_bots">API Bot Gestion</span></a>
+                <a href="#" class="menu-item" data-tab="game-tab"><i class="fa-solid fa-trophy"></i> <span data-i18n="nav_game">Jeu & Matchs</span><span id="badge-game-results" class="badge hidden">0</span></a>
                 <a href="#" class="menu-item" data-external="api-docs"><i class="fa-solid fa-book-open"></i> <span data-i18n="nav_api_docs">Documentation API</span></a>
                 <p class="nav-section-label">Outils</p>
                 <a href="#" class="menu-item" data-tab="binance-tab"><i class="fa-brands fa-btc"></i> <span data-i18n="nav_binance">Comptes Binance</span></a>
@@ -644,6 +645,64 @@
                 </div>
             </section>
 
+            <!-- Virtual match prediction game -->
+            <section id="game-tab" class="tab-content">
+                <div class="flex-justify mb-4 game-heading">
+                    <div><p class="eyebrow">Match Arena</p><h2><i class="fa-solid fa-trophy"></i> Jeu & Matchs</h2><p>Choisissez les matchs du fournisseur qui seront visibles dans le bot.</p></div>
+                    <button id="btn-game-refresh" class="btn-primary btn-sm" type="button"><i class="fa-solid fa-arrows-rotate"></i> Actualiser le catalogue</button>
+                </div>
+
+                <div class="game-status-strip glass-panel">
+                    <div><span>Fournisseur</span><strong id="game-provider-status">Non configuré</strong></div>
+                    <div><span>Matchs ouverts</span><strong id="game-open-count">0</strong></div>
+                    <div><span>À régler</span><strong id="game-settle-count">0</strong></div>
+                    <div><span>Pronostics</span><strong id="game-bet-count">0</strong></div>
+                    <div><span>Batman Coins engagés</span><strong id="game-coins-staked">0</strong></div>
+                </div>
+
+                <div id="game-provider-warning" class="glass-panel game-provider-warning hidden">
+                    <i class="fa-solid fa-circle-info"></i>
+                    <div><strong>API sportive non configurée</strong><p>Ajoutez <code>FOOTBALL_DATA_API_KEY</code> dans les variables Railway. Aucun appel externe n'est effectué sans cette clé.</p></div>
+                </div>
+
+                <div class="game-view-tabs" role="tablist">
+                    <button class="game-view-tab active" type="button" data-game-view="catalog">Catalogue</button>
+                    <button class="game-view-tab" type="button" data-game-view="published">Matchs publiés</button>
+                    <button class="game-view-tab" type="button" data-game-view="settlement">Résultats à confirmer</button>
+                    <button class="game-view-tab" type="button" data-game-view="history">Historique</button>
+                </div>
+
+                <div id="game-catalog-view" class="game-view active">
+                    <form id="game-catalog-filters" class="glass-panel game-filter-bar">
+                        <div class="form-group"><label for="game-date-from">Du</label><input id="game-date-from" type="date" required></div>
+                        <div class="form-group"><label for="game-date-to">Au</label><input id="game-date-to" type="date" required></div>
+                        <div class="form-group"><label for="game-competition-filter">Compétition</label><select id="game-competition-filter"><option value="">Toutes</option></select></div>
+                        <div class="form-group"><label for="game-status-filter">Statut</label><select id="game-status-filter"><option value="">Tous</option><option value="SCHEDULED">Programmé</option><option value="TIMED">Planifié</option><option value="IN_PLAY">En cours</option><option value="FINISHED">Terminé</option></select></div>
+                        <div class="form-group game-search-field"><label for="game-search">Recherche</label><input id="game-search" type="search" placeholder="Équipe, compétition, phase..."></div>
+                        <button class="btn-primary btn-sm" type="submit"><i class="fa-solid fa-filter"></i> Filtrer</button>
+                    </form>
+                    <div class="game-table-heading"><div><h3>Matchs disponibles</h3><p id="game-catalog-meta">Chargez le catalogue pour commencer.</p></div></div>
+                    <div class="glass-panel overflow-hidden">
+                        <table class="data-table game-matches-table"><thead><tr><th>Date</th><th>Compétition</th><th>Match</th><th>Phase</th><th>Statut</th><th>Action</th></tr></thead><tbody id="game-catalog-body"><tr><td colspan="6" class="empty-state">Aucun match chargé.</td></tr></tbody></table>
+                    </div>
+                </div>
+
+                <div id="game-published-view" class="game-view">
+                    <div class="game-table-heading"><div><h3>Matchs publiés</h3><p>Seuls ces matchs sont synchronisés en arrière-plan et visibles par les clients.</p></div></div>
+                    <div class="glass-panel overflow-hidden"><table class="data-table game-matches-table"><thead><tr><th>Date</th><th>Match</th><th>Marché</th><th>Fermeture</th><th>Pot</th><th>Statut</th><th>Actions</th></tr></thead><tbody id="game-published-body"><tr><td colspan="7" class="empty-state">Aucun match publié.</td></tr></tbody></table></div>
+                </div>
+
+                <div id="game-settlement-view" class="game-view">
+                    <div class="game-table-heading"><div><h3>Résultats à confirmer</h3><p>Le résultat du fournisseur est proposé, mais aucun gain ne part sans confirmation.</p></div></div>
+                    <div class="glass-panel overflow-hidden"><table class="data-table game-matches-table"><thead><tr><th>Match</th><th>Score API</th><th>Marché</th><th>Résultat proposé</th><th>Pot</th><th>Action</th></tr></thead><tbody id="game-settlement-body"><tr><td colspan="6" class="empty-state">Aucun résultat en attente.</td></tr></tbody></table></div>
+                </div>
+
+                <div id="game-history-view" class="game-view">
+                    <div class="game-table-heading"><div><h3>Historique</h3><p>Matchs réglés ou annulés et résultat appliqué.</p></div></div>
+                    <div class="glass-panel overflow-hidden"><table class="data-table game-matches-table"><thead><tr><th>Date</th><th>Match</th><th>Résultat</th><th>Pronostics</th><th>Statut</th></tr></thead><tbody id="game-history-body"><tr><td colspan="5" class="empty-state">Aucun historique.</td></tr></tbody></table></div>
+                </div>
+            </section>
+
             <!-- Users Tab -->
             <section id="users-tab" class="tab-content">
                 <div class="flex-justify mb-4"><h2 data-i18n="users_title">Gestion des Utilisateurs</h2></div>
@@ -773,6 +832,28 @@
     </div>
 
     <!-- Category modal removed — categories no longer used -->
+
+    <div id="game-match-modal" class="modal-overlay hidden">
+        <div class="modal-card glass-panel animate-slide game-match-modal-card">
+            <div class="modal-header"><div><p class="eyebrow">Configuration</p><h3 id="game-modal-title">Publier un match</h3></div><button class="btn-close-modal" type="button"><i class="fa-solid fa-xmark"></i></button></div>
+            <form id="game-match-form">
+                <input id="game-external-match-id" type="hidden">
+                <input id="game-local-match-id" type="hidden">
+                <div id="game-modal-preview" class="game-modal-preview"></div>
+                <div class="form-row">
+                    <div class="form-group"><label for="game-market-type">Marché</label><select id="game-market-type"><option value="qualified">Équipe qualifiée</option><option value="regulation">Résultat après 90 minutes</option></select></div>
+                    <div class="form-group"><label for="game-lock-minutes">Fermer avant le début</label><select id="game-lock-minutes"><option value="5">5 minutes</option><option value="10" selected>10 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">1 heure</option></select></div>
+                </div>
+                <div class="form-row game-config-numbers">
+                    <div class="form-group"><label for="game-min-stake">Mise minimum</label><input id="game-min-stake" type="number" min="1" step="1" value="25" required></div>
+                    <div class="form-group"><label for="game-max-stake">Mise maximum</label><input id="game-max-stake" type="number" min="1" step="1" value="500" required></div>
+                    <div class="form-group"><label for="game-fee-percent">Batman Coins brûlés (%)</label><input id="game-fee-percent" type="number" min="0" max="25" step="0.5" value="5" required></div>
+                </div>
+                <label class="game-publish-control"><input id="game-publish-now" type="checkbox" checked><span><strong>Publier maintenant</strong><small>Sinon le match restera en brouillon.</small></span></label>
+                <div class="modal-actions"><button type="button" class="btn-secondary btn-close-modal">Annuler</button><button id="game-match-submit" type="submit" class="btn-primary"><i class="fa-solid fa-paper-plane"></i> Publier sur le bot</button></div>
+            </form>
+        </div>
+    </div>
 
     <!-- Modal: Add Product -->
     <div id="prod-modal" class="modal-overlay hidden">
@@ -1231,7 +1312,7 @@
 </div>
 
 
-    <script src="app.js?v=20260712-load-scheduling"></script>
+<script defer src="app.js?v=20260713-performance"></script>
     <script>
     /* ── Mobile Sidebar Toggle ── */
     (function() {

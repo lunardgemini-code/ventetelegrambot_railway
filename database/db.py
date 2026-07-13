@@ -587,6 +587,21 @@ async def init_db() -> None:
     """Crée toutes les tables nécessaires si elles n'existent pas encore."""
     db = await get_db()
     try:
+        await db.execute(
+            """CREATE TABLE IF NOT EXISTS schema_migrations (
+                version INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )"""
+        )
+        await db.commit()
+        cursor = await db.execute(
+            "SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations"
+        )
+        version_row = await cursor.fetchone()
+        current_version = int(version_row["version"] if version_row else 0)
+        run_legacy_bootstrap = current_version < 1
+
         tables = [
             """CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -931,9 +946,10 @@ async def init_db() -> None:
             )""",
         ]
 
-        for sql in tables:
-            await db.execute(sql)
-        await db.commit()
+        if run_legacy_bootstrap:
+            for sql in tables:
+                await db.execute(sql)
+            await db.commit()
 
         migrations = [
             "ALTER TABLE users ADD COLUMN wallet_balance REAL DEFAULT 0",
@@ -1062,6 +1078,7 @@ async def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_supplier_orders_status ON supplier_orders(status, updated_at)",
         ]
         table_columns: dict[str, set[str]] = {}
+        migration_errors: list[tuple[str, Exception]] = []
 
         async def _columns_for(table_name: str) -> set[str]:
             if table_name not in table_columns:
@@ -1071,22 +1088,173 @@ async def init_db() -> None:
                 }
             return table_columns[table_name]
 
-        for sql in migrations:
-            try:
-                parts = sql.strip().split()
-                if len(parts) >= 6 and parts[:2] == ["ALTER", "TABLE"] and parts[3:5] == ["ADD", "COLUMN"]:
-                    table_name = parts[2]
-                    column_name = parts[5]
-                    columns = await _columns_for(table_name)
-                    if column_name in columns:
+        if run_legacy_bootstrap:
+            for sql in migrations:
+                try:
+                    parts = sql.strip().split()
+                    if len(parts) >= 6 and parts[:2] == ["ALTER", "TABLE"] and parts[3:5] == ["ADD", "COLUMN"]:
+                        table_name = parts[2]
+                        column_name = parts[5]
+                        columns = await _columns_for(table_name)
+                        if column_name in columns:
+                            continue
+                        await db.execute(sql)
+                        columns.add(column_name)
                         continue
                     await db.execute(sql)
-                    columns.add(column_name)
-                    continue
+                except Exception as e:
+                    migration_errors.append((sql, e))
+                    logger.warning("Migration failed for %s: %s", sql, e)
+            await db.commit()
+            if not migration_errors:
+                await db.execute(
+                    "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (1, ?)",
+                    ("legacy_schema_bootstrap",),
+                )
+                await db.commit()
+                current_version = 1
+            else:
+                logger.warning(
+                    "Legacy schema bootstrap remains pending after %d migration error(s)",
+                    len(migration_errors),
+                )
+
+        if 1 <= current_version < 2:
+            version_two_statements = [
+                """CREATE TABLE IF NOT EXISTS background_jobs (
+                    id TEXT PRIMARY KEY,
+                    job_type TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'queued',
+                    payload_json TEXT NOT NULL DEFAULT '{}',
+                    progress_done INTEGER NOT NULL DEFAULT 0,
+                    progress_failed INTEGER NOT NULL DEFAULT 0,
+                    progress_total INTEGER NOT NULL DEFAULT 0,
+                    cursor_value INTEGER NOT NULL DEFAULT 0,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    max_attempts INTEGER NOT NULL DEFAULT 3,
+                    available_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    claimed_at TIMESTAMP,
+                    error TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP
+                )""",
+                "CREATE INDEX IF NOT EXISTS idx_background_jobs_ready ON background_jobs(status, available_at, created_at)",
+                "CREATE INDEX IF NOT EXISTS idx_background_jobs_claimed ON background_jobs(status, claimed_at)",
+                """CREATE TABLE IF NOT EXISTS performance_action_hourly (
+                    bucket_hour TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    sample_count INTEGER NOT NULL DEFAULT 0,
+                    error_count INTEGER NOT NULL DEFAULT 0,
+                    total_duration_ms REAL NOT NULL DEFAULT 0,
+                    max_duration_ms REAL NOT NULL DEFAULT 0,
+                    PRIMARY KEY (bucket_hour, action)
+                )""",
+                "CREATE INDEX IF NOT EXISTS idx_performance_action_hour ON performance_action_hourly(bucket_hour)",
+            ]
+            for sql in version_two_statements:
                 await db.execute(sql)
-            except Exception as e:
-                logger.warning("Migration failed for %s: %s", sql, e)
-        await db.commit()
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (2, ?)",
+                ("persistent_jobs_and_performance_history",),
+            )
+            await db.commit()
+            current_version = 2
+
+        if 2 <= current_version < 3:
+            version_three_statements = [
+                """CREATE TABLE IF NOT EXISTS game_matches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    provider TEXT NOT NULL DEFAULT 'football-data',
+                    external_match_id TEXT NOT NULL,
+                    competition_code TEXT DEFAULT '',
+                    competition_name TEXT NOT NULL DEFAULT '',
+                    competition_emblem TEXT DEFAULT '',
+                    stage TEXT DEFAULT '',
+                    home_external_id TEXT DEFAULT '',
+                    home_name TEXT NOT NULL,
+                    home_code TEXT DEFAULT '',
+                    home_crest TEXT DEFAULT '',
+                    away_external_id TEXT DEFAULT '',
+                    away_name TEXT NOT NULL,
+                    away_code TEXT DEFAULT '',
+                    away_crest TEXT DEFAULT '',
+                    utc_date TEXT NOT NULL,
+                    provider_status TEXT NOT NULL DEFAULT 'SCHEDULED',
+                    provider_winner TEXT,
+                    score_home INTEGER,
+                    score_away INTEGER,
+                    regular_score_home INTEGER,
+                    regular_score_away INTEGER,
+                    market_type TEXT NOT NULL DEFAULT 'qualified',
+                    status TEXT NOT NULL DEFAULT 'DRAFT',
+                    lock_at TEXT NOT NULL,
+                    min_stake INTEGER NOT NULL DEFAULT 25,
+                    max_stake INTEGER NOT NULL DEFAULT 500,
+                    fee_bps INTEGER NOT NULL DEFAULT 500,
+                    result_outcome TEXT,
+                    raw_payload TEXT NOT NULL DEFAULT '{}',
+                    last_synced_at TEXT,
+                    next_sync_at TEXT,
+                    published_at TEXT,
+                    settled_at TEXT,
+                    cancelled_at TEXT,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(provider, external_match_id)
+                )""",
+                """CREATE TABLE IF NOT EXISTS game_wallets (
+                    user_telegram_id INTEGER PRIMARY KEY,
+                    balance INTEGER NOT NULL DEFAULT 0,
+                    last_claim_date TEXT,
+                    lifetime_earned INTEGER NOT NULL DEFAULT 0,
+                    lifetime_spent INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_telegram_id) REFERENCES users(telegram_id)
+                )""",
+                """CREATE TABLE IF NOT EXISTS game_bets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    match_id INTEGER NOT NULL,
+                    user_telegram_id INTEGER NOT NULL,
+                    outcome TEXT NOT NULL,
+                    stake INTEGER NOT NULL,
+                    payout INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'ACTIVE',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    settled_at TEXT,
+                    UNIQUE(match_id, user_telegram_id),
+                    FOREIGN KEY (match_id) REFERENCES game_matches(id),
+                    FOREIGN KEY (user_telegram_id) REFERENCES users(telegram_id)
+                )""",
+                """CREATE TABLE IF NOT EXISTS game_ledger (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_telegram_id INTEGER NOT NULL,
+                    amount INTEGER NOT NULL,
+                    balance_after INTEGER NOT NULL,
+                    event_type TEXT NOT NULL,
+                    reference_type TEXT DEFAULT '',
+                    reference_id TEXT DEFAULT '',
+                    idempotency_key TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_telegram_id) REFERENCES users(telegram_id)
+                )""",
+                "CREATE INDEX IF NOT EXISTS idx_game_matches_status_lock ON game_matches(status, lock_at)",
+                "CREATE INDEX IF NOT EXISTS idx_game_matches_sync ON game_matches(status, next_sync_at)",
+                "CREATE INDEX IF NOT EXISTS idx_game_matches_date ON game_matches(utc_date)",
+                "CREATE INDEX IF NOT EXISTS idx_game_bets_match_outcome ON game_bets(match_id, outcome, status)",
+                "CREATE INDEX IF NOT EXISTS idx_game_bets_user_created ON game_bets(user_telegram_id, created_at DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_game_ledger_user_created ON game_ledger(user_telegram_id, created_at DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_game_wallets_balance ON game_wallets(balance DESC)",
+            ]
+            for sql in version_three_statements:
+                await db.execute(sql)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (3, ?)",
+                ("virtual_match_game",),
+            )
+            await db.commit()
+            current_version = 3
 
     finally:
         await db.close()

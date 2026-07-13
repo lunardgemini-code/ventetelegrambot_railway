@@ -90,18 +90,30 @@ async def execute_broadcast(
     photo: str | None = None,
     reply_markup=None,
     progress: Callable[[int, int, int], Awaitable[None] | None] | None = None,
+    checkpoint: Callable[[int, int, int, int], Awaitable[None] | None] | None = None,
+    start_offset: int = 0,
+    max_user_id: int | None = None,
+    initial_sent: int = 0,
+    initial_failed: int = 0,
 ) -> tuple[int, int, int]:
     """Send a rate-controlled broadcast and return sent, failed, total."""
     text = str(text or "")
     photo = str(photo or "").strip() or None
     validate_broadcast_content(text, photo)
     users = [user for user in await get_all_users() if not user.get("is_banned")]
+    users.sort(key=lambda user: int(user.get("id") or user.get("telegram_id") or 0))
+    if max_user_id is not None:
+        users = [
+            user for user in users
+            if int(user.get("id") or user.get("telegram_id") or 0) <= int(max_user_id)
+        ]
     total = len(users)
-    sent = 0
-    failed = 0
+    start_offset = min(total, max(0, int(start_offset)))
+    sent = max(0, int(initial_sent))
+    failed = max(0, int(initial_failed))
 
     async with _BROADCAST_LOCK:
-        for offset in range(0, total, _BATCH_SIZE):
+        for offset in range(start_offset, total, _BATCH_SIZE):
             batch = users[offset:offset + _BATCH_SIZE]
             results = await asyncio.gather(*(
                 _send_one(bot, int(user["telegram_id"]), text, photo, reply_markup)
@@ -113,6 +125,11 @@ async def execute_broadcast(
                 progress_result = progress(sent, failed, total)
                 if asyncio.iscoroutine(progress_result):
                     await progress_result
+            next_offset = min(total, offset + len(batch))
+            if checkpoint:
+                checkpoint_result = checkpoint(sent, failed, total, next_offset)
+                if asyncio.iscoroutine(checkpoint_result):
+                    await checkpoint_result
             if offset + _BATCH_SIZE < total:
                 await asyncio.sleep(1.0)
 

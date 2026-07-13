@@ -51,6 +51,23 @@ CANBOSO_API_AUTH_HEADER: str = os.getenv(
     "CANBOSO_API_AUTH_HEADER", "X-API-Key"
 ).strip() or "X-API-Key"
 
+# Optional sports catalog used by the virtual prediction game. The provider
+# key stays server-side; the dashboard only talks to VenteBot's admin API.
+FOOTBALL_DATA_API_KEY: str = os.getenv("FOOTBALL_DATA_API_KEY", "").strip()
+FOOTBALL_DATA_BASE_URL: str = os.getenv(
+    "FOOTBALL_DATA_BASE_URL", "https://api.football-data.org/v4"
+).strip().rstrip("/")
+GAME_DAILY_CLAIM: int = max(1, int(os.getenv("GAME_DAILY_CLAIM", "300")))
+GAME_DEFAULT_MIN_STAKE: int = max(1, int(os.getenv("GAME_DEFAULT_MIN_STAKE", "25")))
+GAME_DEFAULT_MAX_STAKE: int = max(
+    GAME_DEFAULT_MIN_STAKE,
+    int(os.getenv("GAME_DEFAULT_MAX_STAKE", "500")),
+)
+GAME_DEFAULT_FEE_BPS: int = min(
+    2500,
+    max(0, int(os.getenv("GAME_DEFAULT_FEE_BPS", "500"))),
+)
+
 
 # ── Identifiants des administrateurs (séparés par des virgules) ────
 ADMIN_IDS: list[int] = [
