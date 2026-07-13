@@ -81,6 +81,26 @@ class PerformanceMetricsTests(unittest.TestCase):
 
         self.assertEqual(result["diagnosis"]["bottleneck"], "database")
 
+    def test_write_queue_timeout_is_reported_as_database_bottleneck(self):
+        db_metrics = {
+            "operations": 5,
+            "errors": 0,
+            "connection_errors": 0,
+            "average_ms": 50,
+            "p95_ms": 100,
+            "slow_operations": 0,
+            "connections": {},
+            "write_serialization": {
+                "timeouts": 1,
+                "p95_wait_ms": 800,
+            },
+        }
+        with patch.object(bot.time, "monotonic", return_value=1000.0):
+            with patch.object(db_module, "get_db_performance_snapshot", return_value=db_metrics):
+                result = bot._webhook_performance_snapshot()
+
+        self.assertEqual(result["diagnosis"]["bottleneck"], "database")
+
     def test_db_export_groups_connection_errors_without_sensitive_details(self):
         db_module._DB_CONNECTION_ERROR_TIMES.clear()
         db_module._record_db_connection_error(
@@ -146,6 +166,25 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
         bot._webhook_samples.clear()
         bot._webhook_queue_samples.clear()
         bot._webhook_action_samples.clear()
+
+    async def test_deployment_readiness_only_opens_after_startup(self):
+        original_ready = bot._service_ready
+        transport = httpx.ASGITransport(app=bot.api)
+        try:
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://test"
+            ) as client:
+                bot._service_ready = False
+                starting = await client.get("/health/ready")
+                bot._service_ready = True
+                ready = await client.get("/health/ready")
+        finally:
+            bot._service_ready = original_ready
+
+        self.assertEqual(starting.status_code, 503)
+        self.assertEqual(starting.json()["status"], "not_ready")
+        self.assertEqual(ready.status_code, 200)
+        self.assertEqual(ready.json()["status"], "ok")
 
     async def test_webhook_worker_records_queue_and_processing_latency(self):
         original_queue = bot.webhook_update_queue

@@ -1218,6 +1218,7 @@ async function loadPerformanceMetrics() {
     const traffic = data.traffic || {};
     const latency = data.latency || {};
     const database = data.database || {};
+    const databaseWrites = database.write_serialization || {};
     const diagnosis = data.diagnosis || {};
     const labels = {
         healthy:['Fluide', 'La capacite actuelle suffit pour le trafic observe.', 'success'],
@@ -1238,7 +1239,7 @@ async function loadPerformanceMetrics() {
     DOM.perfProcessing.textContent = `${Number(latency.p95_processing_ms || 0).toFixed(0)} ms`;
     DOM.perfThroughput.textContent = `${Number(traffic.throughput_per_minute || 0).toFixed(1)} actions/min`;
     DOM.perfDatabase.textContent = `${Number(database.p95_ms || 0).toFixed(0)} ms`;
-    DOM.perfDbErrors.textContent = `${Number(database.connection_errors || 0)} erreur(s) connexion`;
+    DOM.perfDbErrors.textContent = `${Number(database.connection_errors || 0)} erreur(s) connexion - ecriture p95 ${Number(databaseWrites.p95_wait_ms || 0).toFixed(0)} ms - ${Number(databaseWrites.timeouts || 0)} timeout(s)`;
     const slowestAction = (data.actions_5m || [])[0];
     if (DOM.perfSlowestAction) {
         DOM.perfSlowestAction.textContent = slowestAction

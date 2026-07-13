@@ -4,9 +4,25 @@ from unittest.mock import AsyncMock, patch
 
 from handlers.products import _send_product_detail_message
 from handlers.start import callback_check_sub, start_command
+from utils.keyboards import main_menu_keyboard
+from utils.locales import LANGUAGES, t
 
 
 class CallbackSafetyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_main_menu_channel_button_is_translated_and_uses_configured_channel(self):
+        for language in LANGUAGES:
+            with self.subTest(language=language):
+                with patch("utils.keyboards.REQUIRED_CHANNEL", "@required_channel"):
+                    markup = main_menu_keyboard(language)
+                channel_button = next(
+                    button
+                    for row in markup.inline_keyboard
+                    for button in row
+                    if button.url == "https://t.me/required_channel"
+                )
+                self.assertEqual(channel_button.text, t("btn_channel", language))
+                self.assertNotEqual(channel_button.text, "btn_channel")
+
     async def test_start_sends_persistent_reply_keyboard_only_once_per_session(self):
         message = SimpleNamespace(reply_text=AsyncMock())
         update = SimpleNamespace(

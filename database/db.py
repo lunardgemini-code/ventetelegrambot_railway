@@ -13,7 +13,16 @@ logger = logging.getLogger(__name__)
 _DB_OPERATION_SAMPLES = deque(maxlen=5000)
 _DB_CONNECTION_ERROR_TIMES = deque(maxlen=1000)
 _DB_CONNECTION_EVENTS = deque(maxlen=5000)
+_DB_WRITE_LOCK_SAMPLES = deque(maxlen=5000)
 _DB_CONNECTION_STATS = {"fresh": 0, "pooled": 0, "discarded": 0}
+_DB_WRITE_WAITERS = 0
+
+
+def _env_float(name: str, default: float, minimum: float) -> float:
+    try:
+        return max(minimum, float(os.environ.get(name, str(default))))
+    except (TypeError, ValueError):
+        return default
 
 
 def _record_db_operation(operation: str, started_at: float, success: bool) -> None:
@@ -45,6 +54,12 @@ def _record_connection_event(kind: str) -> None:
     _DB_CONNECTION_EVENTS.append((time.monotonic(), kind))
 
 
+def _record_write_lock_wait(started_at: float, success: bool) -> None:
+    _DB_WRITE_LOCK_SAMPLES.append(
+        (time.monotonic(), max(0.0, time.monotonic() - started_at), success)
+    )
+
+
 def _percentile(values: list[float], percentile: float) -> float:
     if not values:
         return 0.0
@@ -61,6 +76,8 @@ def get_db_performance_snapshot(window_seconds: int = 300) -> dict:
     durations = [sample[2] for sample in samples]
     connection_errors = [event for event in _DB_CONNECTION_ERROR_TIMES if event[0] >= cutoff]
     connection_events = [event for event in _DB_CONNECTION_EVENTS if event[0] >= cutoff]
+    write_lock_samples = [event for event in _DB_WRITE_LOCK_SAMPLES if event[0] >= cutoff]
+    write_waits = [event[1] for event in write_lock_samples if event[2]]
     error_categories = Counter(event[1] for event in connection_errors)
     error_operations = Counter(event[2] for event in connection_errors)
     recent_connections = Counter(event[1] for event in connection_events)
@@ -77,16 +94,44 @@ def get_db_performance_snapshot(window_seconds: int = 300) -> dict:
             "totals_since_start": dict(_DB_CONNECTION_STATS),
             "window": dict(recent_connections),
         },
+        "write_serialization": {
+            "locked": bool(_turso_writer_lock and _turso_writer_lock.locked()),
+            "waiters": _DB_WRITE_WAITERS,
+            "acquisitions": len(write_waits),
+            "timeouts": sum(1 for event in write_lock_samples if not event[2]),
+            "average_wait_ms": round(
+                (sum(write_waits) / len(write_waits) * 1000) if write_waits else 0,
+                1,
+            ),
+            "p95_wait_ms": round(_percentile(write_waits, 0.95) * 1000, 1),
+        },
     }
 
 # ── Turso config ──
 TURSO_URL = os.environ.get("TURSO_DATABASE_URL", "")
 TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "")
+_TURSO_OPERATION_TIMEOUT_SECONDS = _env_float(
+    "TURSO_OPERATION_TIMEOUT_SECONDS", 15.0, 1.0
+)
+_TURSO_CLOSE_TIMEOUT_SECONDS = _env_float(
+    "TURSO_CLOSE_TIMEOUT_SECONDS", 3.0, 0.5
+)
+_TURSO_WRITE_LOCK_TIMEOUT_SECONDS = _env_float(
+    "TURSO_WRITE_LOCK_TIMEOUT_SECONDS", 15.0, 1.0
+)
 
 
 # ══════════════════════════════════════════════
 #  Async wrappers pour libsql (sync → async)
 # ══════════════════════════════════════════════
+
+async def _run_turso_call(func, *args, timeout: float | None = None):
+    """Run one native SDK call without letting an await hang indefinitely."""
+    return await asyncio.wait_for(
+        asyncio.to_thread(func, *args),
+        timeout=timeout or _TURSO_OPERATION_TIMEOUT_SECONDS,
+    )
+
 
 class _DictRow(dict):
     """A dict subclass that also supports index-based access like sqlite3.Row."""
@@ -120,7 +165,7 @@ class _AsyncCursor:
     async def fetchall(self):
         started_at = time.monotonic()
         try:
-            rows = await asyncio.to_thread(self._cursor.fetchall)
+            rows = await _run_turso_call(self._cursor.fetchall)
             _record_db_operation("fetchall", started_at, True)
         except Exception:
             _record_db_operation("fetchall", started_at, False)
@@ -132,7 +177,7 @@ class _AsyncCursor:
     async def fetchone(self):
         started_at = time.monotonic()
         try:
-            row = await asyncio.to_thread(self._cursor.fetchone)
+            row = await _run_turso_call(self._cursor.fetchone)
             _record_db_operation("fetchone", started_at, True)
         except Exception:
             _record_db_operation("fetchone", started_at, False)
@@ -168,9 +213,9 @@ class _AsyncDB:
             if params:
                 if isinstance(params, list):
                     params = tuple(params)
-                cursor = await asyncio.to_thread(self._conn.execute, sql, params)
+                cursor = await _run_turso_call(self._conn.execute, sql, params)
             else:
-                cursor = await asyncio.to_thread(self._conn.execute, sql)
+                cursor = await _run_turso_call(self._conn.execute, sql)
             _record_db_operation("execute", started_at, True)
             return _AsyncCursor(cursor)
         except Exception:
@@ -178,15 +223,27 @@ class _AsyncDB:
             raise
 
     async def executemany(self, sql, params_list):
-        await asyncio.to_thread(self._conn.executemany, sql, params_list)
+        started_at = time.monotonic()
+        try:
+            await _run_turso_call(self._conn.executemany, sql, params_list)
+            _record_db_operation("executemany", started_at, True)
+        except Exception:
+            _record_db_operation("executemany", started_at, False)
+            raise
 
     async def executescript(self, sql):
-        await asyncio.to_thread(self._conn.executescript, sql)
+        started_at = time.monotonic()
+        try:
+            await _run_turso_call(self._conn.executescript, sql)
+            _record_db_operation("executescript", started_at, True)
+        except Exception:
+            _record_db_operation("executescript", started_at, False)
+            raise
 
     async def commit(self):
         started_at = time.monotonic()
         try:
-            await asyncio.to_thread(self._conn.commit)
+            await _run_turso_call(self._conn.commit)
             _record_db_operation("commit", started_at, True)
         except Exception:
             _record_db_operation("commit", started_at, False)
@@ -195,7 +252,7 @@ class _AsyncDB:
     async def rollback(self):
         started_at = time.monotonic()
         try:
-            await asyncio.to_thread(self._conn.rollback)
+            await _run_turso_call(self._conn.rollback)
             _record_db_operation("rollback", started_at, True)
         except Exception:
             _record_db_operation("rollback", started_at, False)
@@ -203,7 +260,10 @@ class _AsyncDB:
 
     async def close(self):
         try:
-            self._conn.close()
+            await _run_turso_call(
+                self._conn.close,
+                timeout=_TURSO_CLOSE_TIMEOUT_SECONDS,
+            )
         except Exception:
             pass
 
@@ -214,21 +274,53 @@ class _AsyncDB:
 
 _libsql_pool = []
 _pool_lock = None
+_pool_lock_loop = None
+_turso_writer_lock = None
+_turso_writer_lock_loop = None
 _sqlite_wal_configured = False
-_TURSO_POOL_MAX_IDLE_SECONDS = max(
-    1.0,
-    float(os.environ.get("TURSO_POOL_MAX_IDLE_SECONDS", "5")),
+_TURSO_POOL_MAX_IDLE_SECONDS = _env_float(
+    "TURSO_POOL_MAX_IDLE_SECONDS", 5.0, 1.0
 )
-_TURSO_POOL_MAX_LIFETIME_SECONDS = max(
-    5.0,
-    float(os.environ.get("TURSO_POOL_MAX_LIFETIME_SECONDS", "30")),
+_TURSO_POOL_MAX_LIFETIME_SECONDS = _env_float(
+    "TURSO_POOL_MAX_LIFETIME_SECONDS", 30.0, 5.0
 )
 
 def get_pool_lock():
-    global _pool_lock
-    if _pool_lock is None:
+    global _pool_lock, _pool_lock_loop
+    loop = asyncio.get_running_loop()
+    if _pool_lock is None or _pool_lock_loop is not loop:
         _pool_lock = asyncio.Lock()
+        _pool_lock_loop = loop
     return _pool_lock
+
+
+def get_turso_writer_lock():
+    global _turso_writer_lock, _turso_writer_lock_loop
+    loop = asyncio.get_running_loop()
+    if _turso_writer_lock is None or _turso_writer_lock_loop is not loop:
+        _turso_writer_lock = asyncio.Lock()
+        _turso_writer_lock_loop = loop
+    return _turso_writer_lock
+
+
+def _sql_command(sql) -> str:
+    normalized = str(sql or "").lstrip()
+    while normalized.startswith("--"):
+        _, separator, normalized = normalized.partition("\n")
+        if not separator:
+            return ""
+        normalized = normalized.lstrip()
+    while normalized.startswith("/*"):
+        end = normalized.find("*/", 2)
+        if end < 0:
+            return ""
+        normalized = normalized[end + 2 :].lstrip()
+    return normalized.partition(" ")[0].partition("\n")[0].upper()
+
+
+def _requires_turso_writer_lock(sql) -> bool:
+    # The only WITH statement in this codebase is a read-only analytics query.
+    return _sql_command(sql) not in {"", "SELECT", "WITH", "PRAGMA", "EXPLAIN"}
 
 
 class _PooledAsyncDB(_AsyncDB):
@@ -239,6 +331,43 @@ class _PooledAsyncDB(_AsyncDB):
         self.has_error = False
         self.created_at = created_at if created_at is not None else time.monotonic()
         self.return_to_pool = return_to_pool
+        self._write_lock = None
+        self._write_lock_held = False
+        self._closed = False
+
+    async def _acquire_writer_lock(self) -> None:
+        global _DB_WRITE_WAITERS
+        if self._write_lock_held:
+            return
+
+        lock = get_turso_writer_lock()
+        started_at = time.monotonic()
+        _DB_WRITE_WAITERS += 1
+        try:
+            await asyncio.wait_for(
+                lock.acquire(),
+                timeout=_TURSO_WRITE_LOCK_TIMEOUT_SECONDS,
+            )
+        except TimeoutError as exc:
+            _record_write_lock_wait(started_at, False)
+            raise TimeoutError(
+                "Timed out waiting for the Turso write queue"
+            ) from exc
+        else:
+            _record_write_lock_wait(started_at, True)
+            self._write_lock = lock
+            self._write_lock_held = True
+        finally:
+            _DB_WRITE_WAITERS = max(0, _DB_WRITE_WAITERS - 1)
+
+    def _release_writer_lock(self) -> None:
+        if not self._write_lock_held:
+            return
+        lock = self._write_lock
+        self._write_lock = None
+        self._write_lock_held = False
+        if lock is not None and lock.locked():
+            lock.release()
 
     @staticmethod
     def _is_connection_error(exc):
@@ -258,30 +387,42 @@ class _PooledAsyncDB(_AsyncDB):
         return "execute"
 
     async def execute(self, sql, params=None):
+        command = _sql_command(sql)
+        transaction_end = command in {"COMMIT", "END", "ROLLBACK"}
+        if _requires_turso_writer_lock(sql) and not transaction_end:
+            await self._acquire_writer_lock()
         try:
             return await super().execute(sql, params)
         except Exception as e:
             if self._is_connection_error(e):
                 self.has_error = True
                 _record_db_connection_error(e, self._execute_operation_name(sql))
+                self._release_writer_lock()
             raise
+        finally:
+            if transaction_end:
+                self._release_writer_lock()
 
     async def executemany(self, sql, params_list):
+        await self._acquire_writer_lock()
         try:
             await super().executemany(sql, params_list)
         except Exception as e:
             if self._is_connection_error(e):
                 self.has_error = True
                 _record_db_connection_error(e, "executemany")
+                self._release_writer_lock()
             raise
 
     async def executescript(self, sql):
+        await self._acquire_writer_lock()
         try:
             await super().executescript(sql)
         except Exception as e:
             if self._is_connection_error(e):
                 self.has_error = True
                 _record_db_connection_error(e, "executescript")
+                self._release_writer_lock()
             raise
 
     async def commit(self):
@@ -292,6 +433,8 @@ class _PooledAsyncDB(_AsyncDB):
                 self.has_error = True
                 _record_db_connection_error(e, "commit")
             raise
+        finally:
+            self._release_writer_lock()
 
     async def rollback(self):
         try:
@@ -301,16 +444,35 @@ class _PooledAsyncDB(_AsyncDB):
                 self.has_error = True
                 _record_db_connection_error(e, "rollback")
             raise
+        finally:
+            self._release_writer_lock()
 
     async def close(self):
         """Returns the connection to the pool or closes it if an error occurred."""
+        if self._closed:
+            return
+        self._closed = True
+
+        if self._write_lock_held:
+            # Never return an unfinished transaction to the pool.
+            self.has_error = True
+            try:
+                await super().rollback()
+            except Exception:
+                pass
+            finally:
+                self._release_writer_lock()
+
         if (
             self.has_error
             or not self.return_to_pool
             or time.monotonic() - self.created_at > _TURSO_POOL_MAX_LIFETIME_SECONDS
         ):
             try:
-                await asyncio.to_thread(self._conn.close)
+                await _run_turso_call(
+                    self._conn.close,
+                    timeout=_TURSO_CLOSE_TIMEOUT_SECONDS,
+                )
             except Exception:
                 pass
             return
@@ -320,7 +482,10 @@ class _PooledAsyncDB(_AsyncDB):
                 _libsql_pool.append((self._conn, time.monotonic(), self.created_at))
             else:
                 try:
-                    await asyncio.to_thread(self._conn.close)
+                    await _run_turso_call(
+                        self._conn.close,
+                        timeout=_TURSO_CLOSE_TIMEOUT_SECONDS,
+                    )
                 except Exception:
                     pass
 
@@ -336,7 +501,7 @@ def is_transient_db_connection_error(exc: Exception) -> bool:
 async def get_db(*, fresh: bool = False):
     """Open a database connection, optionally bypassing the Turso pool."""
     if TURSO_URL:
-        import libsql_experimental as libsql
+        import libsql
         conn_to_wrap = None
         created_at = None
         async with get_pool_lock():
@@ -356,7 +521,10 @@ async def get_db(*, fresh: bool = False):
                         conn_to_wrap = candidate_conn
                     else:
                         try:
-                            await asyncio.to_thread(candidate_conn.close)
+                            await _run_turso_call(
+                                candidate_conn.close,
+                                timeout=_TURSO_CLOSE_TIMEOUT_SECONDS,
+                            )
                         except Exception:
                             pass
                 else:

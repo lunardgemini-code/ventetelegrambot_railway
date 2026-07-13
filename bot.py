@@ -100,6 +100,7 @@ api = FastAPI(
     redoc_url=None,
     openapi_url=None,
 )
+_service_ready = False
 
 # Enable CORS for browser dashboard access.
 # Admin routes still require ADMIN_API_KEY. Optionally lock origins with:
@@ -413,6 +414,15 @@ class ResellerActivationIdentifierRequest(BaseModel):
 @api.get("/health/live")
 async def liveness_check():
     return {"status": "ok"}
+
+
+@api.get("/health/ready")
+async def deployment_readiness_check():
+    """Signal that Telegram workers and the webhook are ready for traffic."""
+    payload = {"status": "ok" if _service_ready else "not_ready"}
+    if not _service_ready:
+        return JSONResponse(status_code=503, content=payload)
+    return payload
 
 
 @api.get("/health")
@@ -2912,6 +2922,7 @@ def _webhook_performance_snapshot() -> dict:
     handler_errors = sum(1 for timestamp in _webhook_handler_error_times if timestamp >= cutoff_5m)
     deduplicated = sum(1 for timestamp in _webhook_deduplicated_times if timestamp >= cutoff_5m)
     db_metrics = get_db_performance_snapshot(300)
+    db_write_metrics = db_metrics.get("write_serialization") or {}
     observed_1m = max(1.0, min(60.0, now - _webhook_metrics_started_at))
     throughput_per_minute = len(one_minute) * 60.0 / observed_1m
     average_processing = sum(processing) / len(processing) if processing else 0.0
@@ -2961,10 +2972,15 @@ def _webhook_performance_snapshot() -> dict:
         })
     action_stats.sort(key=lambda item: (item["p95_ms"], item["count"]), reverse=True)
 
-    if db_metrics["connection_errors"] > 0 or db_metrics["p95_ms"] >= 750:
+    if (
+        db_metrics["connection_errors"] > 0
+        or db_metrics["p95_ms"] >= 750
+        or int(db_write_metrics.get("timeouts") or 0) > 0
+        or float(db_write_metrics.get("p95_wait_ms") or 0) >= 750
+    ):
         bottleneck = "database"
         recommended_workers = WEBHOOK_WORKERS
-        message = "Database latency is limiting throughput; adding workers would increase contention."
+        message = "Database latency or write contention is limiting throughput; adding workers would increase contention."
         confidence = "high"
     elif len(samples) < 20:
         bottleneck = "insufficient_data"
@@ -3608,7 +3624,12 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
 
 def main() -> None:
     """Build the Application, register handlers, and start in webhook or polling mode."""
-    global tg_app, webhook_update_queue, webhook_worker_tasks
+    global tg_app, webhook_update_queue, webhook_worker_tasks, _service_ready
+
+    _service_ready = False
+
+    from services.process_watchdog import enable_fault_diagnostics
+    enable_fault_diagnostics()
 
     webhook_url = os.environ.get("WEBHOOK_URL", "").strip()
 
@@ -3856,7 +3877,7 @@ def main() -> None:
 
         async def _setup_and_run():
             """Initialize the bot, set webhook, and run FastAPI with connection retries."""
-            global webhook_update_queue, webhook_worker_tasks
+            global webhook_update_queue, webhook_worker_tasks, _service_ready
             
             loop = asyncio.get_running_loop()
             from concurrent.futures import ThreadPoolExecutor
@@ -3908,9 +3929,28 @@ def main() -> None:
                     logger.warning("⚠️ Webhook setup failed (%s). Retrying in 4s...", err)
                     await asyncio.sleep(4)
 
+            _service_ready = True
+            watchdog_process = None
+            try:
+                from services.process_watchdog import (
+                    WatchdogConfig,
+                    start_process_watchdog,
+                )
+                watchdog_process = start_process_watchdog(
+                    os.getpid(),
+                    port,
+                    WatchdogConfig.from_env(),
+                )
+            except Exception as exc:
+                # A watchdog setup issue must not prevent the bot from serving.
+                logger.exception("Could not start process watchdog: %s", exc)
+
             try:
                 await server_task
             finally:
+                _service_ready = False
+                from services.process_watchdog import stop_process_watchdog
+                stop_process_watchdog(watchdog_process)
                 # Do NOT delete the webhook on shutdown. In a rolling deployment,
                 # the old container shutting down would delete the webhook set by the new container.
                 for task in webhook_worker_tasks:

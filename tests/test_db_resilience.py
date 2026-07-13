@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 import sys
 from types import SimpleNamespace
@@ -8,7 +9,49 @@ from database import models
 from handlers.payment import _start_redirect
 
 
+class _FakeCursor:
+    description = None
+
+
+class _FakeLibsqlConnection:
+    def __init__(self):
+        self.statements = []
+        self.commit_count = 0
+        self.rollback_count = 0
+        self.closed = False
+
+    def execute(self, sql, params=None):
+        self.statements.append(sql)
+        return _FakeCursor()
+
+    def executemany(self, sql, params_list):
+        self.statements.append(sql)
+
+    def executescript(self, sql):
+        self.statements.append(sql)
+
+    def commit(self):
+        self.commit_count += 1
+
+    def rollback(self):
+        self.rollback_count += 1
+
+    def close(self):
+        self.closed = True
+
+
 class DatabaseResilienceTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        db_module._turso_writer_lock = None
+        db_module._turso_writer_lock_loop = None
+        db_module._DB_WRITE_WAITERS = 0
+        db_module._DB_WRITE_LOCK_SAMPLES.clear()
+
+    async def asyncTearDown(self):
+        db_module._turso_writer_lock = None
+        db_module._turso_writer_lock_loop = None
+        db_module._DB_WRITE_WAITERS = 0
+
     async def test_unchanged_user_does_not_issue_redundant_update(self):
         cursor = SimpleNamespace(fetchone=AsyncMock(return_value={
             "telegram_id": 42,
@@ -72,10 +115,11 @@ class DatabaseResilienceTests(unittest.IsolatedAsyncioTestCase):
         fake_libsql = SimpleNamespace(connect=connect)
         db_module._libsql_pool.clear()
         db_module._pool_lock = None
+        db_module._pool_lock_loop = None
 
         with patch.object(db_module, "TURSO_URL", "libsql://test.turso.io"):
             with patch.object(db_module, "TURSO_TOKEN", "test-token"):
-                with patch.dict(sys.modules, {"libsql_experimental": fake_libsql}):
+                with patch.dict(sys.modules, {"libsql": fake_libsql}):
                     first = await db_module.get_db()
                     await first.close()
                     second = await db_module.get_db()
@@ -87,6 +131,77 @@ class DatabaseResilienceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any("busy_timeout" in sql for sql in connection.statements))
         db_module._libsql_pool.clear()
         db_module._pool_lock = None
+        db_module._pool_lock_loop = None
+
+    async def test_turso_writes_are_serialized_before_reaching_the_sdk(self):
+        first_connection = _FakeLibsqlConnection()
+        second_connection = _FakeLibsqlConnection()
+        first = db_module._PooledAsyncDB(first_connection, return_to_pool=False)
+        second = db_module._PooledAsyncDB(second_connection, return_to_pool=False)
+
+        await first.execute("UPDATE users SET first_name = ? WHERE id = ?", ("A", 1))
+        second_write = asyncio.create_task(
+            second.execute("UPDATE users SET first_name = ? WHERE id = ?", ("B", 2))
+        )
+        await asyncio.sleep(0.05)
+
+        self.assertEqual(len(first_connection.statements), 1)
+        self.assertEqual(second_connection.statements, [])
+        self.assertFalse(second_write.done())
+
+        await first.commit()
+        await asyncio.wait_for(second_write, timeout=1)
+        self.assertEqual(len(second_connection.statements), 1)
+
+        await second.rollback()
+        await first.close()
+        await second.close()
+
+    async def test_turso_read_is_not_blocked_by_an_active_writer(self):
+        writer_connection = _FakeLibsqlConnection()
+        reader_connection = _FakeLibsqlConnection()
+        writer = db_module._PooledAsyncDB(writer_connection, return_to_pool=False)
+        reader = db_module._PooledAsyncDB(reader_connection, return_to_pool=False)
+
+        await writer.execute("BEGIN IMMEDIATE")
+        await asyncio.wait_for(reader.execute("SELECT 1"), timeout=1)
+
+        self.assertEqual(reader_connection.statements, ["SELECT 1"])
+        await writer.rollback()
+        await writer.close()
+        await reader.close()
+
+    async def test_uncommitted_write_is_rolled_back_and_unlocks_on_close(self):
+        connection = _FakeLibsqlConnection()
+        db = db_module._PooledAsyncDB(connection, return_to_pool=False)
+
+        await db.execute("INSERT INTO users (telegram_id) VALUES (?)", (42,))
+        self.assertTrue(db_module.get_turso_writer_lock().locked())
+
+        await db.close()
+
+        self.assertEqual(connection.rollback_count, 1)
+        self.assertTrue(connection.closed)
+        self.assertFalse(db_module.get_turso_writer_lock().locked())
+
+    async def test_turso_write_queue_timeout_is_bounded(self):
+        first = db_module._PooledAsyncDB(
+            _FakeLibsqlConnection(), return_to_pool=False
+        )
+        second = db_module._PooledAsyncDB(
+            _FakeLibsqlConnection(), return_to_pool=False
+        )
+        await first.execute("BEGIN IMMEDIATE")
+
+        with patch.object(db_module, "_TURSO_WRITE_LOCK_TIMEOUT_SECONDS", 0.02):
+            with self.assertRaisesRegex(TimeoutError, "Turso write queue"):
+                await second.execute("BEGIN IMMEDIATE")
+
+        snapshot = db_module.get_db_performance_snapshot()
+        self.assertEqual(snapshot["write_serialization"]["timeouts"], 1)
+        await first.rollback()
+        await first.close()
+        await second.close()
 
     async def test_get_or_create_user_does_not_retry_business_error(self):
         operation = AsyncMock(side_effect=ValueError("invalid user data"))
