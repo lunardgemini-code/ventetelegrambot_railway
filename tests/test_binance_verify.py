@@ -46,7 +46,7 @@ class BinanceVerifyTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("startTimestamp", params)
         self.assertNotIn("endTimestamp", params)
 
-    async def test_searches_older_windows_up_to_24_hours(self):
+    async def test_searches_older_windows_up_to_48_hours(self):
         client = AsyncMock()
         target = {
             "transactionId": "P_OLD",
@@ -59,7 +59,7 @@ class BinanceVerifyTests(unittest.IsolatedAsyncioTestCase):
             params = parse_qs(urlparse(url).query)
             end_ms = int(params["endTime"][0])
             now_ms = 1_800_000_000 * 1000
-            rows = [target] if end_ms <= now_ms - 22 * 60 * 60 * 1000 else []
+            rows = [target] if end_ms <= now_ms - 46 * 60 * 60 * 1000 else []
             return _FakeResponse({"code": "000000", "data": rows})
 
         client.get.side_effect = fake_get

@@ -22,8 +22,8 @@ AMOUNT_TOLERANCE = 0.01
 # Fenetre de recherche des depots internes (en millisecondes) : 2 heures
 SEARCH_WINDOW_MS = 2 * 60 * 60 * 1000
 # Binance Pay payments can be submitted after the order timeout. Search the
-# current two-hour window first, then bounded older windows up to 24 hours.
-PAY_SEARCH_WINDOW_MS = 24 * 60 * 60 * 1000
+# current two-hour window first, then bounded older windows up to 48 hours.
+PAY_SEARCH_WINDOW_MS = 48 * 60 * 60 * 1000
 PAY_INITIAL_WINDOW_MS = 2 * 60 * 60 * 1000
 PAY_FALLBACK_WINDOW_MS = 4 * 60 * 60 * 1000
 PAY_MIN_SPLIT_WINDOW_MS = 5 * 60 * 1000
