@@ -1,6 +1,7 @@
 import asyncio
 import json
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -12,6 +13,11 @@ from database import db as db_module
 
 
 class PerformanceMetricsTests(unittest.TestCase):
+    def test_railway_deployment_uses_process_liveness_probe(self):
+        config_path = Path(__file__).resolve().parents[1] / "railway.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        self.assertEqual(config["deploy"]["healthcheckPath"], "/health/live")
+
     def setUp(self):
         bot._webhook_samples.clear()
         bot._webhook_queue_samples.clear()
