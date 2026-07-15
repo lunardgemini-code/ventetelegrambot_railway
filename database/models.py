@@ -2371,6 +2371,28 @@ async def get_order(order_id: int) -> dict | None:
         await db.close()
 
 
+async def get_sale_notification_details(order_id: int) -> dict | None:
+    """Load the customer, product and quantity for an admin sale notification."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT o.user_telegram_id AS telegram_id,
+                      o.quantity,
+                      p.name AS product_name,
+                      u.first_name,
+                      u.username
+               FROM orders o
+               LEFT JOIN products p ON p.id = o.product_id
+               LEFT JOIN users u ON u.telegram_id = o.user_telegram_id
+               WHERE o.id = ?""",
+            (order_id,),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
 async def get_order_by_merchant_id(merchant_trade_no: str) -> dict | None:
     """RÃ©cupÃ¨re une commande par son numÃ©ro de transaction marchand."""
     db = await get_db()

@@ -25,6 +25,7 @@ from database.models import (
     get_pending_activation_order_for_user,
     get_order,
     get_product,
+    get_sale_notification_details,
     get_stock_count,
     get_user_lang,
     purchase_order_with_wallet,
@@ -817,19 +818,14 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             await safe_send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang, order_id)
 
-        # Notify admins
-        try:
-            from bot import notify_admins
-            product = await get_product(product_id)
-            pname = product["name"] if product else "?"
-            await notify_admins(
-                f"💰 <b>Wallet Purchase!</b>\n"
-                f"👤 {escape_html(update.effective_user.first_name)}\n"
-                f"📦 {pname} x{order.get('quantity', 1)}\n"
-                f"💰 {format_price(amount)}"
-            )
-        except Exception:
-            pass
+        await _notify_admins_sale(
+            context,
+            order_id,
+            product_id,
+            amount,
+            payment_method="Wallet",
+            user_id=telegram_id,
+        )
 
         return ConversationHandler.END
 
@@ -1050,7 +1046,14 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=main_menu_keyboard(lang),
                 )
 
-            await _notify_admins_sale(context, order_id, product_id, expected_amount)
+            await _notify_admins_sale(
+                context,
+                order_id,
+                product_id,
+                expected_amount,
+                payment_method="Binance Pay",
+                user_id=update.effective_user.id,
+            )
 
             if product_id:
                 low = await check_low_stock(product_id)
@@ -1270,20 +1273,70 @@ async def _start_redirect(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Admin notification helpers ──
 
-async def _notify_admins_sale(context, order_id, product_id, amount):
-    product = await get_product(product_id) if product_id else None
-    prod_name = escape_html(product["name"]) if product else "?"
+def _sale_customer_label(user: dict | None, user_id: int | None) -> str:
+    resolved_id = int(user_id or (user or {}).get("telegram_id") or 0)
+    first_name = str((user or {}).get("first_name") or "").strip()
+    username = str((user or {}).get("username") or "").strip().lstrip("@")
+    display_name = first_name or (f"@{username}" if username else str(resolved_id or "?"))
+    if username and first_name:
+        display_name = f"{display_name} (@{username})"
+    if resolved_id:
+        return f"{escape_html(display_name)} (<code>{resolved_id}</code>)"
+    return escape_html(display_name)
+
+
+async def _notify_admins_sale_with_bot(
+    bot,
+    order_id,
+    product_id,
+    amount,
+    *,
+    payment_method: str,
+    user_id: int | None = None,
+):
+    details = None
+    try:
+        details = await get_sale_notification_details(order_id)
+    except Exception as exc:
+        logger.warning("Could not load sale notification details for order %s: %s", order_id, exc)
+
+    details = details or {}
+    resolved_user_id = int(user_id or details.get("telegram_id") or 0)
+    prod_name = escape_html(str(details.get("product_name") or "?"))
+    quantity = max(1, int(details.get("quantity") or 1))
+    customer = _sale_customer_label(details, resolved_user_id)
     text = (
         "🔔 <b>Nouvelle vente !</b>\n"
-        f"📦 Produit : {prod_name}\n"
+        f"👤 Client : {customer}\n"
+        f"💳 Paiement : {escape_html(payment_method)}\n"
+        f"📦 Produit : {prod_name} x{quantity}\n"
         f"💰 Montant : {format_price(amount)}\n"
         f"🔖 Commande : #{order_id}"
     )
     for admin_id in ADMIN_IDS:
         try:
-            await context.bot.send_message(admin_id, text, parse_mode="HTML")
+            await bot.send_message(admin_id, text, parse_mode="HTML")
         except Exception as exc:
             logger.warning("Could not notify admin %s: %s", admin_id, exc)
+
+
+async def _notify_admins_sale(
+    context,
+    order_id,
+    product_id,
+    amount,
+    *,
+    payment_method: str = "Paiement direct",
+    user_id: int | None = None,
+):
+    await _notify_admins_sale_with_bot(
+        context.bot,
+        order_id,
+        product_id,
+        amount,
+        payment_method=payment_method,
+        user_id=user_id,
+    )
 
 
 async def _notify_admins_low_stock(context, product_id):
@@ -1471,15 +1524,14 @@ async def process_nowpayments_payment_notification(
     if notified:
         await mark_nowpayments_notified(payment_id)
         if action in ("completed", "activation", "paid_pending_delivery"):
-            for admin_id in ADMIN_IDS:
-                try:
-                    await bot.send_message(
-                        admin_id,
-                        f"<b>NOWPayments payment confirmed</b>\nOrder: #{order_id}\nPayment: <code>{escape_html(str(payment_id))}</code>\nAmount: {_format_crypto_amount(payment.get('actually_paid'))} USDT",
-                        parse_mode="HTML",
-                    )
-                except Exception as exc:
-                    logger.warning("Could not notify admin %s about NOWPayments sale: %s", admin_id, exc)
+            await _notify_admins_sale_with_bot(
+                bot,
+                order_id,
+                product_id,
+                float(payment.get("actually_paid") or payment.get("price_amount") or 0),
+                payment_method="BEP20 (NOWPayments)",
+                user_id=user_id,
+            )
     else:
         await release_nowpayments_notification(payment_id)
     return result
@@ -1963,7 +2015,14 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                 )
 
             # Notify admins of BSC BEP20 sale
-            await _notify_admins_sale(context, order_id, product_id, expected_amount)
+            await _notify_admins_sale(
+                context,
+                order_id,
+                product_id,
+                expected_amount,
+                payment_method="BEP20",
+                user_id=update.effective_user.id,
+            )
             return ConversationHandler.END
 
         else:

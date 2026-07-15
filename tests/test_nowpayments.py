@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 import httpx
 
 import bot
+from handlers import payment as payment_handler
 from database import db as db_module
 from database.db import init_db
 from database import models
@@ -326,6 +327,53 @@ class NowPaymentsTests(unittest.IsolatedAsyncioTestCase):
                     t("nowpayments_checking_short", language),
                     "nowpayments_checking_short",
                 )
+
+    async def test_sale_notifications_include_customer_for_binance_and_nowpayments(self):
+        admin_id = 9001
+
+        binance_bot = AsyncMock()
+        binance_context = type("Context", (), {"bot": binance_bot})()
+        with patch.object(payment_handler, "ADMIN_IDS", [admin_id]):
+            await payment_handler._notify_admins_sale(
+                binance_context,
+                self.order["id"],
+                self.product_id,
+                5,
+                payment_method="Binance Pay",
+                user_id=2001,
+            )
+
+        binance_text = binance_bot.send_message.await_args.args[1]
+        self.assertIn("NP Buyer", binance_text)
+        self.assertIn("<code>2001</code>", binance_text)
+        self.assertIn("Binance Pay", binance_text)
+
+        await models.save_nowpayments_update({
+            "payment_id": self.payment_id,
+            "payment_status": "finished",
+            "order_id": str(self.order["id"]),
+            "pay_amount": 5,
+            "actually_paid": 5,
+            "pay_currency": "usdtbsc",
+        })
+        finalized = await models.finalize_nowpayments_payment(self.payment_id)
+        nowpayments_bot = AsyncMock()
+        with patch.object(payment_handler, "ADMIN_IDS", [admin_id]):
+            await payment_handler.process_nowpayments_payment_notification(
+                nowpayments_bot,
+                self.payment_id,
+                finalized_result=finalized,
+            )
+
+        admin_messages = [
+            call.args[1]
+            for call in nowpayments_bot.send_message.await_args_list
+            if call.args and call.args[0] == admin_id
+        ]
+        self.assertEqual(len(admin_messages), 1)
+        self.assertIn("NP Buyer", admin_messages[0])
+        self.assertIn("<code>2001</code>", admin_messages[0])
+        self.assertIn("BEP20 (NOWPayments)", admin_messages[0])
 
     async def test_wallet_topup_menu_shows_automated_bep20(self):
         from utils.keyboards import wallet_topup_method_keyboard
