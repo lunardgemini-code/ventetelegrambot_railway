@@ -247,7 +247,7 @@ const DOM = {
     supplierProductSearch:$('supplier-product-search'), supplierProductsTableBody:$('supplier-products-table-body'),
     supplierDescriptionModal:$('supplier-description-modal'), supplierDescriptionForm:$('supplier-description-form'), supplierDescriptionProductId:$('supplier-description-product-id'),
     supplierDescriptionTitle:$('supplier-description-title'), supplierDescriptionSource:$('supplier-description-source'),
-    supplierCustomName:$('supplier-custom-name'), supplierCustomEmoji:$('supplier-custom-emoji'), supplierCustomEmojiId:$('supplier-custom-emoji-id'), supplierAutoTranslate:$('supplier-auto-translate'),
+    supplierCustomName:$('supplier-custom-name'), supplierCustomEmoji:$('supplier-custom-emoji'), supplierCustomEmojiId:$('supplier-custom-emoji-id'), supplierCustomImageUrl:$('supplier-custom-image-url'), supplierAutoTranslate:$('supplier-auto-translate'),
     supplierDescriptionEn:$('supplier-description-en'), supplierDescriptionFr:$('supplier-description-fr'), supplierDescriptionAr:$('supplier-description-ar'),
     supplierDescriptionZh:$('supplier-description-zh'), supplierDescriptionVi:$('supplier-description-vi'), supplierDescriptionRu:$('supplier-description-ru'),
     btnGameRefresh:$('btn-game-refresh'), gameProviderStatus:$('game-provider-status'), gameProviderWarning:$('game-provider-warning'),
@@ -2704,6 +2704,7 @@ window.openSupplierDescriptionEditor = function(id) {
     DOM.supplierCustomName.value = product.custom_name || '';
     DOM.supplierCustomEmoji.value = product.custom_emoji || '';
     DOM.supplierCustomEmojiId.value = product.custom_emoji_id || '';
+    DOM.supplierCustomImageUrl.value = product.custom_image_url || '';
     DOM.supplierDescriptionEn.value = product.description_en || '';
     DOM.supplierDescriptionFr.value = product.description_fr || '';
     DOM.supplierDescriptionAr.value = product.description_ar || '';
@@ -2762,6 +2763,7 @@ async function saveSupplierDescriptions(event) {
             custom_name: DOM.supplierCustomName.value,
             custom_emoji: DOM.supplierCustomEmoji.value,
             custom_emoji_id: DOM.supplierCustomEmojiId.value,
+            custom_image_url: DOM.supplierCustomImageUrl.value,
         });
         hideModal(DOM.supplierDescriptionModal);
         await Promise.all([loadSupplierBot(), loadProducts()]);

@@ -55,7 +55,7 @@ class PersistentBackgroundJobTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await db.close()
 
-        self.assertEqual(versions, [1, 2, 3, 4, 5])
+        self.assertEqual(versions, list(range(1, 9)))
         self.assertEqual(tables, ["background_jobs", "performance_action_hourly"])
 
     async def test_interrupted_job_is_requeued_and_resumes_from_checkpoint(self):

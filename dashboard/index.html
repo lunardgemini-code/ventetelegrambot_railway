@@ -13,7 +13,7 @@
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
-    <link rel="stylesheet" href="style.css?v=20260715-multisupplier">
+    <link rel="stylesheet" href="style.css?v=20260715-supplier-image">
     <link rel="stylesheet" href="revamp.css?v=20260715-multisupplier">
 </head>
 <body>
@@ -870,6 +870,7 @@
                     <div class="form-group"><label for="supplier-custom-name">Nom affiché</label><input id="supplier-custom-name" type="text" maxlength="160" placeholder="Vide = nom du fournisseur"></div>
                     <div class="form-group"><label for="supplier-custom-emoji">Emoji classique</label><input id="supplier-custom-emoji" type="text" maxlength="16" placeholder="📦"></div>
                     <div class="form-group"><label for="supplier-custom-emoji-id">ID emoji personnalisé Telegram</label><input id="supplier-custom-emoji-id" type="text" inputmode="numeric" maxlength="32" placeholder="Ex: 5375312095346704820"></div>
+                    <div class="form-group"><label for="supplier-custom-image-url">Lien de l'image affichée</label><input id="supplier-custom-image-url" type="url" maxlength="2048" placeholder="https://.../image.png"><small>Vide = image reçue du fournisseur.</small></div>
                 </div>
                 <div class="supplier-description-source-block">
                     <label>Description reçue du fournisseur</label>
@@ -1353,7 +1354,7 @@
 </div>
 
 
-<script defer src="app.js?v=20260715-multisupplier"></script>
+<script defer src="app.js?v=20260715-supplier-image"></script>
     <script>
     /* ── Mobile Sidebar Toggle ── */
     (function() {

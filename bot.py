@@ -1352,6 +1352,7 @@ async def api_update_supplier_product_descriptions(
             custom_name=data.get("custom_name"),
             custom_emoji=data.get("custom_emoji"),
             custom_emoji_id=data.get("custom_emoji_id"),
+            custom_image_url=data.get("custom_image_url"),
         )
         return {
             "status": "updated",
@@ -2322,7 +2323,13 @@ async def api_update_product(product_id: int, data: dict):
             }
             has_content_updates = bool(descriptions) or any(
                 column in updates
-                for column in ("name", "emoji", "custom_emoji_id", "warranty_days")
+                for column in (
+                    "name",
+                    "emoji",
+                    "custom_emoji_id",
+                    "warranty_days",
+                    "image_url",
+                )
             )
             if has_content_updates:
                 await update_supplier_product_descriptions(
@@ -2339,6 +2346,11 @@ async def api_update_product(product_id: int, data: dict):
                     custom_warranty_days=(
                         updates.get("warranty_days")
                         if "warranty_days" in updates
+                        else None
+                    ),
+                    custom_image_url=(
+                        (updates.get("image_url") or "")
+                        if "image_url" in updates
                         else None
                     ),
                 )

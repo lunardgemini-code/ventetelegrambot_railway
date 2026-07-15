@@ -14,6 +14,7 @@ SUPPLIER_DESCRIPTION_LANGUAGES = ("en", "fr", "ar", "zh", "vi", "ru")
 MAX_SUPPLIER_DESCRIPTION_LENGTH = 3000
 MAX_SUPPLIER_NAME_LENGTH = 160
 MAX_SUPPLIER_EMOJI_LENGTH = 16
+MAX_SUPPLIER_IMAGE_URL_LENGTH = 2048
 
 
 def _provider(supplier_code: str) -> dict:
@@ -210,6 +211,15 @@ def _display_warranty_days(row: dict) -> int:
     return max(0, min(int(row.get("warranty_days") or 0), 36500))
 
 
+def _display_image_url(row: dict) -> str:
+    return (
+        str(row.get("custom_image_url") or "").strip()[
+            :MAX_SUPPLIER_IMAGE_URL_LENGTH
+        ]
+        or str(row.get("image_url") or "").strip()[:MAX_SUPPLIER_IMAGE_URL_LENGTH]
+    )
+
+
 async def _supplier_enabled(db, supplier_code: str) -> bool:
     # Preserve the established Canboso behavior. New providers remain hidden
     # until explicitly enabled by the administrator.
@@ -243,6 +253,7 @@ async def _upsert_local_product(
     descriptions = _product_descriptions(row)
     display_name = _display_name(row)
     display_emoji = _display_emoji(row)
+    display_image_url = _display_image_url(row)
     custom_emoji_id = str(row.get("custom_emoji_id") or "").strip()
     if supplier_enabled is None:
         supplier_enabled = await _supplier_enabled(db, row["supplier_code"])
@@ -252,7 +263,11 @@ async def _upsert_local_product(
         await db.execute(
             """UPDATE products SET name = ?, description = ?, description_fr = ?, description_ar = ?,
                       description_zh = ?, description_vi = ?, description_ru = ?,
-                      price_usd = ?, warranty_days = ?, emoji = ?, custom_emoji_id = ?, image_url = ?,
+                      price_usd = ?, warranty_days = ?, emoji = ?, custom_emoji_id = ?,
+                      telegram_file_id = CASE
+                          WHEN COALESCE(image_url, '') <> ? THEN NULL
+                          ELSE telegram_file_id END,
+                      image_url = ?,
                       delivery_type = 'supplier_api', is_active = ?, is_deleted = 0
                WHERE id = ?""",
             (
@@ -267,7 +282,8 @@ async def _upsert_local_product(
                 _display_warranty_days(row),
                 display_emoji,
                 custom_emoji_id or None,
-                row.get("image_url") or None,
+                display_image_url,
+                display_image_url or None,
                 is_active,
                 int(local_id),
             ),
@@ -293,7 +309,7 @@ async def _upsert_local_product(
             _display_warranty_days(row),
             display_emoji,
             custom_emoji_id or None,
-            row.get("image_url") or None,
+            display_image_url or None,
             is_active,
         ),
     )
@@ -431,6 +447,7 @@ async def get_supplier_dashboard(
             row.update(
                 display_name=_display_name(row),
                 display_emoji=_display_emoji(row),
+                display_image_url=_display_image_url(row),
                 display_warranty_days=_display_warranty_days(row),
                 effective_margin_type=margin_type,
                 effective_margin_value=margin_value,
@@ -611,6 +628,7 @@ async def update_supplier_product_descriptions(
     custom_emoji: str | None = None,
     custom_emoji_id: str | None = None,
     custom_warranty_days: int | None = None,
+    custom_image_url: str | None = None,
 ) -> dict:
     """Save content overrides and update the linked Telegram product."""
     from database.models import clear_products_cache
@@ -644,6 +662,11 @@ async def update_supplier_product_descriptions(
         supplied_fields["custom_warranty_days"] = max(
             0, min(int(custom_warranty_days), 36500)
         )
+    if custom_image_url is not None:
+        image_url = str(custom_image_url).strip()[:MAX_SUPPLIER_IMAGE_URL_LENGTH]
+        if image_url and not image_url.lower().startswith(("https://", "http://")):
+            raise ValueError("INVALID_IMAGE_URL")
+        supplied_fields["custom_image_url"] = image_url
     if not supplied_fields:
         raise ValueError("NO_PRODUCT_CUSTOMIZATIONS")
     db = await get_db()

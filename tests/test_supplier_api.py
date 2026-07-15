@@ -367,6 +367,51 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(dashboard["products"][0]["name"], "Supplier renamed this product")
         self.assertEqual(dashboard["products"][0]["display_name"], "My premium account")
 
+    async def test_supplier_custom_image_survives_resync_and_clears_media_cache(self):
+        first_image = "https://example.com/custom-first.png"
+        second_image = "https://example.com/custom-second.png"
+        supplier_image = "https://supplier.example.com/source.png"
+
+        await update_supplier_product_descriptions(
+            self.mapping_id,
+            {},
+            custom_image_url=first_image,
+        )
+        await models.cache_product_telegram_file_id(
+            self.local_product_id,
+            first_image,
+            "cached-telegram-photo",
+        )
+
+        await update_supplier_product_descriptions(
+            self.mapping_id,
+            {},
+            custom_image_url=second_image,
+        )
+        product = await models.get_product(self.local_product_id)
+        dashboard = await get_supplier_dashboard()
+        self.assertEqual(product["image_url"], second_image)
+        self.assertIsNone(product["telegram_file_id"])
+        self.assertEqual(dashboard["products"][0]["custom_image_url"], second_image)
+        self.assertEqual(dashboard["products"][0]["display_image_url"], second_image)
+
+        await sync_supplier_products(
+            [{**self.remote_product, "image_url": supplier_image}]
+        )
+        product = await models.get_product(self.local_product_id)
+        self.assertEqual(product["image_url"], second_image)
+
+        await update_supplier_product_descriptions(
+            self.mapping_id,
+            {},
+            custom_image_url="",
+        )
+        product = await models.get_product(self.local_product_id)
+        dashboard = await get_supplier_dashboard()
+        self.assertEqual(product["image_url"], supplier_image)
+        self.assertEqual(dashboard["products"][0]["custom_image_url"], "")
+        self.assertEqual(dashboard["products"][0]["display_image_url"], supplier_image)
+
     async def test_regular_product_editor_cannot_convert_supplier_product_to_stock(self):
         from bot import api_update_product
 
@@ -380,6 +425,7 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
                 "description": "Custom English from Products tab",
                 "description_fr": "Traduction depuis Produits",
                 "warranty_days": 30,
+                "image_url": "https://example.com/products-editor.png",
                 "price_usd": 3.5,
             },
         )
@@ -393,6 +439,10 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(mapping["custom_name"], "Edited from Products tab")
         self.assertEqual(mapping["description_fr"], "Traduction depuis Produits")
         self.assertEqual(int(mapping["custom_warranty_days"]), 30)
+        self.assertEqual(
+            mapping["custom_image_url"],
+            "https://example.com/products-editor.png",
+        )
 
         await sync_supplier_products(
             [{**self.remote_product, "name": "Supplier source name"}]
@@ -402,6 +452,10 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(product["name"], "Edited from Products tab")
         self.assertEqual(product["description_fr"], "Traduction depuis Produits")
         self.assertEqual(int(product["warranty_days"]), 30)
+        self.assertEqual(
+            product["image_url"],
+            "https://example.com/products-editor.png",
+        )
 
     async def test_supplier_custom_emoji_id_must_be_numeric(self):
         with self.assertRaisesRegex(ValueError, "INVALID_CUSTOM_EMOJI_ID"):
@@ -484,11 +538,68 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
                 await db.close()
 
             self.assertTrue({f"description_{lang}" for lang in ("en", "fr", "ar", "zh", "vi", "ru")} <= columns)
-            self.assertTrue({"custom_name", "custom_emoji", "custom_emoji_id", "custom_warranty_days"} <= columns)
+            self.assertTrue({"custom_name", "custom_emoji", "custom_emoji_id", "custom_warranty_days", "custom_image_url"} <= columns)
             self.assertEqual(mapping["description_en"], "Edited English")
             self.assertEqual(mapping["description_fr"], "Français existant")
             self.assertEqual(mapping["description_ar"], "عربي موجود")
-            self.assertEqual(int(version["version"]), 7)
+            self.assertEqual(int(version["version"]), 8)
+        finally:
+            os.environ["DB_PATH"] = current_path
+            db_module._sqlite_wal_configured = False
+            models.clear_products_cache()
+
+    async def test_v8_migration_preserves_existing_local_custom_image(self):
+        current_path = os.environ["DB_PATH"]
+        legacy_path = os.path.join(self.temp_dir.name, "supplier-v7-image.db")
+        try:
+            os.environ["DB_PATH"] = legacy_path
+            db_module._sqlite_wal_configured = False
+            db = await db_module.get_db()
+            try:
+                await db.execute(
+                    "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+                )
+                await db.execute(
+                    "INSERT INTO schema_migrations (version, name) VALUES (7, 'supplier_custom_warranty')"
+                )
+                await db.execute(
+                    "CREATE TABLE products (id INTEGER PRIMARY KEY, image_url TEXT)"
+                )
+                await db.execute(
+                    """CREATE TABLE supplier_products (
+                        id INTEGER PRIMARY KEY, local_product_id INTEGER,
+                        image_url TEXT DEFAULT ''
+                    )"""
+                )
+                await db.execute(
+                    "INSERT INTO products (id, image_url) VALUES (7, 'https://example.com/existing-custom.png')"
+                )
+                await db.execute(
+                    "INSERT INTO supplier_products (id, local_product_id, image_url) VALUES (9, 7, 'https://supplier.example.com/source.png')"
+                )
+                await db.commit()
+            finally:
+                await db.close()
+
+            await init_db()
+            db = await db_module.get_db()
+            try:
+                mapping = await (
+                    await db.execute(
+                        "SELECT custom_image_url FROM supplier_products WHERE id = 9"
+                    )
+                ).fetchone()
+                version = await (
+                    await db.execute("SELECT MAX(version) AS version FROM schema_migrations")
+                ).fetchone()
+            finally:
+                await db.close()
+
+            self.assertEqual(
+                mapping["custom_image_url"],
+                "https://example.com/existing-custom.png",
+            )
+            self.assertEqual(int(version["version"]), 8)
         finally:
             os.environ["DB_PATH"] = current_path
             db_module._sqlite_wal_configured = False
