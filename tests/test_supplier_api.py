@@ -10,6 +10,7 @@ from database import models
 from database.suppliers import (
     calculate_supplier_price,
     get_supplier_dashboard,
+    get_supplier_stats,
     sync_supplier_products,
     update_supplier_product,
     update_supplier_product_descriptions,
@@ -542,7 +543,7 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(mapping["description_en"], "Edited English")
             self.assertEqual(mapping["description_fr"], "Français existant")
             self.assertEqual(mapping["description_ar"], "عربي موجود")
-            self.assertEqual(int(version["version"]), 8)
+            self.assertEqual(int(version["version"]), 9)
         finally:
             os.environ["DB_PATH"] = current_path
             db_module._sqlite_wal_configured = False
@@ -599,7 +600,71 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
                 mapping["custom_image_url"],
                 "https://example.com/existing-custom.png",
             )
-            self.assertEqual(int(version["version"]), 8)
+            self.assertEqual(int(version["version"]), 9)
+        finally:
+            os.environ["DB_PATH"] = current_path
+            db_module._sqlite_wal_configured = False
+            models.clear_products_cache()
+
+    async def test_v9_migration_backfills_historical_supplier_financials(self):
+        current_path = os.environ["DB_PATH"]
+        legacy_path = os.path.join(self.temp_dir.name, "supplier-v8-finance.db")
+        try:
+            os.environ["DB_PATH"] = legacy_path
+            db_module._sqlite_wal_configured = False
+            db = await db_module.get_db()
+            try:
+                await db.execute(
+                    "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+                )
+                await db.execute(
+                    "INSERT INTO schema_migrations (version, name) VALUES (8, 'supplier_custom_image')"
+                )
+                await db.execute(
+                    "CREATE TABLE orders (id INTEGER PRIMARY KEY, amount_usd REAL)"
+                )
+                await db.execute(
+                    """CREATE TABLE supplier_products (
+                        supplier_code TEXT, external_product_id TEXT,
+                        base_price REAL
+                    )"""
+                )
+                await db.execute(
+                    """CREATE TABLE supplier_orders (
+                        id INTEGER PRIMARY KEY, order_id INTEGER,
+                        supplier_code TEXT, external_product_id TEXT,
+                        quantity INTEGER, status TEXT
+                    )"""
+                )
+                await db.execute("INSERT INTO orders VALUES (7, 4.5)")
+                await db.execute(
+                    "INSERT INTO supplier_products VALUES ('canboso', 'remote-9', 1.5)"
+                )
+                await db.execute(
+                    "INSERT INTO supplier_orders VALUES (9, 7, 'canboso', 'remote-9', 2, 'completed')"
+                )
+                await db.commit()
+            finally:
+                await db.close()
+
+            await init_db()
+            db = await db_module.get_db()
+            try:
+                row = await (
+                    await db.execute(
+                        "SELECT cost_usd, revenue_usd, cost_estimated FROM supplier_orders WHERE id = 9"
+                    )
+                ).fetchone()
+                version = await (
+                    await db.execute("SELECT MAX(version) AS version FROM schema_migrations")
+                ).fetchone()
+            finally:
+                await db.close()
+
+            self.assertEqual(float(row["cost_usd"]), 3.0)
+            self.assertEqual(float(row["revenue_usd"]), 4.5)
+            self.assertEqual(int(row["cost_estimated"]), 1)
+            self.assertEqual(int(version["version"]), 9)
         finally:
             os.environ["DB_PATH"] = current_path
             db_module._sqlite_wal_configured = False
@@ -614,6 +679,59 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(saved["status"], "PAID_PENDING_DELIVERY")
         self.assertEqual(purchase["items"], [])
         self.assertAlmostEqual(float(purchase["balance_after"]), 6.5)
+
+    async def test_supplier_stats_use_order_time_cost_and_revenue_snapshots(self):
+        purchase = AsyncMock(
+            side_effect=[
+                {
+                    "external_order_id": "stats-1",
+                    "items": [{"account_data": "first"}],
+                    "raw_payload": {"success": True},
+                },
+                {
+                    "external_order_id": "stats-2",
+                    "items": [
+                        {"account_data": "second"},
+                        {"account_data": "third"},
+                    ],
+                    "raw_payload": {"success": True},
+                },
+            ]
+        )
+        first = await models.create_order(3001, self.local_product_id, 3.5, quantity=1)
+        second = await models.create_order(3001, self.local_product_id, 7.0, quantity=2)
+        with patch("services.supplier_api.purchase_canboso_product", purchase):
+            await deliver_order(first["id"], self.local_product_id)
+            await deliver_order(second["id"], self.local_product_id)
+
+        stats = await get_supplier_stats(days=30)
+        summary = stats["summary"]
+        self.assertEqual(summary["orders"], 2)
+        self.assertEqual(summary["items_sold"], 3)
+        self.assertEqual(summary["revenue"], 10.5)
+        self.assertEqual(summary["cost"], 7.5)
+        self.assertEqual(summary["profit"], 3.0)
+        self.assertEqual(summary["average_order"], 5.25)
+        self.assertAlmostEqual(summary["margin_percent"], 28.57, places=2)
+        self.assertEqual(summary["success_rate"], 100.0)
+        self.assertEqual(stats["data_quality"]["estimated_cost_orders"], 0)
+        self.assertEqual(stats["data_quality"]["missing_cost_orders"], 0)
+        self.assertEqual(len(stats["daily"]), 30)
+        self.assertEqual(stats["daily"][-1]["items_sold"], 3)
+
+        product = stats["products"][0]
+        self.assertEqual(product["name"], "Remote account")
+        self.assertEqual(product["items_sold"], 3)
+        self.assertEqual(product["revenue"], 10.5)
+        self.assertEqual(product["cost"], 7.5)
+        self.assertEqual(product["profit"], 3.0)
+
+        from bot import api_get_supplier_stats
+
+        api_stats = await api_get_supplier_stats("canboso", days=7)
+        self.assertEqual(api_stats["days"], 7)
+        self.assertEqual(len(api_stats["daily"]), 7)
+        self.assertEqual(api_stats["summary"]["profit"], 3.0)
 
     async def test_completed_supplier_delivery_replays_without_second_purchase(self):
         order = await models.create_order(3001, self.local_product_id, 3.5, quantity=1)

@@ -964,6 +964,9 @@ async def init_db() -> None:
                 external_product_id TEXT NOT NULL,
                 quantity INTEGER NOT NULL DEFAULT 1,
                 status TEXT NOT NULL DEFAULT 'pending',
+                cost_usd REAL,
+                revenue_usd REAL,
+                cost_estimated INTEGER NOT NULL DEFAULT 0,
                 external_order_id TEXT,
                 delivered_items TEXT DEFAULT '[]',
                 raw_payload TEXT DEFAULT '{}',
@@ -1137,7 +1140,7 @@ async def init_db() -> None:
             "ALTER TABLE nowpayments_wallet_topups ADD COLUMN cancelled_at TIMESTAMP DEFAULT NULL",
             "CREATE INDEX IF NOT EXISTS idx_orders_product_date_status ON orders(product_id, created_at, status)",
             "CREATE TABLE IF NOT EXISTS supplier_products (id INTEGER PRIMARY KEY AUTOINCREMENT, supplier_code TEXT NOT NULL DEFAULT 'canboso', external_product_id TEXT NOT NULL, local_product_id INTEGER UNIQUE, name TEXT NOT NULL, description TEXT DEFAULT '', description_en TEXT DEFAULT '', description_fr TEXT DEFAULT '', description_ar TEXT DEFAULT '', description_zh TEXT DEFAULT '', description_vi TEXT DEFAULT '', description_ru TEXT DEFAULT '', base_price REAL NOT NULL DEFAULT 0, source_price REAL NOT NULL DEFAULT 0, source_currency TEXT NOT NULL DEFAULT 'USD', remote_stock INTEGER NOT NULL DEFAULT 0, warranty_days INTEGER NOT NULL DEFAULT 0, image_url TEXT DEFAULT '', emoji TEXT DEFAULT '📦', custom_name TEXT DEFAULT '', custom_emoji TEXT DEFAULT '', custom_emoji_id TEXT DEFAULT '', custom_warranty_days INTEGER DEFAULT NULL, custom_image_url TEXT DEFAULT '', enabled INTEGER NOT NULL DEFAULT 0, margin_type TEXT NOT NULL DEFAULT 'inherit', margin_value REAL, raw_payload TEXT DEFAULT '{}', last_synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(supplier_code, external_product_id))",
-            "CREATE TABLE IF NOT EXISTS supplier_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL UNIQUE, supplier_code TEXT NOT NULL DEFAULT 'canboso', external_product_id TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'pending', external_order_id TEXT, delivered_items TEXT DEFAULT '[]', raw_payload TEXT DEFAULT '{}', error TEXT, attempts INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, completed_at TIMESTAMP)",
+            "CREATE TABLE IF NOT EXISTS supplier_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL UNIQUE, supplier_code TEXT NOT NULL DEFAULT 'canboso', external_product_id TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'pending', cost_usd REAL, revenue_usd REAL, cost_estimated INTEGER NOT NULL DEFAULT 0, external_order_id TEXT, delivered_items TEXT DEFAULT '[]', raw_payload TEXT DEFAULT '{}', error TEXT, attempts INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, completed_at TIMESTAMP)",
             "CREATE INDEX IF NOT EXISTS idx_supplier_products_local ON supplier_products(local_product_id)",
             "CREATE INDEX IF NOT EXISTS idx_supplier_products_enabled ON supplier_products(supplier_code, enabled)",
             "CREATE INDEX IF NOT EXISTS idx_supplier_orders_status ON supplier_orders(status, updated_at)",
@@ -1459,6 +1462,88 @@ async def init_db() -> None:
             )
             await db.commit()
             current_version = 8
+
+        if 8 <= current_version < 9:
+            await db.execute(
+                """CREATE TABLE IF NOT EXISTS supplier_orders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_id INTEGER NOT NULL UNIQUE,
+                    supplier_code TEXT NOT NULL DEFAULT 'canboso',
+                    external_product_id TEXT NOT NULL,
+                    quantity INTEGER NOT NULL DEFAULT 1,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    cost_usd REAL,
+                    revenue_usd REAL,
+                    cost_estimated INTEGER NOT NULL DEFAULT 0,
+                    external_order_id TEXT,
+                    delivered_items TEXT DEFAULT '[]',
+                    raw_payload TEXT DEFAULT '{}',
+                    error TEXT,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP
+                )"""
+            )
+            columns = await _columns_for("supplier_orders")
+            financial_columns = {
+                "cost_usd": "REAL",
+                "revenue_usd": "REAL",
+                "cost_estimated": "INTEGER NOT NULL DEFAULT 0",
+            }
+            for column_name, column_type in financial_columns.items():
+                if column_name not in columns:
+                    await db.execute(
+                        f"ALTER TABLE supplier_orders ADD COLUMN {column_name} {column_type}"
+                    )
+                    columns.add(column_name)
+
+            # Historical revenue is exact. Historical supplier cost is an
+            # estimate based on the latest known catalog cost.
+            order_columns = await _columns_for("orders")
+            if "amount_usd" in order_columns:
+                await db.execute(
+                    """UPDATE supplier_orders
+                       SET revenue_usd = (
+                           SELECT o.amount_usd FROM orders o
+                           WHERE o.id = supplier_orders.order_id
+                       )
+                       WHERE revenue_usd IS NULL"""
+                )
+            supplier_product_columns = await _columns_for("supplier_products")
+            if {
+                "supplier_code",
+                "external_product_id",
+                "base_price",
+            } <= supplier_product_columns:
+                await db.execute(
+                    """UPDATE supplier_orders
+                       SET cost_usd = (
+                               SELECT sp.base_price * supplier_orders.quantity
+                               FROM supplier_products sp
+                               WHERE sp.supplier_code = supplier_orders.supplier_code
+                                 AND sp.external_product_id = supplier_orders.external_product_id
+                               LIMIT 1
+                           ),
+                           cost_estimated = CASE
+                               WHEN EXISTS (
+                                   SELECT 1 FROM supplier_products sp
+                                   WHERE sp.supplier_code = supplier_orders.supplier_code
+                                     AND sp.external_product_id = supplier_orders.external_product_id
+                               ) THEN 1 ELSE cost_estimated END
+                       WHERE cost_usd IS NULL"""
+                )
+            if {"supplier_code", "status", "completed_at"} <= columns:
+                await db.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_supplier_orders_supplier_completed "
+                    "ON supplier_orders(supplier_code, status, completed_at)"
+                )
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (9, ?)",
+                ("supplier_order_financial_snapshots",),
+            )
+            await db.commit()
+            current_version = 9
 
     finally:
         await db.close()

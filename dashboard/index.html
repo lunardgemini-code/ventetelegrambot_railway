@@ -14,7 +14,7 @@
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
     <link rel="stylesheet" href="style.css?v=20260715-supplier-image">
-    <link rel="stylesheet" href="revamp.css?v=20260715-multisupplier">
+    <link rel="stylesheet" href="revamp.css?v=20260715-supplier-stats">
 </head>
 <body>
     <!-- Login Screen -->
@@ -630,6 +630,11 @@
                     <div><span>Produits affichés</span><strong id="supplier-selected-count">0</strong></div>
                     <div><span>Livraisons à vérifier</span><strong id="supplier-review-count">0</strong></div>
                 </div>
+                <div class="supplier-view-tabs" role="tablist" aria-label="Vue API Bot Gestion">
+                    <button type="button" class="active" data-supplier-view="catalog" role="tab" aria-selected="true"><i class="fa-solid fa-boxes-stacked"></i> Catalogue</button>
+                    <button type="button" data-supplier-view="stats" role="tab" aria-selected="false"><i class="fa-solid fa-chart-line"></i> Statistiques</button>
+                </div>
+                <div id="supplier-catalog-view">
                 <div class="glass-panel supplier-settings-panel">
                     <div class="panel-header"><div><p class="eyebrow" id="supplier-provider-name">Fournisseur</p><h3>Configuration du catalogue</h3></div></div>
                     <form id="supplier-settings-form" class="supplier-settings-grid">
@@ -644,6 +649,35 @@
                 <div class="supplier-table-toolbar"><div><h3>Catalogue fournisseur</h3><p>Le stock achetable est automatiquement limité par votre solde fournisseur. Un produit à 0 n'apparaît pas sur le bot.</p></div><input id="supplier-product-search" type="search" placeholder="Rechercher un produit..." aria-label="Rechercher un produit"></div>
                 <div class="glass-panel overflow-hidden">
                     <table class="data-table supplier-products-table"><thead><tr><th>Afficher</th><th>Produit fournisseur</th><th>Prix source</th><th>Stock API</th><th>Achetable</th><th>Marge appliquée</th><th>Prix client</th><th>Action</th></tr></thead><tbody id="supplier-products-table-body"><tr><td colspan="8" class="empty-state">Synchronisez le catalogue pour commencer.</td></tr></tbody></table>
+                </div>
+                </div>
+                <div id="supplier-stats-view" class="hidden">
+                    <div class="supplier-stats-toolbar">
+                        <div><h3>Performance du fournisseur</h3><p>Rentabilité réelle des commandes livrées par API.</p></div>
+                        <div class="supplier-stats-ranges" role="group" aria-label="Période des statistiques">
+                            <button type="button" data-supplier-days="7">7 jours</button>
+                            <button type="button" class="active" data-supplier-days="30">30 jours</button>
+                            <button type="button" data-supplier-days="90">90 jours</button>
+                            <button type="button" data-supplier-days="365">1 an</button>
+                        </div>
+                    </div>
+                    <div class="metrics-grid supplier-stats-grid">
+                        <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label">Chiffre d’affaires</p><h3 id="supplier-stats-revenue">$0.00</h3><p class="metric-sub">Montant payé par les clients</p></div><div class="metric-icon color-green"><i class="fa-solid fa-sack-dollar"></i></div></div>
+                        <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label">Dépensé</p><h3 id="supplier-stats-cost">$0.00</h3><p class="metric-sub">Coût des achats fournisseur</p></div><div class="metric-icon color-amber"><i class="fa-solid fa-receipt"></i></div></div>
+                        <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label">Bénéfice net</p><h3 id="supplier-stats-profit">$0.00</h3><p class="metric-sub" id="supplier-stats-margin">Marge 0%</p></div><div class="metric-icon color-blue"><i class="fa-solid fa-arrow-trend-up"></i></div></div>
+                        <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label">Articles vendus</p><h3 id="supplier-stats-items">0</h3><p class="metric-sub">Unités livrées</p></div><div class="metric-icon color-purple"><i class="fa-solid fa-box-open"></i></div></div>
+                        <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label">Commandes</p><h3 id="supplier-stats-orders">0</h3><p class="metric-sub" id="supplier-stats-orders-sub">Panier moyen $0.00</p></div><div class="metric-icon color-blue"><i class="fa-solid fa-cart-shopping"></i></div></div>
+                        <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label">Taux de réussite</p><h3 id="supplier-stats-success">0%</h3><p class="metric-sub">Livraisons API terminées</p></div><div class="metric-icon color-green"><i class="fa-solid fa-circle-check"></i></div></div>
+                    </div>
+                    <div id="supplier-stats-quality" class="supplier-stats-quality hidden"></div>
+                    <div class="chart-card glass-panel supplier-stats-chart-card">
+                        <div class="panel-header"><div><h3><i class="fa-solid fa-chart-area"></i> Momentum financier</h3><p>Revenus, dépenses et bénéfices quotidiens.</p></div></div>
+                        <div class="chart-wrapper"><canvas id="supplier-stats-chart"></canvas></div>
+                    </div>
+                    <div class="supplier-table-toolbar"><div><h3>Ventes par produit</h3><p>Identifiez les produits qui génèrent le plus de volume et de marge.</p></div></div>
+                    <div class="glass-panel overflow-hidden">
+                        <table class="data-table supplier-stats-table"><thead><tr><th>Produit</th><th>Articles</th><th>Commandes</th><th>Revenus</th><th>Dépensé</th><th>Bénéfice</th><th>Marge</th></tr></thead><tbody id="supplier-stats-products-body"><tr><td colspan="7" class="empty-state">Aucune vente sur cette période.</td></tr></tbody></table>
+                    </div>
                 </div>
             </section>
 
@@ -870,7 +904,7 @@
                     <div class="form-group"><label for="supplier-custom-name">Nom affiché</label><input id="supplier-custom-name" type="text" maxlength="160" placeholder="Vide = nom du fournisseur"></div>
                     <div class="form-group"><label for="supplier-custom-emoji">Emoji classique</label><input id="supplier-custom-emoji" type="text" maxlength="16" placeholder="📦"></div>
                     <div class="form-group"><label for="supplier-custom-emoji-id">ID emoji personnalisé Telegram</label><input id="supplier-custom-emoji-id" type="text" inputmode="numeric" maxlength="32" placeholder="Ex: 5375312095346704820"></div>
-                    <div class="form-group"><label for="supplier-custom-image-url">Lien de l'image affichée</label><input id="supplier-custom-image-url" type="url" maxlength="2048" placeholder="https://.../image.png"><small>Vide = image reçue du fournisseur.</small></div>
+                    <div class="form-group supplier-image-field"><label for="supplier-custom-image-url">Lien de l'image affichée</label><input id="supplier-custom-image-url" type="url" maxlength="2048" placeholder="https://.../image.png"><small>Vide = image reçue du fournisseur.</small></div>
                 </div>
                 <div class="supplier-description-source-block">
                     <label>Description reçue du fournisseur</label>
@@ -1354,7 +1388,7 @@
 </div>
 
 
-<script defer src="app.js?v=20260715-supplier-image"></script>
+<script defer src="app.js?v=20260715-supplier-stats"></script>
     <script>
     /* ── Mobile Sidebar Toggle ── */
     (function() {

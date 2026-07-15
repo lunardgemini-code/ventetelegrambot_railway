@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 
 from database.db import get_db
 
@@ -483,6 +484,158 @@ async def get_supplier_dashboard(
         await db.close()
 
 
+async def get_supplier_stats(
+    supplier_code: str = DEFAULT_SUPPLIER_CODE,
+    *,
+    days: int = 30,
+) -> dict:
+    """Return lightweight financial and sales analytics for one supplier."""
+    supplier_code = _provider(supplier_code)["code"]
+    days = max(1, min(int(days), 365))
+    today = datetime.now(timezone.utc).date()
+    start_day = today - timedelta(days=days - 1)
+    start_date = start_day.isoformat()
+    completed_date = "DATE(COALESCE(so.completed_at, so.updated_at, so.created_at))"
+
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            f"""SELECT
+                    COUNT(*) AS order_count,
+                    COALESCE(SUM(so.quantity), 0) AS items_sold,
+                    COALESCE(SUM(COALESCE(so.revenue_usd, o.amount_usd, 0)), 0) AS revenue,
+                    COALESCE(SUM(COALESCE(so.cost_usd, 0)), 0) AS cost,
+                    COALESCE(SUM(CASE WHEN so.cost_estimated = 1 THEN 1 ELSE 0 END), 0) AS estimated_orders,
+                    COALESCE(SUM(CASE WHEN so.cost_usd IS NULL THEN 1 ELSE 0 END), 0) AS missing_cost_orders
+                FROM supplier_orders so
+                LEFT JOIN orders o ON o.id = so.order_id
+                WHERE so.supplier_code = ? AND so.status = 'completed'
+                  AND {completed_date} >= ?""",
+            (supplier_code, start_date),
+        )
+        total = dict(await cursor.fetchone())
+
+        cursor = await db.execute(
+            """SELECT status, COUNT(*) AS count
+               FROM supplier_orders
+               WHERE supplier_code = ? AND DATE(created_at) >= ?
+               GROUP BY status""",
+            (supplier_code, start_date),
+        )
+        status_counts = {
+            str(row["status"]): int(row["count"])
+            for row in await cursor.fetchall()
+        }
+
+        cursor = await db.execute(
+            f"""SELECT
+                    so.external_product_id,
+                    MAX(COALESCE(NULLIF(TRIM(sp.custom_name), ''), sp.name, so.external_product_id)) AS name,
+                    MAX(COALESCE(NULLIF(TRIM(sp.custom_emoji), ''), sp.emoji, '📦')) AS emoji,
+                    COUNT(*) AS order_count,
+                    COALESCE(SUM(so.quantity), 0) AS items_sold,
+                    COALESCE(SUM(COALESCE(so.revenue_usd, o.amount_usd, 0)), 0) AS revenue,
+                    COALESCE(SUM(COALESCE(so.cost_usd, 0)), 0) AS cost,
+                    COALESCE(SUM(CASE WHEN so.cost_estimated = 1 THEN 1 ELSE 0 END), 0) AS estimated_orders,
+                    COALESCE(SUM(CASE WHEN so.cost_usd IS NULL THEN 1 ELSE 0 END), 0) AS missing_cost_orders
+                FROM supplier_orders so
+                LEFT JOIN orders o ON o.id = so.order_id
+                LEFT JOIN supplier_products sp
+                  ON sp.supplier_code = so.supplier_code
+                 AND sp.external_product_id = so.external_product_id
+                WHERE so.supplier_code = ? AND so.status = 'completed'
+                  AND {completed_date} >= ?
+                GROUP BY so.external_product_id
+                ORDER BY items_sold DESC, revenue DESC""",
+            (supplier_code, start_date),
+        )
+        products = []
+        for raw in await cursor.fetchall():
+            row = dict(raw)
+            revenue = float(row.get("revenue") or 0)
+            cost = float(row.get("cost") or 0)
+            profit = revenue - cost
+            products.append(
+                {
+                    "external_product_id": str(row["external_product_id"]),
+                    "name": str(row.get("name") or row["external_product_id"]),
+                    "emoji": str(row.get("emoji") or "📦"),
+                    "orders": int(row.get("order_count") or 0),
+                    "items_sold": int(row.get("items_sold") or 0),
+                    "revenue": round(revenue, 2),
+                    "cost": round(cost, 2),
+                    "profit": round(profit, 2),
+                    "margin_percent": round((profit / revenue * 100) if revenue else 0, 2),
+                    "estimated_cost_orders": int(row.get("estimated_orders") or 0),
+                    "missing_cost_orders": int(row.get("missing_cost_orders") or 0),
+                }
+            )
+
+        cursor = await db.execute(
+            f"""SELECT
+                    {completed_date} AS day,
+                    COUNT(*) AS order_count,
+                    COALESCE(SUM(so.quantity), 0) AS items_sold,
+                    COALESCE(SUM(COALESCE(so.revenue_usd, o.amount_usd, 0)), 0) AS revenue,
+                    COALESCE(SUM(COALESCE(so.cost_usd, 0)), 0) AS cost
+                FROM supplier_orders so
+                LEFT JOIN orders o ON o.id = so.order_id
+                WHERE so.supplier_code = ? AND so.status = 'completed'
+                  AND {completed_date} >= ?
+                GROUP BY day ORDER BY day""",
+            (supplier_code, start_date),
+        )
+        daily_by_date = {str(row["day"]): dict(row) for row in await cursor.fetchall()}
+        daily = []
+        for offset in range(days):
+            day = (start_day + timedelta(days=offset)).isoformat()
+            row = daily_by_date.get(day, {})
+            revenue = float(row.get("revenue") or 0)
+            cost = float(row.get("cost") or 0)
+            daily.append(
+                {
+                    "day": day,
+                    "orders": int(row.get("order_count") or 0),
+                    "items_sold": int(row.get("items_sold") or 0),
+                    "revenue": round(revenue, 2),
+                    "cost": round(cost, 2),
+                    "profit": round(revenue - cost, 2),
+                }
+            )
+
+        revenue = float(total.get("revenue") or 0)
+        cost = float(total.get("cost") or 0)
+        profit = revenue - cost
+        completed_orders = int(total.get("order_count") or 0)
+        attempted_orders = sum(status_counts.values())
+        completed_attempts = int(status_counts.get("completed", 0))
+        return {
+            "supplier_code": supplier_code,
+            "days": days,
+            "start_date": start_date,
+            "end_date": today.isoformat(),
+            "summary": {
+                "revenue": round(revenue, 2),
+                "cost": round(cost, 2),
+                "profit": round(profit, 2),
+                "margin_percent": round((profit / revenue * 100) if revenue else 0, 2),
+                "items_sold": int(total.get("items_sold") or 0),
+                "orders": completed_orders,
+                "average_order": round((revenue / completed_orders) if completed_orders else 0, 2),
+                "success_rate": round((completed_attempts / attempted_orders * 100) if attempted_orders else 0, 2),
+            },
+            "status_counts": status_counts,
+            "data_quality": {
+                "estimated_cost_orders": int(total.get("estimated_orders") or 0),
+                "missing_cost_orders": int(total.get("missing_cost_orders") or 0),
+            },
+            "products": products,
+            "daily": daily,
+        }
+    finally:
+        await db.close()
+
+
 async def update_supplier_settings(
     *,
     enabled: bool,
@@ -824,6 +977,21 @@ async def claim_supplier_order(
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
+        quantity = max(1, int(quantity))
+        cost_usd = round(
+            max(0.0, float(mapping.get("base_price") or 0)) * quantity,
+            6,
+        )
+        order_cursor = await db.execute(
+            "SELECT amount_usd FROM orders WHERE id = ?",
+            (int(order_id),),
+        )
+        order_row = await order_cursor.fetchone()
+        revenue_usd = (
+            round(max(0.0, float(order_row["amount_usd"])), 6)
+            if order_row and order_row["amount_usd"] is not None
+            else None
+        )
         cursor = await db.execute(
             "SELECT * FROM supplier_orders WHERE order_id = ?", (int(order_id),)
         )
@@ -836,21 +1004,26 @@ async def claim_supplier_order(
             await db.execute(
                 "UPDATE supplier_orders SET status = 'purchasing', "
                 "attempts = attempts + 1, error = NULL, "
+                "cost_usd = COALESCE(cost_usd, ?), "
+                "revenue_usd = COALESCE(revenue_usd, ?), "
+                "cost_estimated = CASE WHEN cost_usd IS NULL THEN 0 ELSE cost_estimated END, "
                 "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (int(row["id"]),),
+                (cost_usd, revenue_usd, int(row["id"])),
             )
             await db.commit()
             return {**row, "status": "purchasing", "claimed": True}
         cursor = await db.execute(
             """INSERT INTO supplier_orders
                (order_id, supplier_code, external_product_id, quantity,
-                status, attempts)
-               VALUES (?, ?, ?, ?, 'purchasing', 1)""",
+                status, attempts, cost_usd, revenue_usd, cost_estimated)
+               VALUES (?, ?, ?, ?, 'purchasing', 1, ?, ?, 0)""",
             (
                 int(order_id),
                 supplier_code,
                 str(mapping["external_product_id"]),
-                max(1, int(quantity)),
+                quantity,
+                cost_usd,
+                revenue_usd,
             ),
         )
         await db.commit()

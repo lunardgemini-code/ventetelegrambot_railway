@@ -189,7 +189,7 @@ const state = {
     revenueChart:null, ordersChart:null, productSalesChart:null, productMomentumChart:null,
     paymentReviewCategory:'all', paymentReviewIncludeResolved:false, paymentReviewItems:[],
     dynamicPriceChart:null, dynamicSimulationChart:null,
-    productStats:[], productMomentum:null, productMomentumSelected:[], deadProductAlerts:[], supplierBot:null, supplierBots:[], activeSupplierCode:'canboso',
+    productStats:[], productMomentum:null, productMomentumSelected:[], deadProductAlerts:[], supplierBot:null, supplierBots:[], activeSupplierCode:'canboso', supplierView:'catalog', supplierStats:null, supplierStatsDays:30, supplierStatsChart:null,
     gameProvider:null, gameCatalog:[], gameMatches:[], gameCompetitions:[], gameView:'catalog', currentGameMatch:null
 };
 
@@ -245,6 +245,8 @@ const DOM = {
     supplierProviderSwitcher:$('supplier-provider-switcher'), supplierProviderName:$('supplier-provider-name'), supplierRateGroup:$('supplier-rate-group'), supplierRateLabel:$('supplier-rate-label'), supplierUnitsPerUsd:$('supplier-units-per-usd'), supplierCredentialEnv:$('supplier-credential-env'),
     btnSupplierSync:$('btn-supplier-sync'), supplierConnection:$('supplier-connection'), supplierWalletBalance:$('supplier-wallet-balance'), supplierLastSync:$('supplier-last-sync'), supplierSelectedCount:$('supplier-selected-count'), supplierReviewCount:$('supplier-review-count'),
     supplierProductSearch:$('supplier-product-search'), supplierProductsTableBody:$('supplier-products-table-body'),
+    supplierCatalogView:$('supplier-catalog-view'), supplierStatsView:$('supplier-stats-view'), supplierStatsRevenue:$('supplier-stats-revenue'), supplierStatsCost:$('supplier-stats-cost'), supplierStatsProfit:$('supplier-stats-profit'), supplierStatsMargin:$('supplier-stats-margin'),
+    supplierStatsItems:$('supplier-stats-items'), supplierStatsOrders:$('supplier-stats-orders'), supplierStatsOrdersSub:$('supplier-stats-orders-sub'), supplierStatsSuccess:$('supplier-stats-success'), supplierStatsQuality:$('supplier-stats-quality'), supplierStatsChart:$('supplier-stats-chart'), supplierStatsProductsBody:$('supplier-stats-products-body'),
     supplierDescriptionModal:$('supplier-description-modal'), supplierDescriptionForm:$('supplier-description-form'), supplierDescriptionProductId:$('supplier-description-product-id'),
     supplierDescriptionTitle:$('supplier-description-title'), supplierDescriptionSource:$('supplier-description-source'),
     supplierCustomName:$('supplier-custom-name'), supplierCustomEmoji:$('supplier-custom-emoji'), supplierCustomEmojiId:$('supplier-custom-emoji-id'), supplierCustomImageUrl:$('supplier-custom-image-url'), supplierAutoTranslate:$('supplier-auto-translate'),
@@ -411,6 +413,8 @@ function setupEvents() {
     if (DOM.btnSupplierSync) DOM.btnSupplierSync.addEventListener('click', syncSupplierBot);
     if (DOM.supplierSettingsForm) DOM.supplierSettingsForm.addEventListener('submit', saveSupplierSettings);
     if (DOM.supplierProductSearch) DOM.supplierProductSearch.addEventListener('input', renderSupplierProducts);
+    $$('[data-supplier-view]').forEach(button => button.addEventListener('click', () => setSupplierView(button.dataset.supplierView)));
+    $$('[data-supplier-days]').forEach(button => button.addEventListener('click', () => setSupplierStatsDays(button.dataset.supplierDays)));
     if (DOM.supplierDescriptionForm) DOM.supplierDescriptionForm.addEventListener('submit', saveSupplierDescriptions);
     if (DOM.supplierAutoTranslate) DOM.supplierAutoTranslate.addEventListener('click', autoTranslateSupplierDescription);
     if (DOM.btnGameRefresh) DOM.btnGameRefresh.addEventListener('click', () => loadGameManagement({forceCatalog:true}));
@@ -2582,6 +2586,125 @@ async function handleGameTableAction(event) {
     }
 }
 
+async function setSupplierView(view) {
+    const nextView = view === 'stats' ? 'stats' : 'catalog';
+    state.supplierView = nextView;
+    DOM.supplierCatalogView?.classList.toggle('hidden', nextView !== 'catalog');
+    DOM.supplierStatsView?.classList.toggle('hidden', nextView !== 'stats');
+    $$('[data-supplier-view]').forEach(button => {
+        const active = button.dataset.supplierView === nextView;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-selected', String(active));
+    });
+    if (nextView === 'stats') await loadSupplierStats();
+}
+
+async function setSupplierStatsDays(rawDays) {
+    const days = [7, 30, 90, 365].includes(Number(rawDays)) ? Number(rawDays) : 30;
+    state.supplierStatsDays = days;
+    $$('[data-supplier-days]').forEach(button => {
+        button.classList.toggle('active', Number(button.dataset.supplierDays) === days);
+    });
+    await loadSupplierStats();
+}
+
+async function loadSupplierStats() {
+    if (!DOM.supplierStatsProductsBody || !state.activeSupplierCode) return;
+    const supplierCode = state.activeSupplierCode;
+    DOM.supplierStatsProductsBody.innerHTML = '<tr><td colspan="7" class="empty-state">Chargement des statistiques...</td></tr>';
+    try {
+        const stats = await apiCall(`/api/supplier-bots/${encodeURIComponent(supplierCode)}/stats?days=${state.supplierStatsDays}`);
+        if (supplierCode !== state.activeSupplierCode) return;
+        state.supplierStats = stats;
+        const summary = stats.summary || {};
+        const revenue = Number(summary.revenue || 0);
+        const cost = Number(summary.cost || 0);
+        const profit = Number(summary.profit || 0);
+        DOM.supplierStatsRevenue.textContent = `$${revenue.toFixed(2)}`;
+        DOM.supplierStatsCost.textContent = `$${cost.toFixed(2)}`;
+        DOM.supplierStatsProfit.textContent = `${profit < 0 ? '-' : ''}$${Math.abs(profit).toFixed(2)}`;
+        DOM.supplierStatsProfit.classList.toggle('supplier-profit-positive', profit >= 0);
+        DOM.supplierStatsProfit.classList.toggle('supplier-profit-negative', profit < 0);
+        DOM.supplierStatsMargin.textContent = `Marge ${Number(summary.margin_percent || 0).toFixed(1)}%`;
+        DOM.supplierStatsItems.textContent = Number(summary.items_sold || 0).toLocaleString('fr-FR');
+        DOM.supplierStatsOrders.textContent = Number(summary.orders || 0).toLocaleString('fr-FR');
+        DOM.supplierStatsOrdersSub.textContent = `Panier moyen $${Number(summary.average_order || 0).toFixed(2)}`;
+        DOM.supplierStatsSuccess.textContent = `${Number(summary.success_rate || 0).toFixed(1)}%`;
+
+        const quality = stats.data_quality || {};
+        const qualityMessages = [];
+        if (Number(quality.estimated_cost_orders || 0) > 0) {
+            qualityMessages.push(`${Number(quality.estimated_cost_orders)} ancienne(s) commande(s) utilisent le dernier coût fournisseur connu.`);
+        }
+        if (Number(quality.missing_cost_orders || 0) > 0) {
+            qualityMessages.push(`${Number(quality.missing_cost_orders)} commande(s) n'ont pas de coût récupérable; leur bénéfice est potentiellement surestimé.`);
+        }
+        DOM.supplierStatsQuality.classList.toggle('hidden', qualityMessages.length === 0);
+        DOM.supplierStatsQuality.innerHTML = qualityMessages.length
+            ? `<i class="fa-solid fa-triangle-exclamation"></i><div><strong>Qualité des données historiques</strong><br>${qualityMessages.map(message => escapeHtml(message)).join(' ')}</div>`
+            : '';
+
+        const products = stats.products || [];
+        DOM.supplierStatsProductsBody.innerHTML = products.length ? products.map(product => {
+            const productProfit = Number(product.profit || 0);
+            const profitClass = productProfit >= 0 ? 'supplier-profit-positive' : 'supplier-profit-negative';
+            const estimate = Number(product.missing_cost_orders || 0) > 0
+                ? '<small>Coût historique incomplet</small>'
+                : Number(product.estimated_cost_orders || 0) > 0 ? '<small>Coût historique estimé</small>' : '';
+            return `<tr>
+                <td><div class="supplier-stats-product"><span>${escapeHtml(product.emoji || '📦')}</span><div><strong>${escapeHtml(product.name || product.external_product_id || '?')}</strong><small>ID ${escapeHtml(product.external_product_id || '')}</small></div></div></td>
+                <td><strong>${Number(product.items_sold || 0).toLocaleString('fr-FR')}</strong></td>
+                <td>${Number(product.orders || 0).toLocaleString('fr-FR')}</td>
+                <td><strong>$${Number(product.revenue || 0).toFixed(2)}</strong></td>
+                <td>$${Number(product.cost || 0).toFixed(2)}${estimate}</td>
+                <td><strong class="${profitClass}">${productProfit < 0 ? '-' : ''}$${Math.abs(productProfit).toFixed(2)}</strong></td>
+                <td>${Number(product.margin_percent || 0).toFixed(1)}%</td>
+            </tr>`;
+        }).join('') : '<tr><td colspan="7" class="empty-state">Aucune vente sur cette période.</td></tr>';
+        renderSupplierStatsChart(stats.daily || []);
+    } catch (error) {
+        if (supplierCode !== state.activeSupplierCode) return;
+        state.supplierStats = null;
+        DOM.supplierStatsRevenue.textContent = '$0.00';
+        DOM.supplierStatsCost.textContent = '$0.00';
+        DOM.supplierStatsProfit.textContent = '$0.00';
+        DOM.supplierStatsMargin.textContent = 'Marge 0%';
+        DOM.supplierStatsItems.textContent = '0';
+        DOM.supplierStatsOrders.textContent = '0';
+        DOM.supplierStatsOrdersSub.textContent = 'Panier moyen $0.00';
+        DOM.supplierStatsSuccess.textContent = '0%';
+        DOM.supplierStatsQuality.classList.add('hidden');
+        DOM.supplierStatsQuality.innerHTML = '';
+        renderSupplierStatsChart([]);
+        DOM.supplierStatsProductsBody.innerHTML = `<tr><td colspan="7" class="empty-state">${escapeHtml(error.message || 'Impossible de charger les statistiques.')}</td></tr>`;
+    }
+}
+
+function renderSupplierStatsChart(daily) {
+    if (!DOM.supplierStatsChart || typeof Chart === 'undefined') return;
+    const styles = getComputedStyle(document.documentElement);
+    const textColor = styles.getPropertyValue('--color-text-muted').trim() || '#9f9baa';
+    const gridColor = styles.getPropertyValue('--chart-grid').trim() || 'rgba(255,255,255,.06)';
+    const data = {
+        labels: daily.map(item => String(item.day || '').slice(5)),
+        datasets: [
+            {label:'Revenus',data:daily.map(item=>Number(item.revenue||0)),borderColor:'#22c55e',backgroundColor:'#22c55e22',fill:true,tension:.25,pointRadius:2},
+            {label:'Dépensé',data:daily.map(item=>Number(item.cost||0)),borderColor:'#f59e0b',backgroundColor:'#f59e0b18',tension:.25,pointRadius:2},
+            {label:'Bénéfice',data:daily.map(item=>Number(item.profit||0)),borderColor:'#3b82f6',backgroundColor:'#3b82f622',tension:.25,pointRadius:2},
+        ],
+    };
+    if (state.supplierStatsChart) {
+        state.supplierStatsChart.data = data;
+        state.supplierStatsChart.update('none');
+        return;
+    }
+    state.supplierStatsChart = new Chart(DOM.supplierStatsChart, {
+        type:'line',
+        data,
+        options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{labels:{color:textColor,boxWidth:10,usePointStyle:true}}},scales:{x:{ticks:{color:textColor,maxTicksLimit:12},grid:{color:gridColor}},y:{beginAtZero:true,ticks:{color:textColor,callback:value=>'$'+value},grid:{color:gridColor}}}},
+    });
+}
+
 async function loadSupplierBot() {
     if (!DOM.supplierProductsTableBody) return;
     try {
@@ -2612,6 +2735,7 @@ async function loadSupplierBot() {
         if (DOM.supplierUnitsPerUsd) DOM.supplierUnitsPerUsd.value = Number(supplier.units_per_usd || 1);
         if (DOM.btnSupplierSync) DOM.btnSupplierSync.disabled = !supplier.configured;
         renderSupplierProducts();
+        if (state.supplierView === 'stats') await loadSupplierStats();
     } catch (error) {
         DOM.supplierProductsTableBody.innerHTML = `<tr><td colspan="8" class="empty-state">${escapeHtml(error.message || 'Impossible de charger le fournisseur.')}</td></tr>`;
     }
@@ -2629,6 +2753,7 @@ function renderSupplierProviderSwitcher() {
 window.selectSupplierBot = async function(supplierCode) {
     state.activeSupplierCode = String(supplierCode || 'canboso');
     state.supplierBot = null;
+    state.supplierStats = null;
     if (DOM.supplierProductSearch) DOM.supplierProductSearch.value = '';
     if (DOM.supplierProductsTableBody) DOM.supplierProductsTableBody.innerHTML = '<tr><td colspan="8" class="empty-state">Chargement du catalogue...</td></tr>';
     await loadSupplierBot();

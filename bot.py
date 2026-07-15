@@ -1216,6 +1216,25 @@ async def api_get_supplier_bot(supplier_code: str):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@api.get(
+    "/api/supplier-bots/{supplier_code}/stats",
+    dependencies=[Depends(verify_api_key)],
+)
+async def api_get_supplier_stats(supplier_code: str, days: int = 30):
+    from database.suppliers import get_supplier_stats
+    from services.supplier_registry import get_supplier_provider
+
+    try:
+        provider = get_supplier_provider(supplier_code)
+        return await get_supplier_stats(provider["code"], days=days)
+    except ValueError as exc:
+        code = 404 if str(exc) == "SUPPLIER_NOT_FOUND" else 400
+        raise HTTPException(status_code=code, detail=str(exc))
+    except Exception as exc:
+        logger.error("API supplier stats error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @api.post(
     "/api/supplier-bots/{supplier_code}/sync",
     dependencies=[Depends(verify_api_key)],
