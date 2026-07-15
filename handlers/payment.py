@@ -129,15 +129,15 @@ async def receive_activation_identifier(update: Update, context: ContextTypes.DE
     if not update.message or not update.message.text:
         return ConversationHandler.END
 
-    lang = await get_user_lang(update.effective_user.id)
     identifier = update.message.text.strip()
+    order_id = context.user_data.get("activation_order_id")
     if len(identifier) < 2:
-        if context.user_data.get("activation_order_id"):
+        if order_id:
+            lang = await get_user_lang(update.effective_user.id)
             await update.message.reply_text(t("activation_identifier_too_short", lang))
             return WAITING_ACTIVATION_IDENTIFIER
         return ConversationHandler.END
 
-    order_id = context.user_data.get("activation_order_id")
     order = await get_order(order_id) if order_id else None
     if not order or order.get("user_telegram_id") != update.effective_user.id or order.get("status") != "AWAITING_ACTIVATION_INFO":
         order = await get_pending_activation_order_for_user(update.effective_user.id)
@@ -145,6 +145,7 @@ async def receive_activation_identifier(update: Update, context: ContextTypes.DE
             return ConversationHandler.END
         order_id = order["id"]
 
+    lang = await get_user_lang(update.effective_user.id)
     submitted = await submit_activation_identifier(order_id, identifier)
     if not submitted:
         context.user_data.pop("activation_order_id", None)

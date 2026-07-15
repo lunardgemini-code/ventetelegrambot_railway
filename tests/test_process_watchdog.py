@@ -176,7 +176,7 @@ class ProcessWatchdogTests(unittest.TestCase):
         self.assertEqual(result, 2)
         self.assertEqual(signals, [(42, 100), (1, 200)])
 
-    def test_restart_target_is_pid_one_only_on_railway(self):
+    def test_restart_target_is_the_monitored_bot_on_railway(self):
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(resolve_restart_target_pid(42), 42)
         with patch.dict(
@@ -184,7 +184,7 @@ class ProcessWatchdogTests(unittest.TestCase):
             {"RAILWAY_PUBLIC_DOMAIN": "example.up.railway.app"},
             clear=True,
         ):
-            self.assertEqual(resolve_restart_target_pid(42), 1)
+            self.assertEqual(resolve_restart_target_pid(42), 42)
 
     def test_start_and_stop_watchdog_manage_child_process(self):
         process = SimpleNamespace(
@@ -223,7 +223,7 @@ class ProcessWatchdogTests(unittest.TestCase):
         self.assertIsNone(started)
         popen.assert_not_called()
 
-    def test_railway_uses_docker_pid_one_and_full_trial_restart_budget(self):
+    def test_railway_uses_supervisor_and_full_trial_restart_budget(self):
         root = Path(__file__).resolve().parents[1]
         railway_config = json.loads((root / "railway.json").read_text(encoding="utf-8"))
         deploy = railway_config["deploy"]
@@ -232,7 +232,10 @@ class ProcessWatchdogTests(unittest.TestCase):
         self.assertEqual(deploy["restartPolicyType"], "ON_FAILURE")
         self.assertEqual(deploy["restartPolicyMaxRetries"], 10)
         dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
-        self.assertIn('CMD ["python", "bot.py"]', dockerfile)
+        self.assertIn(
+            'CMD ["python", "-u", "services/process_supervisor.py"]',
+            dockerfile,
+        )
 
 
 if __name__ == "__main__":

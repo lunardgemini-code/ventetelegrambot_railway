@@ -120,16 +120,8 @@ def parent_is_alive(parent_pid: int) -> bool:
 
 
 def resolve_restart_target_pid(parent_pid: int) -> int:
-    """Target PID 1 on Railway so a watchdog restart stops the whole container."""
-    railway_runtime = any(
-        os.environ.get(name)
-        for name in (
-            "RAILWAY_ENVIRONMENT_ID",
-            "RAILWAY_SERVICE_ID",
-            "RAILWAY_PUBLIC_DOMAIN",
-        )
-    )
-    return 1 if railway_runtime else int(parent_pid)
+    """Kill the monitored bot; PID 1 supervises and restarts it on Railway."""
+    return int(parent_pid)
 
 
 def _stderr_log(message: str) -> None:

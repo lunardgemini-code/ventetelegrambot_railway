@@ -11,4 +11,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Railway injecte automatiquement la variable PORT
-CMD ["python", "bot.py"]
+CMD ["python", "-u", "services/process_supervisor.py"]

@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import secrets
+import sys
 import threading
 import math
 import re
@@ -35,6 +36,12 @@ from pydantic import BaseModel, Field
 import uvicorn
 import httpx
 import time
+
+# `python bot.py` loads this module as `__main__`. Keep internal imports such as
+# `from bot import tg_app` attached to this same runtime instead of loading a
+# second copy with separate globals.
+if __name__ == "__main__":
+    sys.modules.setdefault("bot", sys.modules[__name__])
 
 _stats_cache = {}
 _stats_cache_ttl = 10
