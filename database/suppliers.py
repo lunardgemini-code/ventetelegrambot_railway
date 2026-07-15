@@ -12,6 +12,8 @@ DEFAULT_SUPPLIER_CODE = "canboso"
 SUPPLIER_CODE = DEFAULT_SUPPLIER_CODE
 SUPPLIER_DESCRIPTION_LANGUAGES = ("en", "fr", "ar", "zh", "vi", "ru")
 MAX_SUPPLIER_DESCRIPTION_LENGTH = 3000
+MAX_SUPPLIER_NAME_LENGTH = 160
+MAX_SUPPLIER_EMOJI_LENGTH = 16
 
 
 def _provider(supplier_code: str) -> dict:
@@ -187,6 +189,20 @@ def _product_descriptions(row: dict) -> dict[str, str]:
     }
 
 
+def _display_name(row: dict) -> str:
+    return (
+        str(row.get("custom_name") or "").strip()[:MAX_SUPPLIER_NAME_LENGTH]
+        or str(row.get("name") or "Product").strip()[:MAX_SUPPLIER_NAME_LENGTH]
+    )
+
+
+def _display_emoji(row: dict) -> str:
+    return (
+        str(row.get("custom_emoji") or "").strip()[:MAX_SUPPLIER_EMOJI_LENGTH]
+        or str(row.get("emoji") or "📦").strip()[:MAX_SUPPLIER_EMOJI_LENGTH]
+    )
+
+
 async def _supplier_enabled(db, supplier_code: str) -> bool:
     # Preserve the established Canboso behavior. New providers remain hidden
     # until explicitly enabled by the administrator.
@@ -218,6 +234,9 @@ async def _upsert_local_product(
         row["base_price"], margin_type, margin_value
     )
     descriptions = _product_descriptions(row)
+    display_name = _display_name(row)
+    display_emoji = _display_emoji(row)
+    custom_emoji_id = str(row.get("custom_emoji_id") or "").strip()
     if supplier_enabled is None:
         supplier_enabled = await _supplier_enabled(db, row["supplier_code"])
     is_active = 1 if row.get("enabled") and supplier_enabled and price_safe else 0
@@ -226,11 +245,11 @@ async def _upsert_local_product(
         await db.execute(
             """UPDATE products SET name = ?, description = ?, description_fr = ?, description_ar = ?,
                       description_zh = ?, description_vi = ?, description_ru = ?,
-                      price_usd = ?, warranty_days = ?, emoji = ?, image_url = ?,
+                      price_usd = ?, warranty_days = ?, emoji = ?, custom_emoji_id = ?, image_url = ?,
                       delivery_type = 'supplier_api', is_active = ?, is_deleted = 0
                WHERE id = ?""",
             (
-                row["name"],
+                display_name,
                 descriptions["en"],
                 descriptions["fr"],
                 descriptions["ar"],
@@ -239,7 +258,8 @@ async def _upsert_local_product(
                 descriptions["ru"],
                 final_price,
                 int(row.get("warranty_days") or 0),
-                row.get("emoji") or "📦",
+                display_emoji,
+                custom_emoji_id or None,
                 row.get("image_url") or None,
                 is_active,
                 int(local_id),
@@ -251,11 +271,11 @@ async def _upsert_local_product(
         """INSERT INTO products
            (category_id, name, description, description_fr, description_ar,
             description_zh, description_vi, description_ru, price_usd,
-            warranty_days, emoji, image_url, delivery_type, is_active, is_deleted)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'supplier_api', ?, 0)""",
+            warranty_days, emoji, custom_emoji_id, image_url, delivery_type, is_active, is_deleted)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'supplier_api', ?, 0)""",
         (
             category_id,
-            row["name"],
+            display_name,
             descriptions["en"],
             descriptions["fr"],
             descriptions["ar"],
@@ -264,7 +284,8 @@ async def _upsert_local_product(
             descriptions["ru"],
             final_price,
             int(row.get("warranty_days") or 0),
-            row.get("emoji") or "📦",
+            display_emoji,
+            custom_emoji_id or None,
             row.get("image_url") or None,
             is_active,
         ),
@@ -401,6 +422,8 @@ async def get_supplier_dashboard(
                 row, global_type, global_value
             )
             row.update(
+                display_name=_display_name(row),
+                display_emoji=_display_emoji(row),
                 effective_margin_type=margin_type,
                 effective_margin_value=margin_value,
                 final_price=calculate_supplier_price(
@@ -575,28 +598,49 @@ async def update_supplier_product_descriptions(
     mapping_id: int,
     descriptions: dict,
     supplier_code: str = DEFAULT_SUPPLIER_CODE,
+    *,
+    custom_name: str | None = None,
+    custom_emoji: str | None = None,
+    custom_emoji_id: str | None = None,
 ) -> dict:
-    """Save multilingual overrides and update the linked Telegram product."""
+    """Save content overrides and update the linked Telegram product."""
     from database.models import clear_products_cache
 
     supplier_code = _provider(supplier_code)["code"]
     if not isinstance(descriptions, dict):
         raise ValueError("INVALID_DESCRIPTIONS")
-    supplied = {
+    supplied_descriptions = {
         language: _clean_description(descriptions[language])
         for language in SUPPLIER_DESCRIPTION_LANGUAGES
         if language in descriptions
     }
-    if not supplied:
-        raise ValueError("NO_DESCRIPTIONS")
+    supplied_fields = {
+        f"description_{language}": value
+        for language, value in supplied_descriptions.items()
+    }
+    if custom_name is not None:
+        supplied_fields["custom_name"] = str(custom_name).strip()[
+            :MAX_SUPPLIER_NAME_LENGTH
+        ]
+    if custom_emoji is not None:
+        supplied_fields["custom_emoji"] = str(custom_emoji).strip()[
+            :MAX_SUPPLIER_EMOJI_LENGTH
+        ]
+    if custom_emoji_id is not None:
+        emoji_id = str(custom_emoji_id).strip()
+        if emoji_id and (not emoji_id.isdigit() or len(emoji_id) > 32):
+            raise ValueError("INVALID_CUSTOM_EMOJI_ID")
+        supplied_fields["custom_emoji_id"] = emoji_id
+    if not supplied_fields:
+        raise ValueError("NO_PRODUCT_CUSTOMIZATIONS")
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
-        set_parts = [f"description_{language} = ?" for language in supplied]
+        set_parts = [f"{column} = ?" for column in supplied_fields]
         await db.execute(
             f"UPDATE supplier_products SET {', '.join(set_parts)} "
             "WHERE id = ? AND supplier_code = ?",
-            [*supplied.values(), int(mapping_id), supplier_code],
+            [*supplied_fields.values(), int(mapping_id), supplier_code],
         )
         cursor = await db.execute(
             "SELECT * FROM supplier_products WHERE id = ? AND supplier_code = ?",

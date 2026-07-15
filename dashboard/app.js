@@ -247,6 +247,7 @@ const DOM = {
     supplierProductSearch:$('supplier-product-search'), supplierProductsTableBody:$('supplier-products-table-body'),
     supplierDescriptionModal:$('supplier-description-modal'), supplierDescriptionForm:$('supplier-description-form'), supplierDescriptionProductId:$('supplier-description-product-id'),
     supplierDescriptionTitle:$('supplier-description-title'), supplierDescriptionSource:$('supplier-description-source'),
+    supplierCustomName:$('supplier-custom-name'), supplierCustomEmoji:$('supplier-custom-emoji'), supplierCustomEmojiId:$('supplier-custom-emoji-id'), supplierAutoTranslate:$('supplier-auto-translate'),
     supplierDescriptionEn:$('supplier-description-en'), supplierDescriptionFr:$('supplier-description-fr'), supplierDescriptionAr:$('supplier-description-ar'),
     supplierDescriptionZh:$('supplier-description-zh'), supplierDescriptionVi:$('supplier-description-vi'), supplierDescriptionRu:$('supplier-description-ru'),
     btnGameRefresh:$('btn-game-refresh'), gameProviderStatus:$('game-provider-status'), gameProviderWarning:$('game-provider-warning'),
@@ -411,6 +412,7 @@ function setupEvents() {
     if (DOM.supplierSettingsForm) DOM.supplierSettingsForm.addEventListener('submit', saveSupplierSettings);
     if (DOM.supplierProductSearch) DOM.supplierProductSearch.addEventListener('input', renderSupplierProducts);
     if (DOM.supplierDescriptionForm) DOM.supplierDescriptionForm.addEventListener('submit', saveSupplierDescriptions);
+    if (DOM.supplierAutoTranslate) DOM.supplierAutoTranslate.addEventListener('click', autoTranslateSupplierDescription);
     if (DOM.btnGameRefresh) DOM.btnGameRefresh.addEventListener('click', () => loadGameManagement({forceCatalog:true}));
     if (DOM.gameCatalogFilters) DOM.gameCatalogFilters.addEventListener('submit', event => {
         event.preventDefault();
@@ -2636,7 +2638,7 @@ function renderSupplierProducts() {
     if (!DOM.supplierProductsTableBody) return;
     const supplier = state.supplierBot || {};
     const query = (DOM.supplierProductSearch?.value || '').trim().toLowerCase();
-    const products = (supplier.products || []).filter(product => !query || String(product.name || '').toLowerCase().includes(query) || String(product.external_product_id || '').toLowerCase().includes(query));
+    const products = (supplier.products || []).filter(product => !query || String(product.display_name || product.name || '').toLowerCase().includes(query) || String(product.name || '').toLowerCase().includes(query) || String(product.external_product_id || '').toLowerCase().includes(query));
     if (!products.length) {
         DOM.supplierProductsTableBody.innerHTML = '<tr><td colspan="8" class="empty-state">Aucun produit fournisseur. Cliquez sur Synchroniser.</td></tr>';
         return;
@@ -2650,18 +2652,20 @@ function renderSupplierProducts() {
         const affordableClass = affordableStock === 0 ? 'empty' : affordableStock < 3 ? 'low' : 'ok';
         const sourceCurrency = String(product.source_currency || supplier.source_currency || 'USD').toUpperCase();
         const sourcePrice = Number(product.source_price ?? product.base_price ?? 0);
+        const displayName = product.display_name || product.name || '?';
+        const displayEmoji = product.display_emoji || product.emoji || '📦';
         const sourcePriceHtml = sourceCurrency === 'USD'
             ? `<strong>$${sourcePrice.toFixed(2)}</strong>`
             : `<strong>${new Intl.NumberFormat('fr-FR', {maximumFractionDigits:0}).format(sourcePrice)} ${escapeHtml(sourceCurrency)}</strong><small style="display:block;color:var(--color-text-muted)">~$${Number(product.base_price || 0).toFixed(4)}</small>`;
         return `<tr>
-            <td><input class="supplier-product-toggle" type="checkbox" id="supplier-enabled-${id}" ${product.enabled ? 'checked' : ''} aria-label="Afficher ${escapeHtml(product.name)}"></td>
-            <td><div class="supplier-product-name"><span>${escapeHtml(product.emoji || '📦')}</span><div><strong>${escapeHtml(product.name || '?')}</strong><small>${escapeHtml(supplier.supplier || state.activeSupplierCode)} · ID ${escapeHtml(product.external_product_id)}</small></div></div></td>
+            <td><input class="supplier-product-toggle" type="checkbox" id="supplier-enabled-${id}" ${product.enabled ? 'checked' : ''} aria-label="Afficher ${escapeHtml(displayName)}"></td>
+            <td><div class="supplier-product-name"><span>${escapeHtml(displayEmoji)}</span><div><strong>${escapeHtml(displayName)}</strong><small>${product.custom_name ? `Source : ${escapeHtml(product.name)} · ` : ''}${escapeHtml(supplier.supplier || state.activeSupplierCode)} · ID ${escapeHtml(product.external_product_id)}</small></div></div></td>
             <td>${sourcePriceHtml}</td>
             <td><span class="stock-count-badge ${stockClass}">${Number(product.remote_stock || 0)}</span></td>
             <td><span class="stock-count-badge ${affordableClass}" title="Limité par votre solde fournisseur">${affordableStock}</span></td>
             <td><div class="supplier-margin-controls"><select id="supplier-margin-type-${id}" onchange="toggleSupplierMarginInput(${id})"><option value="inherit" ${marginType === 'inherit' ? 'selected' : ''}>Marge globale</option><option value="fixed" ${marginType === 'fixed' ? 'selected' : ''}>+$ fixe</option><option value="percent" ${marginType === 'percent' ? 'selected' : ''}>+%</option><option value="sale_price" ${marginType === 'sale_price' ? 'selected' : ''}>Prix de vente fixe</option></select><input id="supplier-margin-value-${id}" type="number" min="0" step="0.01" value="${marginValue}" ${marginType === 'inherit' ? 'disabled' : ''}></div></td>
             <td><strong>$${Number(product.final_price || 0).toFixed(2)}</strong><small style="display:block;color:${product.price_safe === false ? 'var(--color-error)' : 'var(--color-text-muted)'}">${product.price_safe === false ? 'Masqué : coût ≥ prix fixe' : product.effective_margin_type === 'sale_price' ? 'Prix fixe sécurisé' : product.effective_margin_type === 'percent' ? '+' + Number(product.effective_margin_value || 0).toFixed(2) + '%' : '+$' + Number(product.effective_margin_value || 0).toFixed(2)}</small></td>
-            <td><div class="table-actions"><button type="button" class="btn-table-action" onclick="openSupplierDescriptionEditor(${id})" title="Descriptions multilingues"><i class="fa-solid fa-language"></i></button><button type="button" class="btn-table-action" onclick="saveSupplierProduct(${id})" title="Enregistrer le prix et l'affichage" style="color:var(--color-success)"><i class="fa-solid fa-floppy-disk"></i></button></div></td>
+            <td><div class="table-actions"><button type="button" class="btn-table-action" onclick="openSupplierDescriptionEditor(${id})" title="Nom, emoji et traductions"><i class="fa-solid fa-wand-magic-sparkles"></i></button><button type="button" class="btn-table-action" onclick="saveSupplierProduct(${id})" title="Enregistrer le prix et l'affichage" style="color:var(--color-success)"><i class="fa-solid fa-floppy-disk"></i></button></div></td>
         </tr>`;
     }).join('');
 }
@@ -2695,8 +2699,11 @@ window.openSupplierDescriptionEditor = function(id) {
         return;
     }
     DOM.supplierDescriptionProductId.value = String(id);
-    DOM.supplierDescriptionTitle.textContent = `Descriptions - ${product.name || 'Produit'}`;
+    DOM.supplierDescriptionTitle.textContent = `Personnaliser - ${product.display_name || product.name || 'Produit'}`;
     DOM.supplierDescriptionSource.textContent = product.description || 'Aucune description fournisseur.';
+    DOM.supplierCustomName.value = product.custom_name || '';
+    DOM.supplierCustomEmoji.value = product.custom_emoji || '';
+    DOM.supplierCustomEmojiId.value = product.custom_emoji_id || '';
     DOM.supplierDescriptionEn.value = product.description_en || '';
     DOM.supplierDescriptionFr.value = product.description_fr || '';
     DOM.supplierDescriptionAr.value = product.description_ar || '';
@@ -2705,6 +2712,33 @@ window.openSupplierDescriptionEditor = function(id) {
     DOM.supplierDescriptionRu.value = product.description_ru || '';
     showModal(DOM.supplierDescriptionModal);
 };
+
+async function autoTranslateSupplierDescription() {
+    const source = (DOM.supplierDescriptionEn?.value || DOM.supplierDescriptionSource?.textContent || '').trim();
+    if (!source || source === 'Aucune description fournisseur.') {
+        showToast('Aucune description à traduire.', 'error');
+        return;
+    }
+    const button = DOM.supplierAutoTranslate;
+    const original = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Traduction en cours';
+    try {
+        const translated = await apiCall('/api/translate', 'POST', {text: source});
+        if (translated.en) DOM.supplierDescriptionEn.value = translated.en;
+        if (translated.fr) DOM.supplierDescriptionFr.value = translated.fr;
+        if (translated.ar) DOM.supplierDescriptionAr.value = translated.ar;
+        if (translated.zh) DOM.supplierDescriptionZh.value = translated.zh;
+        if (translated.vi) DOM.supplierDescriptionVi.value = translated.vi;
+        if (translated.ru) DOM.supplierDescriptionRu.value = translated.ru;
+        showToast('Descriptions traduites. Vérifiez-les puis enregistrez.', 'success');
+    } catch (error) {
+        showToast(`Traduction impossible : ${error.message}`, 'error');
+    } finally {
+        button.disabled = false;
+        button.innerHTML = original;
+    }
+}
 
 async function saveSupplierDescriptions(event) {
     event.preventDefault();
@@ -2723,10 +2757,15 @@ async function saveSupplierDescriptions(event) {
     };
     try {
         showLoading(true);
-        await apiCall(`/api/supplier-bots/${encodeURIComponent(state.activeSupplierCode)}/products/${id}/descriptions`, 'PUT', {descriptions});
+        await apiCall(`/api/supplier-bots/${encodeURIComponent(state.activeSupplierCode)}/products/${id}/descriptions`, 'PUT', {
+            descriptions,
+            custom_name: DOM.supplierCustomName.value,
+            custom_emoji: DOM.supplierCustomEmoji.value,
+            custom_emoji_id: DOM.supplierCustomEmojiId.value,
+        });
         hideModal(DOM.supplierDescriptionModal);
         await Promise.all([loadSupplierBot(), loadProducts()]);
-        showToast('Descriptions multilingues enregistrées.', 'success');
+        showToast('Personnalisation du produit enregistrée.', 'success');
     } catch (error) {
         showToast(error.message, 'error');
     } finally {

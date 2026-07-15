@@ -944,6 +944,9 @@ async def init_db() -> None:
                 warranty_days INTEGER NOT NULL DEFAULT 0,
                 image_url TEXT DEFAULT '',
                 emoji TEXT DEFAULT '📦',
+                custom_name TEXT DEFAULT '',
+                custom_emoji TEXT DEFAULT '',
+                custom_emoji_id TEXT DEFAULT '',
                 enabled INTEGER NOT NULL DEFAULT 0,
                 margin_type TEXT NOT NULL DEFAULT 'inherit',
                 margin_value REAL,
@@ -1131,7 +1134,7 @@ async def init_db() -> None:
             "ALTER TABLE nowpayments_payments ADD COLUMN cancelled_at TIMESTAMP DEFAULT NULL",
             "ALTER TABLE nowpayments_wallet_topups ADD COLUMN cancelled_at TIMESTAMP DEFAULT NULL",
             "CREATE INDEX IF NOT EXISTS idx_orders_product_date_status ON orders(product_id, created_at, status)",
-            "CREATE TABLE IF NOT EXISTS supplier_products (id INTEGER PRIMARY KEY AUTOINCREMENT, supplier_code TEXT NOT NULL DEFAULT 'canboso', external_product_id TEXT NOT NULL, local_product_id INTEGER UNIQUE, name TEXT NOT NULL, description TEXT DEFAULT '', description_en TEXT DEFAULT '', description_fr TEXT DEFAULT '', description_ar TEXT DEFAULT '', description_zh TEXT DEFAULT '', description_vi TEXT DEFAULT '', description_ru TEXT DEFAULT '', base_price REAL NOT NULL DEFAULT 0, source_price REAL NOT NULL DEFAULT 0, source_currency TEXT NOT NULL DEFAULT 'USD', remote_stock INTEGER NOT NULL DEFAULT 0, warranty_days INTEGER NOT NULL DEFAULT 0, image_url TEXT DEFAULT '', emoji TEXT DEFAULT '📦', enabled INTEGER NOT NULL DEFAULT 0, margin_type TEXT NOT NULL DEFAULT 'inherit', margin_value REAL, raw_payload TEXT DEFAULT '{}', last_synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(supplier_code, external_product_id))",
+            "CREATE TABLE IF NOT EXISTS supplier_products (id INTEGER PRIMARY KEY AUTOINCREMENT, supplier_code TEXT NOT NULL DEFAULT 'canboso', external_product_id TEXT NOT NULL, local_product_id INTEGER UNIQUE, name TEXT NOT NULL, description TEXT DEFAULT '', description_en TEXT DEFAULT '', description_fr TEXT DEFAULT '', description_ar TEXT DEFAULT '', description_zh TEXT DEFAULT '', description_vi TEXT DEFAULT '', description_ru TEXT DEFAULT '', base_price REAL NOT NULL DEFAULT 0, source_price REAL NOT NULL DEFAULT 0, source_currency TEXT NOT NULL DEFAULT 'USD', remote_stock INTEGER NOT NULL DEFAULT 0, warranty_days INTEGER NOT NULL DEFAULT 0, image_url TEXT DEFAULT '', emoji TEXT DEFAULT '📦', custom_name TEXT DEFAULT '', custom_emoji TEXT DEFAULT '', custom_emoji_id TEXT DEFAULT '', enabled INTEGER NOT NULL DEFAULT 0, margin_type TEXT NOT NULL DEFAULT 'inherit', margin_value REAL, raw_payload TEXT DEFAULT '{}', last_synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(supplier_code, external_product_id))",
             "CREATE TABLE IF NOT EXISTS supplier_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL UNIQUE, supplier_code TEXT NOT NULL DEFAULT 'canboso', external_product_id TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'pending', external_order_id TEXT, delivered_items TEXT DEFAULT '[]', raw_payload TEXT DEFAULT '{}', error TEXT, attempts INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, completed_at TIMESTAMP)",
             "CREATE INDEX IF NOT EXISTS idx_supplier_products_local ON supplier_products(local_product_id)",
             "CREATE INDEX IF NOT EXISTS idx_supplier_products_enabled ON supplier_products(supplier_code, enabled)",
@@ -1382,6 +1385,26 @@ async def init_db() -> None:
             )
             await db.commit()
             current_version = 5
+
+        if 5 <= current_version < 6:
+            supplier_customization_columns = {
+                "custom_name": "TEXT DEFAULT ''",
+                "custom_emoji": "TEXT DEFAULT ''",
+                "custom_emoji_id": "TEXT DEFAULT ''",
+            }
+            columns = await _columns_for("supplier_products")
+            for column_name, column_type in supplier_customization_columns.items():
+                if column_name not in columns:
+                    await db.execute(
+                        f"ALTER TABLE supplier_products ADD COLUMN {column_name} {column_type}"
+                    )
+                    columns.add(column_name)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (6, ?)",
+                ("supplier_product_customization",),
+            )
+            await db.commit()
+            current_version = 6
 
     finally:
         await db.close()

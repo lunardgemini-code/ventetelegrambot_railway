@@ -281,6 +281,11 @@ body { background:var(--bg-primary); line-height:1.5; font-size:16px; }
 .supplier-description-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem 1rem; }
 .supplier-description-grid .form-group { margin-bottom: 0; }
 .supplier-description-grid textarea { width: 100%; resize: vertical; min-height: 96px; }
+.supplier-identity-grid { grid-template-columns: minmax(220px, 2fr) minmax(120px, .7fr) minmax(240px, 1.4fr); margin-bottom: 1rem; }
+.supplier-identity-grid input { width: 100%; }
+.supplier-translation-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+.supplier-translation-toolbar .supplier-description-help { margin-bottom: 0; }
+.supplier-translation-toolbar button { flex: 0 0 auto; }
 
 @media (max-width: 980px) {
     .supplier-status-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -291,7 +296,8 @@ body { background:var(--bg-primary); line-height:1.5; font-size:16px; }
     .supplier-status-strip, .supplier-settings-grid { grid-template-columns: 1fr; }
     .supplier-status-strip > div { border-right: 0; border-bottom: 1px solid var(--border-color); }
     .supplier-table-toolbar { align-items: stretch; flex-direction: column; }
-    .supplier-description-grid { grid-template-columns: 1fr; }
+    .supplier-description-grid, .supplier-identity-grid { grid-template-columns: 1fr; }
+    .supplier-translation-toolbar { align-items: stretch; flex-direction: column; }
 }
 /* Rolling webhook and database diagnostics. */
 .bot-performance {

@@ -1346,7 +1346,12 @@ async def api_update_supplier_product_descriptions(
         if not isinstance(descriptions, dict):
             raise ValueError("INVALID_DESCRIPTIONS")
         await update_supplier_product_descriptions(
-            mapping_id, descriptions, provider["code"]
+            mapping_id,
+            descriptions,
+            provider["code"],
+            custom_name=data.get("custom_name"),
+            custom_emoji=data.get("custom_emoji"),
+            custom_emoji_id=data.get("custom_emoji_id"),
         )
         return {
             "status": "updated",
@@ -2407,8 +2412,8 @@ async def api_translate(data: dict):
         
     models_to_try = ["gemini-3.5-flash", "gemini-3.1-flash"]
     prompt = (
-        "Translate the following product description into French, Arabic, Chinese, Vietnamese, and Russian. "
-        "Return a valid JSON object with the exact keys: 'fr', 'ar', 'zh', 'vi', 'ru'. "
+        "Detect the source language and translate the following product description into English, French, Arabic, Chinese, Vietnamese, and Russian. "
+        "Return a valid JSON object with the exact keys: 'en', 'fr', 'ar', 'zh', 'vi', 'ru'. "
         "Do not return markdown, just the raw JSON object.\n\n"
         f"Text to translate: {text}"
     )

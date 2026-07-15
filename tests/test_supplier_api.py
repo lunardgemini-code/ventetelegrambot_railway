@@ -344,6 +344,37 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
         product = await models.get_product(self.local_product_id)
         self.assertEqual(product["description"], "Updated supplier description")
 
+    async def test_supplier_name_and_custom_emoji_survive_resync(self):
+        await update_supplier_product_descriptions(
+            self.mapping_id,
+            {},
+            custom_name="My premium account",
+            custom_emoji="⭐",
+            custom_emoji_id="5375312095346704820",
+        )
+        product = await models.get_product(self.local_product_id)
+        self.assertEqual(product["name"], "My premium account")
+        self.assertEqual(product["emoji"], "⭐")
+        self.assertEqual(product["custom_emoji_id"], "5375312095346704820")
+
+        await sync_supplier_products(
+            [{**self.remote_product, "name": "Supplier renamed this product"}]
+        )
+        product = await models.get_product(self.local_product_id)
+        dashboard = await get_supplier_dashboard()
+        self.assertEqual(product["name"], "My premium account")
+        self.assertEqual(product["custom_emoji_id"], "5375312095346704820")
+        self.assertEqual(dashboard["products"][0]["name"], "Supplier renamed this product")
+        self.assertEqual(dashboard["products"][0]["display_name"], "My premium account")
+
+    async def test_supplier_custom_emoji_id_must_be_numeric(self):
+        with self.assertRaisesRegex(ValueError, "INVALID_CUSTOM_EMOJI_ID"):
+            await update_supplier_product_descriptions(
+                self.mapping_id,
+                {},
+                custom_emoji_id="not-an-id",
+            )
+
     async def test_supplier_product_ids_are_isolated_by_provider(self):
         nanlux_product = {
             **self.remote_product,
@@ -417,10 +448,11 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
                 await db.close()
 
             self.assertTrue({f"description_{lang}" for lang in ("en", "fr", "ar", "zh", "vi", "ru")} <= columns)
+            self.assertTrue({"custom_name", "custom_emoji", "custom_emoji_id"} <= columns)
             self.assertEqual(mapping["description_en"], "Edited English")
             self.assertEqual(mapping["description_fr"], "Français existant")
             self.assertEqual(mapping["description_ar"], "عربي موجود")
-            self.assertEqual(int(version["version"]), 5)
+            self.assertEqual(int(version["version"]), 6)
         finally:
             os.environ["DB_PATH"] = current_path
             db_module._sqlite_wal_configured = False

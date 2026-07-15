@@ -857,20 +857,28 @@
         </div>
     </div>
 
-    <!-- Modal: Supplier multilingual descriptions -->
+    <!-- Modal: Supplier product customization -->
     <div id="supplier-description-modal" class="modal-overlay hidden">
         <div class="modal-card modal-card-lg glass-panel supplier-description-modal-card">
             <div class="modal-header">
-                <div><p class="eyebrow">API Bot Management</p><h3 id="supplier-description-title">Descriptions du produit</h3></div>
+                <div><p class="eyebrow">API Bot Management</p><h3 id="supplier-description-title">Personnaliser le produit</h3></div>
                 <button class="btn-close-modal" type="button" title="Fermer"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <form id="supplier-description-form">
                 <input id="supplier-description-product-id" type="hidden">
+                <div class="supplier-description-grid supplier-identity-grid">
+                    <div class="form-group"><label for="supplier-custom-name">Nom affiché</label><input id="supplier-custom-name" type="text" maxlength="160" placeholder="Vide = nom du fournisseur"></div>
+                    <div class="form-group"><label for="supplier-custom-emoji">Emoji classique</label><input id="supplier-custom-emoji" type="text" maxlength="16" placeholder="📦"></div>
+                    <div class="form-group"><label for="supplier-custom-emoji-id">ID emoji personnalisé Telegram</label><input id="supplier-custom-emoji-id" type="text" inputmode="numeric" maxlength="32" placeholder="Ex: 5375312095346704820"></div>
+                </div>
                 <div class="supplier-description-source-block">
                     <label>Description reçue du fournisseur</label>
                     <div id="supplier-description-source" class="supplier-description-source">Aucune description fournisseur.</div>
                 </div>
-                <p class="supplier-description-help"><i class="fa-solid fa-circle-info"></i> Laissez l'anglais vide pour utiliser automatiquement la description fournisseur. Les autres langues utilisent l'anglais lorsqu'elles sont vides.</p>
+                <div class="supplier-translation-toolbar">
+                    <p class="supplier-description-help"><i class="fa-solid fa-circle-info"></i> Laissez l'anglais vide pour utiliser la description fournisseur.</p>
+                    <button id="supplier-auto-translate" type="button" class="btn-secondary"><i class="fa-solid fa-wand-magic-sparkles"></i> Traduire automatiquement</button>
+                </div>
                 <div class="supplier-description-grid">
                     <div class="form-group"><label for="supplier-description-en">Anglais (défaut)</label><textarea id="supplier-description-en" rows="4" maxlength="3000" placeholder="Description personnalisée en anglais..."></textarea></div>
                     <div class="form-group"><label for="supplier-description-fr">Français</label><textarea id="supplier-description-fr" rows="4" maxlength="3000" placeholder="Description en français..."></textarea></div>
@@ -881,7 +889,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn-secondary btn-close-modal">Annuler</button>
-                    <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> Enregistrer les descriptions</button>
+                    <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> Enregistrer la personnalisation</button>
                 </div>
             </form>
         </div>
