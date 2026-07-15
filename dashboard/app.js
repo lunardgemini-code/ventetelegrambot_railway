@@ -3219,7 +3219,14 @@ window.openEditProduct = function(productId) {
     if ($('edit-prod-desc-ru')) $('edit-prod-desc-ru').value = p.description_ru || '';
     if ($('edit-prod-image-url')) $('edit-prod-image-url').value = p.image_url || '';
     if ($('edit-prod-custom-emoji-id')) $('edit-prod-custom-emoji-id').value = p.custom_emoji_id || '';
-    if ($('edit-prod-delivery-type')) $('edit-prod-delivery-type').value = p.delivery_type || 'stock';
+    if ($('edit-prod-delivery-type')) {
+        const deliverySelect = $('edit-prod-delivery-type');
+        deliverySelect.value = p.delivery_type || 'stock';
+        deliverySelect.disabled = p.delivery_type === 'supplier_api';
+        deliverySelect.title = p.delivery_type === 'supplier_api'
+            ? 'Le type fournisseur API est protégé et ne peut pas être remplacé ici.'
+            : '';
+    }
     toggleActivationFields('edit');
 
     if ($('edit-prod-act-msg')) $('edit-prod-act-msg').value = p.activation_message || '';
@@ -3243,6 +3250,7 @@ window.openEditProduct = function(productId) {
 $('edit-prod-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const id = $('edit-prod-id').value;
+    const originalProduct = state.products.find(product => Number(product.id) === Number(id));
     const data = {
         emoji: $('edit-prod-emoji').value.trim() || '📦',
         custom_emoji_id: $('edit-prod-custom-emoji-id') ? $('edit-prod-custom-emoji-id').value.trim() : '',
@@ -3256,7 +3264,9 @@ $('edit-prod-form').addEventListener('submit', async (e) => {
         description_vi: $('edit-prod-desc-vi') ? $('edit-prod-desc-vi').value.trim() : '',
         description_ru: $('edit-prod-desc-ru') ? $('edit-prod-desc-ru').value.trim() : '',
         image_url: $('edit-prod-image-url') && $('edit-prod-image-url').value.trim() ? $('edit-prod-image-url').value.trim() : null,
-        delivery_type: $('edit-prod-delivery-type') ? $('edit-prod-delivery-type').value : 'stock',
+        delivery_type: originalProduct?.delivery_type === 'supplier_api'
+            ? 'supplier_api'
+            : ($('edit-prod-delivery-type') ? $('edit-prod-delivery-type').value : 'stock'),
         activation_message: $('edit-prod-act-msg') ? $('edit-prod-act-msg').value.trim() : '',
         activation_message_fr: $('edit-prod-act-msg-fr') ? $('edit-prod-act-msg-fr').value.trim() : '',
         activation_message_ar: $('edit-prod-act-msg-ar') ? $('edit-prod-act-msg-ar').value.trim() : '',

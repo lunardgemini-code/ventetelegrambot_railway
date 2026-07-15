@@ -2267,6 +2267,12 @@ async def api_update_product(product_id: int, data: dict):
         product = await get_product(product_id)
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
+        supplier_mapping = None
+        if product.get("delivery_type") == "supplier_api":
+            from database.suppliers import get_supplier_mapping_by_local_product
+
+            supplier_mapping = await get_supplier_mapping_by_local_product(product_id)
+            updates["delivery_type"] = "supplier_api"
         updated_price = float(updates.get("price_usd", product["price_usd"]))
         if updated_price <= 0:
             raise HTTPException(status_code=400, detail="Price must be positive")
@@ -2298,6 +2304,39 @@ async def api_update_product(product_id: int, data: dict):
         if "warranty_days" in updates:
             updates["warranty_days"] = int(updates["warranty_days"])
         await update_product(product_id, **updates)
+        if supplier_mapping:
+            from database.suppliers import update_supplier_product_descriptions
+
+            description_columns = {
+                "description": "en",
+                "description_fr": "fr",
+                "description_ar": "ar",
+                "description_zh": "zh",
+                "description_vi": "vi",
+                "description_ru": "ru",
+            }
+            descriptions = {
+                language: updates[column]
+                for column, language in description_columns.items()
+                if column in updates
+            }
+            has_content_updates = bool(descriptions) or any(
+                column in updates
+                for column in ("name", "emoji", "custom_emoji_id")
+            )
+            if has_content_updates:
+                await update_supplier_product_descriptions(
+                    int(supplier_mapping["id"]),
+                    descriptions,
+                    str(supplier_mapping["supplier_code"]),
+                    custom_name=updates.get("name") if "name" in updates else None,
+                    custom_emoji=updates.get("emoji") if "emoji" in updates else None,
+                    custom_emoji_id=(
+                        updates.get("custom_emoji_id")
+                        if "custom_emoji_id" in updates
+                        else None
+                    ),
+                )
         _clear_api_stats_cache()
         return {"status": "updated"}
     except HTTPException:

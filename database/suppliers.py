@@ -688,6 +688,22 @@ async def get_supplier_product_by_local_product(
         await db.close()
 
 
+async def get_supplier_mapping_by_local_product(
+    local_product_id: int,
+) -> dict | None:
+    """Return a supplier mapping even when its storefront toggle is disabled."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM supplier_products WHERE local_product_id = ? LIMIT 1",
+            (int(local_product_id),),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
 async def supplier_stock_counts() -> dict[int, int]:
     from services.supplier_api import SupplierAPIError, calculate_affordable_stock
     from services.supplier_registry import get_supplier_balance

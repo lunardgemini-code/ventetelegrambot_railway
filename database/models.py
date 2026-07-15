@@ -1036,16 +1036,24 @@ async def update_product(product_id: int, **kwargs) -> None:
     _PRODUCT_BY_ID_CACHE.clear()
     invalidate_stats_cache()
     safe_kwargs = {k: v for k, v in kwargs.items() if k in ALLOWED_PRODUCT_COLUMNS}
-    if "delivery_type" in safe_kwargs:
-        safe_kwargs["delivery_type"] = safe_kwargs["delivery_type"] if safe_kwargs["delivery_type"] in ("activation", "supplier_api") else "stock"
     if not safe_kwargs:
         return
-    columns = ", ".join(f"{safe_k} = ?" for safe_k in safe_kwargs)
-    if "image_url" in safe_kwargs:
-        columns += ", telegram_file_id = NULL"
-    values = list(safe_kwargs.values()) + [product_id]
     db = await get_db()
     try:
+        if "delivery_type" in safe_kwargs:
+            cursor = await db.execute(
+                "SELECT 1 FROM supplier_products WHERE local_product_id = ? LIMIT 1",
+                (int(product_id),),
+            )
+            is_supplier_product = await cursor.fetchone() is not None
+            if is_supplier_product:
+                safe_kwargs["delivery_type"] = "supplier_api"
+            elif safe_kwargs["delivery_type"] not in ("activation", "supplier_api"):
+                safe_kwargs["delivery_type"] = "stock"
+        columns = ", ".join(f"{safe_k} = ?" for safe_k in safe_kwargs)
+        if "image_url" in safe_kwargs:
+            columns += ", telegram_file_id = NULL"
+        values = list(safe_kwargs.values()) + [product_id]
         await db.execute(
             f"UPDATE products SET {columns} WHERE id = ?", values
         )

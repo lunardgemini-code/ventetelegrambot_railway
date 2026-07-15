@@ -367,6 +367,38 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(dashboard["products"][0]["name"], "Supplier renamed this product")
         self.assertEqual(dashboard["products"][0]["display_name"], "My premium account")
 
+    async def test_regular_product_editor_cannot_convert_supplier_product_to_stock(self):
+        from bot import api_update_product
+
+        await api_update_product(
+            self.local_product_id,
+            {
+                "delivery_type": "stock",
+                "name": "Edited from Products tab",
+                "emoji": "🌟",
+                "custom_emoji_id": "5375312095346704820",
+                "description": "Custom English from Products tab",
+                "description_fr": "Traduction depuis Produits",
+                "price_usd": 3.5,
+            },
+        )
+        product = await models.get_product(self.local_product_id)
+        dashboard = await get_supplier_dashboard()
+        mapping = dashboard["products"][0]
+        self.assertEqual(product["delivery_type"], "supplier_api")
+        self.assertEqual(product["name"], "Edited from Products tab")
+        self.assertEqual(product["description_fr"], "Traduction depuis Produits")
+        self.assertEqual(mapping["custom_name"], "Edited from Products tab")
+        self.assertEqual(mapping["description_fr"], "Traduction depuis Produits")
+
+        await sync_supplier_products(
+            [{**self.remote_product, "name": "Supplier source name"}]
+        )
+        product = await models.get_product(self.local_product_id)
+        self.assertEqual(product["delivery_type"], "supplier_api")
+        self.assertEqual(product["name"], "Edited from Products tab")
+        self.assertEqual(product["description_fr"], "Traduction depuis Produits")
+
     async def test_supplier_custom_emoji_id_must_be_numeric(self):
         with self.assertRaisesRegex(ValueError, "INVALID_CUSTOM_EMOJI_ID"):
             await update_supplier_product_descriptions(
