@@ -1,6 +1,8 @@
 import asyncio
 import unittest
 import sys
+import threading
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -46,11 +48,15 @@ class DatabaseResilienceTests(unittest.IsolatedAsyncioTestCase):
         db_module._turso_writer_lock_loop = None
         db_module._DB_WRITE_WAITERS = 0
         db_module._DB_WRITE_LOCK_SAMPLES.clear()
+        db_module._turso_connect_semaphore = None
+        db_module._turso_connect_semaphore_loop = None
 
     async def asyncTearDown(self):
         db_module._turso_writer_lock = None
         db_module._turso_writer_lock_loop = None
         db_module._DB_WRITE_WAITERS = 0
+        db_module._turso_connect_semaphore = None
+        db_module._turso_connect_semaphore_loop = None
 
     async def test_unchanged_user_does_not_issue_redundant_update(self):
         cursor = SimpleNamespace(fetchone=AsyncMock(return_value={
@@ -74,6 +80,46 @@ class DatabaseResilienceTests(unittest.IsolatedAsyncioTestCase):
         db.execute.assert_awaited_once()
         db.commit.assert_not_awaited()
         db.close.assert_awaited_once()
+
+    async def test_start_fast_path_does_not_open_write_transaction(self):
+        cursor = SimpleNamespace(fetchone=AsyncMock(return_value={
+            "telegram_id": 42,
+            "username": "buyer",
+            "first_name": "Buyer",
+            "language": "fr",
+            "is_banned": 0,
+            "has_cancellable_order": 0,
+        }))
+        db = SimpleNamespace(
+            execute=AsyncMock(return_value=cursor),
+            commit=AsyncMock(),
+            rollback=AsyncMock(),
+            close=AsyncMock(),
+        )
+        with patch("database.models.get_db", AsyncMock(return_value=db)):
+            user, cancelled = await models._prepare_user_start_once(
+                42, "buyer", "Buyer"
+            )
+
+        self.assertEqual(cancelled, 0)
+        self.assertNotIn("has_cancellable_order", user)
+        db.execute.assert_awaited_once()
+        self.assertNotIn("BEGIN IMMEDIATE", db.execute.await_args.args[0])
+        db.commit.assert_not_awaited()
+
+    async def test_stale_stock_snapshot_is_served_during_turso_failure(self):
+        original_cache = models._STOCK_COUNTS_CACHE
+        models._STOCK_COUNTS_CACHE = (0.0, {7: 3})
+        try:
+            with (
+                patch("database.models.time.monotonic", return_value=1000.0),
+                patch("database.models.get_db", AsyncMock(side_effect=RuntimeError("offline"))),
+            ):
+                result = await models.get_all_stock_counts()
+        finally:
+            models._STOCK_COUNTS_CACHE = original_cache
+
+        self.assertEqual(result, {7: 3})
 
     async def test_get_or_create_user_retries_stale_hrana_stream(self):
         expected = {
@@ -132,6 +178,62 @@ class DatabaseResilienceTests(unittest.IsolatedAsyncioTestCase):
         db_module._libsql_pool.clear()
         db_module._pool_lock = None
         db_module._pool_lock_loop = None
+
+    async def test_expired_pool_connection_closes_outside_pool_lock(self):
+        connection = _FakeLibsqlConnection()
+        db_module._libsql_pool.clear()
+        db_module._pool_lock = None
+        db_module._pool_lock_loop = None
+        expired_at = time.monotonic() - 100
+        db_module._libsql_pool.append((connection, expired_at, expired_at))
+        lock_states = []
+
+        async def run_call(func, *args, **kwargs):
+            lock_states.append(db_module.get_pool_lock().locked())
+            return func()
+
+        with patch("database.db._run_turso_call", side_effect=run_call):
+            selected, created_at = await db_module._take_pooled_turso_connection()
+
+        self.assertIsNone(selected)
+        self.assertIsNone(created_at)
+        self.assertEqual(lock_states, [False])
+        self.assertTrue(connection.closed)
+
+    async def test_turso_connection_creation_has_bounded_concurrency(self):
+        active = 0
+        peak = 0
+        state_lock = threading.Lock()
+
+        def connect(*_args, **_kwargs):
+            nonlocal active, peak
+            with state_lock:
+                active += 1
+                peak = max(peak, active)
+            try:
+                time.sleep(0.05)
+                return _FakeLibsqlConnection()
+            finally:
+                with state_lock:
+                    active -= 1
+
+        fake_libsql = SimpleNamespace(connect=connect)
+        db_module._libsql_pool.clear()
+        db_module._turso_connect_semaphore = None
+        db_module._turso_connect_semaphore_loop = None
+        with (
+            patch.object(db_module, "TURSO_URL", "libsql://test.turso.io"),
+            patch.object(db_module, "TURSO_TOKEN", "test-token"),
+            patch.object(db_module, "_TURSO_CONNECT_CONCURRENCY", 2),
+            patch.dict(sys.modules, {"libsql": fake_libsql}),
+        ):
+            connections = await asyncio.gather(*(
+                db_module.get_db(fresh=True) for _ in range(8)
+            ))
+            await asyncio.gather(*(connection.close() for connection in connections))
+
+        self.assertLessEqual(peak, 2)
+        self.assertGreaterEqual(peak, 1)
 
     async def test_turso_writes_are_serialized_before_reaching_the_sdk(self):
         first_connection = _FakeLibsqlConnection()

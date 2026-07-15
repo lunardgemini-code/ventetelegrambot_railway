@@ -189,7 +189,7 @@ const state = {
     revenueChart:null, ordersChart:null, productSalesChart:null, productMomentumChart:null,
     paymentReviewCategory:'all', paymentReviewIncludeResolved:false, paymentReviewItems:[],
     dynamicPriceChart:null, dynamicSimulationChart:null,
-    productStats:[], productMomentum:null, productMomentumSelected:[], deadProductAlerts:[], supplierBot:null,
+    productStats:[], productMomentum:null, productMomentumSelected:[], deadProductAlerts:[], supplierBot:null, supplierBots:[], activeSupplierCode:'canboso',
     gameProvider:null, gameCatalog:[], gameMatches:[], gameCompetitions:[], gameView:'catalog', currentGameMatch:null
 };
 
@@ -242,6 +242,7 @@ const DOM = {
     resellersTableBody:$('resellers-table-body'), resellerUserId:$('reseller-user-id'), resellerKeyName:$('reseller-key-name'),
     btnCreateResellerKey:$('btn-create-reseller-key'), resellerKeyOutput:$('reseller-key-output'), resellerNewKey:$('reseller-new-key'),
     supplierSettingsForm:$('supplier-settings-form'), supplierEnabled:$('supplier-enabled'), supplierMarginType:$('supplier-margin-type'), supplierMarginValue:$('supplier-margin-value'),
+    supplierProviderSwitcher:$('supplier-provider-switcher'), supplierProviderName:$('supplier-provider-name'), supplierRateGroup:$('supplier-rate-group'), supplierRateLabel:$('supplier-rate-label'), supplierUnitsPerUsd:$('supplier-units-per-usd'), supplierCredentialEnv:$('supplier-credential-env'),
     btnSupplierSync:$('btn-supplier-sync'), supplierConnection:$('supplier-connection'), supplierWalletBalance:$('supplier-wallet-balance'), supplierLastSync:$('supplier-last-sync'), supplierSelectedCount:$('supplier-selected-count'), supplierReviewCount:$('supplier-review-count'),
     supplierProductSearch:$('supplier-product-search'), supplierProductsTableBody:$('supplier-products-table-body'),
     supplierDescriptionModal:$('supplier-description-modal'), supplierDescriptionForm:$('supplier-description-form'), supplierDescriptionProductId:$('supplier-description-product-id'),
@@ -2582,9 +2583,15 @@ async function handleGameTableAction(event) {
 async function loadSupplierBot() {
     if (!DOM.supplierProductsTableBody) return;
     try {
-        state.supplierBot = await apiCall('/api/supplier-bots/canboso');
+        const list = await apiCall('/api/supplier-bots');
+        state.supplierBots = list.providers || [];
+        if (!state.supplierBots.some(provider => provider.code === state.activeSupplierCode)) {
+            state.activeSupplierCode = state.supplierBots[0]?.code || 'canboso';
+        }
+        renderSupplierProviderSwitcher();
+        state.supplierBot = await apiCall(`/api/supplier-bots/${encodeURIComponent(state.activeSupplierCode)}`);
         const supplier = state.supplierBot;
-        DOM.supplierConnection.textContent = supplier.configured ? (supplier.enabled ? 'Connectée' : 'Désactivée') : 'Clé Railway absente';
+        DOM.supplierConnection.textContent = `${supplier.supplier || state.activeSupplierCode} · ${supplier.configured ? (supplier.enabled ? 'Connecté' : 'Désactivé') : 'Clé absente'}`;
         DOM.supplierConnection.style.color = supplier.configured && supplier.enabled ? 'var(--color-success)' : 'var(--color-warning)';
         DOM.supplierWalletBalance.textContent = supplier.wallet?.balance_text || (supplier.wallet_error ? 'Indisponible' : '—');
         DOM.supplierWalletBalance.style.color = supplier.wallet && Number(supplier.wallet.balance || 0) > 0 ? 'var(--color-success)' : 'var(--color-warning)';
@@ -2595,11 +2602,35 @@ async function loadSupplierBot() {
         DOM.supplierEnabled.checked = Boolean(supplier.enabled);
         DOM.supplierMarginType.value = supplier.margin_type || 'fixed';
         DOM.supplierMarginValue.value = Number(supplier.margin_value || 0);
+        if (DOM.supplierProviderName) DOM.supplierProviderName.textContent = supplier.supplier || state.activeSupplierCode;
+        if (DOM.supplierCredentialEnv) DOM.supplierCredentialEnv.textContent = supplier.credential_env || 'SUPPLIER_API_KEY';
+        const usesExchangeRate = String(supplier.source_currency || 'USD').toUpperCase() !== 'USD';
+        DOM.supplierRateGroup?.classList.toggle('hidden', !usesExchangeRate);
+        if (DOM.supplierRateLabel) DOM.supplierRateLabel.textContent = `${supplier.source_currency || 'Unités'} pour 1 USD`;
+        if (DOM.supplierUnitsPerUsd) DOM.supplierUnitsPerUsd.value = Number(supplier.units_per_usd || 1);
+        if (DOM.btnSupplierSync) DOM.btnSupplierSync.disabled = !supplier.configured;
         renderSupplierProducts();
     } catch (error) {
         DOM.supplierProductsTableBody.innerHTML = `<tr><td colspan="8" class="empty-state">${escapeHtml(error.message || 'Impossible de charger le fournisseur.')}</td></tr>`;
     }
 }
+
+function renderSupplierProviderSwitcher() {
+    if (!DOM.supplierProviderSwitcher) return;
+    DOM.supplierProviderSwitcher.innerHTML = (state.supplierBots || []).map(provider => {
+        const active = provider.code === state.activeSupplierCode;
+        const status = !provider.configured ? 'Clé absente' : provider.enabled ? `${Number(provider.selected_count || 0)} affiché(s)` : 'Désactivé';
+        return `<button type="button" role="tab" class="${active ? 'active' : ''}" aria-selected="${active}" onclick="selectSupplierBot('${escapeHtml(provider.code)}')"><i class="fa-solid fa-server"></i><span><strong>${escapeHtml(provider.name || provider.code)}</strong><small>${escapeHtml(status)}</small></span></button>`;
+    }).join('');
+}
+
+window.selectSupplierBot = async function(supplierCode) {
+    state.activeSupplierCode = String(supplierCode || 'canboso');
+    state.supplierBot = null;
+    if (DOM.supplierProductSearch) DOM.supplierProductSearch.value = '';
+    if (DOM.supplierProductsTableBody) DOM.supplierProductsTableBody.innerHTML = '<tr><td colspan="8" class="empty-state">Chargement du catalogue...</td></tr>';
+    await loadSupplierBot();
+};
 
 function renderSupplierProducts() {
     if (!DOM.supplierProductsTableBody) return;
@@ -2617,10 +2648,15 @@ function renderSupplierProducts() {
         const stockClass = Number(product.remote_stock || 0) === 0 ? 'empty' : Number(product.remote_stock || 0) < 3 ? 'low' : 'ok';
         const affordableStock = Number(product.affordable_stock || 0);
         const affordableClass = affordableStock === 0 ? 'empty' : affordableStock < 3 ? 'low' : 'ok';
+        const sourceCurrency = String(product.source_currency || supplier.source_currency || 'USD').toUpperCase();
+        const sourcePrice = Number(product.source_price ?? product.base_price ?? 0);
+        const sourcePriceHtml = sourceCurrency === 'USD'
+            ? `<strong>$${sourcePrice.toFixed(2)}</strong>`
+            : `<strong>${new Intl.NumberFormat('fr-FR', {maximumFractionDigits:0}).format(sourcePrice)} ${escapeHtml(sourceCurrency)}</strong><small style="display:block;color:var(--color-text-muted)">~$${Number(product.base_price || 0).toFixed(4)}</small>`;
         return `<tr>
             <td><input class="supplier-product-toggle" type="checkbox" id="supplier-enabled-${id}" ${product.enabled ? 'checked' : ''} aria-label="Afficher ${escapeHtml(product.name)}"></td>
-            <td><div class="supplier-product-name"><span>${escapeHtml(product.emoji || '📦')}</span><div><strong>${escapeHtml(product.name || '?')}</strong><small>ID fournisseur: ${escapeHtml(product.external_product_id)}</small></div></div></td>
-            <td><strong>$${Number(product.base_price || 0).toFixed(2)}</strong></td>
+            <td><div class="supplier-product-name"><span>${escapeHtml(product.emoji || '📦')}</span><div><strong>${escapeHtml(product.name || '?')}</strong><small>${escapeHtml(supplier.supplier || state.activeSupplierCode)} · ID ${escapeHtml(product.external_product_id)}</small></div></div></td>
+            <td>${sourcePriceHtml}</td>
             <td><span class="stock-count-badge ${stockClass}">${Number(product.remote_stock || 0)}</span></td>
             <td><span class="stock-count-badge ${affordableClass}" title="Limité par votre solde fournisseur">${affordableStock}</span></td>
             <td><div class="supplier-margin-controls"><select id="supplier-margin-type-${id}" onchange="toggleSupplierMarginInput(${id})"><option value="inherit" ${marginType === 'inherit' ? 'selected' : ''}>Marge globale</option><option value="fixed" ${marginType === 'fixed' ? 'selected' : ''}>+$ fixe</option><option value="percent" ${marginType === 'percent' ? 'selected' : ''}>+%</option></select><input id="supplier-margin-value-${id}" type="number" min="0" step="0.01" value="${marginValue}" ${marginType === 'inherit' ? 'disabled' : ''}></div></td>
@@ -2642,7 +2678,7 @@ window.saveSupplierProduct = async function(id) {
     const rawValue = $(`supplier-margin-value-${id}`)?.value;
     try {
         showLoading(true);
-        await apiCall(`/api/supplier-bots/canboso/products/${id}`, 'PUT', {enabled, margin_type: marginType, margin_value: marginType === 'inherit' ? null : Number(rawValue || 0)});
+        await apiCall(`/api/supplier-bots/${encodeURIComponent(state.activeSupplierCode)}/products/${id}`, 'PUT', {enabled, margin_type: marginType, margin_value: marginType === 'inherit' ? null : Number(rawValue || 0)});
         await Promise.all([loadSupplierBot(), loadProducts()]);
         showToast('Produit fournisseur mis à jour.', 'success');
     } catch (error) {
@@ -2687,7 +2723,7 @@ async function saveSupplierDescriptions(event) {
     };
     try {
         showLoading(true);
-        await apiCall(`/api/supplier-bots/canboso/products/${id}/descriptions`, 'PUT', {descriptions});
+        await apiCall(`/api/supplier-bots/${encodeURIComponent(state.activeSupplierCode)}/products/${id}/descriptions`, 'PUT', {descriptions});
         hideModal(DOM.supplierDescriptionModal);
         await Promise.all([loadSupplierBot(), loadProducts()]);
         showToast('Descriptions multilingues enregistrées.', 'success');
@@ -2702,7 +2738,9 @@ async function saveSupplierSettings(event) {
     event.preventDefault();
     try {
         showLoading(true);
-        await apiCall('/api/supplier-bots/canboso/settings', 'PUT', {enabled: Boolean(DOM.supplierEnabled.checked), margin_type: DOM.supplierMarginType.value, margin_value: Number(DOM.supplierMarginValue.value || 0)});
+        const payload = {enabled: Boolean(DOM.supplierEnabled.checked), margin_type: DOM.supplierMarginType.value, margin_value: Number(DOM.supplierMarginValue.value || 0)};
+        if (!DOM.supplierRateGroup?.classList.contains('hidden')) payload.units_per_usd = Number(DOM.supplierUnitsPerUsd.value || 1);
+        await apiCall(`/api/supplier-bots/${encodeURIComponent(state.activeSupplierCode)}/settings`, 'PUT', payload);
         await Promise.all([loadSupplierBot(), loadProducts()]);
         showToast('Configuration fournisseur enregistrée.', 'success');
     } catch (error) {
@@ -2715,7 +2753,7 @@ async function saveSupplierSettings(event) {
 async function syncSupplierBot() {
     try {
         showLoading(true);
-        const result = await apiCall('/api/supplier-bots/canboso/sync', 'POST');
+        const result = await apiCall(`/api/supplier-bots/${encodeURIComponent(state.activeSupplierCode)}/sync`, 'POST');
         await Promise.all([loadSupplierBot(), loadProducts()]);
         showToast(`${Number(result.synced || 0)} produit(s) synchronisé(s).`, 'success');
     } catch (error) {

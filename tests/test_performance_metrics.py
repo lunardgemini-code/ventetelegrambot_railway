@@ -18,12 +18,16 @@ class PerformanceMetricsTests(unittest.TestCase):
         bot._webhook_handler_error_times.clear()
         bot._webhook_deduplicated_times.clear()
         bot._webhook_action_samples.clear()
+        bot._webhook_pending_hourly.clear()
+        bot._webhook_recent_start_signatures.clear()
 
     def tearDown(self):
         bot._webhook_samples.clear()
         bot._webhook_queue_samples.clear()
         bot._webhook_handler_error_times.clear()
         bot._webhook_action_samples.clear()
+        bot._webhook_pending_hourly.clear()
+        bot._webhook_recent_start_signatures.clear()
         db_module._DB_CONNECTION_ERROR_TIMES.clear()
 
     def test_recommends_more_workers_when_queue_wait_is_high(self):
@@ -153,6 +157,27 @@ class PerformanceMetricsTests(unittest.TestCase):
         self.assertEqual(result["actions_5m"][0]["count"], 2)
         self.assertEqual(result["actions_5m"][0]["max_ms"], 1200.0)
 
+    def test_free_text_actions_are_classified_without_storing_user_content(self):
+        def update(text):
+            return SimpleNamespace(
+                callback_query=None,
+                effective_message=SimpleNamespace(text=text, photo=None),
+            )
+
+        self.assertEqual(bot._webhook_action_name(update("42.5")), "message:number")
+        self.assertEqual(
+            bot._webhook_action_name(update("0x" + "a" * 64)),
+            "message:evm_tx_hash",
+        )
+        self.assertEqual(
+            bot._webhook_action_name(update("customer.name")),
+            "message:identifier",
+        )
+        self.assertEqual(
+            bot._webhook_action_name(update("a private support message with spaces")),
+            "message:short_text",
+        )
+
 
 class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -167,6 +192,8 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
         bot._webhook_samples.clear()
         bot._webhook_queue_samples.clear()
         bot._webhook_action_samples.clear()
+        bot._webhook_pending_hourly.clear()
+        bot._webhook_recent_start_signatures.clear()
 
     async def test_deployment_readiness_only_opens_after_startup(self):
         original_ready = bot._service_ready
@@ -186,6 +213,23 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(starting.json()["status"], "not_ready")
         self.assertEqual(ready.status_code, 200)
         self.assertEqual(ready.json()["status"], "ok")
+
+    async def test_webhook_is_retryable_until_telegram_workers_are_ready(self):
+        original_queue = bot.webhook_update_queue
+        original_app = bot.tg_app
+        bot.webhook_update_queue = None
+        bot.tg_app = SimpleNamespace(bot=TelegramBot("123456:TEST_TOKEN"))
+        transport = httpx.ASGITransport(app=bot.api)
+        try:
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                response = await client.post("/webhook", json={"update_id": 1})
+        finally:
+            bot.webhook_update_queue = original_queue
+            bot.tg_app = original_app
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.headers["retry-after"], "2")
+        self.assertEqual(response.json()["detail"], "Telegram workers are starting")
 
     async def test_webhook_worker_records_queue_and_processing_latency(self):
         original_queue = bot.webhook_update_queue
@@ -249,6 +293,55 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
                 bot._release_webhook_dedupe(queued)
             bot.webhook_update_queue = original_queue
             bot.tg_app = original_app
+
+    async def test_recently_completed_start_is_debounced(self):
+        original_queue = bot.webhook_update_queue
+        original_app = bot.tg_app
+        bot.webhook_update_queue = asyncio.Queue()
+        bot.tg_app = SimpleNamespace(bot=TelegramBot("123456:TEST_TOKEN"))
+        payload = {
+            "update_id": 110,
+            "message": {
+                "message_id": 11,
+                "date": 0,
+                "chat": {"id": 42, "type": "private"},
+                "from": {"id": 42, "is_bot": False, "first_name": "Buyer"},
+                "text": "/start",
+            },
+        }
+        transport = httpx.ASGITransport(app=bot.api)
+        try:
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                first = await client.post("/webhook", json=payload)
+                queued = bot.webhook_update_queue.get_nowait()
+                bot.webhook_update_queue.task_done()
+                bot._webhook_enqueued_at.pop(id(queued), None)
+                bot._release_webhook_dedupe(queued, completed=True)
+                second = await client.post(
+                    "/webhook", json={**payload, "update_id": 111}
+                )
+
+            self.assertEqual(first.status_code, 200)
+            self.assertTrue(second.json().get("deduplicated"))
+            self.assertEqual(bot.webhook_update_queue.qsize(), 0)
+        finally:
+            bot.webhook_update_queue = original_queue
+            bot.tg_app = original_app
+
+    async def test_dashboard_shell_revalidates_and_assets_are_compressed(self):
+        transport = httpx.ASGITransport(app=bot.api)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            shell = await client.get("/dashboard/")
+            asset = await client.get(
+                "/dashboard/app.js?v=test",
+                headers={"Accept-Encoding": "gzip"},
+            )
+
+        self.assertEqual(shell.status_code, 200)
+        self.assertEqual(shell.headers["cache-control"], "no-cache, must-revalidate")
+        self.assertEqual(asset.status_code, 200)
+        self.assertIn("max-age=3600", asset.headers["cache-control"])
+        self.assertEqual(asset.headers.get("content-encoding"), "gzip")
 
     async def test_identical_callback_is_deduplicated_before_queueing(self):
         original_queue = bot.webhook_update_queue

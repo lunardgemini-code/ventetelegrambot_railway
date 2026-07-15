@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from telegram.error import BadRequest
+from telegram.constants import KeyboardButtonStyle
 
 from handlers.profile import view_referrals_list
 from handlers.products import _send_product_detail_message
@@ -67,6 +68,17 @@ class CallbackSafetyTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(channel_button.text, t("btn_channel", language))
                 self.assertNotEqual(channel_button.text, "btn_channel")
+
+    async def test_game_button_is_directly_below_wallet_with_custom_emoji(self):
+        markup = main_menu_keyboard("en")
+        wallet_button = markup.inline_keyboard[1][0]
+        game_button = markup.inline_keyboard[2][0]
+
+        self.assertEqual(wallet_button.callback_data, "menu_wallet")
+        self.assertEqual(game_button.callback_data, "menu_game")
+        self.assertEqual(game_button.icon_custom_emoji_id, "5375312095346704820")
+        self.assertEqual(game_button.text, "Game · Who Wins?")
+        self.assertEqual(game_button.style, KeyboardButtonStyle.DANGER)
 
     async def test_start_sends_persistent_reply_keyboard_only_once_per_session(self):
         message = SimpleNamespace(reply_text=AsyncMock())

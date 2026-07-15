@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -100,6 +101,18 @@ class NowPaymentsTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(response.status_code, 409)
         self.assertIn(self.payment_id, response.json()["detail"])
+
+    def test_dashboard_accept_uses_dialog_without_typed_confirmation(self):
+        source = (Path(__file__).resolve().parents[1] / "dashboard" / "app.js").read_text(
+            encoding="utf-8"
+        )
+        start = source.index("async function handlePaymentReviewAction")
+        end = source.index("\nfunction renderStatsTable", start)
+        handler = source[start:end]
+        self.assertIn("if (!confirm(`Confirmer l'acceptation", handler)
+        self.assertIn("confirmation = expected;", handler)
+        self.assertNotIn("Saisissez exactement", handler)
+        self.assertNotIn("Note d audit facultative", handler)
 
     async def test_manual_accept_is_audited_archived_and_cannot_run_twice(self):
         provider_payload = {
@@ -418,20 +431,140 @@ class NowPaymentsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(saved_topup["provider_status"], "expired")
         self.assertAlmostEqual(await models.get_wallet_balance(2001), 0.0)
 
-    def test_copy_button_uses_exact_provider_amount_without_surcharge(self):
-        from handlers.payment import _format_crypto_amount
-        from utils.keyboards import nowpayments_payment_keyboard
+    async def test_checkout_displays_and_copies_buffer_without_changing_provider_price(self):
+        from handlers.payment import _render_nowpayments_checkout
 
-        amount = _format_crypto_amount("0.64936553")
-        self.assertEqual(amount, "0.64936553")
+        query = AsyncMock()
+        payment = {
+            "order_id": self.order["id"],
+            "payment_id": "np-display-buffer",
+            "pay_address": "0x1111111111111111111111111111111111111111",
+            "pay_amount": 0.64936553,
+            "price_amount": 0.50,
+        }
+        with patch("handlers.payment.safe_edit_message_text", AsyncMock()) as edit:
+            await _render_nowpayments_checkout(
+                query,
+                payment,
+                "en",
+                order_amount=0.50,
+            )
 
-        markup = nowpayments_payment_keyboard(self.order["id"], amount, "en")
-        copy_button = markup.inline_keyboard[0][0]
-        self.assertEqual(copy_button.copy_text.text, amount)
+        text = edit.await_args.args[1]
+        markup = edit.await_args.kwargs["reply_markup"]
+        self.assertIn("0.68936553", text)
+        self.assertEqual(markup.inline_keyboard[0][0].copy_text.text, "0.68936553")
+
+    async def test_legacy_checkout_does_not_add_the_buffer_twice(self):
+        from handlers.payment import _render_nowpayments_checkout
+
+        payment = {
+            "order_id": self.order["id"],
+            "payment_id": "np-legacy-buffer",
+            "pay_address": "0x1111111111111111111111111111111111111111",
+            "pay_amount": 0.68936553,
+            "price_amount": 0.54,
+        }
+        with patch("handlers.payment.safe_edit_message_text", AsyncMock()) as edit:
+            await _render_nowpayments_checkout(
+                AsyncMock(),
+                payment,
+                "en",
+                order_amount=0.50,
+            )
+
+        markup = edit.await_args.kwargs["reply_markup"]
+        self.assertEqual(markup.inline_keyboard[0][0].copy_text.text, "0.68936553")
+
+    async def test_wallet_topup_checkout_shows_only_the_amount_to_send(self):
+        from handlers.wallet import _render_nowpayments_topup_checkout
+
+        topup = {
+            "id": 42,
+            "payment_id": "np-wallet-single-amount",
+            "pay_address": "0x2222222222222222222222222222222222222222",
+            "pay_amount": 2.50,
+            "price_amount": 2.50,
+            "wallet_amount": 2.50,
+        }
+        with patch("handlers.wallet.safe_edit_message_text", AsyncMock()) as edit:
+            await _render_nowpayments_topup_checkout(AsyncMock(), topup, "en")
+
+        text = edit.await_args.args[1]
+        markup = edit.await_args.kwargs["reply_markup"]
+        self.assertNotIn("$2.50", text)
+        self.assertIn("2.54", text)
+        self.assertEqual(markup.inline_keyboard[0][0].copy_text.text, "2.54")
 
     def test_checkout_price_adds_four_cent_bep20_fee(self):
         self.assertEqual(nowpayments.calculate_checkout_price(0.50), 0.54)
         self.assertEqual(nowpayments.calculate_checkout_price(5), 5.04)
+
+    async def test_new_order_sends_original_price_to_nowpayments(self):
+        from handlers.payment import pay_with_nowpayments, _timeout_tasks
+
+        order = await models.create_order(2001, self.product_id, 5, quantity=1)
+        query = AsyncMock()
+        query.data = f"pay_nowpayments:{order['id']}"
+        update = type("UpdateStub", (), {
+            "callback_query": query,
+            "effective_user": type("UserStub", (), {"id": 2001})(),
+        })()
+        context = type("ContextStub", (), {"user_data": {}, "bot": AsyncMock()})()
+        provider_payment = {
+            "payment_id": "np-original-provider-price",
+            "payment_status": "waiting",
+            "pay_amount": 5,
+            "pay_currency": "usdtbsc",
+            "pay_address": "0x1111111111111111111111111111111111111111",
+        }
+        create_payment = AsyncMock(return_value=provider_payment)
+
+        with (
+            patch("handlers.payment._nowpayments_callback_url", return_value="https://example.com/webhooks/nowpayments"),
+            patch("handlers.payment._render_nowpayments_checkout", AsyncMock()),
+            patch("services.nowpayments.is_nowpayments_configured", return_value=True),
+            patch("services.nowpayments.get_minimum_amount", AsyncMock(return_value={"fiat_equivalent": 0})),
+            patch("services.nowpayments.create_payment", create_payment),
+        ):
+            await pay_with_nowpayments(update, context)
+
+        self.assertEqual(create_payment.await_args.kwargs["price_amount"], 5.0)
+        saved = await models.get_nowpayments_payment_for_order(order["id"])
+        self.assertEqual(float(saved["price_amount"]), 5.0)
+        task = _timeout_tasks.pop(order["id"], None)
+        if task:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    async def test_wallet_topup_at_original_provider_price_is_credited(self):
+        wallet_amount = 2.0
+        attempt = await models.prepare_nowpayments_wallet_topup(
+            2001,
+            wallet_amount,
+            wallet_amount,
+        )
+        payment_id = "np-wallet-original-price"
+        await models.attach_nowpayments_wallet_topup(attempt["request_key"], {
+            "payment_id": payment_id,
+            "payment_status": "waiting",
+            "pay_amount": wallet_amount,
+            "pay_currency": "usdtbsc",
+            "pay_address": "0x2222222222222222222222222222222222222222",
+        })
+        await models.save_nowpayments_update({
+            "payment_id": payment_id,
+            "payment_status": "finished",
+            "order_id": attempt["request_key"],
+            "pay_amount": wallet_amount,
+            "actually_paid": wallet_amount,
+            "pay_currency": "usdtbsc",
+        })
+
+        result = await models.finalize_nowpayments_wallet_topup(payment_id)
+
+        self.assertEqual(result["action"], "wallet_credited")
+        self.assertAlmostEqual(await models.get_wallet_balance(2001), wallet_amount)
 
     def test_callback_url_falls_back_to_railway_public_domain(self):
         from handlers.payment import _nowpayments_callback_url

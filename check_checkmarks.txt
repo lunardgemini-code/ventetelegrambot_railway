@@ -1,4 +1,0 @@
-wallet_msg}\n\n✅ Préparation de
-e.reply_text(f"✅ {t('payment_co
-e.reply_text(f"✅ {t('payment_co
-e.reply_text(f"✅ {t('payment_co

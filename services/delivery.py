@@ -23,7 +23,10 @@ async def deliver_order(order_id: int, product_id: int) -> list[dict] | None:
 
     mapping = await get_supplier_product_by_local_product(product_id)
     if mapping:
-        from services.supplier_api import SupplierAPIError, purchase_canboso_product
+        from services.supplier_registry import (
+            SupplierAPIError,
+            purchase_supplier_product,
+        )
 
         order = await get_order(order_id)
         if not order:
@@ -36,7 +39,12 @@ async def deliver_order(order_id: int, product_id: int) -> list[dict] | None:
             logger.warning("Supplier order %s is already %s", order_id, supplier_order.get("status"))
             return None
         try:
-            result = await purchase_canboso_product(mapping["external_product_id"], quantity)
+            result = await purchase_supplier_product(
+                mapping.get("supplier_code") or "canboso",
+                mapping["external_product_id"],
+                quantity,
+                buyer_info=f"VenteBot order #{order_id}",
+            )
             items = await finish_supplier_order(int(supplier_order["id"]), result)
             logger.info("Supplier order %d delivered %d item(s)", order_id, len(items))
             return items

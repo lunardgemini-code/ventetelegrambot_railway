@@ -66,32 +66,57 @@ class BroadcastTests(unittest.IsolatedAsyncioTestCase):
         import bot as bot_module
 
         telegram_bot = SimpleNamespace()
-        delivery = AsyncMock(return_value=(2, 1, 3))
-        bot_module._broadcast_jobs.clear()
-        bot_module._broadcast_tasks.clear()
+        enqueue = AsyncMock(return_value={
+            "job_id": "job-1",
+            "job_type": "broadcast",
+            "status": "queued",
+            "sent": 0,
+            "failed": 0,
+            "total": 3,
+        })
+        status = AsyncMock(return_value={
+            "job_id": "job-1",
+            "job_type": "broadcast",
+            "status": "completed",
+            "sent": 2,
+            "failed": 1,
+            "total": 3,
+        })
 
         with (
             patch.object(bot_module, "tg_app", SimpleNamespace(bot=telegram_bot)),
-            patch("services.broadcast.execute_broadcast", delivery),
+            patch("services.background_jobs.enqueue_broadcast_job", enqueue),
+            patch("services.background_jobs.get_public_background_job", status),
         ):
             queued = await bot_module.api_broadcast({"message": "Hello"})
             self.assertEqual(queued["status"], "queued")
-            self.assertTrue(queued["job_id"])
-            await asyncio.gather(*list(bot_module._broadcast_tasks))
+            self.assertEqual(queued["job_id"], "job-1")
             completed = await bot_module.api_broadcast_status(queued["job_id"])
 
         self.assertEqual(completed["status"], "completed")
         self.assertEqual((completed["sent"], completed["failed"], completed["total"]), (2, 1, 3))
-        delivery.assert_awaited_once()
+        enqueue.assert_awaited_once()
+        status.assert_awaited_once_with("job-1")
 
     async def test_admin_broadcast_updates_status_after_handler_returns(self):
         from handlers import admin
 
-        status_message = SimpleNamespace(edit_text=AsyncMock())
-        delivery = AsyncMock(return_value=(3, 1, 4))
+        status_message = SimpleNamespace(
+            chat_id=42,
+            message_id=99,
+            edit_text=AsyncMock(),
+        )
+        enqueue = AsyncMock(return_value={
+            "job_id": "job-admin",
+            "job_type": "broadcast",
+            "status": "queued",
+            "sent": 0,
+            "failed": 0,
+            "total": 4,
+        })
         admin._admin_broadcast_tasks.clear()
 
-        with patch("services.broadcast.execute_broadcast", delivery):
+        with patch("services.background_jobs.enqueue_broadcast_job", enqueue):
             admin._queue_admin_broadcast(
                 SimpleNamespace(),
                 status_message,
@@ -100,9 +125,40 @@ class BroadcastTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(admin._admin_broadcast_tasks), 1)
             await asyncio.gather(*list(admin._admin_broadcast_tasks))
 
-        final_call = status_message.edit_text.await_args
-        self.assertIn("Broadcast termine", final_call.args[0])
-        self.assertIn("3/4", final_call.args[0])
+        enqueue.assert_awaited_once_with(
+            "Hello",
+            photo=None,
+            reply_markup=None,
+            source="telegram_admin",
+            status_chat_id=42,
+            status_message_id=99,
+        )
+        self.assertIn("file persistante", status_message.edit_text.await_args.args[0])
+
+    async def test_broadcast_resume_starts_after_last_checkpoint(self):
+        bot = SimpleNamespace(send_message=AsyncMock(), send_photo=AsyncMock())
+        users = [
+            {"id": 1, "telegram_id": 101, "is_banned": 0},
+            {"id": 2, "telegram_id": 102, "is_banned": 0},
+            {"id": 3, "telegram_id": 103, "is_banned": 0},
+        ]
+        checkpoint = AsyncMock()
+
+        with patch("services.broadcast.get_all_users", AsyncMock(return_value=users)):
+            sent, failed, total = await execute_broadcast(
+                bot,
+                "Resume",
+                start_offset=2,
+                max_user_id=3,
+                initial_sent=2,
+                initial_failed=0,
+                checkpoint=checkpoint,
+            )
+
+        self.assertEqual((sent, failed, total), (3, 0, 3))
+        bot.send_message.assert_awaited_once()
+        self.assertEqual(bot.send_message.await_args.kwargs["chat_id"], 103)
+        checkpoint.assert_awaited_once_with(3, 0, 3, 3)
 
 
 if __name__ == "__main__":

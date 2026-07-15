@@ -7,15 +7,31 @@ import json
 from database.db import get_db
 
 
-SUPPLIER_CODE = "canboso"
+DEFAULT_SUPPLIER_CODE = "canboso"
+# Backwards-compatible export used by older integrations.
+SUPPLIER_CODE = DEFAULT_SUPPLIER_CODE
 SUPPLIER_DESCRIPTION_LANGUAGES = ("en", "fr", "ar", "zh", "vi", "ru")
 MAX_SUPPLIER_DESCRIPTION_LENGTH = 3000
 
 
-def calculate_supplier_price(base_price: float, margin_type: str, margin_value: float) -> float:
+def _provider(supplier_code: str) -> dict:
+    from services.supplier_registry import get_supplier_provider
+
+    return get_supplier_provider(supplier_code)
+
+
+def _settings_prefix(supplier_code: str) -> str:
+    return f"supplier_{_provider(supplier_code)['code']}"
+
+
+def calculate_supplier_price(
+    base_price: float, margin_type: str, margin_value: float
+) -> float:
     base = max(0.0, float(base_price or 0))
     value = max(0.0, float(margin_value or 0))
-    return round(base * (1.0 + value / 100.0), 2) if margin_type == "percent" else round(base + value, 2)
+    if margin_type == "percent":
+        return round(base * (1.0 + value / 100.0), 2)
+    return round(base + value, 2)
 
 
 async def _setting(db, key: str, default: str) -> str:
@@ -24,30 +40,120 @@ async def _setting(db, key: str, default: str) -> str:
     return str(row["value"]) if row and row["value"] is not None else default
 
 
-async def _global_margin(db) -> tuple[str, float]:
-    margin_type = await _setting(db, "supplier_canboso_margin_type", "fixed")
+async def _global_margin(db, supplier_code: str) -> tuple[str, float]:
+    prefix = _settings_prefix(supplier_code)
+    margin_type = await _setting(db, f"{prefix}_margin_type", "fixed")
     if margin_type not in ("fixed", "percent"):
         margin_type = "fixed"
     try:
-        margin_value = max(0.0, float(await _setting(db, "supplier_canboso_margin_value", "1")))
+        margin_value = max(
+            0.0, float(await _setting(db, f"{prefix}_margin_value", "1"))
+        )
     except ValueError:
         margin_value = 1.0
     return margin_type, margin_value
 
 
+async def _supplier_config(db, supplier_code: str) -> dict:
+    """Load all provider settings in one indexed database round trip."""
+    provider = _provider(supplier_code)
+    prefix = _settings_prefix(supplier_code)
+    keys = {
+        "enabled": f"{prefix}_enabled",
+        "margin_type": f"{prefix}_margin_type",
+        "margin_value": f"{prefix}_margin_value",
+        "units_per_usd": f"{prefix}_units_per_usd",
+        "last_sync": f"{prefix}_last_sync",
+    }
+    placeholders = ",".join("?" for _ in keys)
+    cursor = await db.execute(
+        f"SELECT key, value FROM settings WHERE key IN ({placeholders})",
+        list(keys.values()),
+    )
+    values = {str(row["key"]): str(row["value"]) for row in await cursor.fetchall()}
+    margin_type = values.get(keys["margin_type"], "fixed")
+    if margin_type not in ("fixed", "percent"):
+        margin_type = "fixed"
+    try:
+        margin_value = max(0.0, float(values.get(keys["margin_value"], "1")))
+    except ValueError:
+        margin_value = 1.0
+    try:
+        units_per_usd = max(
+            1.0,
+            float(
+                values.get(
+                    keys["units_per_usd"],
+                    str(provider["default_units_per_usd"]),
+                )
+            ),
+        )
+    except ValueError:
+        units_per_usd = max(1.0, float(provider["default_units_per_usd"]))
+    enabled_default = "1" if supplier_code == DEFAULT_SUPPLIER_CODE else "0"
+    return {
+        "enabled": values.get(keys["enabled"], enabled_default) != "0",
+        "margin_type": margin_type,
+        "margin_value": margin_value,
+        "units_per_usd": units_per_usd,
+        "last_sync": values.get(keys["last_sync"], ""),
+    }
+
+
+async def _units_per_usd(db, supplier_code: str) -> float:
+    provider = _provider(supplier_code)
+    default = float(provider["default_units_per_usd"])
+    try:
+        return max(
+            1.0,
+            float(
+                await _setting(
+                    db,
+                    f"{_settings_prefix(supplier_code)}_units_per_usd",
+                    str(default),
+                )
+            ),
+        )
+    except ValueError:
+        return max(1.0, default)
+
+
+async def get_supplier_units_per_usd(
+    supplier_code: str = DEFAULT_SUPPLIER_CODE,
+) -> float:
+    supplier_code = _provider(supplier_code)["code"]
+    db = await get_db()
+    try:
+        return await _units_per_usd(db, supplier_code)
+    finally:
+        await db.close()
+
+
 async def _category_id(db) -> int:
-    cursor = await db.execute("SELECT id FROM categories WHERE COALESCE(is_deleted, 0) = 0 ORDER BY id LIMIT 1")
+    cursor = await db.execute(
+        "SELECT id FROM categories WHERE COALESCE(is_deleted, 0) = 0 ORDER BY id LIMIT 1"
+    )
     row = await cursor.fetchone()
     if row:
         return int(row["id"])
     cursor = await db.execute(
-        "INSERT INTO categories (name, emoji, description, is_active) VALUES ('API Catalog', '🔌', 'External supplier products', 1)"
+        "INSERT INTO categories (name, emoji, description, is_active) "
+        "VALUES ('API Catalog', '🔌', 'External supplier products', 1)"
     )
     return int(cursor.lastrowid)
 
 
 async def _effective_margin(db, row: dict) -> tuple[str, float]:
-    global_type, global_value = await _global_margin(db)
+    global_type, global_value = await _global_margin(db, row["supplier_code"])
+    row_type = str(row.get("margin_type") or "inherit")
+    if row_type in ("fixed", "percent"):
+        return row_type, max(0.0, float(row.get("margin_value") or 0))
+    return global_type, global_value
+
+
+def _effective_margin_from_global(
+    row: dict, global_type: str, global_value: float
+) -> tuple[str, float]:
     row_type = str(row.get("margin_type") or "inherit")
     if row_type in ("fixed", "percent"):
         return row_type, max(0.0, float(row.get("margin_value") or 0))
@@ -70,92 +176,186 @@ def _product_descriptions(row: dict) -> dict[str, str]:
     }
 
 
-async def _upsert_local_product(db, row: dict) -> int:
-    margin_type, margin_value = await _effective_margin(db, row)
-    final_price = calculate_supplier_price(row["base_price"], margin_type, margin_value)
+async def _supplier_enabled(db, supplier_code: str) -> bool:
+    # Preserve the established Canboso behavior. New providers remain hidden
+    # until explicitly enabled by the administrator.
+    default = "1" if supplier_code == DEFAULT_SUPPLIER_CODE else "0"
+    return (
+        await _setting(
+            db, f"{_settings_prefix(supplier_code)}_enabled", default
+        )
+    ) != "0"
+
+
+async def _upsert_local_product(
+    db,
+    row: dict,
+    *,
+    global_margin: tuple[str, float] | None = None,
+    supplier_enabled: bool | None = None,
+) -> int:
+    if global_margin is None:
+        margin_type, margin_value = await _effective_margin(db, row)
+    else:
+        margin_type, margin_value = _effective_margin_from_global(
+            row, global_margin[0], global_margin[1]
+        )
+    final_price = calculate_supplier_price(
+        row["base_price"], margin_type, margin_value
+    )
     descriptions = _product_descriptions(row)
-    supplier_enabled = (await _setting(db, "supplier_canboso_enabled", "1")) != "0"
+    if supplier_enabled is None:
+        supplier_enabled = await _supplier_enabled(db, row["supplier_code"])
     is_active = 1 if row.get("enabled") and supplier_enabled else 0
     local_id = row.get("local_product_id")
     if local_id:
         await db.execute(
             """UPDATE products SET name = ?, description = ?, description_fr = ?, description_ar = ?,
                       description_zh = ?, description_vi = ?, description_ru = ?,
-                      price_usd = ?, warranty_days = ?,
-                      emoji = ?, image_url = ?, delivery_type = 'supplier_api', is_active = ?, is_deleted = 0
+                      price_usd = ?, warranty_days = ?, emoji = ?, image_url = ?,
+                      delivery_type = 'supplier_api', is_active = ?, is_deleted = 0
                WHERE id = ?""",
             (
-                row["name"], descriptions["en"], descriptions["fr"], descriptions["ar"],
-                descriptions["zh"], descriptions["vi"], descriptions["ru"], final_price,
-                int(row.get("warranty_days") or 0), row.get("emoji") or "📦",
-                row.get("image_url") or None, is_active, int(local_id),
+                row["name"],
+                descriptions["en"],
+                descriptions["fr"],
+                descriptions["ar"],
+                descriptions["zh"],
+                descriptions["vi"],
+                descriptions["ru"],
+                final_price,
+                int(row.get("warranty_days") or 0),
+                row.get("emoji") or "📦",
+                row.get("image_url") or None,
+                is_active,
+                int(local_id),
             ),
         )
         return int(local_id)
     category_id = await _category_id(db)
     cursor = await db.execute(
         """INSERT INTO products
-           (category_id, name, description, description_fr, description_ar, description_zh,
-            description_vi, description_ru, price_usd, warranty_days, emoji, image_url,
-            delivery_type, is_active, is_deleted)
+           (category_id, name, description, description_fr, description_ar,
+            description_zh, description_vi, description_ru, price_usd,
+            warranty_days, emoji, image_url, delivery_type, is_active, is_deleted)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'supplier_api', ?, 0)""",
         (
-            category_id, row["name"], descriptions["en"], descriptions["fr"], descriptions["ar"],
-            descriptions["zh"], descriptions["vi"], descriptions["ru"], final_price,
-            int(row.get("warranty_days") or 0), row.get("emoji") or "📦",
-            row.get("image_url") or None, is_active,
+            category_id,
+            row["name"],
+            descriptions["en"],
+            descriptions["fr"],
+            descriptions["ar"],
+            descriptions["zh"],
+            descriptions["vi"],
+            descriptions["ru"],
+            final_price,
+            int(row.get("warranty_days") or 0),
+            row.get("emoji") or "📦",
+            row.get("image_url") or None,
+            is_active,
         ),
     )
     local_id = int(cursor.lastrowid)
-    await db.execute("UPDATE supplier_products SET local_product_id = ? WHERE id = ?", (local_id, int(row["id"])))
+    await db.execute(
+        "UPDATE supplier_products SET local_product_id = ? WHERE id = ?",
+        (local_id, int(row["id"])),
+    )
     return local_id
 
 
-async def sync_supplier_products(products: list[dict]) -> dict:
-    from database.models import clear_products_cache, _clear_stock_cache
+async def sync_supplier_products(
+    products: list[dict], supplier_code: str = DEFAULT_SUPPLIER_CODE
+) -> dict:
+    from database.models import _clear_stock_cache, clear_products_cache
 
+    provider = _provider(supplier_code)
+    supplier_code = provider["code"]
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
         for product in products:
+            source_price = float(
+                product.get("source_price", product.get("base_price") or 0)
+            )
+            source_currency = str(
+                product.get("source_currency")
+                or provider["source_currency"]
+            ).upper()
             await db.execute(
                 """INSERT INTO supplier_products
-                   (supplier_code, external_product_id, name, description, base_price, remote_stock,
+                   (supplier_code, external_product_id, name, description,
+                    base_price, source_price, source_currency, remote_stock,
                     warranty_days, image_url, emoji, raw_payload, last_synced_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                    ON CONFLICT(supplier_code, external_product_id) DO UPDATE SET
                     name = excluded.name, description = excluded.description,
-                    base_price = excluded.base_price, remote_stock = excluded.remote_stock,
-                    warranty_days = excluded.warranty_days, image_url = excluded.image_url,
-                    emoji = excluded.emoji, raw_payload = excluded.raw_payload,
+                    base_price = excluded.base_price,
+                    source_price = excluded.source_price,
+                    source_currency = excluded.source_currency,
+                    remote_stock = excluded.remote_stock,
+                    warranty_days = excluded.warranty_days,
+                    image_url = excluded.image_url, emoji = excluded.emoji,
+                    raw_payload = excluded.raw_payload,
                     last_synced_at = CURRENT_TIMESTAMP""",
-                (SUPPLIER_CODE, str(product["external_product_id"]), product["name"], product.get("description") or "",
-                 float(product["base_price"]), int(product.get("remote_stock") or 0),
-                 int(product.get("warranty_days") or 0), product.get("image_url") or "",
-                 product.get("emoji") or "📦",
-                 json.dumps(product.get("raw_payload") or {}, ensure_ascii=False, separators=(",", ":"))),
+                (
+                    supplier_code,
+                    str(product["external_product_id"]),
+                    product["name"],
+                    product.get("description") or "",
+                    float(product["base_price"]),
+                    source_price,
+                    source_currency,
+                    int(product.get("remote_stock") or 0),
+                    int(product.get("warranty_days") or 0),
+                    product.get("image_url") or "",
+                    product.get("emoji") or "📦",
+                    json.dumps(
+                        product.get("raw_payload") or {},
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                ),
             )
         external_ids = [str(product["external_product_id"]) for product in products]
         if external_ids:
             placeholders = ",".join("?" for _ in external_ids)
             await db.execute(
-                f"UPDATE supplier_products SET remote_stock = 0 WHERE supplier_code = ? AND external_product_id NOT IN ({placeholders})",
-                [SUPPLIER_CODE, *external_ids],
+                f"UPDATE supplier_products SET remote_stock = 0 "
+                f"WHERE supplier_code = ? AND external_product_id NOT IN ({placeholders})",
+                [supplier_code, *external_ids],
             )
         else:
-            await db.execute("UPDATE supplier_products SET remote_stock = 0 WHERE supplier_code = ?", (SUPPLIER_CODE,))
-        cursor = await db.execute("SELECT * FROM supplier_products WHERE supplier_code = ? AND enabled = 1", (SUPPLIER_CODE,))
+            await db.execute(
+                "UPDATE supplier_products SET remote_stock = 0 WHERE supplier_code = ?",
+                (supplier_code,),
+            )
+        config = await _supplier_config(db, supplier_code)
+        cursor = await db.execute(
+            "SELECT * FROM supplier_products WHERE supplier_code = ? AND enabled = 1",
+            (supplier_code,),
+        )
         selected = [dict(row) for row in await cursor.fetchall()]
         for row in selected:
-            await _upsert_local_product(db, row)
+            await _upsert_local_product(
+                db,
+                row,
+                global_margin=(config["margin_type"], config["margin_value"]),
+                supplier_enabled=config["enabled"],
+            )
+        key = f"{_settings_prefix(supplier_code)}_last_sync"
         await db.execute(
-            """INSERT INTO settings (key, value) VALUES ('supplier_canboso_last_sync', CURRENT_TIMESTAMP)
-               ON CONFLICT(key) DO UPDATE SET value = CURRENT_TIMESTAMP"""
+            """INSERT INTO settings (key, value) VALUES (?, CURRENT_TIMESTAMP)
+               ON CONFLICT(key) DO UPDATE SET value = CURRENT_TIMESTAMP""",
+            (key,),
         )
         await db.commit()
         clear_products_cache()
         _clear_stock_cache()
-        return {"synced": len(products), "selected": len(selected)}
+        return {
+            "supplier_code": supplier_code,
+            "synced": len(products),
+            "selected": len(selected),
+        }
     except Exception:
         try:
             await db.rollback()
@@ -166,69 +366,122 @@ async def sync_supplier_products(products: list[dict]) -> dict:
         await db.close()
 
 
-async def get_supplier_dashboard() -> dict:
+async def get_supplier_dashboard(
+    supplier_code: str = DEFAULT_SUPPLIER_CODE,
+) -> dict:
+    supplier_code = _provider(supplier_code)["code"]
     db = await get_db()
     try:
-        global_type, global_value = await _global_margin(db)
-        enabled = (await _setting(db, "supplier_canboso_enabled", "1")) != "0"
-        last_sync = await _setting(db, "supplier_canboso_last_sync", "")
+        config = await _supplier_config(db, supplier_code)
+        global_type = config["margin_type"]
+        global_value = config["margin_value"]
         cursor = await db.execute(
-            "SELECT * FROM supplier_products WHERE supplier_code = ? ORDER BY enabled DESC, name COLLATE NOCASE",
-            (SUPPLIER_CODE,),
+            "SELECT * FROM supplier_products WHERE supplier_code = ? "
+            "ORDER BY enabled DESC, name COLLATE NOCASE",
+            (supplier_code,),
         )
         products = []
         for raw_row in await cursor.fetchall():
             row = dict(raw_row)
-            margin_type, margin_value = await _effective_margin(db, row)
+            margin_type, margin_value = _effective_margin_from_global(
+                row, global_type, global_value
+            )
             row.update(
                 effective_margin_type=margin_type,
                 effective_margin_value=margin_value,
-                final_price=calculate_supplier_price(row["base_price"], margin_type, margin_value),
+                final_price=calculate_supplier_price(
+                    row["base_price"], margin_type, margin_value
+                ),
                 enabled=bool(row.get("enabled")),
             )
             row.pop("raw_payload", None)
             products.append(row)
         cursor = await db.execute(
-            "SELECT status, COUNT(*) AS count FROM supplier_orders WHERE supplier_code = ? GROUP BY status",
-            (SUPPLIER_CODE,),
+            "SELECT status, COUNT(*) AS count FROM supplier_orders "
+            "WHERE supplier_code = ? GROUP BY status",
+            (supplier_code,),
         )
         return {
-            "enabled": enabled,
+            "supplier_code": supplier_code,
+            "enabled": config["enabled"],
             "margin_type": global_type,
             "margin_value": global_value,
-            "last_sync": last_sync,
+            "units_per_usd": config["units_per_usd"],
+            "last_sync": config["last_sync"],
             "products": products,
-            "order_counts": {row["status"]: int(row["count"]) for row in await cursor.fetchall()},
+            "order_counts": {
+                row["status"]: int(row["count"])
+                for row in await cursor.fetchall()
+            },
         }
     finally:
         await db.close()
 
 
-async def update_supplier_settings(*, enabled: bool, margin_type: str, margin_value: float) -> None:
-    from database.models import clear_products_cache
+async def update_supplier_settings(
+    *,
+    enabled: bool,
+    margin_type: str,
+    margin_value: float,
+    supplier_code: str = DEFAULT_SUPPLIER_CODE,
+    units_per_usd: float | None = None,
+) -> None:
+    from database.models import _clear_stock_cache, clear_products_cache
 
+    provider = _provider(supplier_code)
+    supplier_code = provider["code"]
     if margin_type not in ("fixed", "percent"):
         raise ValueError("INVALID_MARGIN_TYPE")
     margin_value = max(0.0, min(float(margin_value), 100000.0))
+    if units_per_usd is not None:
+        units_per_usd = max(1.0, min(float(units_per_usd), 1000000000.0))
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
-        for key, value in (("supplier_canboso_enabled", "1" if enabled else "0"),
-                           ("supplier_canboso_margin_type", margin_type),
-                           ("supplier_canboso_margin_value", str(margin_value))):
+        prefix = _settings_prefix(supplier_code)
+        settings = [
+            (f"{prefix}_enabled", "1" if enabled else "0"),
+            (f"{prefix}_margin_type", margin_type),
+            (f"{prefix}_margin_value", str(margin_value)),
+        ]
+        if units_per_usd is not None:
+            settings.append((f"{prefix}_units_per_usd", str(units_per_usd)))
+        for key, value in settings:
             await db.execute(
-                "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                "INSERT INTO settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (key, value),
             )
-        cursor = await db.execute("SELECT * FROM supplier_products WHERE supplier_code = ? AND enabled = 1", (SUPPLIER_CODE,))
+        if units_per_usd is not None:
+            await db.execute(
+                """UPDATE supplier_products
+                   SET base_price = CASE
+                       WHEN source_currency = 'USD' THEN source_price
+                       ELSE source_price / ? END
+                   WHERE supplier_code = ?""",
+                (units_per_usd, supplier_code),
+            )
+        cursor = await db.execute(
+            "SELECT * FROM supplier_products WHERE supplier_code = ? AND enabled = 1",
+            (supplier_code,),
+        )
         for raw_row in await cursor.fetchall():
             row = dict(raw_row)
             if enabled:
-                await _upsert_local_product(db, row)
+                await _upsert_local_product(
+                    db,
+                    row,
+                    global_margin=(margin_type, margin_value),
+                    supplier_enabled=True,
+                )
             elif row.get("local_product_id"):
-                await db.execute("UPDATE products SET is_active = 0 WHERE id = ?", (int(row["local_product_id"]),))
+                await db.execute(
+                    "UPDATE products SET is_active = 0 WHERE id = ?",
+                    (int(row["local_product_id"]),),
+                )
         await db.commit()
         clear_products_cache()
+        _clear_stock_cache()
     except Exception:
         try:
             await db.rollback()
@@ -239,26 +492,54 @@ async def update_supplier_settings(*, enabled: bool, margin_type: str, margin_va
         await db.close()
 
 
-async def update_supplier_product(mapping_id: int, *, enabled: bool, margin_type: str, margin_value: float | None) -> dict:
-    from database.models import clear_products_cache, _clear_stock_cache
+async def update_supplier_product(
+    mapping_id: int,
+    *,
+    enabled: bool,
+    margin_type: str,
+    margin_value: float | None,
+    supplier_code: str = DEFAULT_SUPPLIER_CODE,
+) -> dict:
+    from database.models import _clear_stock_cache, clear_products_cache
 
+    supplier_code = _provider(supplier_code)["code"]
     if margin_type not in ("inherit", "fixed", "percent"):
         raise ValueError("INVALID_MARGIN_TYPE")
-    value = None if margin_type == "inherit" else max(0.0, min(float(margin_value or 0), 100000.0))
+    value = (
+        None
+        if margin_type == "inherit"
+        else max(0.0, min(float(margin_value or 0), 100000.0))
+    )
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
         await db.execute(
-            "UPDATE supplier_products SET enabled = ?, margin_type = ?, margin_value = ? WHERE id = ? AND supplier_code = ?",
-            (1 if enabled else 0, margin_type, value, int(mapping_id), SUPPLIER_CODE),
+            "UPDATE supplier_products SET enabled = ?, margin_type = ?, "
+            "margin_value = ? WHERE id = ? AND supplier_code = ?",
+            (
+                1 if enabled else 0,
+                margin_type,
+                value,
+                int(mapping_id),
+                supplier_code,
+            ),
         )
-        cursor = await db.execute("SELECT * FROM supplier_products WHERE id = ? AND supplier_code = ?", (int(mapping_id), SUPPLIER_CODE))
+        cursor = await db.execute(
+            "SELECT * FROM supplier_products WHERE id = ? AND supplier_code = ?",
+            (int(mapping_id), supplier_code),
+        )
         raw = await cursor.fetchone()
         if not raw:
             await db.rollback()
             raise ValueError("SUPPLIER_PRODUCT_NOT_FOUND")
         row = dict(raw)
-        row["local_product_id"] = await _upsert_local_product(db, row)
+        config = await _supplier_config(db, supplier_code)
+        row["local_product_id"] = await _upsert_local_product(
+            db,
+            row,
+            global_margin=(config["margin_type"], config["margin_value"]),
+            supplier_enabled=config["enabled"],
+        )
         await db.commit()
         clear_products_cache()
         _clear_stock_cache()
@@ -273,13 +554,17 @@ async def update_supplier_product(mapping_id: int, *, enabled: bool, margin_type
         await db.close()
 
 
-async def update_supplier_product_descriptions(mapping_id: int, descriptions: dict) -> dict:
+async def update_supplier_product_descriptions(
+    mapping_id: int,
+    descriptions: dict,
+    supplier_code: str = DEFAULT_SUPPLIER_CODE,
+) -> dict:
     """Save multilingual overrides and update the linked Telegram product."""
     from database.models import clear_products_cache
 
+    supplier_code = _provider(supplier_code)["code"]
     if not isinstance(descriptions, dict):
         raise ValueError("INVALID_DESCRIPTIONS")
-
     supplied = {
         language: _clean_description(descriptions[language])
         for language in SUPPLIER_DESCRIPTION_LANGUAGES
@@ -287,27 +572,32 @@ async def update_supplier_product_descriptions(mapping_id: int, descriptions: di
     }
     if not supplied:
         raise ValueError("NO_DESCRIPTIONS")
-
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
         set_parts = [f"description_{language} = ?" for language in supplied]
         await db.execute(
-            f"UPDATE supplier_products SET {', '.join(set_parts)} WHERE id = ? AND supplier_code = ?",
-            [*supplied.values(), int(mapping_id), SUPPLIER_CODE],
+            f"UPDATE supplier_products SET {', '.join(set_parts)} "
+            "WHERE id = ? AND supplier_code = ?",
+            [*supplied.values(), int(mapping_id), supplier_code],
         )
         cursor = await db.execute(
             "SELECT * FROM supplier_products WHERE id = ? AND supplier_code = ?",
-            (int(mapping_id), SUPPLIER_CODE),
+            (int(mapping_id), supplier_code),
         )
         raw = await cursor.fetchone()
         if not raw:
             await db.rollback()
             raise ValueError("SUPPLIER_PRODUCT_NOT_FOUND")
-
         row = dict(raw)
         if row.get("enabled") or row.get("local_product_id"):
-            row["local_product_id"] = await _upsert_local_product(db, row)
+            config = await _supplier_config(db, supplier_code)
+            row["local_product_id"] = await _upsert_local_product(
+                db,
+                row,
+                global_margin=(config["margin_type"], config["margin_value"]),
+                supplier_enabled=config["enabled"],
+            )
         await db.commit()
         clear_products_cache()
         return row
@@ -321,11 +611,14 @@ async def update_supplier_product_descriptions(mapping_id: int, descriptions: di
         await db.close()
 
 
-async def get_supplier_product_by_local_product(local_product_id: int) -> dict | None:
+async def get_supplier_product_by_local_product(
+    local_product_id: int,
+) -> dict | None:
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT * FROM supplier_products WHERE local_product_id = ? AND enabled = 1 LIMIT 1",
+            "SELECT * FROM supplier_products WHERE local_product_id = ? "
+            "AND enabled = 1 LIMIT 1",
             (int(local_product_id),),
         )
         row = await cursor.fetchone()
@@ -335,31 +628,41 @@ async def get_supplier_product_by_local_product(local_product_id: int) -> dict |
 
 
 async def supplier_stock_counts() -> dict[int, int]:
-    from services.supplier_api import SupplierAPIError, calculate_affordable_stock, get_canboso_balance
+    from services.supplier_api import SupplierAPIError, calculate_affordable_stock
+    from services.supplier_registry import get_supplier_balance
 
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT local_product_id, remote_stock, base_price FROM supplier_products WHERE enabled = 1 AND local_product_id IS NOT NULL"
+            "SELECT local_product_id, supplier_code, remote_stock, base_price "
+            "FROM supplier_products WHERE enabled = 1 "
+            "AND local_product_id IS NOT NULL"
         )
         rows = [dict(row) for row in await cursor.fetchall()]
+        rates = {
+            code: await _units_per_usd(db, code)
+            for code in {row["supplier_code"] for row in rows}
+        }
     finally:
         await db.close()
-    try:
-        wallet = await get_canboso_balance()
-        balance = float(wallet.get("balance") or 0)
-    except SupplierAPIError:
-        balance = 0.0
+    balances: dict[str, float] = {}
+    for code, rate in rates.items():
+        try:
+            wallet = await get_supplier_balance(code, units_per_usd=rate)
+            balances[code] = float(wallet.get("balance") or 0)
+        except (SupplierAPIError, ValueError):
+            balances[code] = 0.0
     return {
         int(row["local_product_id"]): calculate_affordable_stock(
-            row.get("remote_stock"), row.get("base_price"), balance
+            row.get("remote_stock"),
+            row.get("base_price"),
+            balances.get(row["supplier_code"], 0.0),
         )
         for row in rows
     }
 
 
 async def get_supplier_available_stock(local_product_id: int) -> int:
-    """Return remote stock capped by the supplier wallet purchasing power."""
     mapping = await get_supplier_product_by_local_product(local_product_id)
     if not mapping:
         return 0
@@ -367,24 +670,35 @@ async def get_supplier_available_stock(local_product_id: int) -> int:
 
 
 async def supplier_available_stock(mapping: dict) -> int:
-    """Apply the current supplier wallet cap to an already loaded mapping."""
-    from services.supplier_api import SupplierAPIError, calculate_affordable_stock, get_canboso_balance
+    from services.supplier_api import SupplierAPIError, calculate_affordable_stock
+    from services.supplier_registry import get_supplier_balance
 
+    supplier_code = str(mapping.get("supplier_code") or DEFAULT_SUPPLIER_CODE)
     try:
-        wallet = await get_canboso_balance()
+        units_per_usd = await get_supplier_units_per_usd(supplier_code)
+        wallet = await get_supplier_balance(
+            supplier_code, units_per_usd=units_per_usd
+        )
         balance = float(wallet.get("balance") or 0)
-    except SupplierAPIError:
+    except (SupplierAPIError, ValueError):
         return 0
     return calculate_affordable_stock(
         mapping.get("remote_stock"), mapping.get("base_price"), balance
     )
 
 
-async def claim_supplier_order(order_id: int, mapping: dict, quantity: int) -> dict:
+async def claim_supplier_order(
+    order_id: int, mapping: dict, quantity: int
+) -> dict:
+    supplier_code = _provider(
+        str(mapping.get("supplier_code") or DEFAULT_SUPPLIER_CODE)
+    )["code"]
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
-        cursor = await db.execute("SELECT * FROM supplier_orders WHERE order_id = ?", (int(order_id),))
+        cursor = await db.execute(
+            "SELECT * FROM supplier_orders WHERE order_id = ?", (int(order_id),)
+        )
         existing = await cursor.fetchone()
         if existing:
             row = dict(existing)
@@ -392,18 +706,33 @@ async def claim_supplier_order(order_id: int, mapping: dict, quantity: int) -> d
                 await db.commit()
                 return {**row, "claimed": False}
             await db.execute(
-                "UPDATE supplier_orders SET status = 'purchasing', attempts = attempts + 1, error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                "UPDATE supplier_orders SET status = 'purchasing', "
+                "attempts = attempts + 1, error = NULL, "
+                "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (int(row["id"]),),
             )
             await db.commit()
             return {**row, "status": "purchasing", "claimed": True}
         cursor = await db.execute(
-            """INSERT INTO supplier_orders (order_id, supplier_code, external_product_id, quantity, status, attempts)
+            """INSERT INTO supplier_orders
+               (order_id, supplier_code, external_product_id, quantity,
+                status, attempts)
                VALUES (?, ?, ?, ?, 'purchasing', 1)""",
-            (int(order_id), SUPPLIER_CODE, str(mapping["external_product_id"]), max(1, int(quantity))),
+            (
+                int(order_id),
+                supplier_code,
+                str(mapping["external_product_id"]),
+                max(1, int(quantity)),
+            ),
         )
         await db.commit()
-        return {"id": int(cursor.lastrowid), "order_id": int(order_id), "status": "purchasing", "claimed": True}
+        return {
+            "id": int(cursor.lastrowid),
+            "order_id": int(order_id),
+            "supplier_code": supplier_code,
+            "status": "purchasing",
+            "claimed": True,
+        }
     except Exception:
         try:
             await db.rollback()
@@ -414,18 +743,27 @@ async def claim_supplier_order(order_id: int, mapping: dict, quantity: int) -> d
         await db.close()
 
 
-async def finish_supplier_order(supplier_order_id: int, result: dict) -> list[dict]:
+async def finish_supplier_order(
+    supplier_order_id: int, result: dict
+) -> list[dict]:
     items = result.get("items") or []
     db = await get_db()
     try:
         await db.execute(
-            """UPDATE supplier_orders SET status = 'completed', external_order_id = ?, delivered_items = ?,
-                      raw_payload = ?, error = NULL, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-               WHERE id = ?""",
-            (result.get("external_order_id") or None,
-             json.dumps(items, ensure_ascii=False, separators=(",", ":")),
-             json.dumps(result.get("raw_payload") or {}, ensure_ascii=False, separators=(",", ":")),
-             int(supplier_order_id)),
+            """UPDATE supplier_orders SET status = 'completed',
+                      external_order_id = ?, delivered_items = ?, raw_payload = ?,
+                      error = NULL, completed_at = CURRENT_TIMESTAMP,
+                      updated_at = CURRENT_TIMESTAMP WHERE id = ?""",
+            (
+                result.get("external_order_id") or None,
+                json.dumps(items, ensure_ascii=False, separators=(",", ":")),
+                json.dumps(
+                    result.get("raw_payload") or {},
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+                int(supplier_order_id),
+            ),
         )
         await db.commit()
         return items
@@ -433,12 +771,19 @@ async def finish_supplier_order(supplier_order_id: int, result: dict) -> list[di
         await db.close()
 
 
-async def fail_supplier_order(supplier_order_id: int, error: str, *, unknown: bool) -> None:
+async def fail_supplier_order(
+    supplier_order_id: int, error: str, *, unknown: bool
+) -> None:
     db = await get_db()
     try:
         await db.execute(
-            "UPDATE supplier_orders SET status = ?, error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            ("unknown" if unknown else "failed", str(error)[:1000], int(supplier_order_id)),
+            "UPDATE supplier_orders SET status = ?, error = ?, "
+            "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (
+                "unknown" if unknown else "failed",
+                str(error)[:1000],
+                int(supplier_order_id),
+            ),
         )
         await db.commit()
     finally:

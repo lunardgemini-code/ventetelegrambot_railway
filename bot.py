@@ -1132,93 +1132,187 @@ async def api_admin_revoke_reseller_key(key_id: int):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.get("/api/supplier-bots/canboso", dependencies=[Depends(verify_api_key)])
-async def api_get_canboso_supplier():
+@api.get("/api/supplier-bots", dependencies=[Depends(verify_api_key)])
+async def api_list_supplier_bots():
     from database.suppliers import get_supplier_dashboard
-    from services.supplier_api import (
-        SupplierAPIError,
-        calculate_affordable_stock,
-        get_canboso_balance,
-        is_canboso_configured,
+    from services.supplier_registry import (
+        is_supplier_configured,
+        list_supplier_providers,
+    )
+
+    providers = []
+    for provider in list_supplier_providers():
+        data = await get_supplier_dashboard(provider["code"])
+        providers.append(
+            {
+                **provider,
+                "configured": is_supplier_configured(provider["code"]),
+                "enabled": bool(data["enabled"]),
+                "products_count": len(data.get("products", [])),
+                "selected_count": sum(
+                    1 for product in data.get("products", []) if product["enabled"]
+                ),
+                "last_sync": data.get("last_sync"),
+            }
+        )
+    return {"providers": providers}
+
+
+@api.get("/api/supplier-bots/{supplier_code}", dependencies=[Depends(verify_api_key)])
+async def api_get_supplier_bot(supplier_code: str):
+    from database.suppliers import get_supplier_dashboard
+    from services.supplier_api import SupplierAPIError, calculate_affordable_stock
+    from services.supplier_registry import (
+        get_supplier_balance,
+        get_supplier_provider,
+        is_supplier_configured,
     )
 
     try:
-        data = await get_supplier_dashboard()
-        configured = is_canboso_configured()
-        data["configured"] = configured
-        data["supplier"] = "Canboso"
-        data["base_url"] = "https://canboso.com"
-        data["wallet"] = None
-        data["wallet_error"] = None
+        provider = get_supplier_provider(supplier_code)
+        data = await get_supplier_dashboard(provider["code"])
+        configured = is_supplier_configured(provider["code"])
+        data.update(
+            configured=configured,
+            supplier=provider["name"],
+            base_url=provider["base_url"],
+            source_currency=provider["source_currency"],
+            credential_env=provider["credential_env"],
+            wallet=None,
+            wallet_error=None,
+        )
         if configured:
             try:
-                data["wallet"] = await get_canboso_balance()
+                data["wallet"] = await get_supplier_balance(
+                    provider["code"],
+                    units_per_usd=float(data["units_per_usd"]),
+                )
                 balance = float(data["wallet"].get("balance") or 0)
                 for product in data.get("products", []):
                     product["affordable_stock"] = calculate_affordable_stock(
-                        product.get("remote_stock"), product.get("base_price"), balance
+                        product.get("remote_stock"),
+                        product.get("base_price"),
+                        balance,
                     )
             except SupplierAPIError as exc:
                 data["wallet_error"] = str(exc)
-                for product in data.get("products", []):
-                    product["affordable_stock"] = 0
+        for product in data.get("products", []):
+            product.setdefault("affordable_stock", 0)
         return data
+    except ValueError as exc:
+        if str(exc) == "SUPPLIER_NOT_FOUND":
+            raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         logger.error("API supplier dashboard error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.post("/api/supplier-bots/canboso/sync", dependencies=[Depends(verify_api_key)])
-async def api_sync_canboso_supplier():
-    from database.suppliers import get_supplier_dashboard, sync_supplier_products
-    from services.supplier_api import SupplierAPIError, list_canboso_products
+@api.post(
+    "/api/supplier-bots/{supplier_code}/sync",
+    dependencies=[Depends(verify_api_key)],
+)
+async def api_sync_supplier_bot(supplier_code: str):
+    from database.suppliers import (
+        get_supplier_dashboard,
+        get_supplier_units_per_usd,
+        sync_supplier_products,
+    )
+    from services.supplier_registry import (
+        SupplierAPIError,
+        get_supplier_provider,
+        list_supplier_products,
+    )
 
     try:
-        products = await list_canboso_products()
-        result = await sync_supplier_products(products)
-        return {"status": "synced", **result, "dashboard": await get_supplier_dashboard()}
+        provider = get_supplier_provider(supplier_code)
+        rate = await get_supplier_units_per_usd(provider["code"])
+        products = await list_supplier_products(
+            provider["code"], units_per_usd=rate
+        )
+        result = await sync_supplier_products(products, provider["code"])
+        return {
+            "status": "synced",
+            **result,
+            "dashboard": await get_supplier_dashboard(provider["code"]),
+        }
+    except ValueError as exc:
+        code = 404 if str(exc) == "SUPPLIER_NOT_FOUND" else 400
+        raise HTTPException(status_code=code, detail=str(exc))
     except SupplierAPIError as exc:
-        logger.warning("Canboso catalog sync failed (HTTP %s): %s", exc.status_code or "n/a", exc)
+        logger.warning(
+            "%s catalog sync failed (HTTP %s): %s",
+            supplier_code,
+            exc.status_code or "n/a",
+            exc,
+        )
         raise HTTPException(status_code=502, detail=f"Supplier API: {exc}")
     except Exception as exc:
         logger.error("API supplier sync error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.put("/api/supplier-bots/canboso/settings", dependencies=[Depends(verify_api_key)])
-async def api_update_canboso_settings(data: dict):
+@api.put(
+    "/api/supplier-bots/{supplier_code}/settings",
+    dependencies=[Depends(verify_api_key)],
+)
+async def api_update_supplier_settings(supplier_code: str, data: dict):
     from database.suppliers import get_supplier_dashboard, update_supplier_settings
+    from services.supplier_registry import get_supplier_provider
 
     try:
-        margin_type = str(data.get("margin_type") or "fixed").lower()
-        margin_value = float(data.get("margin_value") or 0)
+        provider = get_supplier_provider(supplier_code)
         await update_supplier_settings(
             enabled=bool(data.get("enabled", True)),
-            margin_type=margin_type,
-            margin_value=margin_value,
+            margin_type=str(data.get("margin_type") or "fixed").lower(),
+            margin_value=float(data.get("margin_value") or 0),
+            supplier_code=provider["code"],
+            units_per_usd=(
+                float(data["units_per_usd"])
+                if data.get("units_per_usd") is not None
+                else None
+            ),
         )
-        return {"status": "updated", "dashboard": await get_supplier_dashboard()}
+        return {
+            "status": "updated",
+            "dashboard": await get_supplier_dashboard(provider["code"]),
+        }
     except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        code = 404 if str(exc) == "SUPPLIER_NOT_FOUND" else 400
+        raise HTTPException(status_code=code, detail=str(exc))
     except Exception as exc:
         logger.error("API supplier settings error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@api.put("/api/supplier-bots/canboso/products/{mapping_id}", dependencies=[Depends(verify_api_key)])
-async def api_update_canboso_product(mapping_id: int, data: dict):
+@api.put(
+    "/api/supplier-bots/{supplier_code}/products/{mapping_id}",
+    dependencies=[Depends(verify_api_key)],
+)
+async def api_update_supplier_product(
+    supplier_code: str, mapping_id: int, data: dict
+):
     from database.suppliers import get_supplier_dashboard, update_supplier_product
+    from services.supplier_registry import get_supplier_provider
 
     try:
+        provider = get_supplier_provider(supplier_code)
         await update_supplier_product(
             mapping_id,
             enabled=bool(data.get("enabled", False)),
             margin_type=str(data.get("margin_type") or "inherit").lower(),
             margin_value=data.get("margin_value"),
+            supplier_code=provider["code"],
         )
-        return {"status": "updated", "dashboard": await get_supplier_dashboard()}
+        return {
+            "status": "updated",
+            "dashboard": await get_supplier_dashboard(provider["code"]),
+        }
     except ValueError as exc:
-        code = 404 if str(exc) == "SUPPLIER_PRODUCT_NOT_FOUND" else 400
+        code = 404 if str(exc) in {
+            "SUPPLIER_NOT_FOUND",
+            "SUPPLIER_PRODUCT_NOT_FOUND",
+        } else 400
         raise HTTPException(status_code=code, detail=str(exc))
     except Exception as exc:
         logger.error("API supplier product error: %s", exc, exc_info=True)
@@ -1226,23 +1320,35 @@ async def api_update_canboso_product(mapping_id: int, data: dict):
 
 
 @api.put(
-    "/api/supplier-bots/canboso/products/{mapping_id}/descriptions",
+    "/api/supplier-bots/{supplier_code}/products/{mapping_id}/descriptions",
     dependencies=[Depends(verify_api_key)],
 )
-async def api_update_canboso_product_descriptions(mapping_id: int, data: dict):
+async def api_update_supplier_product_descriptions(
+    supplier_code: str, mapping_id: int, data: dict
+):
     from database.suppliers import (
         get_supplier_dashboard,
         update_supplier_product_descriptions,
     )
+    from services.supplier_registry import get_supplier_provider
 
     try:
+        provider = get_supplier_provider(supplier_code)
         descriptions = data.get("descriptions")
         if not isinstance(descriptions, dict):
             raise ValueError("INVALID_DESCRIPTIONS")
-        await update_supplier_product_descriptions(mapping_id, descriptions)
-        return {"status": "updated", "dashboard": await get_supplier_dashboard()}
+        await update_supplier_product_descriptions(
+            mapping_id, descriptions, provider["code"]
+        )
+        return {
+            "status": "updated",
+            "dashboard": await get_supplier_dashboard(provider["code"]),
+        }
     except ValueError as exc:
-        code = 404 if str(exc) == "SUPPLIER_PRODUCT_NOT_FOUND" else 400
+        code = 404 if str(exc) in {
+            "SUPPLIER_NOT_FOUND",
+            "SUPPLIER_PRODUCT_NOT_FOUND",
+        } else 400
         raise HTTPException(status_code=code, detail=str(exc))
     except Exception as exc:
         logger.error("API supplier descriptions error: %s", exc, exc_info=True)
@@ -4049,8 +4155,8 @@ async def post_shutdown(application: Application) -> None:
         logger.warning("Final performance metric flush failed: %s", exc)
     from services.nowpayments import close_nowpayments_client
     await close_nowpayments_client()
-    from services.supplier_api import close_supplier_client
-    await close_supplier_client()
+    from services.supplier_registry import close_supplier_clients
+    await close_supplier_clients()
     from services.sports_api import close_sports_client
     await close_sports_client()
 

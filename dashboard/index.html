@@ -13,8 +13,8 @@
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
-    <link rel="stylesheet" href="style.css?v=20260713-performance">
-    <link rel="stylesheet" href="revamp.css?v=20260713-performance">
+    <link rel="stylesheet" href="style.css?v=20260715-multisupplier">
+    <link rel="stylesheet" href="revamp.css?v=20260715-multisupplier">
 </head>
 <body>
     <!-- Login Screen -->
@@ -622,22 +622,24 @@
                     <div><p class="eyebrow">Catalogue externe</p><h2><i class="fa-solid fa-plug-circle-bolt" style="color:var(--primary-color)"></i> <span data-i18n="supplier_title">API Bot Gestion</span></h2></div>
                     <button id="btn-supplier-sync" class="btn-primary btn-sm" type="button"><i class="fa-solid fa-arrows-rotate"></i> <span data-i18n="supplier_sync">Synchroniser</span></button>
                 </div>
+                <div id="supplier-provider-switcher" class="supplier-provider-switcher" role="tablist" aria-label="Bots fournisseurs"></div>
                 <div class="supplier-status-strip glass-panel">
-                    <div><span>Connexion</span><strong id="supplier-connection">Non configurée</strong></div>
+                    <div><span>Bot fournisseur</span><strong id="supplier-connection">Non configuré</strong></div>
                     <div><span>Solde fournisseur</span><strong id="supplier-wallet-balance">—</strong></div>
                     <div><span>Dernière synchronisation</span><strong id="supplier-last-sync">Jamais</strong></div>
                     <div><span>Produits affichés</span><strong id="supplier-selected-count">0</strong></div>
                     <div><span>Livraisons à vérifier</span><strong id="supplier-review-count">0</strong></div>
                 </div>
                 <div class="glass-panel supplier-settings-panel">
-                    <div class="panel-header"><div><p class="eyebrow">Canboso</p><h3>Configuration du catalogue</h3></div></div>
+                    <div class="panel-header"><div><p class="eyebrow" id="supplier-provider-name">Fournisseur</p><h3>Configuration du catalogue</h3></div></div>
                     <form id="supplier-settings-form" class="supplier-settings-grid">
                         <label class="supplier-enable-control"><input id="supplier-enabled" type="checkbox" checked><span><strong>Connexion active</strong><small>Masque tous les produits distants lorsqu'elle est désactivée.</small></span></label>
                         <div class="form-group"><label for="supplier-margin-type">Marge globale</label><select id="supplier-margin-type"><option value="fixed">Montant fixe ($)</option><option value="percent">Pourcentage (%)</option></select></div>
                         <div class="form-group"><label for="supplier-margin-value">Valeur</label><input id="supplier-margin-value" type="number" min="0" step="0.01" value="1"></div>
+                        <div class="form-group hidden" id="supplier-rate-group"><label for="supplier-units-per-usd" id="supplier-rate-label">Unités pour 1 USD</label><input id="supplier-units-per-usd" type="number" min="1" step="1" value="25000"></div>
                         <div class="supplier-settings-action"><button class="btn-primary btn-sm" type="submit"><i class="fa-solid fa-floppy-disk"></i> Enregistrer</button></div>
                     </form>
-                    <p class="supplier-security-note"><i class="fa-solid fa-shield-halved"></i> La clé acheteur est lue depuis <code>CANBOSO_API_KEY</code> sur Railway et n'est jamais envoyée au navigateur.</p>
+                    <p class="supplier-security-note"><i class="fa-solid fa-shield-halved"></i> La clé est lue depuis <code id="supplier-credential-env">SUPPLIER_API_KEY</code> sur Railway et n'est jamais envoyée au navigateur.</p>
                 </div>
                 <div class="supplier-table-toolbar"><div><h3>Catalogue fournisseur</h3><p>Le stock achetable est automatiquement limité par votre solde fournisseur. Un produit à 0 n'apparaît pas sur le bot.</p></div><input id="supplier-product-search" type="search" placeholder="Rechercher un produit..." aria-label="Rechercher un produit"></div>
                 <div class="glass-panel overflow-hidden">
@@ -1342,7 +1344,7 @@
 </div>
 
 
-<script defer src="app.js?v=20260713-performance"></script>
+<script defer src="app.js?v=20260715-multisupplier"></script>
     <script>
     /* ── Mobile Sidebar Toggle ── */
     (function() {

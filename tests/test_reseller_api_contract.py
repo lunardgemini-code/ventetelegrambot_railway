@@ -1,11 +1,16 @@
 import os
 import unittest
+import json
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
+
+from starlette.requests import Request
 
 
 if not os.environ.get("BOT_TOKEN"):
     os.environ["BOT_TOKEN"] = "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk"
 
+import bot
 from bot import _reseller_openapi_schema
 
 
@@ -25,9 +30,10 @@ class ResellerApiContractTests(unittest.TestCase):
             for method, operation in path_item.items():
                 with self.subTest(path=path, method=method):
                     self.assertTrue(expected_responses.issubset(operation["responses"]))
-                    self.assertEqual(
-                        set(operation["responses"]["200"]["headers"]),
-                        expected_rate_headers,
+                    self.assertTrue(
+                        expected_rate_headers.issubset(
+                            operation["responses"]["200"]["headers"]
+                        )
                     )
                     self.assertIn("Retry-After", operation["responses"]["429"]["headers"])
                     self.assertIn("Retry-After", operation["responses"]["503"]["headers"])
@@ -42,6 +48,8 @@ class ResellerApiContractTests(unittest.TestCase):
         quote = self.schema["components"]["schemas"]["QuoteResponse"]["properties"]["quote"]
         self.assertIn("stock", quote["properties"])
         self.assertTrue(quote["properties"]["stock"]["nullable"])
+        self.assertIn("304", product_operation["responses"])
+        self.assertIn("ETag", product_operation["responses"]["200"]["headers"])
 
     def test_order_and_wallet_edge_cases_are_documented(self):
         order_response = self.schema["paths"]["/api/reseller/orders"]["post"]["responses"]["200"]
@@ -68,6 +76,74 @@ class ResellerApiContractTests(unittest.TestCase):
         self.assertIn("`vi`, and `ru`", guide)
         self.assertIn("`503`", guide)
         self.assertIn("reuse it for every retry", guide)
+        self.assertIn("If-None-Match", guide)
+
+
+class ResellerCatalogCacheTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        bot._reseller_catalog_cache.clear()
+        bot._reseller_catalog_lock = None
+        bot._reseller_catalog_lock_loop = None
+
+    def request(self, **headers):
+        raw_headers = [
+            (name.lower().replace("_", "-").encode(), value.encode())
+            for name, value in headers.items()
+        ]
+        return Request({
+            "type": "http",
+            "method": "GET",
+            "path": "/api/reseller/products",
+            "query_string": b"",
+            "headers": raw_headers,
+        })
+
+    async def test_catalog_cache_uses_etag_without_rebuilding(self):
+        payload = {"success": True, "products": [{"id": 1}]}
+        builder = AsyncMock(return_value=payload)
+        reseller = {
+            "user_telegram_id": 42,
+            "_rate_headers": {"X-RateLimit-Remaining": "58"},
+        }
+        with (
+            patch("bot._build_reseller_catalog", builder),
+            patch("database.models.get_catalog_cache_generation", return_value=7),
+        ):
+            first = await bot.api_reseller_products(
+                self.request(), lang="en", reseller=reseller
+            )
+            etag = first.headers["etag"]
+            second = await bot.api_reseller_products(
+                self.request(if_none_match=etag), lang="en", reseller=reseller
+            )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(json.loads(first.body), payload)
+        self.assertEqual(first.headers["x-ratelimit-remaining"], "58")
+        self.assertEqual(second.status_code, 304)
+        self.assertEqual(second.headers["x-ratelimit-remaining"], "58")
+        builder.assert_awaited_once_with("en")
+
+    async def test_catalog_uses_stale_snapshot_when_refresh_fails(self):
+        bot._reseller_catalog_cache["en"] = {
+            "payload": {"success": True, "products": [{"id": 9}]},
+            "etag": '"old"',
+            "generation": 1,
+            "created_at": 0.0,
+        }
+        with (
+            patch("bot.RESELLER_CATALOG_CACHE_SECONDS", 1),
+            patch("bot.time.monotonic", return_value=100.0),
+            patch("database.models.get_catalog_cache_generation", return_value=1),
+            patch("bot._build_reseller_catalog", AsyncMock(side_effect=RuntimeError("offline"))),
+        ):
+            response = await bot.api_reseller_products(
+                self.request(), lang="en", reseller={"user_telegram_id": 42}
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["x-catalog-stale"], "true")
+        self.assertEqual(json.loads(response.body)["products"][0]["id"], 9)
 
 
 if __name__ == "__main__":

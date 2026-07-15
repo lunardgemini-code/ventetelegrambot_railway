@@ -938,6 +938,8 @@ async def init_db() -> None:
                 description_vi TEXT DEFAULT '',
                 description_ru TEXT DEFAULT '',
                 base_price REAL NOT NULL DEFAULT 0,
+                source_price REAL NOT NULL DEFAULT 0,
+                source_currency TEXT NOT NULL DEFAULT 'USD',
                 remote_stock INTEGER NOT NULL DEFAULT 0,
                 warranty_days INTEGER NOT NULL DEFAULT 0,
                 image_url TEXT DEFAULT '',
@@ -1129,7 +1131,7 @@ async def init_db() -> None:
             "ALTER TABLE nowpayments_payments ADD COLUMN cancelled_at TIMESTAMP DEFAULT NULL",
             "ALTER TABLE nowpayments_wallet_topups ADD COLUMN cancelled_at TIMESTAMP DEFAULT NULL",
             "CREATE INDEX IF NOT EXISTS idx_orders_product_date_status ON orders(product_id, created_at, status)",
-            "CREATE TABLE IF NOT EXISTS supplier_products (id INTEGER PRIMARY KEY AUTOINCREMENT, supplier_code TEXT NOT NULL DEFAULT 'canboso', external_product_id TEXT NOT NULL, local_product_id INTEGER UNIQUE, name TEXT NOT NULL, description TEXT DEFAULT '', description_en TEXT DEFAULT '', description_fr TEXT DEFAULT '', description_ar TEXT DEFAULT '', description_zh TEXT DEFAULT '', description_vi TEXT DEFAULT '', description_ru TEXT DEFAULT '', base_price REAL NOT NULL DEFAULT 0, remote_stock INTEGER NOT NULL DEFAULT 0, warranty_days INTEGER NOT NULL DEFAULT 0, image_url TEXT DEFAULT '', emoji TEXT DEFAULT '📦', enabled INTEGER NOT NULL DEFAULT 0, margin_type TEXT NOT NULL DEFAULT 'inherit', margin_value REAL, raw_payload TEXT DEFAULT '{}', last_synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(supplier_code, external_product_id))",
+            "CREATE TABLE IF NOT EXISTS supplier_products (id INTEGER PRIMARY KEY AUTOINCREMENT, supplier_code TEXT NOT NULL DEFAULT 'canboso', external_product_id TEXT NOT NULL, local_product_id INTEGER UNIQUE, name TEXT NOT NULL, description TEXT DEFAULT '', description_en TEXT DEFAULT '', description_fr TEXT DEFAULT '', description_ar TEXT DEFAULT '', description_zh TEXT DEFAULT '', description_vi TEXT DEFAULT '', description_ru TEXT DEFAULT '', base_price REAL NOT NULL DEFAULT 0, source_price REAL NOT NULL DEFAULT 0, source_currency TEXT NOT NULL DEFAULT 'USD', remote_stock INTEGER NOT NULL DEFAULT 0, warranty_days INTEGER NOT NULL DEFAULT 0, image_url TEXT DEFAULT '', emoji TEXT DEFAULT '📦', enabled INTEGER NOT NULL DEFAULT 0, margin_type TEXT NOT NULL DEFAULT 'inherit', margin_value REAL, raw_payload TEXT DEFAULT '{}', last_synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(supplier_code, external_product_id))",
             "CREATE TABLE IF NOT EXISTS supplier_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL UNIQUE, supplier_code TEXT NOT NULL DEFAULT 'canboso', external_product_id TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'pending', external_order_id TEXT, delivered_items TEXT DEFAULT '[]', raw_payload TEXT DEFAULT '{}', error TEXT, attempts INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, completed_at TIMESTAMP)",
             "CREATE INDEX IF NOT EXISTS idx_supplier_products_local ON supplier_products(local_product_id)",
             "CREATE INDEX IF NOT EXISTS idx_supplier_products_enabled ON supplier_products(supplier_code, enabled)",
@@ -1354,6 +1356,32 @@ async def init_db() -> None:
             )
             await db.commit()
             current_version = 4
+
+        if 4 <= current_version < 5:
+            columns = await _columns_for("supplier_products")
+            if "source_price" not in columns:
+                await db.execute(
+                    "ALTER TABLE supplier_products ADD COLUMN source_price REAL NOT NULL DEFAULT 0"
+                )
+                columns.add("source_price")
+            if "source_currency" not in columns:
+                await db.execute(
+                    "ALTER TABLE supplier_products ADD COLUMN source_currency TEXT NOT NULL DEFAULT 'USD'"
+                )
+                columns.add("source_currency")
+            if "base_price" in columns:
+                await db.execute(
+                    """UPDATE supplier_products
+                       SET source_price = base_price,
+                           source_currency = 'USD'
+                       WHERE source_price = 0 AND base_price <> 0"""
+                )
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (5, ?)",
+                ("multi_supplier_source_currency",),
+            )
+            await db.commit()
+            current_version = 5
 
     finally:
         await db.close()

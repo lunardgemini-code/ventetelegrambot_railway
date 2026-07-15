@@ -51,6 +51,20 @@ CANBOSO_API_AUTH_HEADER: str = os.getenv(
     "CANBOSO_API_AUTH_HEADER", "X-API-Key"
 ).strip() or "X-API-Key"
 
+# MMO NanLux dealer API. Prices and wallet values are returned in VND; the
+# conversion rate is editable from the supplier dashboard.
+NANLUX_API_KEY: str = os.getenv("NANLUX_API_KEY", "").strip()
+NANLUX_API_BASE_URL: str = os.getenv(
+    "NANLUX_API_BASE_URL", "https://api.mmonanlux.site"
+).strip().rstrip("/")
+NANLUX_API_AUTH_HEADER: str = os.getenv(
+    "NANLUX_API_AUTH_HEADER", "X-API-KEY"
+).strip() or "X-API-KEY"
+NANLUX_VND_PER_USD: float = max(
+    1.0,
+    float(os.getenv("NANLUX_VND_PER_USD", "25000")),
+)
+
 # Optional sports catalog used by the virtual prediction game. The provider
 # key stays server-side; the dashboard only talks to VenteBot's admin API.
 FOOTBALL_DATA_API_KEY: str = os.getenv("FOOTBALL_DATA_API_KEY", "").strip()

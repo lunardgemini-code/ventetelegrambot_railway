@@ -1,0 +1,57 @@
+# .gitignore — Fichiers à exclure du dépôt Git
+
+# Environnement
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+env/
+venv/
+.venv/
+
+# Outils locaux d'agents IA
+.agent/
+.agents/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Android / Gradle
+.gradle/
+**/build/
+local.properties
+*.apk
+*.aab
+
+# Logs et fichiers temporaires
+*.log
+*.tmp
+*.bak
+*.orig
+
+# Archives locales
+*.zip
+
+# OS
+.DS_Store
+Thumbs.db
