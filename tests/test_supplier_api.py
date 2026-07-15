@@ -574,6 +574,45 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
         nanlux_purchase.assert_awaited_once()
         canboso_purchase.assert_not_awaited()
 
+    def test_supplier_order_messages_are_neutral_in_every_language(self):
+        from utils.locales import t
+
+        expected = {
+            "en": (
+                "⏳ <b>Your order is being processed...</b>",
+                "⏳ <b>Your order #42 is being processed.</b>",
+            ),
+            "fr": (
+                "⏳ <b>Votre commande est en cours...</b>",
+                "⏳ <b>Votre commande #42 est en cours.</b>",
+            ),
+            "ar": (
+                "⏳ <b>طلبك قيد المعالجة...</b>",
+                "⏳ <b>طلبك رقم #42 قيد المعالجة.</b>",
+            ),
+            "zh": (
+                "⏳ <b>您的订单正在处理中...</b>",
+                "⏳ <b>您的订单 #42 正在处理中。</b>",
+            ),
+            "vi": (
+                "⏳ <b>Đơn hàng của bạn đang được xử lý...</b>",
+                "⏳ <b>Đơn hàng #42 của bạn đang được xử lý.</b>",
+            ),
+            "ru": (
+                "⏳ <b>Ваш заказ обрабатывается...</b>",
+                "⏳ <b>Ваш заказ #42 обрабатывается.</b>",
+            ),
+        }
+        for lang, (processing, pending) in expected.items():
+            self.assertEqual(t("supplier_delivery_processing", lang), processing)
+            self.assertEqual(
+                t("supplier_paid_pending", lang).format(order_id=42), pending
+            )
+
+            client_text = f"{processing} {pending}".lower()
+            for provider_name in ("supplier", "fournisseur", "canboso", "nanlux"):
+                self.assertNotIn(provider_name, client_text)
+
 
 if __name__ == "__main__":
     unittest.main()
