@@ -8,6 +8,8 @@ from database.db import get_db
 
 
 SUPPLIER_CODE = "canboso"
+SUPPLIER_DESCRIPTION_LANGUAGES = ("en", "fr", "ar", "zh", "vi", "ru")
+MAX_SUPPLIER_DESCRIPTION_LENGTH = 3000
 
 
 def calculate_supplier_price(base_price: float, margin_type: str, margin_value: float) -> float:
@@ -52,30 +54,57 @@ async def _effective_margin(db, row: dict) -> tuple[str, float]:
     return global_type, global_value
 
 
+def _clean_description(value) -> str:
+    return str(value or "").strip()[:MAX_SUPPLIER_DESCRIPTION_LENGTH]
+
+
+def _product_descriptions(row: dict) -> dict[str, str]:
+    custom_english = _clean_description(row.get("description_en"))
+    return {
+        "en": custom_english or _clean_description(row.get("description")),
+        "fr": _clean_description(row.get("description_fr")),
+        "ar": _clean_description(row.get("description_ar")),
+        "zh": _clean_description(row.get("description_zh")),
+        "vi": _clean_description(row.get("description_vi")),
+        "ru": _clean_description(row.get("description_ru")),
+    }
+
+
 async def _upsert_local_product(db, row: dict) -> int:
     margin_type, margin_value = await _effective_margin(db, row)
     final_price = calculate_supplier_price(row["base_price"], margin_type, margin_value)
+    descriptions = _product_descriptions(row)
     supplier_enabled = (await _setting(db, "supplier_canboso_enabled", "1")) != "0"
     is_active = 1 if row.get("enabled") and supplier_enabled else 0
     local_id = row.get("local_product_id")
     if local_id:
         await db.execute(
-            """UPDATE products SET name = ?, description = ?, price_usd = ?, warranty_days = ?,
+            """UPDATE products SET name = ?, description = ?, description_fr = ?, description_ar = ?,
+                      description_zh = ?, description_vi = ?, description_ru = ?,
+                      price_usd = ?, warranty_days = ?,
                       emoji = ?, image_url = ?, delivery_type = 'supplier_api', is_active = ?, is_deleted = 0
                WHERE id = ?""",
-            (row["name"], row.get("description") or "", final_price, int(row.get("warranty_days") or 0),
-             row.get("emoji") or "📦", row.get("image_url") or None, is_active, int(local_id)),
+            (
+                row["name"], descriptions["en"], descriptions["fr"], descriptions["ar"],
+                descriptions["zh"], descriptions["vi"], descriptions["ru"], final_price,
+                int(row.get("warranty_days") or 0), row.get("emoji") or "📦",
+                row.get("image_url") or None, is_active, int(local_id),
+            ),
         )
         return int(local_id)
     category_id = await _category_id(db)
     cursor = await db.execute(
         """INSERT INTO products
-           (category_id, name, description, price_usd, warranty_days, emoji, image_url,
+           (category_id, name, description, description_fr, description_ar, description_zh,
+            description_vi, description_ru, price_usd, warranty_days, emoji, image_url,
             delivery_type, is_active, is_deleted)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'supplier_api', ?, 0)""",
-        (category_id, row["name"], row.get("description") or "", final_price,
-         int(row.get("warranty_days") or 0), row.get("emoji") or "📦",
-         row.get("image_url") or None, is_active),
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'supplier_api', ?, 0)""",
+        (
+            category_id, row["name"], descriptions["en"], descriptions["fr"], descriptions["ar"],
+            descriptions["zh"], descriptions["vi"], descriptions["ru"], final_price,
+            int(row.get("warranty_days") or 0), row.get("emoji") or "📦",
+            row.get("image_url") or None, is_active,
+        ),
     )
     local_id = int(cursor.lastrowid)
     await db.execute("UPDATE supplier_products SET local_product_id = ? WHERE id = ?", (local_id, int(row["id"])))
@@ -233,6 +262,54 @@ async def update_supplier_product(mapping_id: int, *, enabled: bool, margin_type
         await db.commit()
         clear_products_cache()
         _clear_stock_cache()
+        return row
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def update_supplier_product_descriptions(mapping_id: int, descriptions: dict) -> dict:
+    """Save multilingual overrides and update the linked Telegram product."""
+    from database.models import clear_products_cache
+
+    if not isinstance(descriptions, dict):
+        raise ValueError("INVALID_DESCRIPTIONS")
+
+    supplied = {
+        language: _clean_description(descriptions[language])
+        for language in SUPPLIER_DESCRIPTION_LANGUAGES
+        if language in descriptions
+    }
+    if not supplied:
+        raise ValueError("NO_DESCRIPTIONS")
+
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        set_parts = [f"description_{language} = ?" for language in supplied]
+        await db.execute(
+            f"UPDATE supplier_products SET {', '.join(set_parts)} WHERE id = ? AND supplier_code = ?",
+            [*supplied.values(), int(mapping_id), SUPPLIER_CODE],
+        )
+        cursor = await db.execute(
+            "SELECT * FROM supplier_products WHERE id = ? AND supplier_code = ?",
+            (int(mapping_id), SUPPLIER_CODE),
+        )
+        raw = await cursor.fetchone()
+        if not raw:
+            await db.rollback()
+            raise ValueError("SUPPLIER_PRODUCT_NOT_FOUND")
+
+        row = dict(raw)
+        if row.get("enabled") or row.get("local_product_id"):
+            row["local_product_id"] = await _upsert_local_product(db, row)
+        await db.commit()
+        clear_products_cache()
         return row
     except Exception:
         try:

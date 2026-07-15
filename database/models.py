@@ -3903,10 +3903,13 @@ async def _finalize_nowpayments_wallet_topup_once(
         error = None
         if expected_currency != "usdtbsc":
             error = f"Unexpected pay currency: {expected_currency or 'missing'}"
-        elif abs(stored_price - expected_checkout_price) > 0.01:
+        elif min(
+            abs(stored_price - wallet_amount),
+            abs(stored_price - expected_checkout_price),
+        ) > 0.01:
             error = (
-                f"Wallet amount mismatch: expected {expected_checkout_price:.2f}, "
-                f"stored {stored_price:.2f}"
+                f"Wallet amount mismatch: expected {wallet_amount:.2f} "
+                f"(legacy {expected_checkout_price:.2f}), stored {stored_price:.2f}"
             )
         elif wallet_amount <= 0:
             error = "Invalid wallet credit amount"

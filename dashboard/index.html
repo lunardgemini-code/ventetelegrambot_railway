@@ -855,6 +855,36 @@
         </div>
     </div>
 
+    <!-- Modal: Supplier multilingual descriptions -->
+    <div id="supplier-description-modal" class="modal-overlay hidden">
+        <div class="modal-card modal-card-lg glass-panel supplier-description-modal-card">
+            <div class="modal-header">
+                <div><p class="eyebrow">API Bot Management</p><h3 id="supplier-description-title">Descriptions du produit</h3></div>
+                <button class="btn-close-modal" type="button" title="Fermer"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form id="supplier-description-form">
+                <input id="supplier-description-product-id" type="hidden">
+                <div class="supplier-description-source-block">
+                    <label>Description reçue du fournisseur</label>
+                    <div id="supplier-description-source" class="supplier-description-source">Aucune description fournisseur.</div>
+                </div>
+                <p class="supplier-description-help"><i class="fa-solid fa-circle-info"></i> Laissez l'anglais vide pour utiliser automatiquement la description fournisseur. Les autres langues utilisent l'anglais lorsqu'elles sont vides.</p>
+                <div class="supplier-description-grid">
+                    <div class="form-group"><label for="supplier-description-en">Anglais (défaut)</label><textarea id="supplier-description-en" rows="4" maxlength="3000" placeholder="Description personnalisée en anglais..."></textarea></div>
+                    <div class="form-group"><label for="supplier-description-fr">Français</label><textarea id="supplier-description-fr" rows="4" maxlength="3000" placeholder="Description en français..."></textarea></div>
+                    <div class="form-group"><label for="supplier-description-ar">Arabe</label><textarea id="supplier-description-ar" rows="4" maxlength="3000" dir="rtl" placeholder="الوصف باللغة العربية..."></textarea></div>
+                    <div class="form-group"><label for="supplier-description-zh">Chinois</label><textarea id="supplier-description-zh" rows="4" maxlength="3000" placeholder="中文描述..."></textarea></div>
+                    <div class="form-group"><label for="supplier-description-vi">Vietnamien</label><textarea id="supplier-description-vi" rows="4" maxlength="3000" placeholder="Mô tả bằng tiếng Việt..."></textarea></div>
+                    <div class="form-group"><label for="supplier-description-ru">Russe</label><textarea id="supplier-description-ru" rows="4" maxlength="3000" placeholder="Описание на русском языке..."></textarea></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary btn-close-modal">Annuler</button>
+                    <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> Enregistrer les descriptions</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Modal: Add Product -->
     <div id="prod-modal" class="modal-overlay hidden">
         <div class="modal-card glass-panel animate-slide">

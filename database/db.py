@@ -25,6 +25,13 @@ def _env_float(name: str, default: float, minimum: float) -> float:
         return default
 
 
+def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        return min(maximum, max(minimum, int(os.environ.get(name, str(default)))))
+    except (TypeError, ValueError):
+        return default
+
+
 def _record_db_operation(operation: str, started_at: float, success: bool) -> None:
     _DB_OPERATION_SAMPLES.append(
         (time.monotonic(), operation, max(0.0, time.monotonic() - started_at), success)
@@ -275,6 +282,8 @@ class _AsyncDB:
 _libsql_pool = []
 _pool_lock = None
 _pool_lock_loop = None
+_turso_connect_semaphore = None
+_turso_connect_semaphore_loop = None
 _turso_writer_lock = None
 _turso_writer_lock_loop = None
 _sqlite_wal_configured = False
@@ -284,6 +293,9 @@ _TURSO_POOL_MAX_IDLE_SECONDS = _env_float(
 _TURSO_POOL_MAX_LIFETIME_SECONDS = _env_float(
     "TURSO_POOL_MAX_LIFETIME_SECONDS", 30.0, 5.0
 )
+_TURSO_CONNECT_CONCURRENCY = _env_int(
+    "TURSO_CONNECT_CONCURRENCY", 4, 1, 10
+)
 
 def get_pool_lock():
     global _pool_lock, _pool_lock_loop
@@ -292,6 +304,15 @@ def get_pool_lock():
         _pool_lock = asyncio.Lock()
         _pool_lock_loop = loop
     return _pool_lock
+
+
+def get_turso_connect_semaphore():
+    global _turso_connect_semaphore, _turso_connect_semaphore_loop
+    loop = asyncio.get_running_loop()
+    if _turso_connect_semaphore is None or _turso_connect_semaphore_loop is not loop:
+        _turso_connect_semaphore = asyncio.Semaphore(_TURSO_CONNECT_CONCURRENCY)
+        _turso_connect_semaphore_loop = loop
+    return _turso_connect_semaphore
 
 
 def get_turso_writer_lock():
@@ -477,17 +498,20 @@ class _PooledAsyncDB(_AsyncDB):
                 pass
             return
 
+        close_overflow = False
         async with get_pool_lock():
             if len(_libsql_pool) < 10:
                 _libsql_pool.append((self._conn, time.monotonic(), self.created_at))
             else:
-                try:
-                    await _run_turso_call(
-                        self._conn.close,
-                        timeout=_TURSO_CLOSE_TIMEOUT_SECONDS,
-                    )
-                except Exception:
-                    pass
+                close_overflow = True
+        if close_overflow:
+            try:
+                await _run_turso_call(
+                    self._conn.close,
+                    timeout=_TURSO_CLOSE_TIMEOUT_SECONDS,
+                )
+            except Exception:
+                pass
 
 # ══════════════════════════════════════════════
 #  get_db() — returns async-compatible connection
@@ -498,72 +522,100 @@ def is_transient_db_connection_error(exc: Exception) -> bool:
     return _PooledAsyncDB._is_connection_error(exc)
 
 
+async def _take_pooled_turso_connection():
+    """Pop one live pooled connection without awaiting I/O under the pool lock."""
+    expired_connections = []
+    selected_connection = None
+    selected_created_at = None
+    now = time.monotonic()
+    async with get_pool_lock():
+        while _libsql_pool:
+            pooled_entry = _libsql_pool.pop()
+            if isinstance(pooled_entry, tuple):
+                if len(pooled_entry) == 3:
+                    candidate, returned_at, created_at = pooled_entry
+                else:
+                    candidate, returned_at = pooled_entry
+                    created_at = returned_at
+                if (
+                    now - returned_at <= _TURSO_POOL_MAX_IDLE_SECONDS
+                    and now - created_at <= _TURSO_POOL_MAX_LIFETIME_SECONDS
+                ):
+                    selected_connection = candidate
+                    selected_created_at = created_at
+                    break
+                expired_connections.append(candidate)
+            else:
+                # Compatibility with connections pooled before a hot reload.
+                selected_connection = pooled_entry
+                selected_created_at = now
+                break
+
+    for expired in expired_connections:
+        try:
+            await _run_turso_call(
+                expired.close,
+                timeout=_TURSO_CLOSE_TIMEOUT_SECONDS,
+            )
+        except Exception:
+            pass
+    return selected_connection, selected_created_at
+
+
+async def _validated_pooled_turso_wrapper():
+    conn, created_at = await _take_pooled_turso_connection()
+    if conn is None:
+        return None
+    _DB_CONNECTION_STATS["pooled"] += 1
+    _record_connection_event("pooled")
+    candidate = _PooledAsyncDB(conn, created_at=created_at)
+    try:
+        # Hrana streams expire server-side while a pooled connection is idle.
+        await asyncio.wait_for(candidate.execute("SELECT 1"), timeout=3)
+        return candidate
+    except Exception as exc:
+        candidate.has_error = True
+        await candidate.close()
+        _DB_CONNECTION_STATS["discarded"] += 1
+        _record_connection_event("discarded")
+        logger.info("Discarded stale Turso connection before reuse: %s", exc)
+        return None
+
+
 async def get_db(*, fresh: bool = False):
     """Open a database connection, optionally bypassing the Turso pool."""
     if TURSO_URL:
         import libsql
-        conn_to_wrap = None
-        created_at = None
-        async with get_pool_lock():
-            if not fresh and _libsql_pool:
-                pooled_entry = _libsql_pool.pop()
-                if isinstance(pooled_entry, tuple):
-                    if len(pooled_entry) == 3:
-                        candidate_conn, returned_at, created_at = pooled_entry
-                    else:
-                        candidate_conn, returned_at = pooled_entry
-                        created_at = returned_at
-                    now = time.monotonic()
-                    if (
-                        now - returned_at <= _TURSO_POOL_MAX_IDLE_SECONDS
-                        and now - created_at <= _TURSO_POOL_MAX_LIFETIME_SECONDS
-                    ):
-                        conn_to_wrap = candidate_conn
-                    else:
-                        try:
-                            await _run_turso_call(
-                                candidate_conn.close,
-                                timeout=_TURSO_CLOSE_TIMEOUT_SECONDS,
-                            )
-                        except Exception:
-                            pass
-                else:
-                    # Compatibility with connections pooled before a hot reload.
-                    conn_to_wrap = pooled_entry
-                
-        wrapper = None
-        if conn_to_wrap:
-            _DB_CONNECTION_STATS["pooled"] += 1
-            _record_connection_event("pooled")
-            candidate = _PooledAsyncDB(conn_to_wrap, created_at=created_at)
-            try:
-                # Hrana streams expire server-side while a pooled connection is idle.
-                # Validate before handing the connection to a request.
-                await asyncio.wait_for(candidate.execute("SELECT 1"), timeout=3)
-                wrapper = candidate
-            except Exception as exc:
-                candidate.has_error = True
-                await candidate.close()
-                _DB_CONNECTION_STATS["discarded"] += 1
-                _record_connection_event("discarded")
-                logger.info("Discarded stale Turso connection before reuse: %s", exc)
+        wrapper = None if fresh else await _validated_pooled_turso_wrapper()
 
         if wrapper is None:
-            connect_started_at = time.monotonic()
-            conn = await asyncio.wait_for(
-                asyncio.to_thread(libsql.connect, TURSO_URL, auth_token=TURSO_TOKEN),
-                timeout=5,
-            )
-            _record_db_operation("connect", connect_started_at, True)
-            _DB_CONNECTION_STATS["fresh"] += 1
-            _record_connection_event("fresh")
-            wrapper = _PooledAsyncDB(conn, return_to_pool=not fresh)
-            try:
-                await asyncio.wait_for(wrapper.execute("PRAGMA foreign_keys = ON"), timeout=3)
-            except Exception as exc:
-                # The request can still run, but this connection must not be pooled.
-                # The precise operation is exposed in /api/performance for diagnosis.
-                logger.warning("Turso connection initialization failed: %s", exc)
+            async with get_turso_connect_semaphore():
+                # Another request may have returned a healthy connection while
+                # this one waited for a connect slot.
+                if not fresh:
+                    wrapper = await _validated_pooled_turso_wrapper()
+                if wrapper is None:
+                    connect_started_at = time.monotonic()
+                    try:
+                        conn = await asyncio.wait_for(
+                            asyncio.to_thread(libsql.connect, TURSO_URL, auth_token=TURSO_TOKEN),
+                            timeout=5,
+                        )
+                    except Exception as exc:
+                        _record_db_operation("connect", connect_started_at, False)
+                        _record_db_connection_error(exc, "connect")
+                        raise
+                    _record_db_operation("connect", connect_started_at, True)
+                    _DB_CONNECTION_STATS["fresh"] += 1
+                    _record_connection_event("fresh")
+                    wrapper = _PooledAsyncDB(conn, return_to_pool=not fresh)
+                    try:
+                        await asyncio.wait_for(wrapper.execute("PRAGMA foreign_keys = ON"), timeout=3)
+                    except Exception as exc:
+                        wrapper.has_error = True
+                        await wrapper.close()
+                        logger.warning("Turso connection initialization failed: %s", exc)
+                        raise
         return wrapper
     else:
         global _sqlite_wal_configured
@@ -879,6 +931,12 @@ async def init_db() -> None:
                 local_product_id INTEGER UNIQUE,
                 name TEXT NOT NULL,
                 description TEXT DEFAULT '',
+                description_en TEXT DEFAULT '',
+                description_fr TEXT DEFAULT '',
+                description_ar TEXT DEFAULT '',
+                description_zh TEXT DEFAULT '',
+                description_vi TEXT DEFAULT '',
+                description_ru TEXT DEFAULT '',
                 base_price REAL NOT NULL DEFAULT 0,
                 remote_stock INTEGER NOT NULL DEFAULT 0,
                 warranty_days INTEGER NOT NULL DEFAULT 0,
@@ -1071,7 +1129,7 @@ async def init_db() -> None:
             "ALTER TABLE nowpayments_payments ADD COLUMN cancelled_at TIMESTAMP DEFAULT NULL",
             "ALTER TABLE nowpayments_wallet_topups ADD COLUMN cancelled_at TIMESTAMP DEFAULT NULL",
             "CREATE INDEX IF NOT EXISTS idx_orders_product_date_status ON orders(product_id, created_at, status)",
-            "CREATE TABLE IF NOT EXISTS supplier_products (id INTEGER PRIMARY KEY AUTOINCREMENT, supplier_code TEXT NOT NULL DEFAULT 'canboso', external_product_id TEXT NOT NULL, local_product_id INTEGER UNIQUE, name TEXT NOT NULL, description TEXT DEFAULT '', base_price REAL NOT NULL DEFAULT 0, remote_stock INTEGER NOT NULL DEFAULT 0, warranty_days INTEGER NOT NULL DEFAULT 0, image_url TEXT DEFAULT '', emoji TEXT DEFAULT '📦', enabled INTEGER NOT NULL DEFAULT 0, margin_type TEXT NOT NULL DEFAULT 'inherit', margin_value REAL, raw_payload TEXT DEFAULT '{}', last_synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(supplier_code, external_product_id))",
+            "CREATE TABLE IF NOT EXISTS supplier_products (id INTEGER PRIMARY KEY AUTOINCREMENT, supplier_code TEXT NOT NULL DEFAULT 'canboso', external_product_id TEXT NOT NULL, local_product_id INTEGER UNIQUE, name TEXT NOT NULL, description TEXT DEFAULT '', description_en TEXT DEFAULT '', description_fr TEXT DEFAULT '', description_ar TEXT DEFAULT '', description_zh TEXT DEFAULT '', description_vi TEXT DEFAULT '', description_ru TEXT DEFAULT '', base_price REAL NOT NULL DEFAULT 0, remote_stock INTEGER NOT NULL DEFAULT 0, warranty_days INTEGER NOT NULL DEFAULT 0, image_url TEXT DEFAULT '', emoji TEXT DEFAULT '📦', enabled INTEGER NOT NULL DEFAULT 0, margin_type TEXT NOT NULL DEFAULT 'inherit', margin_value REAL, raw_payload TEXT DEFAULT '{}', last_synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(supplier_code, external_product_id))",
             "CREATE TABLE IF NOT EXISTS supplier_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL UNIQUE, supplier_code TEXT NOT NULL DEFAULT 'canboso', external_product_id TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'pending', external_order_id TEXT, delivered_items TEXT DEFAULT '[]', raw_payload TEXT DEFAULT '{}', error TEXT, attempts INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, completed_at TIMESTAMP)",
             "CREATE INDEX IF NOT EXISTS idx_supplier_products_local ON supplier_products(local_product_id)",
             "CREATE INDEX IF NOT EXISTS idx_supplier_products_enabled ON supplier_products(supplier_code, enabled)",
@@ -1255,6 +1313,47 @@ async def init_db() -> None:
             )
             await db.commit()
             current_version = 3
+
+        if 3 <= current_version < 4:
+            supplier_description_columns = {
+                "description_en": "TEXT DEFAULT ''",
+                "description_fr": "TEXT DEFAULT ''",
+                "description_ar": "TEXT DEFAULT ''",
+                "description_zh": "TEXT DEFAULT ''",
+                "description_vi": "TEXT DEFAULT ''",
+                "description_ru": "TEXT DEFAULT ''",
+            }
+            columns = await _columns_for("supplier_products")
+            for column_name, column_type in supplier_description_columns.items():
+                if column_name not in columns:
+                    await db.execute(
+                        f"ALTER TABLE supplier_products ADD COLUMN {column_name} {column_type}"
+                    )
+                    columns.add(column_name)
+
+            # Preserve descriptions previously edited through the regular product editor.
+            await db.execute(
+                """UPDATE supplier_products
+                   SET description_en = CASE
+                           WHEN TRIM(COALESCE(description_en, '')) <> '' THEN description_en
+                           WHEN TRIM(COALESCE((SELECT p.description FROM products p WHERE p.id = supplier_products.local_product_id), ''))
+                                <> TRIM(COALESCE(description, ''))
+                           THEN COALESCE((SELECT p.description FROM products p WHERE p.id = supplier_products.local_product_id), '')
+                           ELSE ''
+                       END,
+                       description_fr = CASE WHEN TRIM(COALESCE(description_fr, '')) <> '' THEN description_fr ELSE COALESCE((SELECT p.description_fr FROM products p WHERE p.id = supplier_products.local_product_id), '') END,
+                       description_ar = CASE WHEN TRIM(COALESCE(description_ar, '')) <> '' THEN description_ar ELSE COALESCE((SELECT p.description_ar FROM products p WHERE p.id = supplier_products.local_product_id), '') END,
+                       description_zh = CASE WHEN TRIM(COALESCE(description_zh, '')) <> '' THEN description_zh ELSE COALESCE((SELECT p.description_zh FROM products p WHERE p.id = supplier_products.local_product_id), '') END,
+                       description_vi = CASE WHEN TRIM(COALESCE(description_vi, '')) <> '' THEN description_vi ELSE COALESCE((SELECT p.description_vi FROM products p WHERE p.id = supplier_products.local_product_id), '') END,
+                       description_ru = CASE WHEN TRIM(COALESCE(description_ru, '')) <> '' THEN description_ru ELSE COALESCE((SELECT p.description_ru FROM products p WHERE p.id = supplier_products.local_product_id), '') END
+                   WHERE local_product_id IS NOT NULL"""
+            )
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (4, ?)",
+                ("supplier_multilingual_descriptions",),
+            )
+            await db.commit()
+            current_version = 4
 
     finally:
         await db.close()

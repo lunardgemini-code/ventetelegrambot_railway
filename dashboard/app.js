@@ -244,6 +244,10 @@ const DOM = {
     supplierSettingsForm:$('supplier-settings-form'), supplierEnabled:$('supplier-enabled'), supplierMarginType:$('supplier-margin-type'), supplierMarginValue:$('supplier-margin-value'),
     btnSupplierSync:$('btn-supplier-sync'), supplierConnection:$('supplier-connection'), supplierWalletBalance:$('supplier-wallet-balance'), supplierLastSync:$('supplier-last-sync'), supplierSelectedCount:$('supplier-selected-count'), supplierReviewCount:$('supplier-review-count'),
     supplierProductSearch:$('supplier-product-search'), supplierProductsTableBody:$('supplier-products-table-body'),
+    supplierDescriptionModal:$('supplier-description-modal'), supplierDescriptionForm:$('supplier-description-form'), supplierDescriptionProductId:$('supplier-description-product-id'),
+    supplierDescriptionTitle:$('supplier-description-title'), supplierDescriptionSource:$('supplier-description-source'),
+    supplierDescriptionEn:$('supplier-description-en'), supplierDescriptionFr:$('supplier-description-fr'), supplierDescriptionAr:$('supplier-description-ar'),
+    supplierDescriptionZh:$('supplier-description-zh'), supplierDescriptionVi:$('supplier-description-vi'), supplierDescriptionRu:$('supplier-description-ru'),
     btnGameRefresh:$('btn-game-refresh'), gameProviderStatus:$('game-provider-status'), gameProviderWarning:$('game-provider-warning'),
     gameOpenCount:$('game-open-count'), gameSettleCount:$('game-settle-count'), gameBetCount:$('game-bet-count'), gameCoinsStaked:$('game-coins-staked'),
     gameCatalogFilters:$('game-catalog-filters'), gameDateFrom:$('game-date-from'), gameDateTo:$('game-date-to'),
@@ -405,6 +409,7 @@ function setupEvents() {
     if (DOM.btnSupplierSync) DOM.btnSupplierSync.addEventListener('click', syncSupplierBot);
     if (DOM.supplierSettingsForm) DOM.supplierSettingsForm.addEventListener('submit', saveSupplierSettings);
     if (DOM.supplierProductSearch) DOM.supplierProductSearch.addEventListener('input', renderSupplierProducts);
+    if (DOM.supplierDescriptionForm) DOM.supplierDescriptionForm.addEventListener('submit', saveSupplierDescriptions);
     if (DOM.btnGameRefresh) DOM.btnGameRefresh.addEventListener('click', () => loadGameManagement({forceCatalog:true}));
     if (DOM.gameCatalogFilters) DOM.gameCatalogFilters.addEventListener('submit', event => {
         event.preventDefault();
@@ -498,7 +503,7 @@ function setupEvents() {
         showModal(DOM.promoModal);
     });
     $('btn-open-binance-modal').addEventListener('click', openBinanceModal);
-    $$('.btn-close-modal').forEach(b => b.addEventListener('click', () => { [DOM.prodModal,DOM.stockModal,DOM.promoModal,DOM.tiersModal,DOM.orderDetailModal,DOM.viewStockModal,DOM.editProdModal,DOM.revenueModal,DOM.binanceModal,DOM.gameMatchModal,$('banModal'),$('finance-withdraw-modal'),$('finance-adjust-modal'), $('exportModal')].forEach(m => { if (m) hideModal(m); }); }));
+    $$('.btn-close-modal').forEach(b => b.addEventListener('click', () => { [DOM.prodModal,DOM.stockModal,DOM.promoModal,DOM.tiersModal,DOM.orderDetailModal,DOM.viewStockModal,DOM.editProdModal,DOM.revenueModal,DOM.binanceModal,DOM.gameMatchModal,DOM.supplierDescriptionModal,$('banModal'),$('finance-withdraw-modal'),$('finance-adjust-modal'), $('exportModal')].forEach(m => { if (m) hideModal(m); }); }));
 
     
     if (DOM.prodDeliveryType) {
@@ -2447,6 +2452,7 @@ function renderSavedGameMatches() {
             <td>${gameStatusBadge(match.status)}<span class="table-secondary">API: ${escapeHtml(match.provider_status || '—')}</span></td>
             <td><div class="table-actions">
                 ${match.status === 'DRAFT' ? `<button class="btn-primary btn-sm" data-game-action="publish" data-match-id="${match.id}"><i class="fa-solid fa-paper-plane"></i> Publier</button>` : ''}
+                ${match.status !== 'DRAFT' ? `<button class="btn-secondary btn-sm" data-game-action="sync" data-match-id="${match.id}" title="Actualiser le résultat"><i class="fa-solid fa-rotate"></i></button>` : ''}
                 ${Number(match.bet_count || 0) === 0 ? `<button class="btn-secondary btn-sm" data-game-action="edit" data-match-id="${match.id}" title="Configurer"><i class="fa-solid fa-pen"></i></button>` : ''}
                 <button class="btn-secondary btn-sm" data-game-action="cancel" data-match-id="${match.id}" title="Annuler et rembourser"><i class="fa-solid fa-ban"></i></button>
             </div></td>
@@ -2550,6 +2556,9 @@ async function handleGameTableAction(event) {
         if (action === 'publish') {
             await apiCall(`/api/game/matches/${matchId}/publish`, 'POST');
             showToast('Match publié.', 'success');
+        } else if (action === 'sync') {
+            await apiCall(`/api/game/matches/${matchId}/sync`, 'POST');
+            showToast('Résultat actualisé depuis l API sportive.', 'success');
         } else if (action === 'cancel') {
             if (!confirm(`Annuler ${localMatch.home_name} - ${localMatch.away_name} et rembourser toutes les mises ?`)) return;
             await apiCall(`/api/game/matches/${matchId}/cancel`, 'POST', {confirmation:`CANCEL ${matchId}`});
@@ -2616,7 +2625,7 @@ function renderSupplierProducts() {
             <td><span class="stock-count-badge ${affordableClass}" title="Limité par votre solde fournisseur">${affordableStock}</span></td>
             <td><div class="supplier-margin-controls"><select id="supplier-margin-type-${id}" onchange="toggleSupplierMarginInput(${id})"><option value="inherit" ${marginType === 'inherit' ? 'selected' : ''}>Marge globale</option><option value="fixed" ${marginType === 'fixed' ? 'selected' : ''}>+$ fixe</option><option value="percent" ${marginType === 'percent' ? 'selected' : ''}>+%</option></select><input id="supplier-margin-value-${id}" type="number" min="0" step="0.01" value="${marginValue}" ${marginType === 'inherit' ? 'disabled' : ''}></div></td>
             <td><strong>$${Number(product.final_price || 0).toFixed(2)}</strong><small style="display:block;color:var(--color-text-muted)">${product.effective_margin_type === 'percent' ? '+' + Number(product.effective_margin_value || 0).toFixed(2) + '%' : '+$' + Number(product.effective_margin_value || 0).toFixed(2)}</small></td>
-            <td><button class="btn-table-action" onclick="saveSupplierProduct(${id})" title="Enregistrer" style="color:var(--color-success)"><i class="fa-solid fa-floppy-disk"></i></button></td>
+            <td><div class="table-actions"><button type="button" class="btn-table-action" onclick="openSupplierDescriptionEditor(${id})" title="Descriptions multilingues"><i class="fa-solid fa-language"></i></button><button type="button" class="btn-table-action" onclick="saveSupplierProduct(${id})" title="Enregistrer le prix et l'affichage" style="color:var(--color-success)"><i class="fa-solid fa-floppy-disk"></i></button></div></td>
         </tr>`;
     }).join('');
 }
@@ -2642,6 +2651,52 @@ window.saveSupplierProduct = async function(id) {
         showLoading(false);
     }
 };
+
+window.openSupplierDescriptionEditor = function(id) {
+    const product = (state.supplierBot?.products || []).find(item => Number(item.id) === Number(id));
+    if (!product || !DOM.supplierDescriptionModal) {
+        showToast('Produit fournisseur introuvable.', 'error');
+        return;
+    }
+    DOM.supplierDescriptionProductId.value = String(id);
+    DOM.supplierDescriptionTitle.textContent = `Descriptions - ${product.name || 'Produit'}`;
+    DOM.supplierDescriptionSource.textContent = product.description || 'Aucune description fournisseur.';
+    DOM.supplierDescriptionEn.value = product.description_en || '';
+    DOM.supplierDescriptionFr.value = product.description_fr || '';
+    DOM.supplierDescriptionAr.value = product.description_ar || '';
+    DOM.supplierDescriptionZh.value = product.description_zh || '';
+    DOM.supplierDescriptionVi.value = product.description_vi || '';
+    DOM.supplierDescriptionRu.value = product.description_ru || '';
+    showModal(DOM.supplierDescriptionModal);
+};
+
+async function saveSupplierDescriptions(event) {
+    event.preventDefault();
+    const id = Number(DOM.supplierDescriptionProductId?.value || 0);
+    if (!id) {
+        showToast('Produit fournisseur introuvable.', 'error');
+        return;
+    }
+    const descriptions = {
+        en: DOM.supplierDescriptionEn.value,
+        fr: DOM.supplierDescriptionFr.value,
+        ar: DOM.supplierDescriptionAr.value,
+        zh: DOM.supplierDescriptionZh.value,
+        vi: DOM.supplierDescriptionVi.value,
+        ru: DOM.supplierDescriptionRu.value,
+    };
+    try {
+        showLoading(true);
+        await apiCall(`/api/supplier-bots/canboso/products/${id}/descriptions`, 'PUT', {descriptions});
+        hideModal(DOM.supplierDescriptionModal);
+        await Promise.all([loadSupplierBot(), loadProducts()]);
+        showToast('Descriptions multilingues enregistrées.', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    } finally {
+        showLoading(false);
+    }
+}
 
 async function saveSupplierSettings(event) {
     event.preventDefault();

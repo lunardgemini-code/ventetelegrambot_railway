@@ -98,7 +98,7 @@ def main_menu_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [make_button("btn_buy", lang, callback_data="menu_buy", style=KeyboardButtonStyle.SUCCESS)],
         [make_button("btn_wallet", lang, callback_data="menu_wallet")],
-        [make_button("btn_game", lang, callback_data="menu_game")],
+        [make_button("btn_game", lang, callback_data="menu_game", style=KeyboardButtonStyle.DANGER)],
         [
             make_button("btn_profile", lang, callback_data="menu_profile"),
             make_button("btn_history", lang, callback_data="menu_history"),

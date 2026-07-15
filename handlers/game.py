@@ -35,6 +35,8 @@ from utils.telegram import safe_edit_message_text
 
 
 logger = logging.getLogger(__name__)
+_BIDI_ISOLATE_START = "\u2068"
+_BIDI_ISOLATE_END = "\u2069"
 
 
 async def _answer(query, text: str | None = None, *, alert: bool = False) -> None:
@@ -77,6 +79,31 @@ def _odds_summary(match: dict, lang: str) -> str:
         rows.append(f"{escape_html(label)}: <b>{format_game_odd(odds.get(outcome))}</b>")
     rows.append(escape_html(t("game_odds_note", lang)))
     return "\n".join(rows)
+
+
+def _format_leaderboard_entries(leaders: list[dict], lang: str) -> list[str]:
+    """Render stable Telegram rows for mixed LTR/RTL player names."""
+    medals = ["🥇", "🥈", "🥉"]
+    entries = []
+    for index, leader in enumerate(leaders):
+        raw_name = str(
+            leader.get("first_name")
+            or leader.get("username")
+            or leader["user_telegram_id"]
+        ).strip()
+        display_name = raw_name if len(raw_name) <= 40 else f"{raw_name[:37]}..."
+        rank = medals[index] if index < len(medals) else f"<b>#{index + 1}</b>"
+        isolated_name = (
+            f"{_BIDI_ISOLATE_START}{escape_html(display_name)}{_BIDI_ISOLATE_END}"
+        )
+        amount = escape_html(
+            t("game_coin_amount", lang).format(amount=int(leader["balance"]))
+        )
+        entries.append(
+            f"{rank} <b>{isolated_name}</b>\n"
+            f"└ 💰 <b>{amount}</b>"
+        )
+    return entries
 
 
 async def _render_game_home(query, user_id: int, lang: str, notice: str = "") -> None:
@@ -320,18 +347,13 @@ async def show_game_leaderboard(update: Update, context: ContextTypes.DEFAULT_TY
     lang = await get_user_lang(update.effective_user.id)
     try:
         leaders = await get_game_leaderboard()
-        lines = [t("game_leaderboard_title", lang), ""]
+        lines = [t("game_leaderboard_title", lang)]
         if not leaders:
             lines.append(t("game_no_leaderboard", lang))
-        medals = ["🥇", "🥈", "🥉"]
-        for index, leader in enumerate(leaders):
-            name = leader.get("first_name") or leader.get("username") or str(leader["user_telegram_id"])
-            prefix = medals[index] if index < len(medals) else f"{index + 1}."
-            amount = escape_html(t("game_coin_amount", lang).format(amount=int(leader["balance"])))
-            lines.append(f"{prefix} {escape_html(str(name))} — <b>{amount}</b>")
+        lines.extend(_format_leaderboard_entries(leaders, lang))
         await safe_edit_message_text(
             query,
-            "\n".join(lines),
+            "\n\n".join(lines),
             parse_mode="HTML",
             reply_markup=game_simple_back_keyboard("menu_game", lang),
         )

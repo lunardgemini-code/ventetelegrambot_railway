@@ -1314,10 +1314,26 @@ async def _notify_admins_manual_check(context, order_id, client_order_id):
             logger.warning("Could not notify admin %s: %s", admin_id, exc)
 
 
-async def _render_nowpayments_checkout(query, payment: dict, lang: str, status_text: str | None = None):
+async def _render_nowpayments_checkout(
+    query,
+    payment: dict,
+    lang: str,
+    status_text: str | None = None,
+    *,
+    order_amount: float | None = None,
+):
+    from services.nowpayments import calculate_customer_pay_amount
+
     payment_id = str(payment.get("payment_id") or "")
     address = str(payment.get("pay_address") or "")
-    amount = _format_crypto_amount(payment.get("pay_amount"))
+    customer_pay_amount = calculate_customer_pay_amount(
+        payment.get("pay_amount"),
+        provider_price_amount=payment.get("price_amount"),
+        original_price_amount=(
+            payment.get("price_amount") if order_amount is None else order_amount
+        ),
+    )
+    amount = _format_crypto_amount(customer_pay_amount)
     text = (
         f"{t('nowpayments_title', lang)}\n\n"
         f"{t('nowpayments_address', lang)}\n"
@@ -1503,7 +1519,6 @@ async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         from services.nowpayments import (
             NowPaymentsError,
-            calculate_checkout_price,
             create_payment,
             get_minimum_amount,
             is_nowpayments_configured,
@@ -1513,12 +1528,12 @@ async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYP
             await safe_edit_message_text(query, t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
             return ConversationHandler.END
 
-        checkout_price = calculate_checkout_price(order["amount_usd"])
+        provider_price = round(float(order["amount_usd"]), 2)
 
         try:
             minimum = await get_minimum_amount()
             minimum_usd = float(minimum.get("fiat_equivalent") or minimum.get("min_amount") or 0)
-            if minimum_usd > 0 and checkout_price + 0.000001 < minimum_usd:
+            if minimum_usd > 0 and provider_price + 0.000001 < minimum_usd:
                 await safe_edit_message_text(query, 
                     t("nowpayments_below_minimum", lang).format(minimum=_format_crypto_amount(minimum_usd)),
                     reply_markup=main_menu_keyboard(lang),
@@ -1531,10 +1546,12 @@ async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYP
         except (ValueError, TypeError) as exc:
             logger.warning("Invalid NOWPayments minimum response: %s", exc)
 
-        attempt = await prepare_nowpayments_attempt(order_id, checkout_price)
+        attempt = await prepare_nowpayments_attempt(order_id, provider_price)
         if not attempt.get("created"):
             if attempt.get("payment_id"):
-                await _render_nowpayments_checkout(query, attempt, lang)
+                await _render_nowpayments_checkout(
+                    query, attempt, lang, order_amount=order["amount_usd"]
+                )
                 return WAITING_NOWPAYMENTS
             await safe_edit_message_text(query, 
                 t("nowpayments_creation_unknown", lang).format(order_id=order_id),
@@ -1553,7 +1570,7 @@ async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYP
 
         try:
             provider_payment = await create_payment(
-                price_amount=checkout_price,
+                price_amount=provider_price,
                 order_id=order_id,
                 order_description=description,
                 callback_url=callback_url,
@@ -1590,7 +1607,9 @@ async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYP
 
         context.user_data["paying_order_id"] = order_id
         context.user_data["paying_product_id"] = order.get("product_id")
-        await _render_nowpayments_checkout(query, payment, lang)
+        await _render_nowpayments_checkout(
+            query, payment, lang, order_amount=order["amount_usd"]
+        )
         previous_task = _timeout_tasks.pop(order_id, None)
         if previous_task and not previous_task.done():
             previous_task.cancel()
@@ -1621,13 +1640,25 @@ async def check_nowpayments_payment(update: Update, context: ContextTypes.DEFAUL
     if not payment or not payment.get("payment_id"):
         await safe_edit_message_text(query, t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
         return ConversationHandler.END
-    await _render_nowpayments_checkout(query, payment, lang, t("nowpayments_checking", lang))
+    await _render_nowpayments_checkout(
+        query,
+        payment,
+        lang,
+        t("nowpayments_checking", lang),
+        order_amount=order["amount_usd"],
+    )
     try:
         provider_payment = await get_payment_status(payment["payment_id"])
         payment = await save_nowpayments_update(provider_payment) or payment
         result = await process_nowpayments_payment_notification(context.bot, payment["payment_id"])
     except (NowPaymentsError, ValueError, TypeError):
-        await _render_nowpayments_checkout(query, payment, lang, t("nowpayments_unavailable", lang))
+        await _render_nowpayments_checkout(
+            query,
+            payment,
+            lang,
+            t("nowpayments_unavailable", lang),
+            order_amount=order["amount_usd"],
+        )
         return WAITING_NOWPAYMENTS
 
     action = result.get("action")
@@ -1646,7 +1677,9 @@ async def check_nowpayments_payment(update: Update, context: ContextTypes.DEFAUL
         return ConversationHandler.END
     else:
         status_text = t("nowpayments_waiting", lang)
-    await _render_nowpayments_checkout(query, payment, lang, status_text)
+    await _render_nowpayments_checkout(
+        query, payment, lang, status_text, order_amount=order["amount_usd"]
+    )
     return WAITING_NOWPAYMENTS
 
 

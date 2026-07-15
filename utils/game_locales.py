@@ -2,7 +2,7 @@
 
 GAME_TRANSLATIONS = {
     "en": {
-        "btn_game": "🎮 Game", "game_title": "🏆 <b>Match Arena</b>",
+        "btn_game": "🎮 Game · Who Wins?", "game_title": "🏆 <b>Match Arena</b>",
         "game_balance": "Balance: <b>{balance} Batman Coins</b>", "game_daily_available": "Your daily gift is available.",
         "game_daily_claimed": "Daily gift already claimed. Come back tomorrow.", "game_no_matches": "No predictions are open right now.",
         "game_claim_button": "Claim {amount} Batman Coins", "game_claim_success": "✅ {amount} Batman Coins added to your game balance.",
@@ -27,7 +27,7 @@ GAME_TRANSLATIONS = {
         "game_disclaimer": "Batman Coins are virtual only. No cash value and no withdrawals.", "game_coin_amount": "{amount} Batman Coins",
     },
     "fr": {
-        "btn_game": "🎮 Jeu", "game_title": "🏆 <b>Match Arena</b>",
+        "btn_game": "🎮 Jeu · Qui va gagner ?", "game_title": "🏆 <b>Match Arena</b>",
         "game_balance": "Solde : <b>{balance} Batman Coins</b>", "game_daily_available": "Votre cadeau quotidien est disponible.",
         "game_daily_claimed": "Cadeau quotidien déjà réclamé. Revenez demain.", "game_no_matches": "Aucun pronostic n'est ouvert actuellement.",
         "game_claim_button": "Réclamer {amount} Batman Coins", "game_claim_success": "✅ {amount} Batman Coins ajoutés à votre solde de jeu.",
@@ -52,7 +52,7 @@ GAME_TRANSLATIONS = {
         "game_disclaimer": "Les Batman Coins sont virtuels, sans valeur monétaire ni retrait.", "game_coin_amount": "{amount} Batman Coins",
     },
     "ar": {
-        "btn_game": "🎮 اللعبة", "game_title": "🏆 <b>ساحة المباريات</b>", "game_balance": "الرصيد: <b>{balance} Batman Coins</b>",
+        "btn_game": "🎮 لعبة · من سيفوز؟", "game_title": "🏆 <b>ساحة المباريات</b>", "game_balance": "الرصيد: <b>{balance} Batman Coins</b>",
         "game_daily_available": "هدية اليوم متاحة.", "game_daily_claimed": "تم استلام هدية اليوم. عد غدًا.", "game_no_matches": "لا توجد توقعات مفتوحة الآن.",
         "game_claim_button": "استلام {amount} Batman Coins", "game_claim_success": "✅ تمت إضافة {amount} Batman Coins.", "game_claim_already": "تم استلام Batman Coins اليوم بالفعل.",
         "game_my_bets_button": "توقعاتي", "game_leaderboard_button": "الترتيب", "game_market_qualified": "الفريق المتأهل", "game_market_regulation": "النتيجة بعد 90 دقيقة",
@@ -69,7 +69,7 @@ GAME_TRANSLATIONS = {
         "game_disclaimer": "Batman Coins افتراضية فقط، بلا قيمة نقدية ولا سحب.", "game_coin_amount": "{amount} Batman Coins",
     },
     "zh": {
-        "btn_game": "🎮 游戏", "game_title": "🏆 <b>比赛竞技场</b>", "game_balance": "余额：<b>{balance} Batman Coins</b>",
+        "btn_game": "🎮 游戏 · 谁会赢？", "game_title": "🏆 <b>比赛竞技场</b>", "game_balance": "余额：<b>{balance} Batman Coins</b>",
         "game_daily_available": "今日奖励可以领取。", "game_daily_claimed": "今日奖励已领取，请明天再来。", "game_no_matches": "目前没有开放的预测。",
         "game_claim_button": "领取 {amount} Batman Coins", "game_claim_success": "✅ 已添加 {amount} Batman Coins。", "game_claim_already": "今日 Batman Coins 已领取。",
         "game_my_bets_button": "我的预测", "game_leaderboard_button": "排行榜", "game_market_qualified": "晋级球队", "game_market_regulation": "90 分钟赛果",
@@ -86,7 +86,7 @@ GAME_TRANSLATIONS = {
         "game_disclaimer": "Batman Coins 仅为虚拟游戏币，不具现金价值且不能提现。", "game_coin_amount": "{amount} Batman Coins",
     },
     "vi": {
-        "btn_game": "🎮 Trò chơi", "game_title": "🏆 <b>Đấu trường trận đấu</b>", "game_balance": "Số dư: <b>{balance} Batman Coins</b>",
+        "btn_game": "🎮 Trò chơi · Ai sẽ thắng?", "game_title": "🏆 <b>Đấu trường trận đấu</b>", "game_balance": "Số dư: <b>{balance} Batman Coins</b>",
         "game_daily_available": "Quà hàng ngày đã sẵn sàng.", "game_daily_claimed": "Đã nhận quà hôm nay. Hãy quay lại ngày mai.", "game_no_matches": "Hiện không có dự đoán mở.",
         "game_claim_button": "Nhận {amount} Batman Coins", "game_claim_success": "✅ Đã thêm {amount} Batman Coins.", "game_claim_already": "Bạn đã nhận Batman Coins hôm nay.",
         "game_my_bets_button": "Dự đoán của tôi", "game_leaderboard_button": "Xếp hạng", "game_market_qualified": "Đội đi tiếp", "game_market_regulation": "Kết quả sau 90 phút",
@@ -103,7 +103,7 @@ GAME_TRANSLATIONS = {
         "game_disclaimer": "Batman Coins chỉ là tiền ảo trong trò chơi, không có giá trị tiền mặt và không thể rút.", "game_coin_amount": "{amount} Batman Coins",
     },
     "ru": {
-        "btn_game": "🎮 Игра", "game_title": "🏆 <b>Арена матчей</b>", "game_balance": "Баланс: <b>{balance} Batman Coins</b>",
+        "btn_game": "🎮 Игра · Кто победит?", "game_title": "🏆 <b>Арена матчей</b>", "game_balance": "Баланс: <b>{balance} Batman Coins</b>",
         "game_daily_available": "Ежедневный подарок доступен.", "game_daily_claimed": "Подарок уже получен. Возвращайтесь завтра.", "game_no_matches": "Сейчас нет открытых прогнозов.",
         "game_claim_button": "Получить {amount} Batman Coins", "game_claim_success": "✅ Добавлено {amount} Batman Coins.", "game_claim_already": "Сегодняшние Batman Coins уже получены.",
         "game_my_bets_button": "Мои прогнозы", "game_leaderboard_button": "Рейтинг", "game_market_qualified": "Команда пройдет дальше", "game_market_regulation": "Результат после 90 минут",

@@ -195,13 +195,19 @@ async def _render_nowpayments_topup_checkout(
     lang: str,
     status_text: str | None = None,
 ) -> None:
+    from services.nowpayments import calculate_customer_pay_amount
+
     payment_id = str(topup.get("payment_id") or "")
     address = str(topup.get("pay_address") or "")
-    pay_amount = _format_topup_crypto_amount(topup.get("pay_amount"))
     wallet_amount = float(topup.get("wallet_amount") or 0)
+    customer_pay_amount = calculate_customer_pay_amount(
+        topup.get("pay_amount"),
+        provider_price_amount=topup.get("price_amount"),
+        original_price_amount=wallet_amount,
+    )
+    pay_amount = _format_topup_crypto_amount(customer_pay_amount)
     text = (
         f"{t('nowpayments_title', lang)}\n\n"
-        f"{t('wallet_topup', lang)}: <b>{format_price(wallet_amount)}</b>\n\n"
         f"{t('nowpayments_address', lang)}\n"
         f"<code>{escape_html(address)}</code>\n\n"
         f"{t('nowpayments_amount', lang).format(amount=pay_amount)}\n"
@@ -391,7 +397,6 @@ async def wallet_topup_method_nowpayments(update: Update, context: ContextTypes.
         )
         from services.nowpayments import (
             NowPaymentsError,
-            calculate_checkout_price,
             create_payment,
             get_minimum_amount,
             is_nowpayments_configured,
@@ -403,11 +408,11 @@ async def wallet_topup_method_nowpayments(update: Update, context: ContextTypes.
             await safe_edit_message_text(query, t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
             return ConversationHandler.END
 
-        checkout_price = calculate_checkout_price(amount)
+        provider_price = amount
         try:
             minimum = await get_minimum_amount()
             minimum_usd = float(minimum.get("fiat_equivalent") or minimum.get("min_amount") or 0)
-            if minimum_usd > 0 and checkout_price + 0.000001 < minimum_usd:
+            if minimum_usd > 0 and provider_price + 0.000001 < minimum_usd:
                 await safe_edit_message_text(query, 
                     t("nowpayments_below_minimum", lang).format(minimum=_format_topup_crypto_amount(minimum_usd)),
                     reply_markup=main_menu_keyboard(lang),
@@ -421,7 +426,7 @@ async def wallet_topup_method_nowpayments(update: Update, context: ContextTypes.
             logger.warning("Invalid NOWPayments top-up minimum response: %s", exc)
 
         try:
-            attempt = await prepare_nowpayments_wallet_topup(user_id, amount, checkout_price)
+            attempt = await prepare_nowpayments_wallet_topup(user_id, amount, provider_price)
         except Exception as exc:
             logger.error("Could not prepare NOWPayments wallet top-up for user %s: %s", user_id, exc, exc_info=True)
             await safe_edit_message_text(query, t("nowpayments_unavailable", lang), reply_markup=main_menu_keyboard(lang))
@@ -438,7 +443,7 @@ async def wallet_topup_method_nowpayments(update: Update, context: ContextTypes.
 
         try:
             provider_payment = await create_payment(
-                price_amount=checkout_price,
+                price_amount=provider_price,
                 order_id=attempt["request_key"],
                 order_description=f"Wallet top-up {amount:.2f} USD",
                 callback_url=callback_url,

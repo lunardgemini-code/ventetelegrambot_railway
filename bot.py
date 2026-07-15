@@ -1225,6 +1225,30 @@ async def api_update_canboso_product(mapping_id: int, data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@api.put(
+    "/api/supplier-bots/canboso/products/{mapping_id}/descriptions",
+    dependencies=[Depends(verify_api_key)],
+)
+async def api_update_canboso_product_descriptions(mapping_id: int, data: dict):
+    from database.suppliers import (
+        get_supplier_dashboard,
+        update_supplier_product_descriptions,
+    )
+
+    try:
+        descriptions = data.get("descriptions")
+        if not isinstance(descriptions, dict):
+            raise ValueError("INVALID_DESCRIPTIONS")
+        await update_supplier_product_descriptions(mapping_id, descriptions)
+        return {"status": "updated", "dashboard": await get_supplier_dashboard()}
+    except ValueError as exc:
+        code = 404 if str(exc) == "SUPPLIER_PRODUCT_NOT_FOUND" else 400
+        raise HTTPException(status_code=code, detail=str(exc))
+    except Exception as exc:
+        logger.error("API supplier descriptions error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 def _raise_game_api_error(exc) -> None:
     from database.games import GameError
     from services.sports_api import SportsAPIError
@@ -1424,6 +1448,33 @@ async def api_game_publish_match(match_id: int):
         except HTTPException:
             raise
         logger.error("Game match publish failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/game/matches/{match_id}/sync", dependencies=[Depends(verify_api_key)])
+async def api_game_sync_match(match_id: int):
+    from database.games import get_game_match, update_game_match_from_provider
+    from services.sports_api import get_football_match
+
+    try:
+        match = await get_game_match(match_id)
+        if not match:
+            raise HTTPException(status_code=404, detail="Match not found")
+        if match.get("status") in {"SETTLED", "CANCELLED"}:
+            raise HTTPException(status_code=409, detail="A terminal match cannot be synchronized")
+        provider_match = await get_football_match(str(match["external_match_id"]))
+        return {
+            "status": "synchronized",
+            "match": await update_game_match_from_provider(match_id, provider_match),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        try:
+            _raise_game_api_error(exc)
+        except HTTPException:
+            raise
+        logger.error("Game match synchronization failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -4024,6 +4075,17 @@ async def telegram_webhook(request: StarletteRequest):
                 logger.warning("⚠️ Webhook secret mismatch — rejecting update")
                 raise HTTPException(status_code=403, detail="Forbidden")
 
+        # The previous webhook remains active while Railway restarts a
+        # container. Ask Telegram to retry until Application.initialize(),
+        # the update queue, and its workers are ready instead of acknowledging
+        # and losing an update in the startup window.
+        if tg_app is None or webhook_update_queue is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Telegram workers are starting",
+                headers={"Retry-After": "2"},
+            )
+
         data = await request.json()
         logger.debug("Webhook received update: %s", data.get("update_id", "?"))
         if tg_app:
@@ -4048,46 +4110,28 @@ async def telegram_webhook(request: StarletteRequest):
                             _webhook_recent_start_signatures.pop(signature, None)
                 _webhook_active_dedupe_signatures.add(dedupe_signature)
                 _webhook_dedupe_by_update[id(update)] = dedupe_signature
-            if webhook_update_queue is not None:
-                _webhook_enqueued_at[id(update)] = time.monotonic()
-                try:
-                    webhook_update_queue.put_nowait(update)
-                    _record_webhook_queue_depth()
-                except asyncio.QueueFull:
-                    _webhook_enqueued_at.pop(id(update), None)
-                    _release_webhook_dedupe(update, completed=False)
-                    logger.error(
-                        "Webhook queue full (%d updates); asking Telegram to retry",
-                        WEBHOOK_QUEUE_MAX,
-                    )
-                    raise HTTPException(status_code=503, detail="Webhook queue is full")
-            else:
-                task = asyncio.create_task(tg_app.process_update(update))
-                task.add_done_callback(
-                    lambda completed, queued_update=update: _finalize_direct_update_task(completed, queued_update)
+            _webhook_enqueued_at[id(update)] = time.monotonic()
+            try:
+                webhook_update_queue.put_nowait(update)
+                _record_webhook_queue_depth()
+            except asyncio.QueueFull:
+                _webhook_enqueued_at.pop(id(update), None)
+                _release_webhook_dedupe(update, completed=False)
+                logger.error(
+                    "Webhook queue full (%d updates); asking Telegram to retry",
+                    WEBHOOK_QUEUE_MAX,
                 )
-        else:
-            logger.error("❌ tg_app is None — cannot process update")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Webhook queue is full",
+                    headers={"Retry-After": "2"},
+                )
         return {"ok": True}
     except HTTPException:
         raise
     except Exception as exc:
         logger.error("❌ Webhook error: %s", exc, exc_info=True)
         return {"ok": False}
-
-
-def _log_update_task_result(task: asyncio.Task) -> None:
-    try:
-        task.result()
-    except asyncio.CancelledError:
-        logger.warning("Webhook update task was cancelled")
-    except Exception as exc:
-        logger.error("Webhook update task failed: %s", exc, exc_info=True)
-
-
-def _finalize_direct_update_task(task: asyncio.Task, update: Update) -> None:
-    _release_webhook_dedupe(update)
-    _log_update_task_result(task)
 
 
 def _webhook_lock_key(update: Update) -> str:

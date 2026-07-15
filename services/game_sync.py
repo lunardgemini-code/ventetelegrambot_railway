@@ -12,7 +12,11 @@ from database.games import (
     list_due_game_matches,
     update_game_match_from_provider,
 )
-from services.sports_api import is_sports_api_configured, list_football_matches
+from services.sports_api import (
+    get_football_match,
+    is_sports_api_configured,
+    list_football_matches,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -58,9 +62,13 @@ async def sync_due_game_matches_once(limit: int = 30) -> dict:
             provider_match = provider_by_id.get(str(saved["external_match_id"]))
             try:
                 if provider_match is None:
-                    await defer_game_match_sync(int(saved["id"]), minutes=30)
-                    failed += 1
-                    continue
+                    # The provider's daily catalog can omit a match even though
+                    # its individual endpoint already exposes the live/final
+                    # result. Fall back to that authoritative endpoint before
+                    # deferring settlement visibility.
+                    provider_match = await get_football_match(
+                        str(saved["external_match_id"])
+                    )
                 await update_game_match_from_provider(int(saved["id"]), provider_match)
                 updated += 1
             except asyncio.CancelledError:

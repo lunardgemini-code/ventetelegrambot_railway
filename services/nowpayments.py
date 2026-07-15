@@ -41,12 +41,43 @@ def is_nowpayments_configured() -> bool:
 
 
 def calculate_checkout_price(order_amount: float) -> float:
-    """Return the customer-facing NOWPayments price including the BEP20 fee."""
+    """Return the legacy provider price that included the BEP20 buffer."""
     try:
         amount = max(Decimal("0"), Decimal(str(order_amount or 0)))
     except (TypeError, ValueError, InvalidOperation):
         amount = Decimal("0")
     return float((amount + NOWPAYMENTS_CHECKOUT_FEE_USD).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def calculate_customer_pay_amount(
+    provider_pay_amount: float,
+    *,
+    provider_price_amount: float,
+    original_price_amount: float,
+) -> float:
+    """Add the display-only USDT buffer for invoices created at the original price.
+
+    Older active invoices already included the buffer in their provider price. They
+    remain unchanged so reopening one cannot add the same buffer a second time.
+    """
+    try:
+        pay_amount = max(Decimal("0"), Decimal(str(provider_pay_amount or 0)))
+        provider_price = Decimal(str(provider_price_amount or 0)).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        original_price = Decimal(str(original_price_amount or 0)).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+    except (TypeError, ValueError, InvalidOperation):
+        return 0.0
+
+    if provider_price <= 0 or abs(provider_price - original_price) > Decimal("0.01"):
+        return float(pay_amount)
+    return float(
+        (pay_amount + NOWPAYMENTS_CHECKOUT_FEE_USD).quantize(
+            Decimal("0.00000001"), rounding=ROUND_HALF_UP
+        )
+    )
 
 
 def _sort_payload(value: Any) -> Any:

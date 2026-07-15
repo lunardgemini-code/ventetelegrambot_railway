@@ -47,7 +47,7 @@ class WatchdogConfig:
     startup_grace_seconds: float = 20.0
     interval_seconds: float = 10.0
     request_timeout_seconds: float = 3.0
-    failure_threshold: int = 3
+    failure_threshold: int = 5
     diagnostic_delay_seconds: float = 2.0
 
     @classmethod
@@ -64,7 +64,7 @@ class WatchdogConfig:
                 "PROCESS_WATCHDOG_TIMEOUT_SECONDS", 3.0, 0.5
             ),
             failure_threshold=_env_int(
-                "PROCESS_WATCHDOG_FAILURE_THRESHOLD", 3, 2
+                "PROCESS_WATCHDOG_FAILURE_THRESHOLD", 5, 2
             ),
             diagnostic_delay_seconds=_env_float(
                 "PROCESS_WATCHDOG_DIAGNOSTIC_DELAY_SECONDS", 2.0, 0.0
@@ -196,6 +196,21 @@ def monitor_parent(
                         return 0
                 if config.diagnostic_delay_seconds:
                     sleeper(config.diagnostic_delay_seconds)
+                # A saturated event loop can recover while diagnostics are being
+                # captured. Confirm the failure before killing PID 1 so a short
+                # latency spike cannot turn into a full Railway restart.
+                try:
+                    recovered = probe(url, config.request_timeout_seconds)
+                except Exception:
+                    recovered = False
+                if recovered:
+                    log(
+                        "Process watchdog: liveness recovered during diagnostics; "
+                        "restart cancelled"
+                    )
+                    failures = 0
+                    sleeper(config.interval_seconds)
+                    continue
                 # On Railway the Python process may be wrapped by PID 1. Kill
                 # PID 1 even if Python disappeared while diagnostics ran, so
                 # the platform observes a real container failure and applies
