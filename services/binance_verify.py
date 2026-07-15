@@ -19,8 +19,16 @@ BASE_URL = "https://api.binance.com/sapi/v1/pay/transactions"
 RECV_WINDOW = 5000
 # Tolérance de comparaison des montants (en USD)
 AMOUNT_TOLERANCE = 0.01
-# Fenêtre de recherche des transactions (en millisecondes) : 2 heures
+# Fenetre de recherche des depots internes (en millisecondes) : 2 heures
 SEARCH_WINDOW_MS = 2 * 60 * 60 * 1000
+# Binance Pay payments can be submitted after the order timeout. Search the
+# current two-hour window first, then bounded older windows up to 24 hours.
+PAY_SEARCH_WINDOW_MS = 24 * 60 * 60 * 1000
+PAY_INITIAL_WINDOW_MS = 2 * 60 * 60 * 1000
+PAY_FALLBACK_WINDOW_MS = 4 * 60 * 60 * 1000
+PAY_MIN_SPLIT_WINDOW_MS = 5 * 60 * 1000
+PAY_API_LIMIT = 100
+PAY_MAX_API_REQUESTS = 24
 _HTTP_CLIENT: httpx.AsyncClient | None = None
 
 
@@ -38,6 +46,88 @@ def _generate_signature(query_string: str, secret: str) -> str:
         query_string.encode(),
         hashlib.sha256,
     ).hexdigest()
+
+
+def _payment_search_ranges(now_ms: int) -> list[tuple[int, int]]:
+    """Build newest-first, non-overlapping ranges for Binance Pay history."""
+    oldest_ms = now_ms - PAY_SEARCH_WINDOW_MS
+    ranges: list[tuple[int, int]] = []
+    end_ms = now_ms
+    window_ms = PAY_INITIAL_WINDOW_MS
+    while end_ms > oldest_ms:
+        start_ms = max(oldest_ms, end_ms - window_ms)
+        ranges.append((start_ms, end_ms))
+        end_ms = start_ms
+        window_ms = PAY_FALLBACK_WINDOW_MS
+    return ranges
+
+
+def _payment_matches(
+    transaction: dict,
+    client_order_id: str,
+    expected_amount: float,
+) -> bool:
+    try:
+        tx_amount = float(transaction.get("amount", 0))
+    except (TypeError, ValueError):
+        return False
+
+    tx_id = str(transaction.get("transactionId", "")).strip().upper()
+    tx_order_id = str(transaction.get("orderId", "")).strip().upper()
+    tx_order_type = str(transaction.get("orderType", "")).strip().upper()
+    cleaned_client_id = client_order_id.strip().upper()
+
+    is_incoming = tx_order_type in (
+        "C2C",
+        "PAY",
+        "CRYPTO_BOX",
+        "TRANSFER",
+        "1",
+    )
+    id_match = cleaned_client_id in (tx_id, tx_order_id)
+
+    # Overpayments are valid. Only reject an amount that is below what the
+    # order requires (allowing the existing one-cent rounding tolerance).
+    amount_sufficient = tx_amount + AMOUNT_TOLERANCE >= expected_amount
+    return id_match and is_incoming and amount_sufficient
+
+
+async def _fetch_pay_transactions(
+    start_ms: int,
+    end_ms: int,
+    api_key: str,
+    api_secret: str,
+) -> tuple[list[dict] | None, str | None]:
+    request_ms = int(time.time() * 1000)
+    query_string = (
+        f"timestamp={request_ms}"
+        f"&recvWindow={RECV_WINDOW}"
+        f"&startTime={start_ms}"
+        f"&endTime={end_ms}"
+        f"&limit={PAY_API_LIMIT}"
+    )
+    signature = _generate_signature(query_string, api_secret)
+    full_url = f"{BASE_URL}?{query_string}&signature={signature}"
+    headers = {
+        "X-MBX-APIKEY": api_key,
+        "Content-Type": "application/json",
+    }
+
+    client = await _get_http_client()
+    response = await client.get(full_url, headers=headers, timeout=5.0)
+    if response.status_code != 200:
+        return None, (
+            f"Erreur API Binance - HTTP {response.status_code} : "
+            f"{response.text[:200]}"
+        )
+
+    data = response.json()
+    if data.get("code") != "000000":
+        return None, (
+            f"Erreur API Binance - code {data.get('code')} : "
+            f"{data.get('message', 'Erreur inconnue')}"
+        )
+    return list(data.get("data") or []), None
 
 
 async def verify_payment(
@@ -58,92 +148,61 @@ async def verify_payment(
         logger.error(result["error"])
         return result
 
-    now_ms = int(time.time() * 1000)
-    start_ts = now_ms - SEARCH_WINDOW_MS
-
-    # Construire la query string avec les paramètres triés
-    query_string = (
-        f"timestamp={now_ms}"
-        f"&recvWindow={RECV_WINDOW}"
-        f"&startTimestamp={start_ts}"
-        f"&endTimestamp={now_ms}"
-    )
-    signature = _generate_signature(query_string, secret_to_use)
-    full_url = f"{BASE_URL}?{query_string}&signature={signature}"
-    headers = {
-        "X-MBX-APIKEY": key_to_use,
-        "Content-Type": "application/json",
-    }
-
     try:
-        client = await _get_http_client()
-        response = await client.get(full_url, headers=headers, timeout=5.0)
+        now_ms = int(time.time() * 1000)
+        ranges = _payment_search_ranges(now_ms)
+        pending_ranges = list(ranges)
+        request_count = 0
+        transaction_count = 0
 
-        # Vérifier le code HTTP
-        if response.status_code != 200:
-            result["error"] = (
-                f"Erreur API Binance — HTTP {response.status_code} : "
-                f"{response.text[:200]}"
+        while pending_ranges and request_count < PAY_MAX_API_REQUESTS:
+            start_ms, end_ms = pending_ranges.pop(0)
+            transactions, error = await _fetch_pay_transactions(
+                start_ms,
+                end_ms,
+                key_to_use,
+                secret_to_use,
             )
-            logger.error(result["error"])
-            return result
-
-        data = response.json()
-
-        # L'API retourne {"code": "000000", "data": [...]} en cas de succès
-        if data.get("code") != "000000":
-            result["error"] = (
-                f"Erreur API Binance — code {data.get('code')} : "
-                f"{data.get('message', 'Erreur inconnue')}"
-            )
-            logger.error(result["error"])
-            return result
-
-        transactions: list[dict] = data.get("data", [])
-
-        if not transactions:
-            result["error"] = {"en": "No transactions found in the period.", "ar": "لم يتم العثور على معاملات في هذه الفترة."}.get(lang, "Aucune transaction trouvée dans la période.")
-            return result
-
-        # Parcourir les transactions pour trouver une correspondance
-        for tx in transactions:
-            tx_amount = float(tx.get("amount", 0))
-            tx_id = str(tx.get("transactionId", ""))
-            tx_order_id = str(tx.get("orderId", ""))
-            tx_order_type = str(tx.get("orderType", "")).upper()
-
-            # Vérifier que c'est une réception / transfert entrant
-            # Les types courants : C2C, PAY, CRYPTO_BOX, etc.
-            is_incoming = tx_order_type in (
-                "C2C",
-                "PAY",
-                "CRYPTO_BOX",
-                "TRANSFER",
-                "1",  # Certaines versions de l'API utilisent des codes numériques
-            )
-
-            # Correspondance par identifiant (exacte)
-            cleaned_client_id = client_order_id.strip().upper()
-            id_match = (
-                cleaned_client_id == tx_id.upper()
-                or cleaned_client_id == tx_order_id.upper()
-            )
-
-            # Correspondance par montant (avec tolérance)
-            amount_match = abs(tx_amount - expected_amount) <= AMOUNT_TOLERANCE
-
-            if id_match and is_incoming and amount_match:
-                result["verified"] = True
-                result["transaction"] = tx
-                logger.info(
-                    "Paiement vérifié — Transaction ID : %s, montant : %s",
-                    tx_id,
-                    tx_amount,
-                )
+            request_count += 1
+            if error:
+                result["error"] = error
+                logger.error(result["error"])
                 return result
+
+            transactions = transactions or []
+            transaction_count += len(transactions)
+            for tx in transactions:
+                if _payment_matches(tx, client_order_id, expected_amount):
+                    result["verified"] = True
+                    result["transaction"] = tx
+                    logger.info(
+                        "Paiement verifie - Transaction ID: %s, montant: %s, requests: %d",
+                        tx.get("transactionId", ""),
+                        tx.get("amount", 0),
+                        request_count,
+                    )
+                    return result
+
+            # A full response may be truncated. Split that range and search the
+            # newest half first so recent customer payments remain fast.
+            if (
+                len(transactions) >= PAY_API_LIMIT
+                and end_ms - start_ms > PAY_MIN_SPLIT_WINDOW_MS
+                and request_count + len(pending_ranges) < PAY_MAX_API_REQUESTS
+            ):
+                midpoint = start_ms + (end_ms - start_ms) // 2
+                pending_ranges[0:0] = [
+                    (midpoint, end_ms),
+                    (start_ms, midpoint),
+                ]
 
         # Aucune correspondance trouvée
         result["error"] = {"en": f"No transaction found matching ID={client_order_id}, amount={expected_amount}", "ar": f"لم يتم العثور على معاملة مطابقة للمعرف={client_order_id} والمبلغ={expected_amount}"}.get(lang, f"Aucune transaction correspondante trouvée. Recherché : ID={client_order_id}, montant={expected_amount}")
+        logger.info(
+            "No matching Binance Pay transaction after %d request(s), %d row(s) scanned",
+            request_count,
+            transaction_count,
+        )
         return result
 
     except httpx.TimeoutException:
