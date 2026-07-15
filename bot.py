@@ -1160,7 +1160,7 @@ async def api_list_supplier_bots():
 
 @api.get("/api/supplier-bots/{supplier_code}", dependencies=[Depends(verify_api_key)])
 async def api_get_supplier_bot(supplier_code: str):
-    from database.suppliers import get_supplier_dashboard
+    from database.suppliers import get_supplier_dashboard, supplier_price_is_safe
     from services.supplier_api import SupplierAPIError, calculate_affordable_stock
     from services.supplier_registry import (
         get_supplier_balance,
@@ -1189,10 +1189,18 @@ async def api_get_supplier_bot(supplier_code: str):
                 )
                 balance = float(data["wallet"].get("balance") or 0)
                 for product in data.get("products", []):
-                    product["affordable_stock"] = calculate_affordable_stock(
-                        product.get("remote_stock"),
-                        product.get("base_price"),
-                        balance,
+                    product["affordable_stock"] = (
+                        calculate_affordable_stock(
+                            product.get("remote_stock"),
+                            product.get("base_price"),
+                            balance,
+                        )
+                        if supplier_price_is_safe(
+                            product.get("base_price"),
+                            str(product.get("effective_margin_type") or "inherit"),
+                            product.get("effective_margin_value") or 0,
+                        )
+                        else 0
                     )
             except SupplierAPIError as exc:
                 data["wallet_error"] = str(exc)

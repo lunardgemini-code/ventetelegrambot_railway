@@ -2045,7 +2045,8 @@ async def get_stock_count(product_id: int) -> int:
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT remote_stock, base_price FROM supplier_products WHERE local_product_id = ? AND enabled = 1 LIMIT 1",
+            "SELECT supplier_code, remote_stock, base_price, margin_type, margin_value "
+            "FROM supplier_products WHERE local_product_id = ? AND enabled = 1 LIMIT 1",
             (int(product_id),),
         )
         supplier_row = await cursor.fetchone()

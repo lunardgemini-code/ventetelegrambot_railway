@@ -29,9 +29,20 @@ def calculate_supplier_price(
 ) -> float:
     base = max(0.0, float(base_price or 0))
     value = max(0.0, float(margin_value or 0))
+    if margin_type == "sale_price":
+        return round(value, 2)
     if margin_type == "percent":
         return round(base * (1.0 + value / 100.0), 2)
     return round(base + value, 2)
+
+
+def supplier_price_is_safe(
+    base_price: float, margin_type: str, margin_value: float
+) -> bool:
+    """Fixed sale prices must stay strictly above the supplier cost."""
+    if margin_type != "sale_price":
+        return True
+    return float(margin_value or 0) > float(base_price or 0)
 
 
 async def _setting(db, key: str, default: str) -> str:
@@ -146,7 +157,7 @@ async def _category_id(db) -> int:
 async def _effective_margin(db, row: dict) -> tuple[str, float]:
     global_type, global_value = await _global_margin(db, row["supplier_code"])
     row_type = str(row.get("margin_type") or "inherit")
-    if row_type in ("fixed", "percent"):
+    if row_type in ("fixed", "percent", "sale_price"):
         return row_type, max(0.0, float(row.get("margin_value") or 0))
     return global_type, global_value
 
@@ -155,7 +166,7 @@ def _effective_margin_from_global(
     row: dict, global_type: str, global_value: float
 ) -> tuple[str, float]:
     row_type = str(row.get("margin_type") or "inherit")
-    if row_type in ("fixed", "percent"):
+    if row_type in ("fixed", "percent", "sale_price"):
         return row_type, max(0.0, float(row.get("margin_value") or 0))
     return global_type, global_value
 
@@ -203,10 +214,13 @@ async def _upsert_local_product(
     final_price = calculate_supplier_price(
         row["base_price"], margin_type, margin_value
     )
+    price_safe = supplier_price_is_safe(
+        row["base_price"], margin_type, margin_value
+    )
     descriptions = _product_descriptions(row)
     if supplier_enabled is None:
         supplier_enabled = await _supplier_enabled(db, row["supplier_code"])
-    is_active = 1 if row.get("enabled") and supplier_enabled else 0
+    is_active = 1 if row.get("enabled") and supplier_enabled and price_safe else 0
     local_id = row.get("local_product_id")
     if local_id:
         await db.execute(
@@ -392,6 +406,9 @@ async def get_supplier_dashboard(
                 final_price=calculate_supplier_price(
                     row["base_price"], margin_type, margin_value
                 ),
+                price_safe=supplier_price_is_safe(
+                    row["base_price"], margin_type, margin_value
+                ),
                 enabled=bool(row.get("enabled")),
             )
             row.pop("raw_payload", None)
@@ -503,7 +520,7 @@ async def update_supplier_product(
     from database.models import _clear_stock_cache, clear_products_cache
 
     supplier_code = _provider(supplier_code)["code"]
-    if margin_type not in ("inherit", "fixed", "percent"):
+    if margin_type not in ("inherit", "fixed", "percent", "sale_price"):
         raise ValueError("INVALID_MARGIN_TYPE")
     value = (
         None
@@ -634,7 +651,8 @@ async def supplier_stock_counts() -> dict[int, int]:
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT local_product_id, supplier_code, remote_stock, base_price "
+            "SELECT local_product_id, supplier_code, remote_stock, base_price, "
+            "margin_type, margin_value "
             "FROM supplier_products WHERE enabled = 1 "
             "AND local_product_id IS NOT NULL"
         )
@@ -653,10 +671,18 @@ async def supplier_stock_counts() -> dict[int, int]:
         except (SupplierAPIError, ValueError):
             balances[code] = 0.0
     return {
-        int(row["local_product_id"]): calculate_affordable_stock(
-            row.get("remote_stock"),
-            row.get("base_price"),
-            balances.get(row["supplier_code"], 0.0),
+        int(row["local_product_id"]): (
+            calculate_affordable_stock(
+                row.get("remote_stock"),
+                row.get("base_price"),
+                balances.get(row["supplier_code"], 0.0),
+            )
+            if supplier_price_is_safe(
+                row.get("base_price"),
+                str(row.get("margin_type") or "inherit"),
+                row.get("margin_value") or 0,
+            )
+            else 0
         )
         for row in rows
     }
@@ -674,6 +700,12 @@ async def supplier_available_stock(mapping: dict) -> int:
     from services.supplier_registry import get_supplier_balance
 
     supplier_code = str(mapping.get("supplier_code") or DEFAULT_SUPPLIER_CODE)
+    if not supplier_price_is_safe(
+        mapping.get("base_price"),
+        str(mapping.get("margin_type") or "inherit"),
+        mapping.get("margin_value") or 0,
+    ):
+        return 0
     try:
         units_per_usd = await get_supplier_units_per_usd(supplier_code)
         wallet = await get_supplier_balance(

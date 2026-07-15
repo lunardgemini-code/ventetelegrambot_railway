@@ -107,6 +107,34 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
     def test_fixed_and_percent_margins(self):
         self.assertEqual(calculate_supplier_price(2.5, "fixed", 1), 3.5)
         self.assertEqual(calculate_supplier_price(2.5, "percent", 20), 3.0)
+        self.assertEqual(calculate_supplier_price(2.5, "sale_price", 4), 4.0)
+
+    async def test_fixed_sale_price_hides_product_when_supplier_cost_reaches_it(self):
+        mapping = await update_supplier_product(
+            self.mapping_id,
+            enabled=True,
+            margin_type="sale_price",
+            margin_value=3.0,
+        )
+        product = await models.get_product(int(mapping["local_product_id"]))
+        self.assertEqual(float(product["price_usd"]), 3.0)
+        self.assertEqual(int(product["is_active"]), 1)
+
+        await sync_supplier_products(
+            [{**self.remote_product, "base_price": 3.0}]
+        )
+        product = await models.get_product(int(mapping["local_product_id"]))
+        dashboard = await get_supplier_dashboard()
+        self.assertEqual(int(product["is_active"]), 0)
+        self.assertFalse(dashboard["products"][0]["price_safe"])
+        with patch(
+            "services.supplier_api.get_canboso_balance",
+            AsyncMock(return_value={"balance": 100.0}),
+        ):
+            self.assertEqual(
+                await models.get_stock_count(int(mapping["local_product_id"])),
+                0,
+            )
 
     def test_affordable_stock_is_capped_by_supplier_wallet(self):
         self.assertEqual(calculate_affordable_stock(20, 4, 0), 0)
