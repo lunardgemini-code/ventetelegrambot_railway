@@ -2322,7 +2322,7 @@ async def api_update_product(product_id: int, data: dict):
             }
             has_content_updates = bool(descriptions) or any(
                 column in updates
-                for column in ("name", "emoji", "custom_emoji_id")
+                for column in ("name", "emoji", "custom_emoji_id", "warranty_days")
             )
             if has_content_updates:
                 await update_supplier_product_descriptions(
@@ -2334,6 +2334,11 @@ async def api_update_product(product_id: int, data: dict):
                     custom_emoji_id=(
                         updates.get("custom_emoji_id")
                         if "custom_emoji_id" in updates
+                        else None
+                    ),
+                    custom_warranty_days=(
+                        updates.get("warranty_days")
+                        if "warranty_days" in updates
                         else None
                     ),
                 )

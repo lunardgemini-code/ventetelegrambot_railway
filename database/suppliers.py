@@ -203,6 +203,13 @@ def _display_emoji(row: dict) -> str:
     )
 
 
+def _display_warranty_days(row: dict) -> int:
+    custom_value = row.get("custom_warranty_days")
+    if custom_value is not None:
+        return max(0, min(int(custom_value), 36500))
+    return max(0, min(int(row.get("warranty_days") or 0), 36500))
+
+
 async def _supplier_enabled(db, supplier_code: str) -> bool:
     # Preserve the established Canboso behavior. New providers remain hidden
     # until explicitly enabled by the administrator.
@@ -257,7 +264,7 @@ async def _upsert_local_product(
                 descriptions["vi"],
                 descriptions["ru"],
                 final_price,
-                int(row.get("warranty_days") or 0),
+                _display_warranty_days(row),
                 display_emoji,
                 custom_emoji_id or None,
                 row.get("image_url") or None,
@@ -283,7 +290,7 @@ async def _upsert_local_product(
             descriptions["vi"],
             descriptions["ru"],
             final_price,
-            int(row.get("warranty_days") or 0),
+            _display_warranty_days(row),
             display_emoji,
             custom_emoji_id or None,
             row.get("image_url") or None,
@@ -424,6 +431,7 @@ async def get_supplier_dashboard(
             row.update(
                 display_name=_display_name(row),
                 display_emoji=_display_emoji(row),
+                display_warranty_days=_display_warranty_days(row),
                 effective_margin_type=margin_type,
                 effective_margin_value=margin_value,
                 final_price=calculate_supplier_price(
@@ -602,6 +610,7 @@ async def update_supplier_product_descriptions(
     custom_name: str | None = None,
     custom_emoji: str | None = None,
     custom_emoji_id: str | None = None,
+    custom_warranty_days: int | None = None,
 ) -> dict:
     """Save content overrides and update the linked Telegram product."""
     from database.models import clear_products_cache
@@ -631,6 +640,10 @@ async def update_supplier_product_descriptions(
         if emoji_id and (not emoji_id.isdigit() or len(emoji_id) > 32):
             raise ValueError("INVALID_CUSTOM_EMOJI_ID")
         supplied_fields["custom_emoji_id"] = emoji_id
+    if custom_warranty_days is not None:
+        supplied_fields["custom_warranty_days"] = max(
+            0, min(int(custom_warranty_days), 36500)
+        )
     if not supplied_fields:
         raise ValueError("NO_PRODUCT_CUSTOMIZATIONS")
     db = await get_db()

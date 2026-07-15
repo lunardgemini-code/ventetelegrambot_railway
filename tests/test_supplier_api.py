@@ -379,6 +379,7 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
                 "custom_emoji_id": "5375312095346704820",
                 "description": "Custom English from Products tab",
                 "description_fr": "Traduction depuis Produits",
+                "warranty_days": 30,
                 "price_usd": 3.5,
             },
         )
@@ -388,8 +389,10 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(product["delivery_type"], "supplier_api")
         self.assertEqual(product["name"], "Edited from Products tab")
         self.assertEqual(product["description_fr"], "Traduction depuis Produits")
+        self.assertEqual(int(product["warranty_days"]), 30)
         self.assertEqual(mapping["custom_name"], "Edited from Products tab")
         self.assertEqual(mapping["description_fr"], "Traduction depuis Produits")
+        self.assertEqual(int(mapping["custom_warranty_days"]), 30)
 
         await sync_supplier_products(
             [{**self.remote_product, "name": "Supplier source name"}]
@@ -398,6 +401,7 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(product["delivery_type"], "supplier_api")
         self.assertEqual(product["name"], "Edited from Products tab")
         self.assertEqual(product["description_fr"], "Traduction depuis Produits")
+        self.assertEqual(int(product["warranty_days"]), 30)
 
     async def test_supplier_custom_emoji_id_must_be_numeric(self):
         with self.assertRaisesRegex(ValueError, "INVALID_CUSTOM_EMOJI_ID"):
@@ -480,11 +484,11 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
                 await db.close()
 
             self.assertTrue({f"description_{lang}" for lang in ("en", "fr", "ar", "zh", "vi", "ru")} <= columns)
-            self.assertTrue({"custom_name", "custom_emoji", "custom_emoji_id"} <= columns)
+            self.assertTrue({"custom_name", "custom_emoji", "custom_emoji_id", "custom_warranty_days"} <= columns)
             self.assertEqual(mapping["description_en"], "Edited English")
             self.assertEqual(mapping["description_fr"], "Français existant")
             self.assertEqual(mapping["description_ar"], "عربي موجود")
-            self.assertEqual(int(version["version"]), 6)
+            self.assertEqual(int(version["version"]), 7)
         finally:
             os.environ["DB_PATH"] = current_path
             db_module._sqlite_wal_configured = False
