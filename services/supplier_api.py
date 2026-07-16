@@ -13,12 +13,14 @@ from typing import Any
 import httpx
 
 from config import CANBOSO_API_AUTH_HEADER, CANBOSO_API_BASE_URL, CANBOSO_API_KEY
+from services.runtime_metrics import DependencyCircuitOpen, dependency_call
 
 
 logger = logging.getLogger(__name__)
 _CLIENT: httpx.AsyncClient | None = None
 _BALANCE_CACHE: tuple[float, dict] | None = None
 _BALANCE_LOCK = asyncio.Lock()
+_BALANCE_REFRESH_TASK: asyncio.Task | None = None
 _BALANCE_CACHE_SECONDS = max(10, int(os.environ.get("SUPPLIER_BALANCE_CACHE_SECONDS", "120")))
 
 
@@ -80,7 +82,8 @@ async def _request(method: str, path: str, **kwargs) -> Any:
     attempts = 2 if method.upper() == "GET" else 1
     for attempt in range(attempts):
         try:
-            response = await (await _client()).request(method, path, **kwargs)
+            async with dependency_call("supplier:canboso"):
+                response = await (await _client()).request(method, path, **kwargs)
             if response.status_code >= 400:
                 retryable = response.status_code == 429 or response.status_code >= 500
                 error = SupplierAPIError(
@@ -96,7 +99,13 @@ async def _request(method: str, path: str, **kwargs) -> Any:
             return response.json()
         except SupplierAPIError:
             raise
-        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        except DependencyCircuitOpen as exc:
+            raise SupplierAPIError(
+                "Canboso is temporarily unavailable",
+                retryable=True,
+                outcome_unknown=False,
+            ) from exc
+        except (httpx.TimeoutException, httpx.NetworkError, TimeoutError) as exc:
             if method.upper() == "GET" and attempt + 1 < attempts:
                 await asyncio.sleep(1)
                 continue
@@ -223,10 +232,18 @@ def normalize_balance(payload: Any) -> dict:
 
 
 async def get_canboso_balance(*, force: bool = False) -> dict:
-    global _BALANCE_CACHE
+    global _BALANCE_CACHE, _BALANCE_REFRESH_TASK
     now = time.monotonic()
-    if not force and _BALANCE_CACHE and now - _BALANCE_CACHE[0] < _BALANCE_CACHE_SECONDS:
-        return dict(_BALANCE_CACHE[1])
+    if not force and _BALANCE_CACHE:
+        cached = dict(_BALANCE_CACHE[1])
+        if now - _BALANCE_CACHE[0] < _BALANCE_CACHE_SECONDS:
+            return cached
+        cached["stale"] = True
+        if _BALANCE_REFRESH_TASK is None or _BALANCE_REFRESH_TASK.done():
+            _BALANCE_REFRESH_TASK = asyncio.create_task(
+                _refresh_canboso_balance(), name="refresh-canboso-balance"
+            )
+        return cached
 
     async with _BALANCE_LOCK:
         # Another request may have populated the cache while this caller waited.
@@ -245,6 +262,13 @@ async def get_canboso_balance(*, force: bool = False) -> dict:
             raise
         _BALANCE_CACHE = (time.monotonic(), dict(balance))
         return dict(balance)
+
+
+async def _refresh_canboso_balance() -> None:
+    try:
+        await get_canboso_balance(force=True)
+    except Exception as exc:
+        logger.warning("Background Canboso balance refresh failed: %s", exc)
 
 
 def invalidate_canboso_balance_cache() -> None:

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 from datetime import datetime, timedelta, timezone
 
 from database.db import get_db
@@ -16,6 +18,9 @@ MAX_SUPPLIER_DESCRIPTION_LENGTH = 3000
 MAX_SUPPLIER_NAME_LENGTH = 160
 MAX_SUPPLIER_EMOJI_LENGTH = 16
 MAX_SUPPLIER_IMAGE_URL_LENGTH = 2048
+SUPPLIER_STOCK_BALANCE_TIMEOUT_SECONDS = max(
+    0.25, float(os.getenv("SUPPLIER_STOCK_BALANCE_TIMEOUT_SECONDS", "2"))
+)
 
 
 def _provider(supplier_code: str) -> dict:
@@ -912,13 +917,19 @@ async def supplier_stock_counts() -> dict[int, int]:
         }
     finally:
         await db.close()
-    balances: dict[str, float] = {}
-    for code, rate in rates.items():
+    async def read_balance(code: str, rate: float) -> tuple[str, float]:
         try:
-            wallet = await get_supplier_balance(code, units_per_usd=rate)
-            balances[code] = float(wallet.get("balance") or 0)
-        except (SupplierAPIError, ValueError):
-            balances[code] = 0.0
+            wallet = await asyncio.wait_for(
+                get_supplier_balance(code, units_per_usd=rate),
+                timeout=SUPPLIER_STOCK_BALANCE_TIMEOUT_SECONDS,
+            )
+            return code, float(wallet.get("balance") or 0)
+        except (SupplierAPIError, ValueError, asyncio.TimeoutError):
+            return code, 0.0
+
+    balances = dict(await asyncio.gather(*(
+        read_balance(code, rate) for code, rate in rates.items()
+    )))
     return {
         int(row["local_product_id"]): (
             calculate_affordable_stock(
@@ -957,11 +968,12 @@ async def supplier_available_stock(mapping: dict) -> int:
         return 0
     try:
         units_per_usd = await get_supplier_units_per_usd(supplier_code)
-        wallet = await get_supplier_balance(
-            supplier_code, units_per_usd=units_per_usd
+        wallet = await asyncio.wait_for(
+            get_supplier_balance(supplier_code, units_per_usd=units_per_usd),
+            timeout=SUPPLIER_STOCK_BALANCE_TIMEOUT_SECONDS,
         )
         balance = float(wallet.get("balance") or 0)
-    except (SupplierAPIError, ValueError):
+    except (SupplierAPIError, ValueError, asyncio.TimeoutError):
         return 0
     return calculate_affordable_stock(
         mapping.get("remote_stock"), mapping.get("base_price"), balance

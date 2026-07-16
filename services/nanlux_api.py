@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 
 from config import NANLUX_API_AUTH_HEADER, NANLUX_API_BASE_URL, NANLUX_API_KEY
+from services.runtime_metrics import DependencyCircuitOpen, dependency_call
 from services.supplier_api import SupplierAPIError
 
 
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 _CLIENT: httpx.AsyncClient | None = None
 _BALANCE_CACHE: tuple[float, dict] | None = None
 _BALANCE_LOCK = asyncio.Lock()
+_BALANCE_REFRESH_TASK: asyncio.Task | None = None
 _BALANCE_CACHE_SECONDS = max(
     10, int(os.environ.get("SUPPLIER_BALANCE_CACHE_SECONDS", "120"))
 )
@@ -73,7 +75,8 @@ async def _request(method: str, path: str, **kwargs) -> Any:
     attempts = 2 if method == "GET" else 1
     for attempt in range(attempts):
         try:
-            response = await (await _client()).request(method, path, **kwargs)
+            async with dependency_call("supplier:nanlux"):
+                response = await (await _client()).request(method, path, **kwargs)
             if response.status_code >= 400:
                 retryable = response.status_code == 429 or response.status_code >= 500
                 error = SupplierAPIError(
@@ -88,7 +91,13 @@ async def _request(method: str, path: str, **kwargs) -> Any:
             return response.json()
         except SupplierAPIError:
             raise
-        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        except DependencyCircuitOpen as exc:
+            raise SupplierAPIError(
+                "MMO NanLux is temporarily unavailable",
+                retryable=True,
+                outcome_unknown=False,
+            ) from exc
+        except (httpx.TimeoutException, httpx.NetworkError, TimeoutError) as exc:
             if method == "GET" and attempt + 1 < attempts:
                 await asyncio.sleep(1)
                 continue
@@ -179,12 +188,20 @@ def normalize_nanlux_balance(payload: Any, units_per_usd: float) -> dict:
 
 
 async def get_nanlux_balance(units_per_usd: float, *, force: bool = False) -> dict:
-    global _BALANCE_CACHE
+    global _BALANCE_CACHE, _BALANCE_REFRESH_TASK
     now = time.monotonic()
     rate = max(1.0, float(units_per_usd or 0))
-    if not force and _BALANCE_CACHE and now - _BALANCE_CACHE[0] < _BALANCE_CACHE_SECONDS:
+    if not force and _BALANCE_CACHE:
         cached = dict(_BALANCE_CACHE[1])
-        return normalize_nanlux_balance({"success": True, "data": cached}, rate)
+        normalized = normalize_nanlux_balance({"success": True, "data": cached}, rate)
+        if now - _BALANCE_CACHE[0] < _BALANCE_CACHE_SECONDS:
+            return normalized
+        normalized["stale"] = True
+        if _BALANCE_REFRESH_TASK is None or _BALANCE_REFRESH_TASK.done():
+            _BALANCE_REFRESH_TASK = asyncio.create_task(
+                _refresh_nanlux_balance(rate), name="refresh-nanlux-balance"
+            )
+        return normalized
     async with _BALANCE_LOCK:
         now = time.monotonic()
         if not force and _BALANCE_CACHE and now - _BALANCE_CACHE[0] < _BALANCE_CACHE_SECONDS:
@@ -206,6 +223,13 @@ async def get_nanlux_balance(units_per_usd: float, *, force: bool = False) -> di
             raise
         _BALANCE_CACHE = (time.monotonic(), dict(raw_balance))
         return balance
+
+
+async def _refresh_nanlux_balance(rate: float) -> None:
+    try:
+        await get_nanlux_balance(rate, force=True)
+    except Exception as exc:
+        logger.warning("Background MMO NanLux balance refresh failed: %s", exc)
 
 
 def invalidate_nanlux_balance_cache() -> None:

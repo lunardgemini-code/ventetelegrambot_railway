@@ -14,7 +14,7 @@
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
     <link rel="stylesheet" href="style.css?v=20260715-supplier-image">
-    <link rel="stylesheet" href="revamp.css?v=20260715-supplier-stats">
+    <link rel="stylesheet" href="revamp.css?v=20260716-autoscale">
 </head>
 <body>
     <!-- Login Screen -->
@@ -157,6 +157,32 @@
                     </div>
                     <p id="perf-slowest-action" class="performance-diagnosis">Action la plus lente : collecte...</p>
                     <p id="perf-diagnosis" class="performance-diagnosis">Collecte des premieres mesures...</p>
+                    <div class="autoscale-console" aria-labelledby="autoscale-title">
+                        <div class="autoscale-heading">
+                            <div><p class="eyebrow">Capacite webhook</p><h4 id="autoscale-title">Autoscaling</h4></div>
+                            <span id="autoscale-state" class="status-badge neutral">Observation</span>
+                        </div>
+                        <div class="autoscale-toolbar">
+                            <div class="segmented-control" id="autoscale-mode" aria-label="Mode autoscaling">
+                                <button type="button" data-autoscale-mode="auto" class="active">Auto</button>
+                                <button type="button" data-autoscale-mode="manual">Manuel</button>
+                                <button type="button" data-autoscale-mode="off">Arret</button>
+                            </div>
+                            <label class="autoscale-toggle"><input id="autoscale-observe" type="checkbox" checked><span>Observation uniquement</span></label>
+                            <label>Min <input id="autoscale-min" type="number" min="1" max="64" value="8"></label>
+                            <label>Max <input id="autoscale-max" type="number" min="1" max="64" value="20"></label>
+                            <button id="autoscale-save" type="button" class="btn-secondary btn-sm"><i class="fa-solid fa-floppy-disk"></i><span>Enregistrer</span></button>
+                        </div>
+                        <div class="autoscale-manual-actions" aria-label="Reglage manuel des workers">
+                            <button type="button" class="btn-secondary btn-sm" data-worker-adjust="-1" title="Retirer un worker inactif"><i class="fa-solid fa-minus"></i></button>
+                            <button type="button" class="btn-secondary btn-sm" data-worker-reset="8"><i class="fa-solid fa-rotate-left"></i><span>Retour a 8</span></button>
+                            <button type="button" class="btn-secondary btn-sm" data-worker-adjust="1" title="Ajouter un worker"><i class="fa-solid fa-plus"></i></button>
+                            <button id="autoscale-stop" type="button" class="btn-danger btn-sm"><i class="fa-solid fa-stop"></i><span>Arret autoscaling</span></button>
+                            <small id="autoscale-next">Prochaine analyse : -</small>
+                        </div>
+                        <div class="autoscale-chart-wrap"><canvas id="autoscale-chart"></canvas></div>
+                        <div id="autoscale-history" class="autoscale-history"><p class="empty-state">Aucune decision enregistree.</p></div>
+                    </div>
                 </section>
                 <div class="operations-grid">
                     <section class="dashboard-col glass-panel action-center" aria-labelledby="action-center-title">
@@ -1388,7 +1414,7 @@
 </div>
 
 
-<script defer src="app.js?v=20260715-supplier-stats"></script>
+<script defer src="app.js?v=20260716-autoscale"></script>
     <script>
     /* ── Mobile Sidebar Toggle ── */
     (function() {

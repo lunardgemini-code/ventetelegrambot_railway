@@ -18,7 +18,7 @@ from config import PAYMENT_TIMEOUT_SECONDS
 from .db import get_db, is_transient_db_connection_error
 
 logger = logging.getLogger(__name__)
-_CRITICAL_DB_CONCURRENCY = max(1, int(os.environ.get("CRITICAL_DB_CONCURRENCY", "4")))
+_CRITICAL_DB_CONCURRENCY = max(1, int(os.environ.get("CRITICAL_DB_CONCURRENCY", "6")))
 _CRITICAL_DB_SEMAPHORE = None
 _CRITICAL_DB_SEMAPHORE_LOOP = None
 _NOWPAYMENTS_EXPIRY_LOCK = None

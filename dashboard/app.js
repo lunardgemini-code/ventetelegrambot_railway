@@ -190,7 +190,8 @@ const state = {
     paymentReviewCategory:'all', paymentReviewIncludeResolved:false, paymentReviewItems:[],
     dynamicPriceChart:null, dynamicSimulationChart:null,
     productStats:[], productMomentum:null, productMomentumSelected:[], deadProductAlerts:[], supplierBot:null, supplierBots:[], activeSupplierCode:'canboso', supplierView:'catalog', supplierStats:null, supplierStatsDays:30, supplierStatsChart:null,
-    gameProvider:null, gameCatalog:[], gameMatches:[], gameCompetitions:[], gameView:'catalog', currentGameMatch:null
+    gameProvider:null, gameCatalog:[], gameMatches:[], gameCompetitions:[], gameView:'catalog', currentGameMatch:null,
+    autoscaleChart:null, autoscaleStatus:null
 };
 
 function $(id) { return document.getElementById(id); }
@@ -211,6 +212,10 @@ const DOM = {
     perfQueue:$('perf-queue'), perfQueueWait:$('perf-queue-wait'), perfProcessing:$('perf-processing'),
     perfThroughput:$('perf-throughput'), perfDatabase:$('perf-database'), perfDbErrors:$('perf-db-errors'),
     perfDiagnosis:$('perf-diagnosis'), btnExportPerformance:$('btn-export-performance'),
+    autoscaleState:$('autoscale-state'), autoscaleMode:$('autoscale-mode'), autoscaleObserve:$('autoscale-observe'),
+    autoscaleMin:$('autoscale-min'), autoscaleMax:$('autoscale-max'), autoscaleSave:$('autoscale-save'),
+    autoscaleStop:$('autoscale-stop'), autoscaleNext:$('autoscale-next'), autoscaleChart:$('autoscale-chart'),
+    autoscaleHistory:$('autoscale-history'),
     dashboardRange:$('dashboard-range'), pageContext:$('page-context'), toastRegion:$('toast-region'),
     badgeOrders:$('badge-orders'), badgePaymentReview:$('badge-payment-review'), badgeActivations:$('badge-activations'), badgeTickets:$('badge-tickets'), apiStatusBadge:$('api-status-badge'),
     productsTableBody:$('products-table-body'),
@@ -409,6 +414,11 @@ function setupEvents() {
     DOM.btnAutoRefresh.addEventListener('click', toggleAutoRefresh);
     $('btn-export').addEventListener('click', () => showModal($('exportModal')));
     if (DOM.btnExportPerformance) DOM.btnExportPerformance.addEventListener('click', exportPerformanceDiagnostic);
+    if (DOM.autoscaleSave) DOM.autoscaleSave.addEventListener('click', saveAutoscaleConfiguration);
+    if (DOM.autoscaleStop) DOM.autoscaleStop.addEventListener('click', stopAutoscaling);
+    $$('[data-autoscale-mode]').forEach(button => button.addEventListener('click', () => selectAutoscaleMode(button.dataset.autoscaleMode)));
+    $$('[data-worker-adjust]').forEach(button => button.addEventListener('click', () => adjustWebhookWorkers(Number(button.dataset.workerAdjust || 0))));
+    $$('[data-worker-reset]').forEach(button => button.addEventListener('click', () => setManualWebhookWorkers(Number(button.dataset.workerReset || 8))));
     if (DOM.btnCreateResellerKey) DOM.btnCreateResellerKey.addEventListener('click', createResellerKey);
     if (DOM.btnSupplierSync) DOM.btnSupplierSync.addEventListener('click', syncSupplierBot);
     if (DOM.supplierSettingsForm) DOM.supplierSettingsForm.addEventListener('submit', saveSupplierSettings);
@@ -1296,6 +1306,9 @@ async function loadPerformanceMetrics() {
         single_user_backlog:['Utilisateur actif', "Un utilisateur envoie des actions plus vite que sa file ordonnee ne peut les traiter. Les autres workers restent disponibles.", 'warning'],
         database:['Turso', 'Turso limite le debit. Ajouter des workers augmenterait la contention.', 'danger'],
         external_api_or_handler:['API externe', 'Un handler ou une API externe ralentit le traitement. Ajouter des workers ne corrigerait pas la cause.', 'warning'],
+        external_api:['API externe', 'Une dependance externe ralentit le traitement. La croissance des workers est bloquee.', 'warning'],
+        event_loop:['Boucle chargee', "La boucle principale repond en retard. L'autoscaling est bloque.", 'danger'],
+        memory:['Memoire', "La memoire approche la limite de securite. L'autoscaling est bloque.", 'danger'],
         insufficient_data:['Collecte', 'Au moins 20 actions sont necessaires pour une recommandation fiable.', 'neutral']
     };
     const [statusLabel, diagnosisText, statusClass] = labels[diagnosis.bottleneck] || labels.insufficient_data;
@@ -1322,6 +1335,99 @@ async function loadPerformanceMetrics() {
         DOM.perfSlowestAction.textContent = `${recentText} | ${historyText}`;
     }
     DOM.perfDiagnosis.textContent = diagnosisText;
+    renderAutoscaling(data.autoscaling || {});
+}
+
+function selectAutoscaleMode(mode) {
+    $$('[data-autoscale-mode]').forEach(button => button.classList.toggle('active', button.dataset.autoscaleMode === mode));
+    if (state.autoscaleStatus) state.autoscaleStatus.mode = mode;
+}
+
+function renderAutoscaling(autoscaling) {
+    state.autoscaleStatus = autoscaling;
+    const mode = autoscaling.mode || 'off';
+    selectAutoscaleMode(mode);
+    if (DOM.autoscaleObserve) DOM.autoscaleObserve.checked = Boolean(autoscaling.observe_only);
+    if (DOM.autoscaleMin) DOM.autoscaleMin.value = Number(autoscaling.min_workers || 8);
+    if (DOM.autoscaleMax) DOM.autoscaleMax.value = Number(autoscaling.max_workers || 20);
+    if (DOM.autoscaleState) {
+        const observed = autoscaling.observe_only ? 'Observation' : (autoscaling.state || 'CALM');
+        DOM.autoscaleState.textContent = `${observed} - ${Number(autoscaling.current_workers || 0)} worker(s)`;
+        DOM.autoscaleState.className = `status-badge ${autoscaling.bottleneck && !['healthy','insufficient_data'].includes(autoscaling.bottleneck) ? 'warning' : 'success'}`;
+    }
+    if (DOM.autoscaleNext) {
+        const seconds = Math.max(0, Math.round(Number(autoscaling.next_analysis_at || 0) - Date.now() / 1000));
+        DOM.autoscaleNext.textContent = `Prochaine analyse : ${seconds}s - proposition ${Number(autoscaling.proposed_workers || autoscaling.current_workers || 0)}`;
+    }
+    renderAutoscaleChart(autoscaling.timeline || []);
+    if (DOM.autoscaleHistory) {
+        const decisions = autoscaling.decisions || [];
+        DOM.autoscaleHistory.innerHTML = decisions.length ? decisions.slice(0, 8).map(item => `
+            <div class="autoscale-history-row">
+                <strong>${escapeHtml(item.state || 'CALM')}</strong>
+                <span>${Number(item.workers_before || 0)} &rarr; ${Number(item.observe_only ? item.proposed_workers : item.workers_after || 0)}</span>
+                <span>${escapeHtml(item.bottleneck || 'healthy')}</span>
+                <small>${escapeHtml(formatDate(item.created_at))}</small>
+            </div>`).join('') : '<p class="empty-state">Aucune decision enregistree.</p>';
+    }
+}
+
+function renderAutoscaleChart(timeline) {
+    if (!DOM.autoscaleChart || typeof Chart === 'undefined') return;
+    const labels = timeline.map(item => new Date(Number(item.timestamp || 0) * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}));
+    const data = {
+        labels,
+        datasets:[
+            {label:'Workers', data:timeline.map(item => Number(item.workers || 0)), borderColor:'#22c55e', yAxisID:'workers', tension:.25, pointRadius:1},
+            {label:'File', data:timeline.map(item => Number(item.queue || 0)), borderColor:'#f59e0b', yAxisID:'workers', tension:.25, pointRadius:1},
+            {label:'Attente p95', data:timeline.map(item => Number(item.queue_p95_ms || 0)), borderColor:'#ef4444', yAxisID:'latency', tension:.25, pointRadius:1},
+            {label:'Turso p95', data:timeline.map(item => Number(item.database_p95_ms || 0)), borderColor:'#3b82f6', yAxisID:'latency', tension:.25, pointRadius:1}
+        ]
+    };
+    if (state.autoscaleChart) {
+        state.autoscaleChart.data = data;
+        state.autoscaleChart.update('none');
+        return;
+    }
+    state.autoscaleChart = new Chart(DOM.autoscaleChart, {
+        type:'line', data,
+        options:{responsive:true, maintainAspectRatio:false, animation:false, interaction:{mode:'index',intersect:false}, scales:{workers:{beginAtZero:true,position:'left'},latency:{beginAtZero:true,position:'right',grid:{drawOnChartArea:false}}}}
+    });
+}
+
+async function saveAutoscaleConfiguration() {
+    const mode = state.autoscaleStatus?.mode || 'auto';
+    const minimum = Number(DOM.autoscaleMin?.value || 8);
+    const maximum = Number(DOM.autoscaleMax?.value || 20);
+    if (maximum < minimum) return showToast('Le maximum doit etre superieur ou egal au minimum.', 'error');
+    try {
+        const result = await apiCall('/api/performance/autoscaling', {method:'POST', body:JSON.stringify({mode, observe_only:Boolean(DOM.autoscaleObserve?.checked), min_workers:minimum, max_workers:maximum})});
+        renderAutoscaling(result);
+        showToast('Configuration autoscaling enregistree.', 'success');
+    } catch (error) {
+        showToast(error.message || "Impossible d'enregistrer l'autoscaling.", 'error');
+    }
+}
+
+async function setManualWebhookWorkers(target) {
+    try {
+        const result = await apiCall('/api/performance/autoscaling', {method:'POST', body:JSON.stringify({mode:'manual', target_workers:target})});
+        renderAutoscaling(result);
+        showToast(`Workers regles sur ${Number(result.current_workers || target)}.`, 'success');
+    } catch (error) { showToast(error.message || 'Reglage impossible.', 'error'); }
+}
+
+function adjustWebhookWorkers(delta) {
+    const current = Number(state.autoscaleStatus?.current_workers || 8);
+    return setManualWebhookWorkers(current + Number(delta || 0));
+}
+
+async function stopAutoscaling() {
+    try {
+        const result = await apiCall('/api/performance/autoscaling', {method:'POST', body:JSON.stringify({mode:'off'})});
+        renderAutoscaling(result);
+        showToast('Autoscaling arrete. Les workers actuels restent actifs.', 'success');
+    } catch (error) { showToast(error.message || "Impossible d'arreter l'autoscaling.", 'error'); }
 }
 
 async function exportPerformanceDiagnostic() {

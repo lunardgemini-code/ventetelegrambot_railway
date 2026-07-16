@@ -11,6 +11,7 @@ import time
 import httpx
 
 from config import BINANCE_API_KEY, BINANCE_API_SECRET
+from services.runtime_metrics import dependency_call
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +115,8 @@ async def _fetch_pay_transactions(
     }
 
     client = await _get_http_client()
-    response = await client.get(full_url, headers=headers, timeout=5.0)
+    async with dependency_call("binance", circuit_breaker=False):
+        response = await client.get(full_url, headers=headers, timeout=5.0)
     if response.status_code != 200:
         return None, (
             f"Erreur API Binance - HTTP {response.status_code} : "
@@ -205,7 +207,7 @@ async def verify_payment(
         )
         return result
 
-    except httpx.TimeoutException:
+    except (httpx.TimeoutException, TimeoutError):
         result["error"] = {"en": "Timeout connecting to Binance API.", "ar": "انتهت مهلة الاتصال بـ Binance API."}.get(lang, "Délai d'attente dépassé lors de la connexion à l'API Binance.")
         logger.exception(result["error"])
         return result
@@ -257,7 +259,8 @@ async def verify_internal_transfer(
 
     try:
         client = await _get_http_client()
-        response = await client.get(full_url, headers=headers, timeout=10.0)
+        async with dependency_call("binance", circuit_breaker=False):
+            response = await client.get(full_url, headers=headers, timeout=10.0)
 
         if response.status_code != 200:
             result["error"] = f"Erreur API Binance — HTTP {response.status_code} : {response.text[:200]}"
@@ -297,7 +300,7 @@ async def verify_internal_transfer(
         result["error"] = {"en": f"No internal transfer found matching ID={client_tx_id}.", "ar": f"لم يتم العثور على تحويل داخلي مطابق للمعرف={client_tx_id}."}.get(lang, f"Aucun transfert interne correspondant trouvé pour l'ID={client_tx_id}.")
         return result
 
-    except httpx.TimeoutException:
+    except (httpx.TimeoutException, TimeoutError):
         result["error"] = {"en": "Timeout connecting to Binance API.", "ar": "انتهت مهلة الاتصال بـ Binance API."}.get(lang, "Délai d'attente dépassé lors de la connexion à l'API Binance.")
         logger.exception(result["error"])
         return result

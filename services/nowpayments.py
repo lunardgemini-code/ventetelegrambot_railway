@@ -13,6 +13,8 @@ from typing import Any
 
 import httpx
 
+from services.runtime_metrics import DependencyCircuitOpen, dependency_call
+
 from config import (
     NOWPAYMENTS_API_KEY,
     NOWPAYMENTS_BASE_URL,
@@ -157,7 +159,8 @@ async def _request(method: str, path: str, *, retry_get: bool = True, **kwargs) 
     last_error: Exception | None = None
     for attempt in range(attempts):
         try:
-            response = await (await _client()).request(method, path, **kwargs)
+            async with dependency_call("nowpayments"):
+                response = await (await _client()).request(method, path, **kwargs)
             if response.status_code >= 400:
                 retryable = response.status_code == 429 or response.status_code >= 500
                 error = NowPaymentsError(
@@ -176,7 +179,12 @@ async def _request(method: str, path: str, *, retry_get: bool = True, **kwargs) 
             return data
         except NowPaymentsError:
             raise
-        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        except DependencyCircuitOpen as exc:
+            raise NowPaymentsError(
+                "NOWPayments is temporarily unavailable",
+                retryable=True,
+            ) from exc
+        except (httpx.TimeoutException, httpx.NetworkError, TimeoutError) as exc:
             last_error = exc
             if attempt + 1 < attempts:
                 await asyncio.sleep(1)

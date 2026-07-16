@@ -1545,5 +1545,43 @@ async def init_db() -> None:
             await db.commit()
             current_version = 9
 
+        if 9 <= current_version < 10:
+            version_ten_statements = [
+                """CREATE TABLE IF NOT EXISTS webhook_autoscale_settings (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    mode TEXT NOT NULL DEFAULT 'auto',
+                    observe_only INTEGER NOT NULL DEFAULT 1,
+                    min_workers INTEGER NOT NULL DEFAULT 8,
+                    max_workers INTEGER NOT NULL DEFAULT 20,
+                    manual_workers INTEGER NOT NULL DEFAULT 8,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )""",
+                """CREATE TABLE IF NOT EXISTS webhook_autoscale_decisions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    state TEXT NOT NULL,
+                    bottleneck TEXT NOT NULL,
+                    workers_before INTEGER NOT NULL,
+                    workers_after INTEGER NOT NULL,
+                    proposed_workers INTEGER NOT NULL,
+                    reason TEXT NOT NULL DEFAULT '',
+                    observe_only INTEGER NOT NULL DEFAULT 1,
+                    next_analysis_seconds INTEGER NOT NULL DEFAULT 60,
+                    metrics_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )""",
+                "CREATE INDEX IF NOT EXISTS idx_webhook_autoscale_decisions_created ON webhook_autoscale_decisions(created_at DESC)",
+                """INSERT OR IGNORE INTO webhook_autoscale_settings
+                   (id, mode, observe_only, min_workers, max_workers, manual_workers)
+                   VALUES (1, 'auto', 1, 8, 20, 8)""",
+            ]
+            for sql in version_ten_statements:
+                await db.execute(sql)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (10, ?)",
+                ("webhook_worker_autoscaling",),
+            )
+            await db.commit()
+            current_version = 10
+
     finally:
         await db.close()

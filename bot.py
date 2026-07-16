@@ -20,7 +20,7 @@ import sys
 import threading
 import math
 import re
-from collections import deque
+from collections import Counter, deque
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlparse
 from fastapi import FastAPI, Header, HTTPException, Depends, Query, status, Request, Response
@@ -497,6 +497,14 @@ class GameMatchActionRequest(BaseModel):
     confirmation: str = Field(..., min_length=3, max_length=120)
 
 
+class WebhookAutoscaleConfigRequest(BaseModel):
+    mode: str | None = Field(None, pattern="^(auto|manual|off)$")
+    observe_only: bool | None = None
+    min_workers: int | None = Field(None, ge=1, le=64)
+    max_workers: int | None = Field(None, ge=1, le=64)
+    target_workers: int | None = Field(None, ge=1, le=64)
+
+
 @api.get("/health/live")
 async def liveness_check():
     return {"status": "ok"}
@@ -567,7 +575,66 @@ async def api_performance_metrics():
     except Exception as exc:
         logger.debug("Performance history is temporarily unavailable: %s", exc)
         snapshot["history_24h"] = {"hours": 24, "actions": [], "available": False}
+    if webhook_worker_manager is not None:
+        snapshot["autoscaling"] = webhook_worker_manager.status()
+    else:
+        snapshot["autoscaling"] = {
+            "mode": "off",
+            "observe_only": True,
+            "enabled": False,
+            "state": "CALM",
+            "bottleneck": "insufficient_data",
+            "current_workers": 0,
+            "min_workers": WEBHOOK_WORKERS,
+            "max_workers": WEBHOOK_WORKERS,
+            "proposed_workers": WEBHOOK_WORKERS,
+            "timeline": [],
+        }
+    try:
+        from database.jobs import list_webhook_autoscale_decisions
+
+        snapshot["autoscaling"]["decisions"] = await list_webhook_autoscale_decisions(30)
+    except Exception as exc:
+        logger.debug("Autoscaling history is temporarily unavailable: %s", exc)
+        snapshot["autoscaling"]["decisions"] = []
     return snapshot
+
+
+@api.post("/api/performance/autoscaling", dependencies=[Depends(verify_api_key)])
+async def api_configure_webhook_autoscaling(data: WebhookAutoscaleConfigRequest):
+    if webhook_worker_manager is None:
+        raise HTTPException(status_code=503, detail="Webhook workers are not ready")
+    current = webhook_worker_manager.status()
+    minimum = data.min_workers if data.min_workers is not None else current["min_workers"]
+    maximum = data.max_workers if data.max_workers is not None else current["max_workers"]
+    if maximum < minimum:
+        raise HTTPException(status_code=400, detail="max_workers must be greater than or equal to min_workers")
+    mode = data.mode or current["mode"]
+    observe_only = data.observe_only if data.observe_only is not None else current["observe_only"]
+    target = data.target_workers
+    try:
+        result = await webhook_worker_manager.configure(
+            mode=mode,
+            min_workers=minimum,
+            max_workers=maximum,
+            target_workers=target,
+            observe_only=observe_only,
+        )
+        from database.jobs import update_webhook_autoscale_settings
+
+        await update_webhook_autoscale_settings(
+            mode=result["mode"],
+            observe_only=result["observe_only"],
+            min_workers=result["min_workers"],
+            max_workers=result["max_workers"],
+            manual_workers=result["current_workers"],
+        )
+        from database.jobs import list_webhook_autoscale_decisions
+
+        result["decisions"] = await list_webhook_autoscale_decisions(30)
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 def _log_nowpayments_task_result(task: asyncio.Task) -> None:
@@ -3687,6 +3754,7 @@ webhook_update_queue: asyncio.Queue | None = None
 webhook_worker_tasks: list[asyncio.Task] = []
 WEBHOOK_WORKERS = _env_int("WEBHOOK_WORKERS", 8, minimum=1)
 WEBHOOK_QUEUE_MAX = _env_int("WEBHOOK_QUEUE_MAX", 1000, minimum=10)
+WEBHOOK_USER_QUEUE_MAX = _env_int("WEBHOOK_USER_QUEUE_MAX", 12, minimum=2)
 SUBSCRIPTION_CACHE_SECONDS = _env_int("SUBSCRIPTION_CACHE_SECONDS", 3600, minimum=60)
 NOWPAYMENTS_POLL_BATCH = _env_int("NOWPAYMENTS_POLL_BATCH", 5, minimum=1)
 _webhook_metrics_started_at = time.monotonic()
@@ -3705,7 +3773,26 @@ _WEBHOOK_START_DEBOUNCE_SECONDS = 2.0
 _webhook_action_samples = deque(maxlen=10000)
 _webhook_active_workers = 0
 _webhook_peak_active_workers = 0
+_webhook_worker_states: dict[int, str] = {}
+_webhook_worker_activity_samples = deque(maxlen=10000)
+_webhook_queued_by_key: Counter[str] = Counter()
 _webhook_pending_hourly: dict[tuple[str, str], dict[str, float | int | str]] = {}
+webhook_worker_manager = None
+
+
+def _configured_webhook_workers() -> int:
+    if webhook_worker_manager is not None:
+        count = int(webhook_worker_manager.worker_count)
+        if count > 0:
+            return count
+    return WEBHOOK_WORKERS
+
+
+def _record_webhook_worker_activity() -> None:
+    configured = max(1, _configured_webhook_workers())
+    _webhook_worker_activity_samples.append(
+        (time.monotonic(), _webhook_active_workers, configured)
+    )
 
 
 def _record_persistent_action_sample(action: str, duration_seconds: float, succeeded: bool) -> None:
@@ -3827,6 +3914,7 @@ def _current_webhook_backlog() -> int:
 
 def _webhook_performance_snapshot() -> dict:
     from database.db import get_db_performance_snapshot
+    from services.runtime_metrics import get_runtime_snapshot
 
     now = time.monotonic()
     cutoff_5m = now - 300
@@ -3842,6 +3930,23 @@ def _webhook_performance_snapshot() -> dict:
     deduplicated = sum(1 for timestamp in _webhook_deduplicated_times if timestamp >= cutoff_5m)
     db_metrics = get_db_performance_snapshot(300)
     db_write_metrics = db_metrics.get("write_serialization") or {}
+    runtime_metrics = get_runtime_snapshot(300)
+    external_metrics = runtime_metrics.get("external_apis") or {}
+    event_loop_metrics = runtime_metrics.get("event_loop") or {}
+    memory_metrics = runtime_metrics.get("memory") or {}
+    configured_workers = max(1, _configured_webhook_workers())
+    activity_samples = [
+        sample for sample in _webhook_worker_activity_samples if sample[0] >= cutoff_1m
+    ]
+    utilizations = [
+        min(1.0, max(0.0, sample[1] / max(1, sample[2])))
+        for sample in activity_samples
+    ]
+    utilization_1m = (
+        sum(utilizations) / len(utilizations)
+        if utilizations
+        else min(1.0, _webhook_active_workers / configured_workers)
+    )
     observed_1m = max(1.0, min(60.0, now - _webhook_metrics_started_at))
     throughput_per_minute = len(one_minute) * 60.0 / observed_1m
     average_processing = sum(processing) / len(processing) if processing else 0.0
@@ -3850,6 +3955,21 @@ def _webhook_performance_snapshot() -> dict:
     user_wait_p95_ms = _metrics_percentile(user_waits, 0.95) * 1000
     processing_p95_ms = _metrics_percentile(processing, 0.95) * 1000
     max_queue = max(queue_depths, default=0)
+    midpoint = cutoff_5m + 150
+    older_depths = [
+        sample[1] for sample in _webhook_queue_samples
+        if cutoff_5m <= sample[0] < midpoint
+    ]
+    recent_depths = [
+        sample[1] for sample in _webhook_queue_samples
+        if midpoint <= sample[0]
+    ]
+    older_average = sum(older_depths) / len(older_depths) if older_depths else 0.0
+    recent_average = sum(recent_depths) / len(recent_depths) if recent_depths else 0.0
+    queue_rising = recent_average >= max(1.0, older_average * 1.25)
+    total_user_backlog = sum(_webhook_queued_by_key.values())
+    max_user_backlog = max(_webhook_queued_by_key.values(), default=0)
+    largest_user_share = max_user_backlog / total_user_backlog if total_user_backlog else 0.0
     timeline = []
     for bucket_index in range(10):
         bucket_start = cutoff_5m + bucket_index * 30
@@ -3898,41 +4018,61 @@ def _webhook_performance_snapshot() -> dict:
         or float(db_write_metrics.get("p95_wait_ms") or 0) >= 750
     ):
         bottleneck = "database"
-        recommended_workers = WEBHOOK_WORKERS
+        recommended_workers = configured_workers
         message = "Database latency or write contention is limiting throughput; adding workers would increase contention."
         confidence = "high"
+    elif (
+        float(event_loop_metrics.get("p95_lag_ms") or 0) >= 250
+        or float(event_loop_metrics.get("max_lag_ms") or 0) >= 1000
+    ):
+        bottleneck = "event_loop"
+        recommended_workers = configured_workers
+        message = "The event loop is delayed; adding workers would make the process less responsive."
+        confidence = "high"
+    elif float(memory_metrics.get("rss_mb") or 0) >= 450:
+        bottleneck = "memory"
+        recommended_workers = configured_workers
+        message = "Process memory is near its safety limit; worker growth is blocked."
+        confidence = "high"
+    elif (
+        int(external_metrics.get("calls") or 0) >= 3
+        and (
+            float(external_metrics.get("p95_ms") or 0) >= 3000
+            or int(external_metrics.get("timeouts") or 0) > 0
+        )
+    ) or processing_p95_ms >= 3000:
+        bottleneck = "external_api"
+        recommended_workers = configured_workers
+        message = "Handlers or external APIs are slow; more workers may only move the queue downstream."
+        confidence = "medium"
     elif len(samples) < 20:
         bottleneck = "insufficient_data"
-        recommended_workers = WEBHOOK_WORKERS
+        recommended_workers = configured_workers
         message = "Collecting traffic data. At least 20 updates are needed."
         confidence = "low"
     elif user_wait_p95_ms >= 500 and queue_p95_ms < 500:
         bottleneck = "single_user_backlog"
-        recommended_workers = WEBHOOK_WORKERS
+        recommended_workers = configured_workers
         message = "One or more users are sending actions faster than their ordered queue can process them."
         confidence = "high"
-    elif processing_p95_ms >= 3000:
-        bottleneck = "external_api_or_handler"
-        recommended_workers = WEBHOOK_WORKERS
-        message = "Handlers or external APIs are slow; more workers may only move the queue downstream."
-        confidence = "medium"
-    elif queue_p95_ms >= 500 or max_queue > WEBHOOK_WORKERS:
+    elif queue_p95_ms >= 500 or max_queue > configured_workers:
         bottleneck = "workers"
-        recommended_workers = min(32, max(WEBHOOK_WORKERS + 2, estimated_workers))
+        recommended_workers = min(32, max(configured_workers + 2, estimated_workers))
         message = "Updates wait for a free worker; increase workers gradually."
         confidence = "high"
     else:
         bottleneck = "healthy"
-        recommended_workers = WEBHOOK_WORKERS
+        recommended_workers = configured_workers
         message = "Current worker capacity is sufficient for the observed traffic."
         confidence = "high"
 
     return {
         "window_seconds": 300,
         "workers": {
-            "configured": WEBHOOK_WORKERS,
+            "configured": configured_workers,
             "active": _webhook_active_workers,
             "peak_active": _webhook_peak_active_workers,
+            "utilization_1m": round(utilization_1m, 3),
             "recommended": recommended_workers,
             "estimated_for_observed_load": estimated_workers,
         },
@@ -3941,6 +4081,9 @@ def _webhook_performance_snapshot() -> dict:
             "peak_5m": max_queue,
             "average_wait_ms": round((sum(queue_waits) / len(queue_waits) * 1000) if queue_waits else 0, 1),
             "p95_wait_ms": round(queue_p95_ms, 1),
+            "rising": queue_rising,
+            "max_user_backlog": max_user_backlog,
+            "largest_user_share": round(largest_user_share, 3),
         },
         "traffic": {
             "processed_1m": len(one_minute),
@@ -3957,6 +4100,9 @@ def _webhook_performance_snapshot() -> dict:
             "p95_total_ms": round(_metrics_percentile(totals, 0.95) * 1000, 1),
         },
         "database": db_metrics,
+        "external_apis": external_metrics,
+        "event_loop": event_loop_metrics,
+        "memory": memory_metrics,
         "actions_5m": action_stats,
         "timeline_30s": timeline,
         "diagnosis": {
@@ -4148,6 +4294,14 @@ async def _nowpayments_worker() -> None:
 async def post_init(application: Application) -> None:
     """Called after the Application has been initialised — set up the database."""
     await init_db()
+    runtime_task = application.bot_data.get("runtime_health_task")
+    if not runtime_task or runtime_task.done():
+        from services.runtime_metrics import runtime_health_monitor
+
+        application.bot_data["runtime_health_task"] = asyncio.create_task(
+            runtime_health_monitor(), name="runtime-health-monitor"
+        )
+        logger.info("Runtime dependency, event-loop, and memory monitor started")
     logger.info("✅ Database initialized")
 
     try:
@@ -4239,6 +4393,7 @@ async def post_shutdown(application: Application) -> None:
         application.bot_data.pop("background_job_task", None),
         application.bot_data.pop("performance_history_task", None),
         application.bot_data.pop("game_sync_task", None),
+        application.bot_data.pop("runtime_health_task", None),
     ]
     for task in tasks:
         if task and not task.done():
@@ -4291,6 +4446,15 @@ async def telegram_webhook(request: StarletteRequest):
         logger.debug("Webhook received update: %s", data.get("update_id", "?"))
         if tg_app:
             update = Update.de_json(data, tg_app.bot)
+            lock_key = _webhook_lock_key(update)
+            if _webhook_queued_by_key[lock_key] >= WEBHOOK_USER_QUEUE_MAX:
+                _webhook_deduplicated_times.append(time.monotonic())
+                logger.info(
+                    "Dropped webhook update for saturated per-user queue key=%s depth=%d",
+                    lock_key,
+                    _webhook_queued_by_key[lock_key],
+                )
+                return {"ok": True, "rate_limited": True}
             dedupe_signature = _webhook_dedupe_signature(update)
             if dedupe_signature is not None:
                 now = time.monotonic()
@@ -4314,6 +4478,7 @@ async def telegram_webhook(request: StarletteRequest):
             _webhook_enqueued_at[id(update)] = time.monotonic()
             try:
                 webhook_update_queue.put_nowait(update)
+                _webhook_queued_by_key[lock_key] += 1
                 _record_webhook_queue_depth()
             except asyncio.QueueFull:
                 _webhook_enqueued_at.pop(id(update), None)
@@ -4375,13 +4540,25 @@ def _webhook_action_name(update: Update) -> str:
     return "update:other"
 
 
-async def _webhook_update_worker(application: Application, worker_id: int) -> None:
+async def _webhook_update_worker(
+    application: Application,
+    worker_id: int,
+    stop_event: asyncio.Event | None = None,
+) -> None:
     global webhook_update_queue, _webhook_active_workers, _webhook_peak_active_workers
     if webhook_update_queue is None:
         webhook_update_queue = asyncio.Queue(maxsize=WEBHOOK_QUEUE_MAX)
+    stop_event = stop_event or asyncio.Event()
+    _webhook_worker_states[worker_id] = "IDLE"
+    _record_webhook_worker_activity()
 
-    while True:
-        update = await webhook_update_queue.get()
+    while not stop_event.is_set():
+        try:
+            update = await webhook_update_queue.get()
+        except asyncio.CancelledError:
+            _webhook_worker_states.pop(worker_id, None)
+            _record_webhook_worker_activity()
+            raise
         key = _webhook_lock_key(update)
         _webhook_dequeued_at[id(update)] = time.monotonic()
         if key in _webhook_active_keys:
@@ -4399,6 +4576,7 @@ async def _webhook_update_worker(application: Application, worker_id: int) -> No
                 queue_wait = max(0.0, dequeued_at - enqueued_at)
                 user_wait = max(0.0, started_at - dequeued_at)
                 _webhook_active_workers += 1
+                _webhook_worker_states[worker_id] = "ACTIVE"
                 _webhook_peak_active_workers = max(
                     _webhook_peak_active_workers,
                     _webhook_active_workers,
@@ -4421,6 +4599,10 @@ async def _webhook_update_worker(application: Application, worker_id: int) -> No
                 finally:
                     completed_at = time.monotonic()
                     _webhook_active_workers = max(0, _webhook_active_workers - 1)
+                    _webhook_worker_states[worker_id] = (
+                        "DRAINING" if stop_event.is_set() else "IDLE"
+                    )
+                    _record_webhook_worker_activity()
                     _webhook_samples.append((
                         completed_at,
                         queue_wait,
@@ -4440,6 +4622,11 @@ async def _webhook_update_worker(application: Application, worker_id: int) -> No
                         succeeded,
                     )
                     webhook_update_queue.task_done()
+                    _webhook_queued_by_key[key] = max(
+                        0, _webhook_queued_by_key[key] - 1
+                    )
+                    if _webhook_queued_by_key[key] == 0:
+                        _webhook_queued_by_key.pop(key, None)
                     _release_webhook_dedupe(current_update)
                     _record_webhook_queue_depth()
 
@@ -4453,6 +4640,8 @@ async def _webhook_update_worker(application: Application, worker_id: int) -> No
         finally:
             _webhook_active_keys.discard(key)
             _record_webhook_queue_depth()
+    _webhook_worker_states.pop(worker_id, None)
+    _record_webhook_worker_activity()
 
 
 async def get_emoji_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4930,7 +5119,7 @@ def main() -> None:
 
         async def _setup_and_run():
             """Initialize the bot, set webhook, and run FastAPI with connection retries."""
-            global webhook_update_queue, webhook_worker_tasks, _service_ready
+            global webhook_update_queue, webhook_worker_tasks, webhook_worker_manager, _service_ready
             
             loop = asyncio.get_running_loop()
             from concurrent.futures import ThreadPoolExecutor
@@ -4959,11 +5148,75 @@ def main() -> None:
                     await asyncio.sleep(4)
 
             webhook_update_queue = asyncio.Queue(maxsize=WEBHOOK_QUEUE_MAX)
-            webhook_worker_tasks = [
-                asyncio.create_task(_webhook_update_worker(app, worker_id))
-                for worker_id in range(1, WEBHOOK_WORKERS + 1)
-            ]
-            logger.info("Webhook update workers started: %d", len(webhook_worker_tasks))
+            from services.webhook_autoscaler import AutoscaleConfig, WebhookWorkerManager
+            from database.jobs import (
+                get_recent_webhook_autoscale_decision,
+                get_webhook_autoscale_settings,
+                save_webhook_autoscale_decision,
+            )
+
+            autoscale_config = AutoscaleConfig.from_env()
+            autoscale_settings = await get_webhook_autoscale_settings()
+            environment_min_workers = autoscale_config.min_workers
+            environment_max_workers = autoscale_config.max_workers
+            autoscale_config.min_workers = max(
+                environment_min_workers,
+                int(autoscale_settings.get("min_workers") or environment_min_workers),
+            )
+            autoscale_config.max_workers = min(
+                environment_max_workers,
+                max(
+                    autoscale_config.min_workers,
+                    int(autoscale_settings.get("max_workers") or environment_max_workers),
+                ),
+            )
+            autoscale_config.initial_workers = autoscale_config.clamp(
+                autoscale_config.initial_workers
+            )
+            webhook_worker_manager = WebhookWorkerManager(
+                lambda worker_id, stop_event: _webhook_update_worker(
+                    app, worker_id, stop_event
+                ),
+                _webhook_performance_snapshot,
+                config=autoscale_config,
+                persist_decision=save_webhook_autoscale_decision,
+                worker_is_active=lambda worker_id: _webhook_worker_states.get(worker_id) == "ACTIVE",
+            )
+            webhook_worker_manager.mode = (
+                str(autoscale_settings.get("mode") or "auto")
+                if autoscale_config.enabled
+                else "off"
+            )
+            webhook_worker_manager.observe_only = bool(
+                autoscale_settings.get("observe_only", autoscale_config.observe_only)
+            )
+            initial_workers = autoscale_config.initial_workers
+            if webhook_worker_manager.mode == "manual":
+                initial_workers = autoscale_config.clamp(
+                    int(autoscale_settings.get("manual_workers") or initial_workers)
+                )
+            elif webhook_worker_manager.mode == "auto" and not webhook_worker_manager.observe_only:
+                recent_decision = await get_recent_webhook_autoscale_decision(300)
+                if recent_decision:
+                    restored = autoscale_config.clamp(
+                        int(recent_decision.get("workers_after") or initial_workers)
+                    )
+                    if (
+                        restored >= autoscale_config.max_workers
+                        and autoscale_config.max_workers > autoscale_config.min_workers
+                    ):
+                        restored = autoscale_config.max_workers - 1
+                    initial_workers = restored
+            await webhook_worker_manager.start(initial_workers)
+            webhook_worker_tasks = webhook_worker_manager.tasks
+            logger.info(
+                "Webhook workers started: %d mode=%s observe_only=%s range=%d-%d",
+                webhook_worker_manager.worker_count,
+                webhook_worker_manager.mode,
+                webhook_worker_manager.observe_only,
+                autoscale_config.min_workers,
+                autoscale_config.max_workers,
+            )
 
             wh = f"{webhook_url}/webhook"
             for attempt in range(1, 6):
@@ -5010,10 +5263,13 @@ def main() -> None:
                 stop_process_watchdog(watchdog_process)
                 # Do NOT delete the webhook on shutdown. In a rolling deployment,
                 # the old container shutting down would delete the webhook set by the new container.
-                for task in webhook_worker_tasks:
-                    task.cancel()
-                if webhook_worker_tasks:
-                    await asyncio.gather(*webhook_worker_tasks, return_exceptions=True)
+                if webhook_worker_manager is not None:
+                    await webhook_worker_manager.stop()
+                else:
+                    for task in webhook_worker_tasks:
+                        task.cancel()
+                    if webhook_worker_tasks:
+                        await asyncio.gather(*webhook_worker_tasks, return_exceptions=True)
                 await post_shutdown(app)
                 await app.stop()
                 await app.shutdown()

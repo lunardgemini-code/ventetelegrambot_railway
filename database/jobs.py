@@ -348,3 +348,138 @@ async def cleanup_performance_history(retention_days: int = 8) -> int:
         return max(0, int(cursor.rowcount)) if cursor.rowcount != -1 else 0
     finally:
         await db.close()
+
+
+async def get_webhook_autoscale_settings() -> dict:
+    async def read(fresh: bool) -> dict:
+        db = await get_db(fresh=fresh)
+        try:
+            cursor = await db.execute(
+                "SELECT * FROM webhook_autoscale_settings WHERE id = 1"
+            )
+            row = await cursor.fetchone()
+            return dict(row) if row else {
+                "mode": "auto",
+                "observe_only": 1,
+                "min_workers": 8,
+                "max_workers": 20,
+                "manual_workers": 8,
+            }
+        finally:
+            await db.close()
+
+    return await _retry_read(read)
+
+
+async def update_webhook_autoscale_settings(
+    *,
+    mode: str,
+    observe_only: bool,
+    min_workers: int,
+    max_workers: int,
+    manual_workers: int,
+) -> dict:
+    normalized_mode = str(mode).lower()
+    if normalized_mode not in {"auto", "manual", "off"}:
+        raise ValueError("mode must be auto, manual, or off")
+    minimum = max(1, int(min_workers))
+    maximum = max(minimum, int(max_workers))
+    manual = min(maximum, max(minimum, int(manual_workers)))
+    db = await get_db()
+    try:
+        await db.execute(
+            """INSERT INTO webhook_autoscale_settings
+               (id, mode, observe_only, min_workers, max_workers, manual_workers, updated_at)
+               VALUES (1, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(id) DO UPDATE SET
+                   mode = excluded.mode,
+                   observe_only = excluded.observe_only,
+                   min_workers = excluded.min_workers,
+                   max_workers = excluded.max_workers,
+                   manual_workers = excluded.manual_workers,
+                   updated_at = CURRENT_TIMESTAMP""",
+            (normalized_mode, int(bool(observe_only)), minimum, maximum, manual),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+    return await get_webhook_autoscale_settings()
+
+
+async def save_webhook_autoscale_decision(decision: dict) -> None:
+    metrics = decision.get("metrics") if isinstance(decision.get("metrics"), dict) else {}
+    # Persist only the bounded fields needed to explain a decision. The live
+    # endpoint remains the source for full high-frequency metrics.
+    compact_metrics = {
+        "workers": metrics.get("workers") or {},
+        "queue": metrics.get("queue") or {},
+        "traffic": metrics.get("traffic") or {},
+        "database": metrics.get("database") or {},
+        "external_apis": metrics.get("external_apis") or {},
+        "event_loop": metrics.get("event_loop") or {},
+        "memory": metrics.get("memory") or {},
+    }
+    db = await get_db()
+    try:
+        await db.execute(
+            """INSERT INTO webhook_autoscale_decisions
+               (state, bottleneck, workers_before, workers_after,
+                proposed_workers, reason, observe_only,
+                next_analysis_seconds, metrics_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                str(decision.get("state") or "CALM")[:20],
+                str(decision.get("bottleneck") or "healthy")[:40],
+                max(0, int(decision.get("workers_before") or 0)),
+                max(0, int(decision.get("workers_after") or 0)),
+                max(0, int(decision.get("proposed_workers") or 0)),
+                str(decision.get("reason") or "")[:500],
+                int(bool(decision.get("observe_only"))),
+                max(1, int(decision.get("next_analysis_seconds") or 60)),
+                json.dumps(compact_metrics, ensure_ascii=True, separators=(",", ":")),
+            ),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def list_webhook_autoscale_decisions(limit: int = 30) -> list[dict]:
+    bounded_limit = min(100, max(1, int(limit)))
+
+    async def read(fresh: bool) -> list[dict]:
+        db = await get_db(fresh=fresh)
+        try:
+            cursor = await db.execute(
+                """SELECT id, state, bottleneck, workers_before, workers_after,
+                          proposed_workers, reason, observe_only,
+                          next_analysis_seconds, created_at
+                   FROM webhook_autoscale_decisions
+                   ORDER BY id DESC LIMIT ?""",
+                (bounded_limit,),
+            )
+            return [dict(row) for row in await cursor.fetchall()]
+        finally:
+            await db.close()
+
+    return await _retry_read(read)
+
+
+async def get_recent_webhook_autoscale_decision(max_age_seconds: int = 300) -> dict | None:
+    age = max(30, int(max_age_seconds))
+
+    async def read(fresh: bool) -> dict | None:
+        db = await get_db(fresh=fresh)
+        try:
+            cursor = await db.execute(
+                """SELECT * FROM webhook_autoscale_decisions
+                   WHERE created_at >= datetime('now', ?)
+                   ORDER BY id DESC LIMIT 1""",
+                (f"-{age} seconds",),
+            )
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+        finally:
+            await db.close()
+
+    return await _retry_read(read)
