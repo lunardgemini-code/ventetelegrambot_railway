@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from utils.promos import calculate_promo_price, parse_applicable_product_ids
 
@@ -39,6 +40,13 @@ class PromoPricingTests(unittest.TestCase):
     def test_non_finite_value_is_rejected(self):
         with self.assertRaises(ValueError):
             calculate_promo_price(10, 1, "product_price", float("nan"))
+
+    def test_dashboard_subtabs_resolve_data_sub_as_an_element_id(self):
+        script = (Path(__file__).parents[1] / "dashboard" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("document.getElementById(targetId)", script)
+        self.assertIn(".sub-tab[data-sub]", script)
+        self.assertNotIn("document.querySelector(t.getAttribute('data-sub'))", script)
 
 
 if __name__ == "__main__":

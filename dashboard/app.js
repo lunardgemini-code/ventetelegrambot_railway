@@ -459,12 +459,17 @@ function setupEvents() {
         if (button) handlePaymentReviewAction(button);
     });
 
-    $$('.sub-tab').forEach(t => t.addEventListener('click', () => {
-        t.closest('.action-bar').querySelectorAll('.sub-tab').forEach(s => s.classList.remove('active'));
-        t.closest('section').querySelectorAll('.sub-tab-content').forEach(c => c.classList.remove('active'));
-        t.classList.add('active'); 
-        let targetContent = document.querySelector(t.getAttribute('data-sub'));
-        if (targetContent) targetContent.classList.add('active');
+    $$('.sub-tab[data-sub]').forEach(tabButton => tabButton.addEventListener('click', () => {
+        const actionBar = tabButton.closest('.action-bar');
+        const section = tabButton.closest('section');
+        const targetId = tabButton.getAttribute('data-sub')?.replace(/^#/, '');
+        const targetContent = targetId ? document.getElementById(targetId) : null;
+        if (!actionBar || !section || !targetContent) return;
+
+        actionBar.querySelectorAll('.sub-tab[data-sub]').forEach(button => button.classList.remove('active'));
+        section.querySelectorAll('.sub-tab-content').forEach(content => content.classList.remove('active'));
+        tabButton.classList.add('active');
+        targetContent.classList.add('active');
     }));
 
     $('btn-open-prod-modal').addEventListener('click', () => { 
