@@ -48,6 +48,12 @@ class PromoPricingTests(unittest.TestCase):
         self.assertIn(".sub-tab[data-sub]", script)
         self.assertNotIn("document.querySelector(t.getAttribute('data-sub'))", script)
 
+    def test_dashboard_refreshes_promos_on_tab_open_and_after_creation(self):
+        script = (Path(__file__).parents[1] / "dashboard" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("if (targetId === 'promos-sub') void loadPromos();", script)
+        self.assertIn("await loadPromos();\n        showToast('Code promo cree.'", script)
+
 
 if __name__ == "__main__":
     unittest.main()

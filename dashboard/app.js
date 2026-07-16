@@ -470,6 +470,7 @@ function setupEvents() {
         section.querySelectorAll('.sub-tab-content').forEach(content => content.classList.remove('active'));
         tabButton.classList.add('active');
         targetContent.classList.add('active');
+        if (targetId === 'promos-sub') void loadPromos();
     }));
 
     $('btn-open-prod-modal').addEventListener('click', () => { 
@@ -3243,7 +3244,7 @@ async function handleAddPromo(e) {
         });
         hideModal(DOM.promoModal);
         DOM.addPromoForm.reset();
-        await refreshData();
+        await loadPromos();
         showToast('Code promo cree.', 'success');
     } catch (error) {
         showToast(error.message || 'Creation du code promo impossible.', 'error');
