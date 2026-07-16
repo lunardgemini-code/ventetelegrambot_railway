@@ -626,10 +626,11 @@ async def receive_promo_code(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return WAITING_PROMO_CODE
 
     # Check applicable products
-    applicable_product_ids_str = promo.get("applicable_product_ids")
-    if applicable_product_ids_str:
-        applicable_ids = [int(pid.strip()) for pid in applicable_product_ids_str.split(",") if pid.strip().isdigit()]
-        if applicable_ids and order.get("product_id") not in applicable_ids:
+    from utils.promos import calculate_promo_price, parse_applicable_product_ids
+
+    applicable_ids = parse_applicable_product_ids(promo.get("applicable_product_ids"))
+    if applicable_ids:
+        if order.get("product_id") not in applicable_ids:
             await update.message.reply_text(
                 t("promo_product_invalid", lang),
                 parse_mode="HTML",
@@ -652,15 +653,28 @@ async def receive_promo_code(update: Update, context: ContextTypes.DEFAULT_TYPE)
     original_amount = order["amount_usd"]
     discount_type = promo.get("discount_type", "percent")
     discount_value = promo.get("discount_value", 0.0)
+    if discount_type == "product_price" and len(applicable_ids) != 1:
+        await update.message.reply_text(
+            t("promo_product_invalid", lang),
+            parse_mode="HTML",
+            reply_markup=back_keyboard(f"back_pay_method:{order_id}", lang),
+        )
+        return WAITING_PROMO_CODE
 
-    if discount_type == "percent":
-        discount = original_amount * (discount_value / 100.0)
-    else:  # fixed
-        discount = discount_value
-
-    # Clamp discount to not exceed original amount
-    discount = min(discount, original_amount)
-    new_amount = max(original_amount - discount, 0.0)
+    try:
+        discount, new_amount = calculate_promo_price(
+            original_amount,
+            order_qty,
+            discount_type,
+            discount_value,
+        )
+    except (TypeError, ValueError):
+        await update.message.reply_text(
+            t("promo_invalid", lang),
+            parse_mode="HTML",
+            reply_markup=back_keyboard(f"back_pay_method:{order_id}", lang),
+        )
+        return WAITING_PROMO_CODE
 
     # Update order with promo code info
     await update_order_status(

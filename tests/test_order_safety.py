@@ -90,6 +90,21 @@ class OrderSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(float(product["price_usd"]), 5.0)
         self.assertEqual(float(product["dynamic_suggested_price"]), 5.0)
 
+    async def test_product_price_promo_round_trips_through_database(self):
+        promo_id = await models.create_promo(
+            code="GEMINI47",
+            discount_type="product_price",
+            discount_value=0.47,
+            applicable_product_ids=str(self.product_id),
+        )
+
+        promo = await models.get_promo_by_code("gemini47")
+
+        self.assertEqual(promo["id"], promo_id)
+        self.assertEqual(promo["discount_type"], "product_price")
+        self.assertAlmostEqual(float(promo["discount_value"]), 0.47)
+        self.assertEqual(promo["applicable_product_ids"], str(self.product_id))
+
     async def test_wallet_double_click_debits_and_delivers_once(self):
         order = await models.create_order(1001, self.product_id, 5, quantity=1)
         results = await asyncio.gather(

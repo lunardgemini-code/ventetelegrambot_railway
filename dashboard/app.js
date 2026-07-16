@@ -492,7 +492,11 @@ function setupEvents() {
     });
     const btnMassTranslate = $('btn-mass-translate');
     if (btnMassTranslate) btnMassTranslate.addEventListener('click', massTranslate);
+    const promoType = $('promo-type');
+    if (promoType) promoType.addEventListener('change', syncPromoTypeUI);
     $('btn-open-promo-modal').addEventListener('click', async () => {
+        DOM.addPromoForm.reset();
+        syncPromoTypeUI();
         if (!state.products || state.products.length === 0) {
             try {
                 await loadProducts();
@@ -513,6 +517,7 @@ function setupEvents() {
             cb.type = 'checkbox';
             cb.value = p.id;
             cb.className = 'promo-product-cb';
+            cb.addEventListener('change', () => enforceSinglePromoProduct(cb));
             lbl.appendChild(cb);
             lbl.appendChild(document.createTextNode(' ' + p.name));
             sel.appendChild(lbl);
@@ -3164,13 +3169,21 @@ async function loadPromos() {
         const promos = await apiCall('/api/promos');
         if (promos.length > 0) {
             DOM.promosTableBody.innerHTML = promos.map(p => {
-                const typeLabel = p.discount_type==='percent' ? '%' : '$';
+                const isProductPrice = p.discount_type === 'product_price';
+                const typeText = p.discount_type === 'percent'
+                    ? t('percent')
+                    : isProductPrice ? 'Prix produit' : t('fixed');
+                const valueText = p.discount_type === 'percent'
+                    ? `${Number(p.discount_value)}%`
+                    : isProductPrice
+                        ? `$${Number(p.discount_value).toFixed(2)} / unite`
+                        : `$${Number(p.discount_value).toFixed(2)}`;
                 let usesLabel = p.max_uses > 0 ? `${p.used_count}/${p.max_uses}` : `${p.used_count} (${t('unlimited')})`;
                 if (p.max_uses_per_user > 0) usesLabel += ` <br><small>(${p.max_uses_per_user}/user)</small>`;
                 if (p.max_qty_per_order > 0) usesLabel += ` <br><small>(Max ${p.max_qty_per_order}/cmd)</small>`;
                 if (p.applicable_product_ids) usesLabel += ` <br><small>(Produits limités)</small>`;
                 const active = p.is_active ? 'active-promo' : 'expired';
-                return `<tr><td><strong>${p.code}</strong></td><td>${p.discount_type==='percent'?t('percent'):t('fixed')}</td><td>${p.discount_value}${typeLabel}</td><td>${usesLabel}</td><td><span class="status-badge ${active}">${p.is_active?t('active'):t('inactive')}</span></td><td><button class="btn-table-action delete" onclick="deletePromo(${p.id})"><i class="fa-solid fa-trash-can"></i></button></td></tr>`;
+                return `<tr><td><strong>${escapeHtml(p.code)}</strong></td><td>${typeText}</td><td>${valueText}</td><td>${usesLabel}</td><td><span class="status-badge ${active}">${p.is_active?t('active'):t('inactive')}</span></td><td><button class="btn-table-action delete" onclick="deletePromo(${Number(p.id)})"><i class="fa-solid fa-trash-can"></i></button></td></tr>`;
             }).join('');
         } else DOM.promosTableBody.innerHTML = `<tr><td colspan="6" class="empty-state">${t('no_promos')}</td></tr>`;
     } catch(e) { console.warn('loadPromos:', e); }
@@ -3180,7 +3193,59 @@ async function loadPromos() {
 //  ACTIONS
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-async function handleAddPromo(e) { e.preventDefault(); showLoading(true); try { const applicable_product_ids = Array.from(document.querySelectorAll('.promo-product-cb:checked')).map(o => o.value).join(','); await apiCall('/api/promos','POST',{code:$('promo-code').value.trim(),discount_type:$('promo-type').value,discount_value:$('promo-value').value,max_uses:$('promo-max').value||0,max_uses_per_user:$('promo-max-user').value||0,max_qty_per_order:$('promo-max-qty').value||0,applicable_product_ids:applicable_product_ids,expires_at:$('promo-expires').value||null}); hideModal(DOM.promoModal); DOM.addPromoForm.reset(); await refreshData(); } catch(e){alert(e.message);} finally{showLoading(false);} }
+function syncPromoTypeUI() {
+    const isProductPrice = $('promo-type')?.value === 'product_price';
+    const valueLabel = $('promo-value-label');
+    const productsHelp = $('promo-products-help');
+    if (valueLabel) valueLabel.textContent = isProductPrice ? 'Prix final unitaire ($)' : 'Valeur';
+    if (productsHelp) {
+        productsHelp.textContent = isProductPrice
+            ? 'Obligatoire : selectionnez exactement un produit.'
+            : 'Optionnel pour les reductions classiques.';
+    }
+    if (isProductPrice) {
+        const checked = Array.from(document.querySelectorAll('.promo-product-cb:checked'));
+        checked.slice(1).forEach(input => { input.checked = false; });
+    }
+}
+
+function enforceSinglePromoProduct(changedInput) {
+    if ($('promo-type')?.value !== 'product_price' || !changedInput.checked) return;
+    document.querySelectorAll('.promo-product-cb').forEach(input => {
+        if (input !== changedInput) input.checked = false;
+    });
+}
+
+async function handleAddPromo(e) {
+    e.preventDefault();
+    const discountType = $('promo-type').value;
+    const selectedProducts = Array.from(document.querySelectorAll('.promo-product-cb:checked'));
+    if (discountType === 'product_price' && selectedProducts.length !== 1) {
+        showToast('Selectionnez exactement un produit pour ce prix promo.', 'error');
+        return;
+    }
+    showLoading(true);
+    try {
+        await apiCall('/api/promos', 'POST', {
+            code: $('promo-code').value.trim(),
+            discount_type: discountType,
+            discount_value: $('promo-value').value,
+            max_uses: $('promo-max').value || 0,
+            max_uses_per_user: $('promo-max-user').value || 0,
+            max_qty_per_order: $('promo-max-qty').value || 0,
+            applicable_product_ids: selectedProducts.map(input => input.value).join(','),
+            expires_at: $('promo-expires').value || null,
+        });
+        hideModal(DOM.promoModal);
+        DOM.addPromoForm.reset();
+        await refreshData();
+        showToast('Code promo cree.', 'success');
+    } catch (error) {
+        showToast(error.message || 'Creation du code promo impossible.', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
 
 async function runDashboardAction(action, successMessage) {
     showLoading(true);

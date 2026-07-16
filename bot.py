@@ -3555,25 +3555,54 @@ async def api_get_promos():
 
 @api.post("/api/promos", dependencies=[Depends(verify_api_key)])
 async def api_create_promo(data: dict):
-    from database.models import create_promo
+    from database.models import create_promo, get_product
+    from utils.promos import PROMO_DISCOUNT_TYPES, parse_applicable_product_ids
     try:
         discount_type = data.get("discount_type", "percent")
-        if discount_type not in ("percent", "fixed"):
-            raise HTTPException(status_code=400, detail="discount_type must be 'percent' or 'fixed'")
-        discount_value = float(data["discount_value"])
-        if discount_value <= 0:
+        if discount_type not in PROMO_DISCOUNT_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail="discount_type must be 'percent', 'fixed', or 'product_price'",
+            )
+        try:
+            discount_value = float(data["discount_value"])
+        except (KeyError, TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="discount_value must be a valid number")
+        if not math.isfinite(discount_value) or discount_value <= 0:
             raise HTTPException(status_code=400, detail="discount_value must be positive")
         if discount_type == "percent" and discount_value > 100:
             raise HTTPException(status_code=400, detail="Percent discount cannot exceed 100")
 
+        applicable_product_ids = parse_applicable_product_ids(data.get("applicable_product_ids"))
+        if discount_type == "product_price" and len(applicable_product_ids) != 1:
+            raise HTTPException(
+                status_code=400,
+                detail="A product-price promo must target exactly one product",
+            )
+        for product_id in applicable_product_ids:
+            if not await get_product(product_id):
+                raise HTTPException(status_code=400, detail=f"Product {product_id} does not exist")
+
+        code = str(data.get("code", "")).strip().upper()
+        if not code:
+            raise HTTPException(status_code=400, detail="code is required")
+        try:
+            max_uses = int(data.get("max_uses", 0))
+            max_uses_per_user = int(data.get("max_uses_per_user", 0))
+            max_qty_per_order = int(data.get("max_qty_per_order", 0))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Promo limits must be integers")
+        if min(max_uses, max_uses_per_user, max_qty_per_order) < 0:
+            raise HTTPException(status_code=400, detail="Promo limits cannot be negative")
+
         promo_id = await create_promo(
-            code=data["code"],
+            code=code,
             discount_type=discount_type,
             discount_value=discount_value,
-            max_uses=int(data.get("max_uses", 0)),
-            max_uses_per_user=int(data.get("max_uses_per_user", 0)),
-            applicable_product_ids=data.get("applicable_product_ids"),
-            max_qty_per_order=int(data.get("max_qty_per_order", 0)),
+            max_uses=max_uses,
+            max_uses_per_user=max_uses_per_user,
+            applicable_product_ids=",".join(map(str, applicable_product_ids)) or None,
+            max_qty_per_order=max_qty_per_order,
             expires_at=data.get("expires_at"),
         )
         return {"id": promo_id, "status": "created"}

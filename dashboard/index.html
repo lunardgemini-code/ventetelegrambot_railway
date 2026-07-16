@@ -1067,11 +1067,15 @@
                 <div class="form-row">
                     <div class="form-group col-6"><label>Code</label><input type="text" id="promo-code" placeholder="SUMMER20" required></div>
                     <div class="form-group col-6"><label data-i18n="lbl_discount_type">Type</label>
-                        <select id="promo-type"><option value="percent">% Pourcentage</option><option value="fixed">$ Montant fixe</option></select>
+                        <select id="promo-type">
+                            <option value="percent">% Pourcentage</option>
+                            <option value="fixed">$ Montant de reduction</option>
+                            <option value="product_price">$ Prix fixe du produit</option>
+                        </select>
                     </div>
                 </div>
                 <div class="form-row">
-                    <div class="form-group col-4"><label data-i18n="lbl_discount_value">Valeur</label><input type="number" step="0.01" id="promo-value" required></div>
+                    <div class="form-group col-4"><label id="promo-value-label" data-i18n="lbl_discount_value">Valeur</label><input type="number" min="0.01" step="0.01" id="promo-value" required></div>
                     <div class="form-group col-4"><label data-i18n="lbl_max_uses">Max (Total)</label><input type="number" id="promo-max" value="0" placeholder="0 = illimité"></div>
                     <div class="form-group col-4"><label>Max / util.</label><input type="number" id="promo-max-user" value="0" placeholder="0 = illimité"></div>
                 </div>
@@ -1082,6 +1086,7 @@
                     </div>
                     <div class="form-group col-4">
                         <label>Produits spécifiques</label>
+                        <small id="promo-products-help" class="form-help">Optionnel pour les reductions classiques.</small>
                         <div id="promo-products" style="padding: 10px; overflow-y: auto; max-height: 160px; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); display: flex; flex-direction: column; gap: 10px;">
                             <!-- Populated dynamically -->
                         </div>
@@ -1414,7 +1419,7 @@
 </div>
 
 
-<script defer src="app.js?v=20260716-autoscale"></script>
+<script defer src="app.js?v=20260716-promo-price"></script>
     <script>
     /* ── Mobile Sidebar Toggle ── */
     (function() {
