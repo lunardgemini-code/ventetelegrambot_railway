@@ -11,6 +11,7 @@ from database.suppliers import (
     calculate_supplier_price,
     get_supplier_dashboard,
     get_supplier_stats,
+    supplier_stock_counts,
     sync_supplier_products,
     update_supplier_product,
     update_supplier_product_descriptions,
@@ -67,6 +68,22 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         self.temp_dir.cleanup()
+
+    async def test_supplier_stock_balance_timeout_keeps_catalog_responsive(self):
+        async def never_returns(*_args, **_kwargs):
+            await asyncio.sleep(10)
+
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        with (
+            patch("services.supplier_registry.get_supplier_balance", side_effect=never_returns),
+            patch("database.suppliers.SUPPLIER_STOCK_BALANCE_TIMEOUT_SECONDS", 0.01),
+        ):
+            counts = await supplier_stock_counts()
+        elapsed = loop.time() - started
+
+        self.assertEqual(counts[self.local_product_id], 0)
+        self.assertLess(elapsed, 0.25)
 
     def test_catalog_normalization_accepts_common_envelopes(self):
         products = normalize_products({
@@ -543,7 +560,7 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(mapping["description_en"], "Edited English")
             self.assertEqual(mapping["description_fr"], "Français existant")
             self.assertEqual(mapping["description_ar"], "عربي موجود")
-            self.assertEqual(int(version["version"]), 9)
+            self.assertEqual(int(version["version"]), 10)
         finally:
             os.environ["DB_PATH"] = current_path
             db_module._sqlite_wal_configured = False
@@ -600,7 +617,7 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
                 mapping["custom_image_url"],
                 "https://example.com/existing-custom.png",
             )
-            self.assertEqual(int(version["version"]), 9)
+            self.assertEqual(int(version["version"]), 10)
         finally:
             os.environ["DB_PATH"] = current_path
             db_module._sqlite_wal_configured = False
@@ -664,7 +681,7 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(float(row["cost_usd"]), 3.0)
             self.assertEqual(float(row["revenue_usd"]), 4.5)
             self.assertEqual(int(row["cost_estimated"]), 1)
-            self.assertEqual(int(version["version"]), 9)
+            self.assertEqual(int(version["version"]), 10)
         finally:
             os.environ["DB_PATH"] = current_path
             db_module._sqlite_wal_configured = False

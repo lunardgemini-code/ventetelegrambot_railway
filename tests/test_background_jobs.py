@@ -14,8 +14,12 @@ from database.jobs import (
     create_background_job,
     get_background_job,
     get_performance_action_history,
+    get_webhook_autoscale_settings,
+    list_webhook_autoscale_decisions,
     requeue_stale_background_jobs,
+    save_webhook_autoscale_decision,
     flush_performance_action_hourly,
+    update_webhook_autoscale_settings,
     update_background_job_progress,
 )
 from services import background_jobs
@@ -49,14 +53,51 @@ class PersistentBackgroundJobTests(unittest.IsolatedAsyncioTestCase):
             versions = [int(row["version"]) for row in await cursor.fetchall()]
             cursor = await db.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN "
-                "('background_jobs', 'performance_action_hourly') ORDER BY name"
+                "('background_jobs', 'performance_action_hourly', "
+                "'webhook_autoscale_settings', 'webhook_autoscale_decisions') ORDER BY name"
             )
             tables = [row["name"] for row in await cursor.fetchall()]
         finally:
             await db.close()
 
-        self.assertEqual(versions, list(range(1, 10)))
-        self.assertEqual(tables, ["background_jobs", "performance_action_hourly"])
+        self.assertEqual(versions, list(range(1, 11)))
+        self.assertEqual(tables, [
+            "background_jobs",
+            "performance_action_hourly",
+            "webhook_autoscale_decisions",
+            "webhook_autoscale_settings",
+        ])
+
+    async def test_webhook_autoscale_settings_and_decisions_are_persistent(self):
+        settings = await update_webhook_autoscale_settings(
+            mode="manual",
+            observe_only=False,
+            min_workers=6,
+            max_workers=14,
+            manual_workers=11,
+        )
+        self.assertEqual(settings["mode"], "manual")
+        self.assertEqual(int(settings["observe_only"]), 0)
+        self.assertEqual(int(settings["manual_workers"]), 11)
+
+        await save_webhook_autoscale_decision({
+            "state": "PRESSURE",
+            "bottleneck": "workers",
+            "workers_before": 8,
+            "workers_after": 10,
+            "proposed_workers": 10,
+            "reason": "queue pressure",
+            "observe_only": False,
+            "next_analysis_seconds": 15,
+            "metrics": {"queue": {"p95_wait_ms": 800}},
+        })
+        decisions = await list_webhook_autoscale_decisions(5)
+        reloaded = await get_webhook_autoscale_settings()
+
+        self.assertEqual(reloaded["mode"], "manual")
+        self.assertEqual(len(decisions), 1)
+        self.assertEqual(decisions[0]["state"], "PRESSURE")
+        self.assertEqual(decisions[0]["workers_after"], 10)
 
     async def test_interrupted_job_is_requeued_and_resumes_from_checkpoint(self):
         await create_background_job(

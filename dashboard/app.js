@@ -968,13 +968,18 @@ function resolveBotUrl(raw) {
 }
 
 async function apiCall(endpoint, method='GET', body=null) {
+    if (method && typeof method === 'object') {
+        const options = method;
+        method = options.method || 'GET';
+        body = options.body ?? null;
+    }
     const base = resolveBotUrl(state.botUrl);
     const url = `${base}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
     const headers = { 'X-API-Key': state.apiKey };
     if (body) headers['Content-Type'] = 'application/json';
     const ctrl = new AbortController(); const tid = setTimeout(() => ctrl.abort(), 60000);
     const cfg = { method, headers, mode:'cors', signal:ctrl.signal };
-    if (body) cfg.body = JSON.stringify(body);
+    if (body) cfg.body = typeof body === 'string' ? body : JSON.stringify(body);
     try {
         const res = await fetch(url, cfg); clearTimeout(tid);
         if (!res.ok) { 
@@ -1367,7 +1372,7 @@ function renderAutoscaling(autoscaling) {
                 <strong>${escapeHtml(item.state || 'CALM')}</strong>
                 <span>${Number(item.workers_before || 0)} &rarr; ${Number(item.observe_only ? item.proposed_workers : item.workers_after || 0)}</span>
                 <span>${escapeHtml(item.bottleneck || 'healthy')}</span>
-                <small>${escapeHtml(formatDate(item.created_at))}</small>
+                <small>${escapeHtml(item.created_at ? parseUTCDate(item.created_at).toLocaleString() : '')}</small>
             </div>`).join('') : '<p class="empty-state">Aucune decision enregistree.</p>';
     }
 }
@@ -1401,7 +1406,7 @@ async function saveAutoscaleConfiguration() {
     const maximum = Number(DOM.autoscaleMax?.value || 20);
     if (maximum < minimum) return showToast('Le maximum doit etre superieur ou egal au minimum.', 'error');
     try {
-        const result = await apiCall('/api/performance/autoscaling', {method:'POST', body:JSON.stringify({mode, observe_only:Boolean(DOM.autoscaleObserve?.checked), min_workers:minimum, max_workers:maximum})});
+        const result = await apiCall('/api/performance/autoscaling', 'POST', {mode, observe_only:Boolean(DOM.autoscaleObserve?.checked), min_workers:minimum, max_workers:maximum});
         renderAutoscaling(result);
         showToast('Configuration autoscaling enregistree.', 'success');
     } catch (error) {
@@ -1411,7 +1416,7 @@ async function saveAutoscaleConfiguration() {
 
 async function setManualWebhookWorkers(target) {
     try {
-        const result = await apiCall('/api/performance/autoscaling', {method:'POST', body:JSON.stringify({mode:'manual', target_workers:target})});
+        const result = await apiCall('/api/performance/autoscaling', 'POST', {mode:'manual', target_workers:target});
         renderAutoscaling(result);
         showToast(`Workers regles sur ${Number(result.current_workers || target)}.`, 'success');
     } catch (error) { showToast(error.message || 'Reglage impossible.', 'error'); }
@@ -1424,7 +1429,7 @@ function adjustWebhookWorkers(delta) {
 
 async function stopAutoscaling() {
     try {
-        const result = await apiCall('/api/performance/autoscaling', {method:'POST', body:JSON.stringify({mode:'off'})});
+        const result = await apiCall('/api/performance/autoscaling', 'POST', {mode:'off'});
         renderAutoscaling(result);
         showToast('Autoscaling arrete. Les workers actuels restent actifs.', 'success');
     } catch (error) { showToast(error.message || "Impossible d'arreter l'autoscaling.", 'error'); }

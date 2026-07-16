@@ -10,6 +10,7 @@ from telegram import Bot as TelegramBot
 
 import bot
 from database import db as db_module
+from services.runtime_metrics import reset_runtime_metrics_for_tests
 
 
 class PerformanceMetricsTests(unittest.TestCase):
@@ -26,6 +27,9 @@ class PerformanceMetricsTests(unittest.TestCase):
         bot._webhook_action_samples.clear()
         bot._webhook_pending_hourly.clear()
         bot._webhook_recent_start_signatures.clear()
+        bot._webhook_worker_activity_samples.clear()
+        bot._webhook_queued_by_key.clear()
+        reset_runtime_metrics_for_tests()
 
     def tearDown(self):
         bot._webhook_samples.clear()
@@ -34,6 +38,9 @@ class PerformanceMetricsTests(unittest.TestCase):
         bot._webhook_action_samples.clear()
         bot._webhook_pending_hourly.clear()
         bot._webhook_recent_start_signatures.clear()
+        bot._webhook_worker_activity_samples.clear()
+        bot._webhook_queued_by_key.clear()
+        reset_runtime_metrics_for_tests()
         db_module._DB_CONNECTION_ERROR_TIMES.clear()
 
     def test_recommends_more_workers_when_queue_wait_is_high(self):
@@ -111,6 +118,26 @@ class PerformanceMetricsTests(unittest.TestCase):
                 result = bot._webhook_performance_snapshot()
 
         self.assertEqual(result["diagnosis"]["bottleneck"], "database")
+
+    def test_event_loop_pressure_is_reported_even_with_few_samples(self):
+        from services import runtime_metrics
+
+        bot._webhook_samples.append((999.0, 0.0, 0.0, 0.1, True))
+        runtime_metrics._LOOP_LAG_SAMPLES.append((999.0, 0.5))
+        db_metrics = {
+            "operations": 1,
+            "errors": 0,
+            "connection_errors": 0,
+            "average_ms": 10,
+            "p95_ms": 10,
+            "slow_operations": 0,
+            "connections": {},
+        }
+        with patch.object(bot.time, "monotonic", return_value=1000.0):
+            with patch.object(db_module, "get_db_performance_snapshot", return_value=db_metrics):
+                result = bot._webhook_performance_snapshot()
+
+        self.assertEqual(result["diagnosis"]["bottleneck"], "event_loop")
 
     def test_db_export_groups_connection_errors_without_sensitive_details(self):
         db_module._DB_CONNECTION_ERROR_TIMES.clear()
@@ -200,6 +227,9 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
         bot._webhook_action_samples.clear()
         bot._webhook_pending_hourly.clear()
         bot._webhook_recent_start_signatures.clear()
+        bot._webhook_worker_activity_samples.clear()
+        bot._webhook_queued_by_key.clear()
+        reset_runtime_metrics_for_tests()
 
     async def test_deployment_readiness_only_opens_after_startup(self):
         original_ready = bot._service_ready
@@ -348,6 +378,14 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(asset.status_code, 200)
         self.assertIn("max-age=3600", asset.headers["cache-control"])
         self.assertEqual(asset.headers.get("content-encoding"), "gzip")
+        script = (Path(__file__).resolve().parents[1] / "dashboard" / "app.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(
+            script.count("apiCall('/api/performance/autoscaling', 'POST'"),
+            3,
+        )
+        self.assertNotIn("formatDate(item.created_at)", script)
 
     async def test_identical_callback_is_deduplicated_before_queueing(self):
         original_queue = bot.webhook_update_queue
@@ -388,6 +426,47 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
                 bot.webhook_update_queue.task_done()
                 bot._webhook_enqueued_at.pop(id(queued), None)
                 bot._release_webhook_dedupe(queued)
+            bot.webhook_update_queue = original_queue
+            bot.tg_app = original_app
+
+    async def test_per_user_queue_limit_contains_callback_spam(self):
+        original_queue = bot.webhook_update_queue
+        original_app = bot.tg_app
+        original_limit = bot.WEBHOOK_USER_QUEUE_MAX
+        bot.webhook_update_queue = asyncio.Queue()
+        bot.tg_app = SimpleNamespace(bot=TelegramBot("123456:TEST_TOKEN"))
+        bot.WEBHOOK_USER_QUEUE_MAX = 3
+        transport = httpx.ASGITransport(app=bot.api)
+        responses = []
+        try:
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                for index in range(4):
+                    responses.append(await client.post("/webhook", json={
+                        "update_id": 300 + index,
+                        "callback_query": {
+                            "id": f"callback-spam-{index}",
+                            "from": {"id": 42, "is_bot": False, "first_name": "Buyer"},
+                            "chat_instance": "instance-spam",
+                            "data": f"menu_product:{index}",
+                            "message": {
+                                "message_id": 30 + index,
+                                "date": 0,
+                                "chat": {"id": 42, "type": "private"},
+                                "text": "Menu",
+                            },
+                        },
+                    }))
+
+            self.assertEqual(bot.webhook_update_queue.qsize(), 3)
+            self.assertTrue(responses[-1].json().get("rate_limited"))
+        finally:
+            while not bot.webhook_update_queue.empty():
+                queued = bot.webhook_update_queue.get_nowait()
+                bot.webhook_update_queue.task_done()
+                bot._webhook_enqueued_at.pop(id(queued), None)
+                bot._release_webhook_dedupe(queued, completed=False)
+            bot._webhook_queued_by_key.clear()
+            bot.WEBHOOK_USER_QUEUE_MAX = original_limit
             bot.webhook_update_queue = original_queue
             bot.tg_app = original_app
 
@@ -460,6 +539,55 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("actions_5m", payload)
         self.assertEqual(len(payload["timeline_30s"]), 10)
         self.assertIn("diagnosis", payload)
+
+    async def test_autoscaling_configuration_endpoint_updates_live_manager(self):
+        original_manager = bot.webhook_worker_manager
+        manager = SimpleNamespace(
+            status=lambda: {
+                "mode": "auto",
+                "observe_only": True,
+                "min_workers": 8,
+                "max_workers": 20,
+                "current_workers": 8,
+            },
+            configure=AsyncMock(return_value={
+                "mode": "auto",
+                "observe_only": True,
+                "min_workers": 8,
+                "max_workers": 12,
+                "current_workers": 8,
+            }),
+        )
+        bot.webhook_worker_manager = manager
+        transport = httpx.ASGITransport(app=bot.api)
+        try:
+            with (
+                patch("database.jobs.update_webhook_autoscale_settings", AsyncMock()),
+                patch("database.jobs.list_webhook_autoscale_decisions", AsyncMock(return_value=[])),
+            ):
+                async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                    response = await client.post(
+                        "/api/performance/autoscaling",
+                        headers={"X-API-Key": bot.ADMIN_API_KEY},
+                        json={
+                            "mode": "auto",
+                            "observe_only": True,
+                            "min_workers": 8,
+                            "max_workers": 12,
+                        },
+                    )
+        finally:
+            bot.webhook_worker_manager = original_manager
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["mode"], "auto")
+        manager.configure.assert_awaited_once_with(
+            mode="auto",
+            min_workers=8,
+            max_workers=12,
+            target_workers=None,
+            observe_only=True,
+        )
 
     async def test_admin_validation_preserves_client_error_statuses(self):
         transport = httpx.ASGITransport(app=bot.api)
