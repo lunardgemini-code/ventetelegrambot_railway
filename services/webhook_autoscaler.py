@@ -160,17 +160,7 @@ class AutoscaleDecisionEngine:
                 30,
             )
 
-        if samples < 20:
-            self.state = AutoscaleState.CALM
-            self.pressure_count = 0
-            return AutoscaleDecision(
-                self.state,
-                "insufficient_data",
-                current,
-                current,
-                "At least 20 recent updates are required",
-                60,
-            )
+        low_sample_count = samples < 20
 
         critical = queue_current > 50 and occupancy >= 0.95
         pressure = queue_wait >= 500 and occupancy >= 0.8 and queue_rising
@@ -258,10 +248,14 @@ class AutoscaleDecisionEngine:
             self.calm_since = None
         return AutoscaleDecision(
             self.state,
-            "healthy",
+            "insufficient_data" if low_sample_count else "healthy",
             current,
             current,
-            "Current capacity matches observed traffic",
+            (
+                "Low traffic is being observed; conservative downscale remains available"
+                if low_sample_count
+                else "Current capacity matches observed traffic"
+            ),
             60,
         )
 
