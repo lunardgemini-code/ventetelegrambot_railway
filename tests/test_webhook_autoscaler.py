@@ -145,6 +145,46 @@ class AutoscaleDecisionTests(unittest.TestCase):
         self.assertEqual(second.target_workers, 12)
         self.assertEqual(third.target_workers, 11)
 
+    def test_low_traffic_can_downscale_conservatively(self):
+        self.config.min_workers = 6
+        engine = AutoscaleDecisionEngine(self.config, clock=self.clock)
+        idle = snapshot(samples=0, queue_peak=0, utilization=0.0)
+
+        first = engine.evaluate(idle, 8)
+        self.clock.advance(301)
+        second = engine.evaluate(idle, 8)
+        self.clock.advance(301)
+        third = engine.evaluate(idle, 7)
+
+        self.assertEqual(first.target_workers, 8)
+        self.assertEqual(second.target_workers, 7)
+        self.assertEqual(third.target_workers, 6)
+
+    def test_low_sample_backlog_does_not_trigger_downscale(self):
+        self.config.min_workers = 6
+        engine = AutoscaleDecisionEngine(self.config, clock=self.clock)
+        busy = snapshot(samples=0, queue_current=2, queue_peak=2, utilization=0.1)
+
+        engine.evaluate(busy, 8)
+        self.clock.advance(601)
+        decision = engine.evaluate(busy, 8)
+
+        self.assertEqual(decision.target_workers, 8)
+
+    def test_critical_backlog_is_not_blocked_by_low_sample_count(self):
+        critical = snapshot(
+            samples=0,
+            queue_current=80,
+            queue_peak=90,
+            queue_rising=True,
+            utilization=1.0,
+        )
+
+        decision = self.engine.evaluate(critical, 8)
+
+        self.assertEqual(decision.state, AutoscaleState.CRITICAL)
+        self.assertEqual(decision.target_workers, 12)
+
     def test_minimum_and_maximum_are_never_crossed(self):
         critical = snapshot(queue_current=80, queue_peak=90, queue_rising=True, utilization=1)
         self.assertEqual(self.engine.evaluate(critical, 19).target_workers, 20)
