@@ -1551,7 +1551,7 @@ async def init_db() -> None:
                     id INTEGER PRIMARY KEY CHECK (id = 1),
                     mode TEXT NOT NULL DEFAULT 'auto',
                     observe_only INTEGER NOT NULL DEFAULT 1,
-                    min_workers INTEGER NOT NULL DEFAULT 8,
+                    min_workers INTEGER NOT NULL DEFAULT 6,
                     max_workers INTEGER NOT NULL DEFAULT 20,
                     manual_workers INTEGER NOT NULL DEFAULT 8,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -1572,7 +1572,7 @@ async def init_db() -> None:
                 "CREATE INDEX IF NOT EXISTS idx_webhook_autoscale_decisions_created ON webhook_autoscale_decisions(created_at DESC)",
                 """INSERT OR IGNORE INTO webhook_autoscale_settings
                    (id, mode, observe_only, min_workers, max_workers, manual_workers)
-                   VALUES (1, 'auto', 1, 8, 20, 8)""",
+                   VALUES (1, 'auto', 1, 6, 20, 8)""",
             ]
             for sql in version_ten_statements:
                 await db.execute(sql)

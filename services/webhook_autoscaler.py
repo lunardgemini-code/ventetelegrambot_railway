@@ -41,7 +41,7 @@ class AutoscaleState(str, Enum):
 class AutoscaleConfig:
     enabled: bool = True
     observe_only: bool = True
-    min_workers: int = 8
+    min_workers: int = 6
     max_workers: int = 20
     initial_workers: int = 8
     calm_seconds_before_downscale: int = 300
@@ -52,7 +52,7 @@ class AutoscaleConfig:
 
     @classmethod
     def from_env(cls) -> "AutoscaleConfig":
-        minimum = _env_int("WEBHOOK_WORKERS_MIN", 8)
+        minimum = _env_int("WEBHOOK_WORKERS_MIN", 6)
         maximum = max(minimum, _env_int("WEBHOOK_WORKERS_MAX", 20))
         initial = min(maximum, max(minimum, _env_int("WEBHOOK_WORKERS_INITIAL", 8)))
         return cls(

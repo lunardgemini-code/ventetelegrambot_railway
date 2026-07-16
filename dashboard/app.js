@@ -1364,7 +1364,7 @@ function renderAutoscaling(autoscaling) {
     const mode = autoscaling.mode || 'off';
     selectAutoscaleMode(mode);
     if (DOM.autoscaleObserve) DOM.autoscaleObserve.checked = Boolean(autoscaling.observe_only);
-    if (DOM.autoscaleMin) DOM.autoscaleMin.value = Number(autoscaling.min_workers || 8);
+    if (DOM.autoscaleMin) DOM.autoscaleMin.value = Number(autoscaling.min_workers || 6);
     if (DOM.autoscaleMax) DOM.autoscaleMax.value = Number(autoscaling.max_workers || 20);
     if (DOM.autoscaleState) {
         const observed = autoscaling.observe_only ? 'Observation' : (autoscaling.state || 'CALM');
@@ -1413,7 +1413,7 @@ function renderAutoscaleChart(timeline) {
 
 async function saveAutoscaleConfiguration() {
     const mode = state.autoscaleStatus?.mode || 'auto';
-    const minimum = Number(DOM.autoscaleMin?.value || 8);
+    const minimum = Number(DOM.autoscaleMin?.value || 6);
     const maximum = Number(DOM.autoscaleMax?.value || 20);
     if (maximum < minimum) return showToast('Le maximum doit etre superieur ou egal au minimum.', 'error');
     try {

@@ -361,7 +361,7 @@ async def get_webhook_autoscale_settings() -> dict:
             return dict(row) if row else {
                 "mode": "auto",
                 "observe_only": 1,
-                "min_workers": 8,
+                "min_workers": 6,
                 "max_workers": 20,
                 "manual_workers": 8,
             }
