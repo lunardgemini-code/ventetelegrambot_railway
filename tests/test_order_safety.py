@@ -144,6 +144,34 @@ class OrderSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(int(sold_count["cnt"]), 1)
         self.assertEqual(stored_order["status"], "COMPLETED")
 
+    async def test_dashboard_user_purchase_history_is_paginated(self):
+        completed = await models.create_order(
+            1001, self.product_id, 5, quantity=1
+        )
+        self.assertTrue(await models.update_order_status(
+            completed["id"], "COMPLETED", expected_statuses=("PENDING",),
+            payment_method="wallet",
+        ))
+        pending = await models.create_order(
+            1001, self.product_id, 10, quantity=2
+        )
+
+        first_page = await models.get_user_purchase_history(1001, limit=1, offset=0)
+        second_page = await models.get_user_purchase_history(1001, limit=1, offset=1)
+        empty_page = await models.get_user_purchase_history(1001, limit=1, offset=99)
+
+        self.assertEqual(first_page["total"], 2)
+        self.assertEqual(first_page["user"]["telegram_id"], 1001)
+        self.assertEqual(first_page["orders"][0]["id"], pending["id"])
+        self.assertEqual(first_page["orders"][0]["product_name"], "Test product")
+        self.assertEqual(second_page["orders"][0]["id"], completed["id"])
+        self.assertEqual(second_page["orders"][0]["payment_method"], "wallet")
+        self.assertEqual(empty_page["total"], 2)
+        self.assertEqual(empty_page["orders"], [])
+        self.assertIsNone(
+            await models.get_user_purchase_history(999999, limit=10, offset=0)
+        )
+
     async def test_concurrent_completion_counts_finance_once(self):
         order = await models.create_order(1001, self.product_id, 5, quantity=1)
         results = await asyncio.gather(

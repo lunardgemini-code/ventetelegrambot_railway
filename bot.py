@@ -3635,6 +3635,25 @@ async def api_get_users(limit: int = 20, offset: int = 0, search: str = "", sort
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@api.get("/api/users/{telegram_id}/orders", dependencies=[Depends(verify_api_key)])
+async def api_get_user_orders(telegram_id: int, limit: int = 20, offset: int = 0):
+    from database.models import get_user_purchase_history
+    try:
+        history = await get_user_purchase_history(
+            telegram_id,
+            limit=max(1, min(int(limit), 50)),
+            offset=max(0, int(offset)),
+        )
+        if not history:
+            raise HTTPException(status_code=404, detail="User not found")
+        return history
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("API error loading purchases for user %s: %s", telegram_id, exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @api.post("/api/users/{telegram_id}/ban", dependencies=[Depends(verify_api_key)])
 async def api_ban_user(telegram_id: int, notify: bool = False):
     from database.models import ban_user, get_user_lang

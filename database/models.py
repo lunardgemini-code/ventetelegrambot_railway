@@ -802,6 +802,48 @@ async def get_conversion_funnel(days: int = 30) -> dict:
         await db.close()
 
 
+async def get_user_purchase_history(
+    telegram_id: int, limit: int = 20, offset: int = 0
+) -> dict | None:
+    """Return one dashboard user's profile and paginated order history."""
+    limit = max(1, min(int(limit), 50))
+    offset = max(0, int(offset))
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT telegram_id, username, first_name, language, wallet_balance,
+                      total_spent, total_orders, is_banned, created_at
+               FROM users WHERE telegram_id = ?""",
+            (int(telegram_id),),
+        )
+        user_row = await cursor.fetchone()
+        if not user_row:
+            return None
+
+        cursor = await db.execute(
+            "SELECT COUNT(*) AS total FROM orders WHERE user_telegram_id = ?",
+            (int(telegram_id),),
+        )
+        total_row = await cursor.fetchone()
+        total = int(total_row["total"] or 0)
+
+        cursor = await db.execute(
+            """SELECT o.id, o.merchant_trade_no, o.product_id, o.quantity,
+                      o.amount_usd, o.status, o.payment_method, o.created_at,
+                      o.paid_at, p.name AS product_name, p.emoji AS product_emoji
+               FROM orders o
+               LEFT JOIN products p ON p.id = o.product_id
+               WHERE o.user_telegram_id = ?
+               ORDER BY o.created_at DESC, o.id DESC
+               LIMIT ? OFFSET ?""",
+            (int(telegram_id), limit, offset),
+        )
+        rows = [dict(row) for row in await cursor.fetchall()]
+        return {"user": dict(user_row), "orders": rows, "total": total}
+    finally:
+        await db.close()
+
+
 async def get_dead_product_alerts(days: int = 7, min_views: int = 10, max_conversion: float = 0.05) -> list[dict]:
     """Products with many views but weak sales conversion."""
     days = max(1, min(int(days), 90))

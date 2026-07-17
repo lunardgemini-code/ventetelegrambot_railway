@@ -14,7 +14,7 @@
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
     <link rel="stylesheet" href="style.css?v=20260715-supplier-image">
-    <link rel="stylesheet" href="revamp.css?v=20260716-autoscale">
+    <link rel="stylesheet" href="revamp.css?v=20260717-user-purchases">
 </head>
 <body>
     <!-- Login Screen -->
@@ -1362,6 +1362,37 @@
         </div>
     </div>
 
+    <!-- USER PURCHASE HISTORY MODAL -->
+    <div id="user-purchases-modal" class="modal-overlay hidden">
+        <div class="modal-card user-purchases-modal glass-panel animate-slide">
+            <div class="modal-header">
+                <div>
+                    <h3><i class="fa-solid fa-bag-shopping"></i> Achats du client</h3>
+                    <p id="user-purchases-identity" class="user-purchases-identity">Chargement...</p>
+                </div>
+                <button type="button" class="btn-close-modal" title="Fermer"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div id="user-purchases-summary" class="user-purchases-summary">
+                <div><span>Commandes</span><strong id="user-purchases-total">0</strong></div>
+                <div><span>Dépenses</span><strong id="user-purchases-spent">$0.00</strong></div>
+                <div><span>Wallet</span><strong id="user-purchases-wallet">$0.00</strong></div>
+                <div><span>Inscription</span><strong id="user-purchases-joined">-</strong></div>
+            </div>
+            <div class="user-purchases-table-wrap">
+                <table class="data-table user-purchases-table">
+                    <thead><tr><th>Commande</th><th>Produit</th><th>Qté</th><th>Montant</th><th>Paiement</th><th>Statut</th><th>Date</th><th></th></tr></thead>
+                    <tbody id="user-purchases-body"><tr><td colspan="8" class="empty-state">Chargement...</td></tr></tbody>
+                </table>
+            </div>
+            <div id="user-purchases-pagination" class="pagination-bar hidden">
+                <button id="user-purchases-prev" type="button" class="btn-secondary btn-sm" title="Page précédente"><i class="fa-solid fa-chevron-left"></i></button>
+                <span id="user-purchases-page-info">1 / 1</span>
+                <button id="user-purchases-next" type="button" class="btn-secondary btn-sm" title="Page suivante"><i class="fa-solid fa-chevron-right"></i></button>
+            </div>
+            <div class="modal-footer"><button type="button" class="btn-secondary btn-close-modal">Fermer</button></div>
+        </div>
+    </div>
+
     <!-- BAN CONFIRMATION MODAL -->
     <div id="banModal" class="modal-overlay hidden">
         <div class="modal-card glass-panel animate-slide">
@@ -1419,7 +1450,7 @@
 </div>
 
 
-<script defer src="app.js?v=20260716-worker-floor"></script>
+<script defer src="app.js?v=20260717-user-purchases"></script>
     <script>
     /* ── Mobile Sidebar Toggle ── */
     (function() {

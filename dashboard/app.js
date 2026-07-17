@@ -184,6 +184,7 @@ const state = {
     orderFilter:'all', orderPage:0, orderTotal:0,
     whFilter:'all', whPage:0, whTotal:0,
     usersPage:0, usersPerPage:20, usersSearch:'', usersTotal:0, usersSort:'joined', usersOrder:'desc',
+    userPurchasesTelegramId:null, userPurchasesPage:0, userPurchasesPerPage:10,
     currentStockProductId:null, autoRefresh:false, autoRefreshTimer:null,
     chartDays:30, refreshing:false, lastRefreshAt:null,
     revenueChart:null, ordersChart:null, productSalesChart:null, productMomentumChart:null,
@@ -243,6 +244,12 @@ const DOM = {
     ordersPrev:$('orders-prev'), ordersNext:$('orders-next'), ordersPageInfo:$('orders-page-info'),
     usersTableBody:$('users-table-body'), usersSearch:$('users-search'), usersLimitSelector:$('users-limit-selector'),
     usersPagination:$('users-pagination'), usersPrev:$('users-prev'), usersNext:$('users-next'), usersPageInfo:$('users-page-info'),
+    userPurchasesModal:$('user-purchases-modal'), userPurchasesIdentity:$('user-purchases-identity'),
+    userPurchasesSummary:$('user-purchases-summary'), userPurchasesTotal:$('user-purchases-total'),
+    userPurchasesSpent:$('user-purchases-spent'), userPurchasesWallet:$('user-purchases-wallet'),
+    userPurchasesJoined:$('user-purchases-joined'), userPurchasesBody:$('user-purchases-body'),
+    userPurchasesPagination:$('user-purchases-pagination'), userPurchasesPrev:$('user-purchases-prev'),
+    userPurchasesNext:$('user-purchases-next'), userPurchasesPageInfo:$('user-purchases-page-info'),
     openTicketsContainer:$('open-tickets-container'),
     resellersTableBody:$('resellers-table-body'), resellerUserId:$('reseller-user-id'), resellerKeyName:$('reseller-key-name'),
     btnCreateResellerKey:$('btn-create-reseller-key'), resellerKeyOutput:$('reseller-key-output'), resellerNewKey:$('reseller-new-key'),
@@ -531,7 +538,7 @@ function setupEvents() {
         showModal(DOM.promoModal);
     });
     $('btn-open-binance-modal').addEventListener('click', openBinanceModal);
-    $$('.btn-close-modal').forEach(b => b.addEventListener('click', () => { [DOM.prodModal,DOM.stockModal,DOM.promoModal,DOM.tiersModal,DOM.orderDetailModal,DOM.viewStockModal,DOM.editProdModal,DOM.revenueModal,DOM.binanceModal,DOM.gameMatchModal,DOM.supplierDescriptionModal,$('banModal'),$('finance-withdraw-modal'),$('finance-adjust-modal'), $('exportModal')].forEach(m => { if (m) hideModal(m); }); }));
+    $$('.btn-close-modal').forEach(b => b.addEventListener('click', () => { [DOM.prodModal,DOM.stockModal,DOM.promoModal,DOM.tiersModal,DOM.orderDetailModal,DOM.viewStockModal,DOM.editProdModal,DOM.revenueModal,DOM.binanceModal,DOM.gameMatchModal,DOM.supplierDescriptionModal,DOM.userPurchasesModal,$('banModal'),$('finance-withdraw-modal'),$('finance-adjust-modal'), $('exportModal')].forEach(m => { if (m) hideModal(m); }); }));
 
     
     if (DOM.prodDeliveryType) {
@@ -649,6 +656,16 @@ function setupEvents() {
 
     if (DOM.usersPrev) DOM.usersPrev.addEventListener('click', () => { if (state.usersPage > 0) { state.usersPage--; loadUsers(); }});
     if (DOM.usersNext) DOM.usersNext.addEventListener('click', () => { if (state.usersPage < Math.ceil(state.usersTotal/state.usersPerPage)-1) { state.usersPage++; loadUsers(); }});
+    if (DOM.userPurchasesPrev) DOM.userPurchasesPrev.addEventListener('click', () => {
+        if (state.userPurchasesPage > 0) {
+            state.userPurchasesPage--;
+            loadUserPurchases();
+        }
+    });
+    if (DOM.userPurchasesNext) DOM.userPurchasesNext.addEventListener('click', () => {
+        state.userPurchasesPage++;
+        loadUserPurchases();
+    });
     if (DOM.usersLimitSelector) {
         DOM.usersLimitSelector.querySelectorAll('button').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -3126,9 +3143,9 @@ async function loadUsers() {
                 const d = u.created_at ? parseUTCDate(u.created_at).toLocaleDateString() : '—';
                 const wb = parseFloat(u.wallet_balance||0).toFixed(2);
                 const refBy = u.referred_by ? `<code>${escapeHtml(u.referred_by)}</code>` : '—';
-                const refCount = u.referrals_count > 0 ? `${Number(u.referrals_count)} <button class="btn-table-action" onclick="viewUserReferrals(${Number(u.telegram_id)})" title="Voir les filleuls" style="margin-left:5px;color:#3b82f6;"><i class="fa-solid fa-users"></i></button>` : 0;
+                const refCount = u.referrals_count > 0 ? `${Number(u.referrals_count)} <button class="btn-table-action" onclick="event.stopPropagation();viewUserReferrals(${Number(u.telegram_id)})" title="Voir les filleuls" style="margin-left:5px;color:#3b82f6;"><i class="fa-solid fa-users"></i></button>` : 0;
                 const refEarnings = parseFloat(u.referral_earnings||0).toFixed(2);
-                return `<tr><td><code>${escapeHtml(u.telegram_id)}</code></td><td>${escapeHtml(u.username||'—')}</td><td>${escapeHtml(u.first_name||'—')}</td><td>${escapeHtml(u.language||'fr')}</td><td>${Number(u.total_orders||0)}</td><td>$${parseFloat(u.total_spent||0).toFixed(2)}</td><td>$${wb}</td><td>${refBy}</td><td>${refCount}</td><td>$${refEarnings}</td><td>${escapeHtml(d)}</td><td><button class="btn-table-action" onclick="creditWallet(${Number(u.telegram_id)})" title="Créditer" style="color:#22c55e;"><i class="fa-solid fa-circle-plus"></i></button> <button class="btn-table-action" onclick="debitWallet(${Number(u.telegram_id)})" title="Retirer" style="color:#ef4444;"><i class="fa-solid fa-circle-minus"></i></button> ${banned?`<span class="status-badge banned">${t('banned')}</span> <button class="btn-table-action unban" onclick="unbanUser(${Number(u.telegram_id)})"><i class="fa-solid fa-lock-open"></i></button>`:`<button class="btn-table-action ban" onclick="banUser(${Number(u.telegram_id)})"><i class="fa-solid fa-ban"></i></button>`}</td></tr>`;
+                return `<tr class="user-row" onclick="openUserPurchases(${Number(u.telegram_id)})" title="Voir les achats"><td><code>${escapeHtml(u.telegram_id)}</code></td><td>${escapeHtml(u.username||'—')}</td><td>${escapeHtml(u.first_name||'—')}</td><td>${escapeHtml(u.language||'fr')}</td><td>${Number(u.total_orders||0)}</td><td>$${parseFloat(u.total_spent||0).toFixed(2)}</td><td>$${wb}</td><td>${refBy}</td><td>${refCount}</td><td>$${refEarnings}</td><td>${escapeHtml(d)}</td><td><button class="btn-table-action" onclick="event.stopPropagation();openUserPurchases(${Number(u.telegram_id)})" title="Voir les achats" style="color:#60a5fa;"><i class="fa-solid fa-bag-shopping"></i></button> <button class="btn-table-action" onclick="event.stopPropagation();creditWallet(${Number(u.telegram_id)})" title="Créditer" style="color:#22c55e;"><i class="fa-solid fa-circle-plus"></i></button> <button class="btn-table-action" onclick="event.stopPropagation();debitWallet(${Number(u.telegram_id)})" title="Retirer" style="color:#ef4444;"><i class="fa-solid fa-circle-minus"></i></button> ${banned?`<span class="status-badge banned">${t('banned')}</span> <button class="btn-table-action unban" onclick="event.stopPropagation();unbanUser(${Number(u.telegram_id)})"><i class="fa-solid fa-lock-open"></i></button>`:`<button class="btn-table-action ban" onclick="event.stopPropagation();banUser(${Number(u.telegram_id)})"><i class="fa-solid fa-ban"></i></button>`}</td></tr>`;
             }).join('');
         } else {
             DOM.usersTableBody.innerHTML = `<tr><td colspan="12" class="empty-state">${t('no_users')}</td></tr>`;
@@ -3144,6 +3161,100 @@ async function loadUsers() {
         updateUsersSortIcons();
     } catch(e) { console.warn('loadUsers:', e); }
 }
+
+function userPurchaseStatus(status) {
+    const labels = {
+        COMPLETED:'Terminée', PENDING:'En attente', AWAITING_PAYMENT:'Paiement attendu',
+        PROCESSING:'En traitement', PAID_PENDING_DELIVERY:'Livraison en attente',
+        AWAITING_ACTIVATION:'Activation à traiter', AWAITING_ACTIVATION_INFO:'Identifiant attendu',
+        CANCELLED:'Annulée'
+    };
+    return labels[status] || status || '—';
+}
+
+function userPurchasePayment(method) {
+    const labels = {
+        wallet:'Wallet', binance:'Binance Pay', nowpayments_bep20:'BEP20',
+        trc20:'TRC20', admin:'Admin'
+    };
+    return labels[method] || method || '—';
+}
+
+async function loadUserPurchases() {
+    const telegramId = state.userPurchasesTelegramId;
+    if (!telegramId || !DOM.userPurchasesBody) return;
+    const limit = state.userPurchasesPerPage || 10;
+    const offset = (state.userPurchasesPage || 0) * limit;
+    DOM.userPurchasesBody.innerHTML = '<tr><td colspan="8" class="empty-state">Chargement...</td></tr>';
+    try {
+        const data = await apiCall(`/api/users/${telegramId}/orders?limit=${limit}&offset=${offset}`);
+        const user = data.user || {};
+        const orders = Array.isArray(data.orders) ? data.orders : [];
+        const total = Number(data.total || 0);
+        const totalPages = Math.max(1, Math.ceil(total / limit));
+        if (state.userPurchasesPage >= totalPages && state.userPurchasesPage > 0) {
+            state.userPurchasesPage = totalPages - 1;
+            return loadUserPurchases();
+        }
+
+        const username = user.username ? `@${user.username}` : 'sans username';
+        DOM.userPurchasesIdentity.textContent = `${user.first_name || 'Client'} · ${username} · ID ${user.telegram_id}`;
+        DOM.userPurchasesTotal.textContent = total.toLocaleString();
+        DOM.userPurchasesSpent.textContent = `$${Number(user.total_spent || 0).toFixed(2)}`;
+        DOM.userPurchasesWallet.textContent = `$${Number(user.wallet_balance || 0).toFixed(2)}`;
+        DOM.userPurchasesJoined.textContent = user.created_at ? parseUTCDate(user.created_at).toLocaleDateString() : '—';
+        state.userPurchaseOrders = orders;
+        state.userPurchaseUser = user;
+
+        DOM.userPurchasesBody.innerHTML = orders.length ? orders.map(order => {
+            const product = `${order.product_emoji || '📦'} ${order.product_name || `Produit #${order.product_id}`}`.trim();
+            const orderNo = escapeHtml(order.merchant_trade_no || '—');
+            const date = order.created_at ? parseUTCDate(order.created_at).toLocaleString([], {dateStyle:'short', timeStyle:'short'}) : '—';
+            const status = escapeHtml(String(order.status || ''));
+            const detail = order.status === 'COMPLETED'
+                ? `<button type="button" class="btn-table-action" onclick="openUserPurchaseOrderDetail(${Number(order.id)})" title="Voir les articles livrés"><i class="fa-solid fa-eye"></i></button>`
+                : '—';
+            return `<tr>
+                <td><strong>#${Number(order.id)}</strong><br><small><code>${orderNo}</code></small></td>
+                <td><span class="user-purchases-product"><strong>${escapeHtml(product)}</strong><small>Produit #${Number(order.product_id || 0)}</small></span></td>
+                <td>${Number(order.quantity || 1)}</td>
+                <td><strong>$${Number(order.amount_usd || 0).toFixed(2)}</strong></td>
+                <td>${escapeHtml(userPurchasePayment(order.payment_method))}</td>
+                <td><span class="status-badge ${status.toLowerCase()}">${escapeHtml(userPurchaseStatus(order.status))}</span></td>
+                <td>${escapeHtml(date)}</td><td>${detail}</td>
+            </tr>`;
+        }).join('') : '<tr><td colspan="8" class="empty-state">Aucun achat pour ce client.</td></tr>';
+
+        DOM.userPurchasesPageInfo.textContent = `${state.userPurchasesPage + 1} / ${totalPages}`;
+        DOM.userPurchasesPagination.classList.toggle('hidden', totalPages <= 1);
+        DOM.userPurchasesPrev.disabled = state.userPurchasesPage <= 0;
+        DOM.userPurchasesNext.disabled = state.userPurchasesPage >= totalPages - 1;
+    } catch (error) {
+        DOM.userPurchasesBody.innerHTML = `<tr><td colspan="8" class="empty-state">${escapeHtml(error.message)}</td></tr>`;
+        showToast('Impossible de charger les achats de ce client.', 'error');
+    }
+}
+
+window.openUserPurchases = function(telegramId) {
+    state.userPurchasesTelegramId = Number(telegramId);
+    state.userPurchasesPage = 0;
+    DOM.userPurchasesIdentity.textContent = `ID ${telegramId}`;
+    showModal(DOM.userPurchasesModal);
+    loadUserPurchases();
+};
+
+window.openUserPurchaseOrderDetail = function(orderId) {
+    const order = (state.userPurchaseOrders || []).find(item => Number(item.id) === Number(orderId));
+    if (order) {
+        const user = state.userPurchaseUser || {};
+        state.orders = [
+            ...state.orders.filter(item => Number(item.id) !== Number(orderId)),
+            {...order, username:user.username, user_first_name:user.first_name, user_telegram_id:user.telegram_id}
+        ];
+    }
+    hideModal(DOM.userPurchasesModal);
+    openOrderDetail(Number(orderId));
+};
 
 function sortUsers(field) {
     if (state.usersSort === field) {
