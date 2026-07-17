@@ -35,6 +35,7 @@ If a reseller generates a new key from the bot, the previous active key is autom
 - API purchases debit the reseller wallet.
 - To avoid duplicate purchases if your bot retries the same request, always send a stable `idempotency_key` and reuse it for every retry of that purchase.
 - For `stock` products, delivered accounts are returned in `order.items`.
+- For `supplier_api` products, send the order only when its status is `COMPLETED`. If the response is `PAID_PENDING_DELIVERY`, poll the order endpoint until delivery finishes instead of sending an empty message.
 - For `activation` products, send `activation_identifier` when creating the order, or later with the dedicated endpoint.
 - If you call the API from a browser website, set `CORS_ORIGINS` on the bot backend to your website domain, for example `https://your-site.com`.
 - If your hosting plan sleeps, ping `GET /health` every few minutes instead of pinging protected reseller endpoints.
@@ -194,6 +195,27 @@ Response:
 Your bot can then send `account_data` to its customer.
 
 If the same `idempotency_key` is submitted again, the API returns the existing order with `idempotent: true` and does not debit the wallet or deliver stock again. On this replay response, `balance_after`, `unit_price`, and `total` can be `null`; use `order.amount_usd` for the original order total.
+
+## Buy a Supplier API Product
+
+Supplier-backed products use `delivery_type: "supplier_api"`. The same purchase endpoint and idempotency rules apply. Most successful purchases return `COMPLETED` immediately with credentials in `order.items`.
+
+If the supplier needs more time, the response is:
+
+```json
+{
+  "success": true,
+  "status": "ok",
+  "order": {
+    "id": 125,
+    "status": "PAID_PENDING_DELIVERY",
+    "delivery_type": "supplier_api",
+    "items": []
+  }
+}
+```
+
+Do not send an empty message to the customer. Poll `GET /api/reseller/orders/125` using a short backoff. Deliver `order.items` only after the status becomes `COMPLETED`. Reuse the original `idempotency_key` if the create-order request itself must be retried.
 
 ## Buy an Activation Product
 

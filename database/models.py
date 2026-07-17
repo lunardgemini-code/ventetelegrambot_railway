@@ -2298,9 +2298,14 @@ async def get_stock_items_for_order(order_id: int) -> list[dict]:
             (order_id,),
         )
         rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
+        stock_items = [dict(r) for r in rows]
     finally:
         await db.close()
+    if stock_items:
+        return stock_items
+    from database.suppliers import get_supplier_items_for_order
+
+    return await get_supplier_items_for_order(order_id)
 
 
 async def delete_stock_item(stock_id: int) -> None:
@@ -5393,15 +5398,28 @@ async def get_reseller_order(user_telegram_id: int, order_id: int) -> dict | Non
         if not row:
             return None
         order = dict(row)
-        cursor = await db.execute(
-            "SELECT id, account_data FROM stock_items WHERE sold_to_order_id = ? ORDER BY id ASC",
-            (int(order_id),),
-        )
-        items = await cursor.fetchall()
-        order["items"] = [dict(i) for i in items]
-        return order
     finally:
         await db.close()
+    order["items"] = await get_stock_items_for_order(order_id)
+    return order
+
+
+async def get_reseller_order_by_idempotency_key(
+    user_telegram_id: int, idempotency_key: str
+) -> dict | None:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT order_id FROM reseller_order_links "
+            "WHERE reseller_user_telegram_id = ? AND idempotency_key = ? LIMIT 1",
+            (int(user_telegram_id), str(idempotency_key)),
+        )
+        row = await cursor.fetchone()
+    finally:
+        await db.close()
+    if not row:
+        return None
+    return await get_reseller_order(user_telegram_id, int(row["order_id"]))
 
 
 async def create_reseller_order(
@@ -5420,6 +5438,19 @@ async def create_reseller_order(
     customer_reference = (customer_reference or "").strip()[:120]
     idempotency_key = (idempotency_key or "").strip()[:120] or None
     activation_identifier = (activation_identifier or "").strip()
+
+    if idempotency_key:
+        existing_order = await get_reseller_order_by_idempotency_key(
+            reseller_user_telegram_id, idempotency_key
+        )
+        if existing_order:
+            return {"idempotent": True, "order": existing_order}
+
+    preflight_product = await get_product(product_id)
+    if (preflight_product or {}).get("delivery_type") == "supplier_api":
+        available = await get_stock_count(product_id)
+        if quantity > available:
+            raise ValueError("Insufficient stock")
 
     db = await get_db()
     try:
@@ -5481,6 +5512,8 @@ async def create_reseller_order(
                 activation_requested_at = _utcnow().isoformat()
             else:
                 status = "AWAITING_ACTIVATION_INFO"
+        elif delivery_type == "supplier_api":
+            status = "PAID_PENDING_DELIVERY"
         else:
             cursor = await db.execute(
                 "SELECT * FROM stock_items WHERE product_id = ? AND is_sold = 0 ORDER BY added_at ASC LIMIT ?",
@@ -5548,6 +5581,18 @@ async def create_reseller_order(
             }
             await _apply_completion_effects_tx(db, completion_order, "wallet")
         await db.commit()
+
+        if delivery_type == "supplier_api":
+            from services.delivery import deliver_order
+
+            delivered = await deliver_order(order_id, product_id)
+            if delivered:
+                await update_order_status(
+                    order_id,
+                    "COMPLETED",
+                    expected_statuses=("PAID_PENDING_DELIVERY",),
+                    payment_method="wallet",
+                )
 
         order = await get_reseller_order(reseller_user_telegram_id, order_id)
         return {

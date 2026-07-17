@@ -790,7 +790,7 @@ def _reseller_openapi_schema() -> dict:
                         "image_url": {"type": "string", "nullable": True, "example": "https://example.com/product.png"},
                         "price_usd": {"type": "number", "format": "float", "example": 5.0},
                         "warranty_days": {"type": "integer", "example": 30},
-                        "delivery_type": {"type": "string", "enum": ["stock", "activation"], "example": "activation"},
+                        "delivery_type": {"type": "string", "enum": ["stock", "activation", "supplier_api"], "example": "activation"},
                         "stock": {"type": "integer", "nullable": True, "example": None},
                         "price_tiers": {"type": "array", "items": {"$ref": "#/components/schemas/PriceTier"}},
                     },
@@ -872,7 +872,7 @@ def _reseller_openapi_schema() -> dict:
                         "id": {"type": "integer", "example": 124},
                         "status": {
                             "type": "string",
-                            "enum": ["COMPLETED", "AWAITING_ACTIVATION_INFO", "AWAITING_ACTIVATION", "CANCELLED"],
+                            "enum": ["COMPLETED", "PAID_PENDING_DELIVERY", "AWAITING_ACTIVATION_INFO", "AWAITING_ACTIVATION", "CANCELLED"],
                             "example": "AWAITING_ACTIVATION",
                         },
                         "product_id": {"type": "integer", "example": 12},

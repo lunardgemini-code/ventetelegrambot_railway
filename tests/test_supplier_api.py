@@ -697,6 +697,91 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(purchase["items"], [])
         self.assertAlmostEqual(float(purchase["balance_after"]), 6.5)
 
+    async def test_supplier_delivery_is_available_from_purchase_history(self):
+        order = await models.create_order(
+            3001, self.local_product_id, 3.5, quantity=1
+        )
+        supplier_purchase = AsyncMock(return_value={
+            "external_order_id": "history-1",
+            "items": [{"account_data": "supplier-login:secret"}],
+            "raw_payload": {"success": True},
+        })
+
+        with patch(
+            "services.supplier_api.purchase_canboso_product", supplier_purchase
+        ):
+            delivered = await deliver_order(order["id"], self.local_product_id)
+
+        await models.update_order_status(
+            order["id"], "COMPLETED", expected_statuses=("PENDING",)
+        )
+        stored = await models.get_stock_items_for_order(order["id"])
+
+        self.assertEqual(delivered, [{"account_data": "supplier-login:secret"}])
+        self.assertEqual(
+            [item["account_data"] for item in stored],
+            [item["account_data"] for item in delivered],
+        )
+        self.assertIsInstance(stored[0]["id"], int)
+
+    async def test_reseller_supplier_purchase_returns_delivery_and_is_idempotent(self):
+        await models.topup_wallet(3001, 10, "test")
+        supplier_purchase = AsyncMock(return_value={
+            "external_order_id": "reseller-1",
+            "items": [{"account_data": "reseller-login:secret"}],
+            "raw_payload": {"success": True},
+        })
+
+        stock_count = AsyncMock(return_value=8)
+        with (
+            patch.object(models, "get_stock_count", stock_count),
+            patch(
+                "services.supplier_api.purchase_canboso_product",
+                supplier_purchase,
+            ),
+        ):
+            first = await models.create_reseller_order(
+                3001,
+                self.local_product_id,
+                quantity=1,
+                idempotency_key="supplier-reseller-1",
+            )
+            replay = await models.create_reseller_order(
+                3001,
+                self.local_product_id,
+                quantity=1,
+                idempotency_key="supplier-reseller-1",
+            )
+
+        self.assertFalse(first["idempotent"])
+        self.assertTrue(replay["idempotent"])
+        self.assertEqual(first["order"]["status"], "COMPLETED")
+        self.assertEqual(
+            [item["account_data"] for item in first["order"]["items"]],
+            ["reseller-login:secret"],
+        )
+        self.assertEqual(replay["order"]["items"], first["order"]["items"])
+        supplier_purchase.assert_awaited_once()
+        stock_count.assert_awaited_once()
+
+        db = await db_module.get_db()
+        try:
+            user = await (
+                await db.execute(
+                    "SELECT wallet_balance FROM users WHERE telegram_id = 3001"
+                )
+            ).fetchone()
+            transactions = await (
+                await db.execute(
+                    "SELECT COUNT(*) AS cnt FROM wallet_transactions "
+                    "WHERE description LIKE 'Reseller API order #%'")
+            ).fetchone()
+        finally:
+            await db.close()
+
+        self.assertAlmostEqual(float(user["wallet_balance"]), 6.5)
+        self.assertEqual(int(transactions["cnt"]), 1)
+
     async def test_supplier_stats_use_order_time_cost_and_revenue_snapshots(self):
         purchase = AsyncMock(
             side_effect=[

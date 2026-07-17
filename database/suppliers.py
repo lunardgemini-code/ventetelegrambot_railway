@@ -1109,3 +1109,28 @@ def decoded_supplier_items(row: dict) -> list[dict]:
         return items if isinstance(items, list) else []
     except (TypeError, ValueError):
         return []
+
+
+async def get_supplier_items_for_order(order_id: int) -> list[dict]:
+    """Return persisted supplier delivery data for a completed order."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT id, delivered_items FROM supplier_orders "
+            "WHERE order_id = ? AND status = 'completed' LIMIT 1",
+            (int(order_id),),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return []
+        supplier_order = dict(row)
+        items = decoded_supplier_items(supplier_order)
+        stable_prefix = int(supplier_order["id"]) * 100000
+        return [
+            {**item, "id": item.get("id") or stable_prefix + index}
+            if isinstance(item, dict)
+            else {"id": stable_prefix + index, "account_data": str(item)}
+            for index, item in enumerate(items, start=1)
+        ]
+    finally:
+        await db.close()
