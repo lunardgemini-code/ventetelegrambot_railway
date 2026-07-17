@@ -1314,26 +1314,21 @@ async def api_get_supplier_stats(supplier_code: str, days: int = 30):
     dependencies=[Depends(verify_api_key)],
 )
 async def api_sync_supplier_bot(supplier_code: str):
-    from database.suppliers import (
-        get_supplier_dashboard,
-        get_supplier_units_per_usd,
-        sync_supplier_products,
-    )
+    from database.suppliers import get_supplier_dashboard
+    from services.supplier_api import SupplierAPIError
     from services.supplier_registry import (
-        SupplierAPIError,
         get_supplier_provider,
-        list_supplier_products,
     )
+    from services.supplier_sync import sync_supplier_catalog
 
     try:
         provider = get_supplier_provider(supplier_code)
-        rate = await get_supplier_units_per_usd(provider["code"])
-        products = await list_supplier_products(
-            provider["code"], units_per_usd=rate
+        result = await sync_supplier_catalog(
+            provider["code"],
+            min_interval_seconds=0,
+            refresh_balance=True,
         )
-        result = await sync_supplier_products(products, provider["code"])
         return {
-            "status": "synced",
             **result,
             "dashboard": await get_supplier_dashboard(provider["code"]),
         }
@@ -1909,6 +1904,7 @@ async def api_reseller_quote(data: ResellerQuoteRequest, reseller: dict = Depend
 @api.post("/api/reseller/orders")
 async def api_reseller_create_order(data: ResellerCreateOrderRequest, reseller: dict = Depends(verify_reseller_key)):
     from database.models import create_reseller_order
+    from services.supplier_api import SupplierAPIError
     try:
         result = await create_reseller_order(
             reseller_user_telegram_id=reseller["user_telegram_id"],
@@ -1937,6 +1933,13 @@ async def api_reseller_create_order(data: ResellerCreateOrderRequest, reseller: 
             unit_price=result.get("unit_price"),
             total=result.get("total"),
             order=_api_order_payload(order),
+        )
+    except SupplierAPIError:
+        _raise_reseller_error(
+            503,
+            "SUPPLIER_TEMPORARILY_UNAVAILABLE",
+            "Supplier stock could not be verified. Retry shortly.",
+            headers={"Retry-After": "5"},
         )
     except ValueError as exc:
         msg = str(exc)
@@ -4168,6 +4171,9 @@ def _webhook_performance_snapshot() -> dict:
 DYNAMIC_PRICING_CHECK_SECONDS = _env_int("DYNAMIC_PRICING_CHECK_SECONDS", 900, minimum=60)
 NOWPAYMENTS_RECONCILE_SECONDS = _env_int("NOWPAYMENTS_RECONCILE_SECONDS", 180, minimum=30)
 STALE_ORDER_CLEANUP_SECONDS = _env_int("STALE_ORDER_CLEANUP_SECONDS", 60, minimum=30)
+SUPPLIER_CATALOG_SYNC_SECONDS = _env_int(
+    "SUPPLIER_CATALOG_SYNC_SECONDS", 90, minimum=60
+)
 
 
 async def _dynamic_pricing_worker() -> None:
@@ -4412,6 +4418,19 @@ async def post_init(application: Application) -> None:
         application.bot_data["game_sync_task"] = asyncio.create_task(game_sync_worker())
         logger.info("Lightweight game match synchronization worker started")
 
+    task = application.bot_data.get("supplier_catalog_sync_task")
+    if not task or task.done():
+        from services.supplier_sync import supplier_catalog_sync_worker
+
+        application.bot_data["supplier_catalog_sync_task"] = asyncio.create_task(
+            supplier_catalog_sync_worker(SUPPLIER_CATALOG_SYNC_SECONDS),
+            name="supplier-catalog-sync",
+        )
+        logger.info(
+            "Supplier catalog synchronization worker started (check every %ds)",
+            SUPPLIER_CATALOG_SYNC_SECONDS,
+        )
+
     from services.nowpayments import is_nowpayments_configured
     if is_nowpayments_configured():
         task = application.bot_data.get("nowpayments_task")
@@ -4441,6 +4460,7 @@ async def post_shutdown(application: Application) -> None:
         application.bot_data.pop("background_job_task", None),
         application.bot_data.pop("performance_history_task", None),
         application.bot_data.pop("game_sync_task", None),
+        application.bot_data.pop("supplier_catalog_sync_task", None),
         application.bot_data.pop("runtime_health_task", None),
     ]
     for task in tasks:

@@ -5490,8 +5490,10 @@ async def create_reseller_order(
 
     preflight_product = await get_product(product_id)
     if (preflight_product or {}).get("delivery_type") == "supplier_api":
-        available = await get_stock_count(product_id)
-        if quantity > available:
+        from services.supplier_sync import refresh_supplier_product_stock
+
+        available = await refresh_supplier_product_stock(product_id)
+        if quantity > int(available or 0):
             raise ValueError("Insufficient stock")
 
     db = await get_db()

@@ -36,6 +36,8 @@ from database.models import (
 )
 from services.binance_verify import verify_payment
 from services.delivery import check_low_stock, deliver_order
+from services.supplier_api import SupplierAPIError
+from services.supplier_sync import refresh_supplier_product_stock
 from utils.helpers import escape_html, format_price
 from utils.keyboards import (
     back_keyboard,
@@ -91,6 +93,64 @@ def _format_crypto_amount(value) -> str:
 
 def _is_activation_product(product: dict | None) -> bool:
     return bool(product and product.get("delivery_type") == "activation")
+
+
+async def _get_current_purchase_stock(
+    product: dict,
+    *,
+    reservation_order_id: int | None = None,
+) -> int:
+    product_id = int(product["id"])
+    if product.get("delivery_type") != "supplier_api":
+        return await get_stock_count(product_id)
+    refreshed = await refresh_supplier_product_stock(
+        product_id,
+        reservation_order_id=reservation_order_id,
+    )
+    return max(0, int(refreshed or 0))
+
+
+async def _ensure_supplier_stock_for_order(query, order: dict, lang: str) -> bool:
+    """Fail closed before exposing payment instructions for supplier orders."""
+    product = await get_product(int(order["product_id"]))
+    if not product or product.get("delivery_type") != "supplier_api":
+        return True
+
+    try:
+        available = await _get_current_purchase_stock(
+            product,
+            reservation_order_id=int(order["id"]),
+        )
+    except SupplierAPIError as exc:
+        logger.warning(
+            "Supplier stock verification failed for order #%s: %s",
+            order.get("id"),
+            exc,
+        )
+        await safe_edit_message_text(
+            query,
+            t("pay_error", lang),
+            parse_mode="HTML",
+            reply_markup=main_menu_keyboard(lang),
+        )
+        return False
+
+    quantity = max(1, int(order.get("quantity") or 1))
+    if quantity <= available:
+        return True
+
+    await update_order_status(
+        int(order["id"]),
+        "CANCELLED",
+        expected_statuses=("PENDING", "AWAITING_PAYMENT"),
+    )
+    await safe_edit_message_text(
+        query,
+        t("insufficient_stock", lang).format(stock=available),
+        parse_mode="HTML",
+        reply_markup=main_menu_keyboard(lang),
+    )
+    return False
 
 
 def _clear_payment_context(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -278,7 +338,23 @@ async def initiate_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         asyncio.create_task(record_product_buy_click(product_id, update.effective_user.id))
 
         is_activation = _is_activation_product(product)
-        stock = await get_stock_count(product_id)
+        try:
+            stock = await _get_current_purchase_stock(product)
+        except SupplierAPIError as exc:
+            logger.warning(
+                "Supplier stock verification failed for product %s: %s",
+                product_id,
+                exc,
+            )
+            await safe_edit_message_text(
+                query,
+                t("pay_error", lang),
+                parse_mode="HTML",
+                reply_markup=back_keyboard(
+                    f"back_prods:{product['category_id']}", lang
+                ),
+            )
+            return ConversationHandler.END
         if not is_activation and stock <= 0:
             try:
                 await query.message.delete()
@@ -398,7 +474,27 @@ async def _process_quantity(
         return ConversationHandler.END
 
     is_activation = _is_activation_product(product)
-    stock = await get_stock_count(product_id)
+    try:
+        stock = await _get_current_purchase_stock(product)
+    except SupplierAPIError as exc:
+        logger.warning(
+            "Supplier stock verification failed for product %s: %s",
+            product_id,
+            exc,
+        )
+        msg = t("pay_error", lang)
+        if is_callback:
+            await safe_edit_message_text(
+                update.callback_query,
+                msg,
+                reply_markup=main_menu_keyboard(lang),
+            )
+        else:
+            await update.message.reply_text(
+                msg,
+                reply_markup=main_menu_keyboard(lang),
+            )
+        return ConversationHandler.END
     if not is_activation and quantity > stock:
         msg = t("insufficient_stock", lang).format(stock=stock)
         if is_callback:
@@ -734,17 +830,10 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return ConversationHandler.END
 
+        if not await _ensure_supplier_stock_for_order(query, order, lang):
+            return ConversationHandler.END
+
         from database.models import get_wallet_balance
-        product = await get_product(product_id)
-        if (product or {}).get("delivery_type") == "supplier_api":
-            available = await get_stock_count(product_id)
-            if max(1, int(order.get("quantity") or 1)) > available:
-                await safe_edit_message_text(query, 
-                    t("insufficient_stock", lang).format(stock=available),
-                    parse_mode="HTML",
-                    reply_markup=main_menu_keyboard(lang),
-                )
-                return ConversationHandler.END
         try:
             purchase = await purchase_order_with_wallet(order_id, telegram_id)
         except ValueError as exc:
@@ -867,6 +956,9 @@ async def pay_with_binance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if order.get("user_telegram_id") != telegram_id:
             logger.warning("User %s tried to pay order #%s via Binance which belongs to %s", telegram_id, order_id, order.get("user_telegram_id"))
             await safe_edit_message_text(query, t("access_denied", lang))
+            return ConversationHandler.END
+
+        if not await _ensure_supplier_stock_for_order(query, order, lang):
             return ConversationHandler.END
 
         await update_order_status(
@@ -1573,6 +1665,9 @@ async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYP
                 await safe_edit_message_text(query, t("order_cancelled", lang), reply_markup=main_menu_keyboard(lang))
             return ConversationHandler.END
 
+        if not await _ensure_supplier_stock_for_order(query, order, lang):
+            return ConversationHandler.END
+
         callback_url = _nowpayments_callback_url()
         if not callback_url.startswith("https://"):
             logger.error("NOWPayments callback URL is missing or not HTTPS")
@@ -1790,6 +1885,9 @@ async def pay_with_bep20(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if order.get("user_telegram_id") != telegram_id:
             logger.warning("User %s tried to pay order #%s via BEP20 which belongs to %s", telegram_id, order_id, order.get("user_telegram_id"))
             await safe_edit_message_text(query, t("access_denied", lang))
+            return ConversationHandler.END
+
+        if not await _ensure_supplier_stock_for_order(query, order, lang):
             return ConversationHandler.END
 
         from database.models import get_setting
@@ -2076,6 +2174,9 @@ async def pay_with_trc20(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if order.get("user_telegram_id") != telegram_id:
             logger.warning("User %s tried to pay order #%s via TRC20 which belongs to %s", telegram_id, order_id, order.get("user_telegram_id"))
             await safe_edit_message_text(query, t("access_denied", lang))
+            return ConversationHandler.END
+
+        if not await _ensure_supplier_stock_for_order(query, order, lang):
             return ConversationHandler.END
 
         from database.models import get_setting

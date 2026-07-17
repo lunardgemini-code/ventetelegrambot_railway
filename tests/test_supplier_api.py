@@ -32,10 +32,16 @@ from services.nanlux_api import (
     normalize_nanlux_products,
     normalize_nanlux_purchase,
 )
+from services.supplier_sync import (
+    refresh_supplier_product_stock,
+    reset_supplier_sync_state,
+    sync_supplier_catalog,
+)
 
 
 class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        reset_supplier_sync_state()
         self.temp_dir = tempfile.TemporaryDirectory()
         os.environ["DB_PATH"] = os.path.join(self.temp_dir.name, "supplier.db")
         db_module.TURSO_URL = ""
@@ -67,7 +73,169 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
         self.local_product_id = int(mapping["local_product_id"])
 
     async def asyncTearDown(self):
+        reset_supplier_sync_state()
         self.temp_dir.cleanup()
+
+    async def test_live_catalog_sync_deduplicates_concurrent_clients(self):
+        catalog = [{**self.remote_product, "remote_stock": 5}]
+        list_products = AsyncMock(return_value=catalog)
+        persist_catalog = AsyncMock(
+            return_value={"supplier_code": "canboso", "synced": 1, "selected": 1}
+        )
+        with (
+            patch(
+                "services.supplier_sync.is_supplier_configured",
+                return_value=True,
+            ),
+            patch(
+                "services.supplier_sync.get_supplier_units_per_usd",
+                AsyncMock(return_value=1.0),
+            ),
+            patch(
+                "services.supplier_sync.list_supplier_products", list_products
+            ),
+            patch(
+                "services.supplier_sync.sync_supplier_products", persist_catalog
+            ),
+        ):
+            results = await asyncio.gather(*(
+                sync_supplier_catalog("canboso", min_interval_seconds=30)
+                for _ in range(5)
+            ))
+
+        self.assertTrue(all(result["synced"] == 1 for result in results))
+        list_products.assert_awaited_once()
+        persist_catalog.assert_awaited_once_with(catalog, "canboso")
+
+    async def test_empty_live_catalog_does_not_erase_cached_stock(self):
+        persist_catalog = AsyncMock()
+        with (
+            patch(
+                "services.supplier_sync.is_supplier_configured",
+                return_value=True,
+            ),
+            patch(
+                "services.supplier_sync.get_supplier_units_per_usd",
+                AsyncMock(return_value=1.0),
+            ),
+            patch(
+                "services.supplier_sync.list_supplier_products",
+                AsyncMock(return_value=[]),
+            ),
+            patch(
+                "services.supplier_sync.sync_supplier_products", persist_catalog
+            ),
+        ):
+            with self.assertRaises(SupplierAPIError):
+                await sync_supplier_catalog("canboso")
+
+        persist_catalog.assert_not_awaited()
+
+    async def test_fresh_supplier_stock_respects_earlier_checkout_reservations(self):
+        await models.get_or_create_user(3002, "earlier_buyer", "Earlier Buyer")
+        first = await models.create_order(
+            3002, self.local_product_id, 7.0, quantity=2
+        )
+        current = await models.create_order(
+            3001, self.local_product_id, 3.5, quantity=1
+        )
+        with (
+            patch(
+                "services.supplier_sync.sync_supplier_catalog",
+                AsyncMock(return_value={"status": "synced", "synced": 1}),
+            ),
+            patch(
+                "services.supplier_sync.supplier_available_stock",
+                AsyncMock(return_value=5),
+            ),
+        ):
+            current_stock = await refresh_supplier_product_stock(
+                self.local_product_id,
+                reservation_order_id=current["id"],
+            )
+            unreserved_stock = await refresh_supplier_product_stock(
+                self.local_product_id,
+            )
+
+        self.assertLess(first["id"], current["id"])
+        self.assertEqual(current_stock, 3)
+        self.assertEqual(unreserved_stock, 2)
+
+    async def test_supplier_checkout_is_cancelled_before_payment_when_stock_is_zero(self):
+        from handlers import payment as payment_handler
+
+        query = object()
+        order = {
+            "id": 91,
+            "product_id": self.local_product_id,
+            "quantity": 1,
+        }
+        update_status = AsyncMock(return_value=True)
+        edit_message = AsyncMock()
+        with (
+            patch.object(
+                payment_handler,
+                "get_product",
+                AsyncMock(return_value={
+                    "id": self.local_product_id,
+                    "delivery_type": "supplier_api",
+                }),
+            ),
+            patch.object(
+                payment_handler,
+                "_get_current_purchase_stock",
+                AsyncMock(return_value=0),
+            ),
+            patch.object(payment_handler, "update_order_status", update_status),
+            patch.object(payment_handler, "safe_edit_message_text", edit_message),
+        ):
+            allowed = await payment_handler._ensure_supplier_stock_for_order(
+                query, order, "en"
+            )
+
+        self.assertFalse(allowed)
+        update_status.assert_awaited_once_with(
+            91,
+            "CANCELLED",
+            expected_statuses=("PENDING", "AWAITING_PAYMENT"),
+        )
+        edit_message.assert_awaited_once()
+
+    async def test_supplier_checkout_fails_closed_when_live_check_is_unavailable(self):
+        from handlers import payment as payment_handler
+
+        query = object()
+        order = {
+            "id": 92,
+            "product_id": self.local_product_id,
+            "quantity": 1,
+        }
+        update_status = AsyncMock()
+        edit_message = AsyncMock()
+        with (
+            patch.object(
+                payment_handler,
+                "get_product",
+                AsyncMock(return_value={
+                    "id": self.local_product_id,
+                    "delivery_type": "supplier_api",
+                }),
+            ),
+            patch.object(
+                payment_handler,
+                "_get_current_purchase_stock",
+                AsyncMock(side_effect=SupplierAPIError("supplier offline")),
+            ),
+            patch.object(payment_handler, "update_order_status", update_status),
+            patch.object(payment_handler, "safe_edit_message_text", edit_message),
+        ):
+            allowed = await payment_handler._ensure_supplier_stock_for_order(
+                query, order, "en"
+            )
+
+        self.assertFalse(allowed)
+        update_status.assert_not_awaited()
+        edit_message.assert_awaited_once()
 
     async def test_supplier_stock_balance_timeout_keeps_catalog_responsive(self):
         async def never_returns(*_args, **_kwargs):
@@ -734,7 +902,10 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
 
         stock_count = AsyncMock(return_value=8)
         with (
-            patch.object(models, "get_stock_count", stock_count),
+            patch(
+                "services.supplier_sync.refresh_supplier_product_stock",
+                stock_count,
+            ),
             patch(
                 "services.supplier_api.purchase_canboso_product",
                 supplier_purchase,
@@ -762,7 +933,7 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(replay["order"]["items"], first["order"]["items"])
         supplier_purchase.assert_awaited_once()
-        stock_count.assert_awaited_once()
+        stock_count.assert_awaited_once_with(self.local_product_id)
 
         db = await db_module.get_db()
         try:
