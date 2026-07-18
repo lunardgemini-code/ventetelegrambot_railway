@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import time
 
 from database.suppliers import (
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 _SYNC_LOCKS: dict[str, asyncio.Lock] = {}
 _LAST_SUCCESSFUL_SYNC: dict[str, float] = {}
+_LAST_FULL_SYNC: dict[str, float] = {}
 _LAST_SYNC_RESULTS: dict[str, dict] = {}
 
 
@@ -44,6 +46,7 @@ async def sync_supplier_catalog(
     *,
     min_interval_seconds: float = 0,
     refresh_balance: bool = False,
+    refresh_disabled: bool = True,
 ) -> dict:
     """Refresh one supplier without duplicating concurrent outbound requests."""
     code = str(supplier_code or "").strip().lower()
@@ -64,7 +67,14 @@ async def sync_supplier_catalog(
                 retryable=True,
             )
 
-        result = await sync_supplier_products(products, code)
+        if refresh_disabled:
+            result = await sync_supplier_products(products, code)
+        else:
+            result = await sync_supplier_products(
+                products,
+                code,
+                refresh_disabled=False,
+            )
         if refresh_balance:
             balance = await get_supplier_balance(
                 code,
@@ -79,6 +89,8 @@ async def sync_supplier_catalog(
 
         normalized = {**result, "status": "synced"}
         _LAST_SUCCESSFUL_SYNC[code] = time.monotonic()
+        if refresh_disabled:
+            _LAST_FULL_SYNC[code] = _LAST_SUCCESSFUL_SYNC[code]
         _LAST_SYNC_RESULTS[code] = normalized
         return dict(normalized)
 
@@ -101,6 +113,7 @@ async def refresh_supplier_product_stock(
         supplier_code,
         min_interval_seconds=min_interval_seconds,
         refresh_balance=True,
+        refresh_disabled=False,
     )
     refreshed = await get_supplier_product_by_local_product(local_product_id)
     if not refreshed:
@@ -137,29 +150,57 @@ async def refresh_supplier_product_stock(
     return max(0, int(available) - reserved)
 
 
-async def supplier_catalog_sync_worker(interval_seconds: int = 90) -> None:
+async def supplier_catalog_sync_worker(
+    interval_seconds: int = 90,
+    full_interval_seconds: int = 1800,
+) -> None:
     """Continuously refresh configured supplier catalogs."""
     interval = max(60, int(interval_seconds))
+    full_interval = max(interval, int(full_interval_seconds))
     while True:
         try:
-            for provider in list_supplier_providers():
+            providers = [
+                provider
+                for provider in list_supplier_providers()
+                if is_supplier_configured(str(provider["code"]))
+            ]
+            for index, provider in enumerate(providers):
                 code = str(provider["code"])
-                if not is_supplier_configured(code):
-                    continue
                 try:
+                    last_full_sync = _LAST_FULL_SYNC.get(code, 0.0)
+                    refresh_disabled = (
+                        not last_full_sync
+                        or time.monotonic() - last_full_sync >= full_interval
+                    )
                     result = await sync_supplier_catalog(
                         code,
                         min_interval_seconds=max(1, interval - 5),
+                        refresh_disabled=refresh_disabled,
                     )
-                    logger.info(
-                        "Supplier catalog synchronized: %s (%s products)",
+                    log = logger.info if (
+                        result.get("scope") == "full"
+                        or int(result.get("changed") or 0) > 0
+                        or int(result.get("zeroed") or 0) > 0
+                    ) else logger.debug
+                    log(
+                        "Supplier catalog synchronized: %s scope=%s "
+                        "received=%d compared=%d changed=%d zeroed=%d "
+                        "skipped=%d transaction_ms=%.1f",
                         code,
-                        result.get("synced", 0),
+                        result.get("scope", "unknown"),
+                        int(result.get("synced") or 0),
+                        int(result.get("compared") or 0),
+                        int(result.get("changed") or 0),
+                        int(result.get("zeroed") or 0),
+                        int(result.get("skipped_disabled") or 0),
+                        float(result.get("transaction_ms") or 0),
                     )
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
                     logger.warning("Supplier catalog sync failed for %s: %s", code, exc)
+                if index < len(providers) - 1:
+                    await asyncio.sleep(random.uniform(1.0, 3.0))
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -171,6 +212,7 @@ def reset_supplier_sync_state() -> None:
     """Reset process-local state for tests and clean restarts."""
     _SYNC_LOCKS.clear()
     _LAST_SUCCESSFUL_SYNC.clear()
+    _LAST_FULL_SYNC.clear()
     _LAST_SYNC_RESULTS.clear()
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 from datetime import datetime, timedelta, timezone
 
 from database.db import get_db
@@ -21,6 +22,81 @@ MAX_SUPPLIER_IMAGE_URL_LENGTH = 2048
 SUPPLIER_STOCK_BALANCE_TIMEOUT_SECONDS = max(
     0.25, float(os.getenv("SUPPLIER_STOCK_BALANCE_TIMEOUT_SECONDS", "2"))
 )
+
+_SUPPLIER_SOURCE_FIELDS = (
+    "name",
+    "description",
+    "base_price",
+    "source_price",
+    "source_currency",
+    "remote_stock",
+    "warranty_days",
+    "image_url",
+    "emoji",
+    "raw_payload",
+)
+_SUPPLIER_COMPARE_FIELDS = tuple(
+    field for field in _SUPPLIER_SOURCE_FIELDS if field != "raw_payload"
+)
+_SUPPLIER_LOCAL_PRODUCT_FIELDS = {
+    "name",
+    "description",
+    "base_price",
+    "warranty_days",
+    "image_url",
+    "emoji",
+}
+
+
+def _canonical_supplier_payload(value) -> str:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError):
+            return value
+    return json.dumps(
+        value or {},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _normalized_supplier_product(product: dict, provider: dict) -> dict:
+    source_price = product.get("source_price")
+    if source_price is None:
+        source_price = product.get("base_price") or 0
+    return {
+        "external_product_id": str(product["external_product_id"]),
+        "name": str(product["name"]),
+        "description": str(product.get("description") or ""),
+        "base_price": float(product.get("base_price") or 0),
+        "source_price": float(source_price),
+        "source_currency": str(
+            product.get("source_currency") or provider["source_currency"]
+        ).upper(),
+        "remote_stock": max(0, int(product.get("remote_stock") or 0)),
+        "warranty_days": max(0, int(product.get("warranty_days") or 0)),
+        "image_url": str(product.get("image_url") or ""),
+        "emoji": str(product.get("emoji") or "\U0001f4e6"),
+        "raw_payload": _canonical_supplier_payload(product.get("raw_payload")),
+    }
+
+
+def _supplier_changed_fields(existing: dict, incoming: dict) -> set[str]:
+    changed: set[str] = set()
+    for field in _SUPPLIER_COMPARE_FIELDS:
+        old_value = existing.get(field)
+        new_value = incoming.get(field)
+        if field in {"base_price", "source_price"}:
+            if abs(float(old_value or 0) - float(new_value or 0)) > 0.0000001:
+                changed.add(field)
+        elif field in {"remote_stock", "warranty_days"}:
+            if int(old_value or 0) != int(new_value or 0):
+                changed.add(field)
+        elif str(old_value or "") != str(new_value or ""):
+            changed.add(field)
+    return changed
 
 
 def _provider(supplier_code: str) -> dict:
@@ -328,23 +404,71 @@ async def _upsert_local_product(
 
 
 async def sync_supplier_products(
-    products: list[dict], supplier_code: str = DEFAULT_SUPPLIER_CODE
+    products: list[dict],
+    supplier_code: str = DEFAULT_SUPPLIER_CODE,
+    *,
+    refresh_disabled: bool = True,
 ) -> dict:
+    """Persist only changed supplier rows, keeping the write lock short."""
     from database.models import _clear_stock_cache, clear_products_cache
 
     provider = _provider(supplier_code)
     supplier_code = provider["code"]
     db = await get_db()
     try:
-        await db.execute("BEGIN IMMEDIATE")
-        for product in products:
-            source_price = float(
-                product.get("source_price", product.get("base_price") or 0)
+        normalized_by_id = {
+            row["external_product_id"]: row
+            for row in (
+                _normalized_supplier_product(product, provider)
+                for product in products
             )
-            source_currency = str(
-                product.get("source_currency")
-                or provider["source_currency"]
-            ).upper()
+        }
+        cursor = await db.execute(
+            "SELECT * FROM supplier_products WHERE supplier_code = ?",
+            (supplier_code,),
+        )
+        existing_by_id = {
+            str(row["external_product_id"]): dict(row)
+            for row in await cursor.fetchall()
+        }
+        active_ids = {
+            external_id
+            for external_id, row in existing_by_id.items()
+            if bool(row.get("enabled"))
+        }
+        compared_ids = (
+            set(normalized_by_id)
+            if refresh_disabled
+            else set(normalized_by_id) & active_ids
+        )
+        changes: list[tuple[dict | None, dict, set[str]]] = []
+        for external_id in compared_ids:
+            existing = existing_by_id.get(external_id)
+            incoming = normalized_by_id[external_id]
+            changed_fields = (
+                set(_SUPPLIER_SOURCE_FIELDS)
+                if existing is None
+                else _supplier_changed_fields(existing, incoming)
+            )
+            if changed_fields:
+                changes.append((existing, incoming, changed_fields))
+
+        missing_rows = [
+            row
+            for external_id, row in existing_by_id.items()
+            if external_id not in normalized_by_id
+            and int(row.get("remote_stock") or 0) != 0
+            and (refresh_disabled or external_id in active_ids)
+        ]
+        config = await _supplier_config(db, supplier_code)
+        transaction_started = time.perf_counter()
+        if changes or missing_rows:
+            await db.execute("BEGIN IMMEDIATE")
+
+        local_product_rows: list[dict] = []
+        inserted = 0
+        stock_changed = bool(missing_rows)
+        for existing, incoming, changed_fields in changes:
             await db.execute(
                 """INSERT INTO supplier_products
                    (supplier_code, external_product_id, name, description,
@@ -363,43 +487,37 @@ async def sync_supplier_products(
                     last_synced_at = CURRENT_TIMESTAMP""",
                 (
                     supplier_code,
-                    str(product["external_product_id"]),
-                    product["name"],
-                    product.get("description") or "",
-                    float(product["base_price"]),
-                    source_price,
-                    source_currency,
-                    int(product.get("remote_stock") or 0),
-                    int(product.get("warranty_days") or 0),
-                    product.get("image_url") or "",
-                    product.get("emoji") or "📦",
-                    json.dumps(
-                        product.get("raw_payload") or {},
-                        ensure_ascii=False,
-                        separators=(",", ":"),
-                    ),
+                    incoming["external_product_id"],
+                    incoming["name"],
+                    incoming["description"],
+                    incoming["base_price"],
+                    incoming["source_price"],
+                    incoming["source_currency"],
+                    incoming["remote_stock"],
+                    incoming["warranty_days"],
+                    incoming["image_url"],
+                    incoming["emoji"],
+                    incoming["raw_payload"],
                 ),
             )
-        external_ids = [str(product["external_product_id"]) for product in products]
-        if external_ids:
-            placeholders = ",".join("?" for _ in external_ids)
+            if existing is None:
+                inserted += 1
+            elif bool(existing.get("enabled")) and (
+                changed_fields & _SUPPLIER_LOCAL_PRODUCT_FIELDS
+            ):
+                local_product_rows.append({**existing, **incoming})
+            if "remote_stock" in changed_fields or "base_price" in changed_fields:
+                stock_changed = True
+
+        if missing_rows:
+            placeholders = ",".join("?" for _ in missing_rows)
             await db.execute(
-                f"UPDATE supplier_products SET remote_stock = 0 "
-                f"WHERE supplier_code = ? AND external_product_id NOT IN ({placeholders})",
-                [supplier_code, *external_ids],
+                f"UPDATE supplier_products SET remote_stock = 0, "
+                f"last_synced_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders})",
+                [int(row["id"]) for row in missing_rows],
             )
-        else:
-            await db.execute(
-                "UPDATE supplier_products SET remote_stock = 0 WHERE supplier_code = ?",
-                (supplier_code,),
-            )
-        config = await _supplier_config(db, supplier_code)
-        cursor = await db.execute(
-            "SELECT * FROM supplier_products WHERE supplier_code = ? AND enabled = 1",
-            (supplier_code,),
-        )
-        selected = [dict(row) for row in await cursor.fetchall()]
-        for row in selected:
+
+        for row in local_product_rows:
             await _upsert_local_product(
                 db,
                 row,
@@ -413,12 +531,26 @@ async def sync_supplier_products(
             (key,),
         )
         await db.commit()
-        clear_products_cache()
-        _clear_stock_cache()
+        transaction_ms = round((time.perf_counter() - transaction_started) * 1000, 1)
+        if local_product_rows:
+            clear_products_cache()
+        if stock_changed:
+            _clear_stock_cache()
+        selected_count = sum(
+            1 for row in existing_by_id.values() if bool(row.get("enabled"))
+        )
         return {
             "supplier_code": supplier_code,
-            "synced": len(products),
-            "selected": len(selected),
+            "scope": "full" if refresh_disabled else "active",
+            "synced": len(normalized_by_id),
+            "compared": len(compared_ids),
+            "changed": len(changes),
+            "inserted": inserted,
+            "zeroed": len(missing_rows),
+            "unchanged": max(0, len(compared_ids) - len(changes)),
+            "skipped_disabled": max(0, len(normalized_by_id) - len(compared_ids)),
+            "selected": selected_count,
+            "transaction_ms": transaction_ms,
         }
     except Exception:
         try:
@@ -875,6 +1007,23 @@ async def get_supplier_product_by_local_product(
             "SELECT * FROM supplier_products WHERE local_product_id = ? "
             "AND enabled = 1 LIMIT 1",
             (int(local_product_id),),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def get_supplier_product_by_mapping_id(
+    mapping_id: int,
+    supplier_code: str = DEFAULT_SUPPLIER_CODE,
+) -> dict | None:
+    supplier_code = _provider(supplier_code)["code"]
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM supplier_products WHERE id = ? AND supplier_code = ?",
+            (int(mapping_id), supplier_code),
         )
         row = await cursor.fetchone()
         return dict(row) if row else None

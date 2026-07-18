@@ -1388,14 +1388,38 @@ async def api_update_supplier_settings(supplier_code: str, data: dict):
 async def api_update_supplier_product(
     supplier_code: str, mapping_id: int, data: dict
 ):
-    from database.suppliers import get_supplier_dashboard, update_supplier_product
+    from database.suppliers import (
+        get_supplier_dashboard,
+        get_supplier_product_by_mapping_id,
+        update_supplier_product,
+    )
+    from services.supplier_api import SupplierAPIError
     from services.supplier_registry import get_supplier_provider
+    from services.supplier_sync import sync_supplier_catalog
 
     try:
         provider = get_supplier_provider(supplier_code)
+        enabled = bool(data.get("enabled", False))
+        current_mapping = await get_supplier_product_by_mapping_id(
+            mapping_id,
+            provider["code"],
+        )
+        if not current_mapping:
+            raise ValueError("SUPPLIER_PRODUCT_NOT_FOUND")
+        if enabled and not bool(current_mapping.get("enabled")):
+            sync_result = await sync_supplier_catalog(
+                provider["code"],
+                min_interval_seconds=0,
+                refresh_disabled=True,
+            )
+            if sync_result.get("status") == "not_configured":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Supplier API is not configured",
+                )
         await update_supplier_product(
             mapping_id,
-            enabled=bool(data.get("enabled", False)),
+            enabled=enabled,
             margin_type=str(data.get("margin_type") or "inherit").lower(),
             margin_value=data.get("margin_value"),
             supplier_code=provider["code"],
@@ -1404,6 +1428,10 @@ async def api_update_supplier_product(
             "status": "updated",
             "dashboard": await get_supplier_dashboard(provider["code"]),
         }
+    except HTTPException:
+        raise
+    except SupplierAPIError as exc:
+        raise HTTPException(status_code=502, detail=f"Supplier API: {exc}")
     except ValueError as exc:
         code = 404 if str(exc) in {
             "SUPPLIER_NOT_FOUND",
@@ -4174,6 +4202,9 @@ STALE_ORDER_CLEANUP_SECONDS = _env_int("STALE_ORDER_CLEANUP_SECONDS", 60, minimu
 SUPPLIER_CATALOG_SYNC_SECONDS = _env_int(
     "SUPPLIER_CATALOG_SYNC_SECONDS", 90, minimum=60
 )
+SUPPLIER_CATALOG_FULL_SYNC_SECONDS = _env_int(
+    "SUPPLIER_CATALOG_FULL_SYNC_SECONDS", 1800, minimum=300
+)
 
 
 async def _dynamic_pricing_worker() -> None:
@@ -4423,12 +4454,17 @@ async def post_init(application: Application) -> None:
         from services.supplier_sync import supplier_catalog_sync_worker
 
         application.bot_data["supplier_catalog_sync_task"] = asyncio.create_task(
-            supplier_catalog_sync_worker(SUPPLIER_CATALOG_SYNC_SECONDS),
+            supplier_catalog_sync_worker(
+                SUPPLIER_CATALOG_SYNC_SECONDS,
+                SUPPLIER_CATALOG_FULL_SYNC_SECONDS,
+            ),
             name="supplier-catalog-sync",
         )
         logger.info(
-            "Supplier catalog synchronization worker started (check every %ds)",
+            "Supplier catalog synchronization worker started "
+            "(active every %ds, full every %ds)",
             SUPPLIER_CATALOG_SYNC_SECONDS,
+            SUPPLIER_CATALOG_FULL_SYNC_SECONDS,
         )
 
     from services.nowpayments import is_nowpayments_configured

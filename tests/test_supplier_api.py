@@ -131,6 +131,210 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
 
         persist_catalog.assert_not_awaited()
 
+    async def test_unchanged_catalog_avoids_supplier_product_rewrites(self):
+        result = await sync_supplier_products([self.remote_product])
+
+        self.assertEqual(result["scope"], "full")
+        self.assertEqual(result["compared"], 1)
+        self.assertEqual(result["changed"], 0)
+        self.assertEqual(result["inserted"], 0)
+        self.assertEqual(result["unchanged"], 1)
+        self.assertEqual(result["selected"], 1)
+
+    async def test_raw_supplier_metadata_does_not_trigger_a_rewrite(self):
+        result = await sync_supplier_products([{
+            **self.remote_product,
+            "raw_payload": {
+                "id": "remote-10",
+                "volatile_request_id": "different-on-every-call",
+            },
+        }])
+
+        self.assertEqual(result["changed"], 0)
+        self.assertEqual(result["unchanged"], 1)
+
+    async def test_active_sync_skips_disabled_products(self):
+        disabled = {
+            **self.remote_product,
+            "external_product_id": "remote-disabled",
+            "name": "Disabled supplier product",
+            "remote_stock": 12,
+            "raw_payload": {"id": "remote-disabled"},
+        }
+        await sync_supplier_products([self.remote_product, disabled])
+
+        result = await sync_supplier_products(
+            [
+                {**self.remote_product, "remote_stock": 3},
+                {**disabled, "remote_stock": 2},
+            ],
+            refresh_disabled=False,
+        )
+        dashboard = await get_supplier_dashboard()
+        by_external_id = {
+            product["external_product_id"]: product
+            for product in dashboard["products"]
+        }
+
+        self.assertEqual(result["scope"], "active")
+        self.assertEqual(result["compared"], 1)
+        self.assertEqual(result["changed"], 1)
+        self.assertEqual(result["skipped_disabled"], 1)
+        self.assertEqual(by_external_id["remote-10"]["remote_stock"], 3)
+        self.assertEqual(by_external_id["remote-disabled"]["remote_stock"], 12)
+
+    async def test_active_sync_zeroes_missing_selected_product_only(self):
+        disabled = {
+            **self.remote_product,
+            "external_product_id": "remote-disabled",
+            "name": "Disabled supplier product",
+            "remote_stock": 12,
+            "raw_payload": {"id": "remote-disabled"},
+        }
+        await sync_supplier_products([self.remote_product, disabled])
+
+        result = await sync_supplier_products(
+            [disabled],
+            refresh_disabled=False,
+        )
+        dashboard = await get_supplier_dashboard()
+        by_external_id = {
+            product["external_product_id"]: product
+            for product in dashboard["products"]
+        }
+
+        self.assertEqual(result["zeroed"], 1)
+        self.assertEqual(by_external_id["remote-10"]["remote_stock"], 0)
+        self.assertEqual(by_external_id["remote-disabled"]["remote_stock"], 12)
+
+    async def test_active_catalog_sync_uses_selective_persistence(self):
+        catalog = [{**self.remote_product, "remote_stock": 5}]
+        persist_catalog = AsyncMock(
+            return_value={
+                "supplier_code": "canboso",
+                "scope": "active",
+                "synced": 1,
+                "changed": 1,
+            }
+        )
+        with (
+            patch(
+                "services.supplier_sync.is_supplier_configured",
+                return_value=True,
+            ),
+            patch(
+                "services.supplier_sync.get_supplier_units_per_usd",
+                AsyncMock(return_value=1.0),
+            ),
+            patch(
+                "services.supplier_sync.list_supplier_products",
+                AsyncMock(return_value=catalog),
+            ),
+            patch(
+                "services.supplier_sync.sync_supplier_products",
+                persist_catalog,
+            ),
+        ):
+            result = await sync_supplier_catalog(
+                "canboso",
+                refresh_disabled=False,
+            )
+
+        self.assertEqual(result["scope"], "active")
+        persist_catalog.assert_awaited_once_with(
+            catalog,
+            "canboso",
+            refresh_disabled=False,
+        )
+
+    async def test_enabling_supplier_product_refreshes_it_first(self):
+        from bot import api_update_supplier_product
+
+        await update_supplier_product(
+            self.mapping_id,
+            enabled=False,
+            margin_type="fixed",
+            margin_value=1,
+        )
+        refresh = AsyncMock(return_value={
+            "status": "synced",
+            "scope": "full",
+            "synced": 1,
+        })
+        with patch("services.supplier_sync.sync_supplier_catalog", refresh):
+            result = await api_update_supplier_product(
+                "canboso",
+                self.mapping_id,
+                {
+                    "enabled": True,
+                    "margin_type": "fixed",
+                    "margin_value": 1,
+                },
+            )
+
+        refresh.assert_awaited_once_with(
+            "canboso",
+            min_interval_seconds=0,
+            refresh_disabled=True,
+        )
+        self.assertEqual(result["status"], "updated")
+        self.assertTrue(result["dashboard"]["products"][0]["enabled"])
+
+    async def test_saving_active_supplier_product_does_not_force_full_sync(self):
+        from bot import api_update_supplier_product
+
+        refresh = AsyncMock()
+        with patch("services.supplier_sync.sync_supplier_catalog", refresh):
+            result = await api_update_supplier_product(
+                "canboso",
+                self.mapping_id,
+                {
+                    "enabled": True,
+                    "margin_type": "fixed",
+                    "margin_value": 2,
+                },
+            )
+
+        refresh.assert_not_awaited()
+        self.assertEqual(result["status"], "updated")
+
+    async def test_blocked_restock_subscriber_is_retired(self):
+        from telegram.error import Forbidden
+        from handlers.products import notify_restock_subscribers
+
+        bot = AsyncMock()
+        bot.send_message.side_effect = Forbidden("bot was blocked by the user")
+        mark_notified = AsyncMock()
+        with (
+            patch(
+                "handlers.products.get_product",
+                AsyncMock(return_value={
+                    "id": self.local_product_id,
+                    "name": "Remote account",
+                    "emoji": "📦",
+                }),
+            ),
+            patch(
+                "handlers.products.get_stock_count",
+                AsyncMock(return_value=3),
+            ),
+            patch(
+                "database.models.get_pending_stock_alerts",
+                AsyncMock(return_value=[{
+                    "user_telegram_id": 9999,
+                    "language": "en",
+                }]),
+            ),
+            patch(
+                "database.models.mark_stock_alerts_notified",
+                mark_notified,
+            ),
+        ):
+            sent = await notify_restock_subscribers(bot, self.local_product_id)
+
+        self.assertEqual(sent, 0)
+        mark_notified.assert_awaited_once_with(self.local_product_id, [9999])
+
     async def test_fresh_supplier_stock_respects_earlier_checkout_reservations(self):
         await models.get_or_create_user(3002, "earlier_buyer", "Earlier Buyer")
         first = await models.create_order(

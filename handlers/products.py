@@ -7,6 +7,7 @@ import logging
 import re
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import Forbidden
 from telegram.ext import ContextTypes
 
 from database.models import (
@@ -470,6 +471,7 @@ async def notify_restock_subscribers(bot, product_id: int) -> int:
 
     alerts = await get_pending_stock_alerts(product_id)
     sent_user_ids: list[int] = []
+    completed_user_ids: list[int] = []
     for alert in alerts:
         lang = alert.get("language") or "fr"
         product_label = f"{product.get('emoji') or '📦'} <b>{escape_html(product['name'])}</b>"
@@ -487,9 +489,18 @@ async def notify_restock_subscribers(bot, product_id: int) -> int:
                 parse_mode="HTML",
                 reply_markup=markup,
             )
-            sent_user_ids.append(int(alert["user_telegram_id"]))
+            user_id = int(alert["user_telegram_id"])
+            sent_user_ids.append(user_id)
+            completed_user_ids.append(user_id)
+        except Forbidden:
+            # A blocked bot cannot ever deliver this one-shot alert.
+            completed_user_ids.append(int(alert["user_telegram_id"]))
+            logger.info(
+                "Removed unreachable restock subscriber %s",
+                alert["user_telegram_id"],
+            )
         except Exception as exc:
             logger.warning("Could not notify restock subscriber %s: %s", alert["user_telegram_id"], exc)
 
-    await mark_stock_alerts_notified(product_id, sent_user_ids)
+    await mark_stock_alerts_notified(product_id, completed_user_ids)
     return len(sent_user_ids)
