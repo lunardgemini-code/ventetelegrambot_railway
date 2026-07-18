@@ -185,7 +185,7 @@ async def supplier_catalog_sync_worker(
                     log(
                         "Supplier catalog synchronized: %s scope=%s "
                         "received=%d compared=%d changed=%d zeroed=%d "
-                        "skipped=%d transaction_ms=%.1f",
+                        "skipped=%d wrote=%s transaction_ms=%.1f",
                         code,
                         result.get("scope", "unknown"),
                         int(result.get("synced") or 0),
@@ -193,6 +193,7 @@ async def supplier_catalog_sync_worker(
                         int(result.get("changed") or 0),
                         int(result.get("zeroed") or 0),
                         int(result.get("skipped_disabled") or 0),
+                        bool(result.get("wrote")),
                         float(result.get("transaction_ms") or 0),
                     )
                 except asyncio.CancelledError:

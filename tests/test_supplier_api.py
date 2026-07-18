@@ -153,6 +153,17 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["changed"], 0)
         self.assertEqual(result["unchanged"], 1)
 
+    async def test_unchanged_active_sync_performs_no_database_write(self):
+        result = await sync_supplier_products(
+            [self.remote_product],
+            refresh_disabled=False,
+        )
+
+        self.assertEqual(result["scope"], "active")
+        self.assertEqual(result["changed"], 0)
+        self.assertFalse(result["wrote"])
+        self.assertEqual(result["transaction_ms"], 0.0)
+
     async def test_active_sync_skips_disabled_products(self):
         disabled = {
             **self.remote_product,

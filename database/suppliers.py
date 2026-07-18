@@ -461,8 +461,12 @@ async def sync_supplier_products(
             and (refresh_disabled or external_id in active_ids)
         ]
         config = await _supplier_config(db, supplier_code)
-        transaction_started = time.perf_counter()
-        if changes or missing_rows:
+        catalog_changed = bool(changes or missing_rows)
+        persist_sync_timestamp = refresh_disabled or catalog_changed
+        transaction_started = (
+            time.perf_counter() if persist_sync_timestamp else None
+        )
+        if catalog_changed:
             await db.execute("BEGIN IMMEDIATE")
 
         local_product_rows: list[dict] = []
@@ -524,14 +528,19 @@ async def sync_supplier_products(
                 global_margin=(config["margin_type"], config["margin_value"]),
                 supplier_enabled=config["enabled"],
             )
-        key = f"{_settings_prefix(supplier_code)}_last_sync"
-        await db.execute(
-            """INSERT INTO settings (key, value) VALUES (?, CURRENT_TIMESTAMP)
-               ON CONFLICT(key) DO UPDATE SET value = CURRENT_TIMESTAMP""",
-            (key,),
+        if persist_sync_timestamp:
+            key = f"{_settings_prefix(supplier_code)}_last_sync"
+            await db.execute(
+                """INSERT INTO settings (key, value) VALUES (?, CURRENT_TIMESTAMP)
+                   ON CONFLICT(key) DO UPDATE SET value = CURRENT_TIMESTAMP""",
+                (key,),
+            )
+            await db.commit()
+        transaction_ms = (
+            round((time.perf_counter() - transaction_started) * 1000, 1)
+            if transaction_started is not None
+            else 0.0
         )
-        await db.commit()
-        transaction_ms = round((time.perf_counter() - transaction_started) * 1000, 1)
         if local_product_rows:
             clear_products_cache()
         if stock_changed:
@@ -550,6 +559,7 @@ async def sync_supplier_products(
             "unchanged": max(0, len(compared_ids) - len(changes)),
             "skipped_disabled": max(0, len(normalized_by_id) - len(compared_ids)),
             "selected": selected_count,
+            "wrote": persist_sync_timestamp,
             "transaction_ms": transaction_ms,
         }
     except Exception:
