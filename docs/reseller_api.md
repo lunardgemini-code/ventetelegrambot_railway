@@ -124,7 +124,7 @@ X-Catalog-Stale: false
 
 ### Low-cost API test product
 
-The authenticated reseller catalog also contains **VenteBot API Test Product** with `delivery_type: "api_test"` and `api_test: true`. It is virtual and is never displayed in the regular Telegram customer catalog. It costs `$0.01`, supports quantity `1`, returns synthetic delivery data, and is limited to five purchases per reseller account per hour. It uses the real reseller wallet so the entire debit, idempotency, response parsing, and delivery flow can be tested safely.
+The authenticated reseller catalog also contains **VenteBot API Test Product** with `delivery_type: "api_test"` and `api_test: true`. It is virtual and is never displayed in the regular Telegram customer catalog. It costs `$0.01`, supports quantity `1` per order, and returns synthetic delivery data. There is no hourly purchase cap: create as many distinct test orders as needed. Each order uses the real reseller wallet so the entire debit, idempotency, response parsing, and delivery flow can be tested safely.
 
 ## Quote Before Buying
 

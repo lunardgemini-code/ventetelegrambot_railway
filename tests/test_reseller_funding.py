@@ -15,6 +15,7 @@ from services.reseller_security import (
     ip_is_allowed,
     normalize_ip_allowlist,
     sign_webhook_body,
+    validate_webhook_url,
 )
 
 
@@ -127,6 +128,71 @@ class ResellerFundingTests(unittest.IsolatedAsyncioTestCase):
                 customer_reference="different-customer",
                 idempotency_key="test-order-001",
             )
+
+    async def test_api_test_product_has_no_hourly_purchase_cap(self):
+        product = models.get_reseller_test_product()
+        self.assertIsNotNone(product)
+
+        order_ids = []
+        for index in range(7):
+            result = await models.create_reseller_order(
+                reseller_user_telegram_id=7001,
+                reseller_api_key_id=self.key["id"],
+                product_id=product["id"],
+                quantity=1,
+                customer_reference=f"unlimited-test-{index}",
+                idempotency_key=f"unlimited-test-order-{index}",
+            )
+            order_ids.append(result["order"]["id"])
+
+        self.assertEqual(len(set(order_ids)), 7)
+        self.assertAlmostEqual(await models.get_wallet_balance(7001), 0.93)
+
+    async def test_api_test_product_is_authenticated_tenant_scoped_and_balance_safe(
+        self,
+    ):
+        product = models.get_reseller_test_product()
+        self.assertIsNotNone(product)
+        await models.get_or_create_user(7002, "other-reseller", "Other")
+        other_key = await models.create_reseller_api_key(7002, "Other bot")
+
+        with self.assertRaisesRegex(ValueError, "Product unavailable"):
+            await models.create_reseller_order(
+                reseller_user_telegram_id=7001,
+                product_id=product["id"],
+                quantity=1,
+                idempotency_key="missing-api-identity",
+            )
+        with self.assertRaisesRegex(ValueError, "Insufficient wallet balance"):
+            await models.create_reseller_order(
+                reseller_user_telegram_id=7002,
+                reseller_api_key_id=other_key["id"],
+                product_id=product["id"],
+                quantity=1,
+                idempotency_key="no-balance-test",
+            )
+        self.assertAlmostEqual(await models.get_wallet_balance(7002), 0.0)
+
+        result = await models.create_reseller_order(
+            reseller_user_telegram_id=7001,
+            reseller_api_key_id=self.key["id"],
+            product_id=product["id"],
+            quantity=1,
+            idempotency_key="tenant-owner-test",
+        )
+        self.assertIsNone(await models.get_reseller_order(7002, result["order"]["id"]))
+
+        transport = httpx.ASGITransport(app=bot.api)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/api/reseller/products")
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["code"], "MISSING_API_KEY")
+
+    async def test_webhook_url_rejects_local_network_targets(self):
+        with self.assertRaisesRegex(ValueError, "public IP"):
+            await validate_webhook_url("https://127.0.0.1/webhook")
+        with self.assertRaisesRegex(ValueError, "HTTPS"):
+            await validate_webhook_url("http://example.com/webhook")
 
     async def test_security_settings_are_persisted_without_exposing_key_hash(self):
         updated = await models.update_reseller_api_security(

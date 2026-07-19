@@ -2219,13 +2219,6 @@ async def api_reseller_create_order(data: ResellerCreateOrderRequest, reseller: 
         msg = str(exc)
         if "Idempotency key already used" in msg:
             _raise_reseller_error(409, "IDEMPOTENCY_CONFLICT", msg)
-        if "test product limit" in msg.lower():
-            _raise_reseller_error(
-                429,
-                "TEST_PRODUCT_RATE_LIMIT",
-                msg,
-                headers={"Retry-After": "3600"},
-            )
         code = 402 if "wallet" in msg.lower() else 400
         error_code = "INSUFFICIENT_BALANCE" if code == 402 else _reseller_error_from_detail(code, msg)["code"]
         _raise_reseller_error(code, error_code, msg)

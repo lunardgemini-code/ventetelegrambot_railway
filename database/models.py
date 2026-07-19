@@ -5728,17 +5728,6 @@ async def create_reseller_test_order(
                 "order": _public_reseller_test_order(dict(existing)),
             }
 
-        cursor = await db.execute(
-            """SELECT COUNT(*) AS count FROM reseller_test_orders
-               WHERE user_telegram_id = ?
-                 AND created_at >= datetime('now', '-1 hour')""",
-            (int(user_telegram_id),),
-        )
-        count_row = await cursor.fetchone()
-        if int(count_row["count"] or 0) >= 5:
-            await db.rollback()
-            raise ValueError("API test product limit reached; retry in one hour")
-
         total = round(float(test_product["price_usd"]), 2)
         cursor = await db.execute(
             """UPDATE users
