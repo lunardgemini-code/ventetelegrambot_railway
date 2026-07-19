@@ -1417,6 +1417,43 @@
 
     
 <!-- MODAL: Export Excel -->
+<div id="reseller-security-modal" class="modal-overlay hidden">
+    <div class="modal-card glass-panel animate-slide">
+        <div class="modal-header">
+            <div><p class="eyebrow">Reseller API</p><h3><i class="fa-solid fa-shield-halved"></i> <span data-i18n="reseller_security">Securite API</span></h3></div>
+            <button type="button" class="btn-close-modal" title="Fermer"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <form id="reseller-security-form">
+            <input id="reseller-security-key-id" type="hidden">
+            <div class="form-group">
+                <label for="reseller-ip-allowlist" data-i18n="reseller_ip_allowlist">Adresses IP autorisees</label>
+                <textarea id="reseller-ip-allowlist" rows="4" placeholder="203.0.113.10/32&#10;2001:db8::/64"></textarea>
+                <small data-i18n="reseller_ip_hint">Une IP ou un reseau CIDR par ligne. Vide = toutes les IP.</small>
+            </div>
+            <div class="form-group">
+                <label for="reseller-webhook-url">Webhook HTTPS</label>
+                <input id="reseller-webhook-url" type="url" maxlength="500" placeholder="https://store.example.com/webhooks/ventebot">
+            </div>
+            <label class="game-publish-control">
+                <input id="reseller-webhook-enabled" type="checkbox">
+                <span><strong data-i18n="reseller_webhook_enable">Activer les webhooks de depot</strong><small>Evenements signes et relances automatiquement.</small></span>
+            </label>
+            <label class="game-publish-control">
+                <input id="reseller-webhook-rotate" type="checkbox">
+                <span><strong data-i18n="reseller_webhook_rotate">Generer un nouveau secret</strong><small>Le secret actuel cessera de fonctionner.</small></span>
+            </label>
+            <div id="reseller-webhook-secret-output" class="hidden" style="margin-top:1rem; padding:0.85rem; border:1px solid var(--border-color); border-radius:8px; background:var(--input-bg);">
+                <strong data-i18n="reseller_secret_once">Copiez ce secret maintenant :</strong>
+                <code id="reseller-webhook-secret" style="display:block; margin-top:0.5rem; word-break:break-all;"></code>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary btn-close-modal" data-i18n="btn_cancel">Annuler</button>
+                <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> <span data-i18n="btn_save">Enregistrer</span></button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div id="exportModal" class="modal-overlay hidden">
     <div class="modal-card glass-panel animate-slide">
         <div class="modal-header">
@@ -1450,7 +1487,7 @@
 </div>
 
 
-<script defer src="app.js?v=20260717-user-purchases"></script>
+<script defer src="app.js?v=20260719-reseller-security"></script>
     <script>
     /* ── Mobile Sidebar Toggle ── */
     (function() {

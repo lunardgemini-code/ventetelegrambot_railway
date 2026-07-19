@@ -1583,5 +1583,75 @@ async def init_db() -> None:
             await db.commit()
             current_version = 10
 
+        if 10 <= current_version < 11:
+            reseller_key_columns = await _columns_for("reseller_api_keys")
+            reseller_security_columns = {
+                "ip_allowlist": "TEXT NOT NULL DEFAULT '[]'",
+                "webhook_url": "TEXT NOT NULL DEFAULT ''",
+                "webhook_enabled": "INTEGER NOT NULL DEFAULT 0",
+                "webhook_secret_salt": "TEXT NOT NULL DEFAULT ''",
+            }
+            if reseller_key_columns:
+                for column_name, column_type in reseller_security_columns.items():
+                    if column_name not in reseller_key_columns:
+                        await db.execute(
+                            f"ALTER TABLE reseller_api_keys ADD COLUMN {column_name} {column_type}"
+                        )
+                        reseller_key_columns.add(column_name)
+
+            reseller_order_columns = await _columns_for("reseller_order_links")
+            if reseller_order_columns and "request_fingerprint" not in reseller_order_columns:
+                await db.execute(
+                    "ALTER TABLE reseller_order_links ADD COLUMN request_fingerprint TEXT DEFAULT NULL"
+                )
+                reseller_order_columns.add("request_fingerprint")
+
+            version_eleven_statements = [
+                """CREATE TABLE IF NOT EXISTS reseller_deposits (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    public_id TEXT NOT NULL UNIQUE,
+                    reseller_api_key_id INTEGER NOT NULL,
+                    user_telegram_id INTEGER NOT NULL,
+                    topup_id INTEGER NOT NULL UNIQUE,
+                    idempotency_key TEXT NOT NULL,
+                    request_fingerprint TEXT NOT NULL,
+                    reference TEXT NOT NULL DEFAULT '',
+                    network TEXT NOT NULL DEFAULT 'BEP20',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_telegram_id, idempotency_key),
+                    FOREIGN KEY (reseller_api_key_id) REFERENCES reseller_api_keys(id),
+                    FOREIGN KEY (topup_id) REFERENCES nowpayments_wallet_topups(id),
+                    FOREIGN KEY (user_telegram_id) REFERENCES users(telegram_id)
+                )""",
+                "CREATE INDEX IF NOT EXISTS idx_reseller_deposits_user_created ON reseller_deposits(user_telegram_id, created_at DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_reseller_deposits_topup ON reseller_deposits(topup_id)",
+                """CREATE TABLE IF NOT EXISTS reseller_test_orders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    reseller_api_key_id INTEGER NOT NULL,
+                    user_telegram_id INTEGER NOT NULL,
+                    idempotency_key TEXT,
+                    request_fingerprint TEXT,
+                    customer_reference TEXT NOT NULL DEFAULT '',
+                    quantity INTEGER NOT NULL DEFAULT 1,
+                    amount_usd REAL NOT NULL,
+                    balance_after REAL NOT NULL,
+                    item_data TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_telegram_id, idempotency_key),
+                    FOREIGN KEY (reseller_api_key_id) REFERENCES reseller_api_keys(id),
+                    FOREIGN KEY (user_telegram_id) REFERENCES users(telegram_id)
+                )""",
+                "CREATE INDEX IF NOT EXISTS idx_reseller_test_orders_user_created ON reseller_test_orders(user_telegram_id, created_at DESC)",
+            ]
+            for sql in version_eleven_statements:
+                await db.execute(sql)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (11, ?)",
+                ("reseller_wallet_deposits_and_security",),
+            )
+            await db.commit()
+            current_version = 11
+
     finally:
         await db.close()

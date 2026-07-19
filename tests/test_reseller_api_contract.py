@@ -69,6 +69,16 @@ class ResellerApiContractTests(unittest.TestCase):
         ]["properties"]["transactions"]["items"]
         self.assertEqual(wallet_items["$ref"], "#/components/schemas/WalletTransaction")
 
+    def test_jit_deposit_security_and_api_test_product_are_documented(self):
+        self.assertEqual(self.schema["info"]["version"], "1.2.0")
+        self.assertIn("/api/reseller/wallet/deposit-methods", self.schema["paths"])
+        self.assertIn("/api/reseller/wallet/deposits", self.schema["paths"])
+        self.assertIn("/api/reseller/wallet/deposits/{deposit_id}", self.schema["paths"])
+        self.assertIn("/api/reseller/security", self.schema["paths"])
+        product = self.schema["components"]["schemas"]["Product"]
+        self.assertIn("api_test", product["properties"]["delivery_type"]["enum"])
+        self.assertIn("api_test", product["properties"])
+
     def test_english_guide_covers_languages_and_temporary_failures(self):
         guide = (Path(__file__).parents[1] / "docs" / "reseller_api.md").read_text(
             encoding="utf-8"
@@ -77,6 +87,9 @@ class ResellerApiContractTests(unittest.TestCase):
         self.assertIn("`503`", guide)
         self.assertIn("reuse it for every retry", guide)
         self.assertIn("If-None-Match", guide)
+        self.assertIn("Just-in-time BEP20 Wallet Funding", guide)
+        self.assertIn("Low-cost API test product", guide)
+        self.assertIn("X-Vente-Signature", guide)
 
 
 class ResellerCatalogCacheTests(unittest.IsolatedAsyncioTestCase):

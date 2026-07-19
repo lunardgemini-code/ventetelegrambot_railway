@@ -71,6 +71,49 @@ async def create_background_job(
     return job
 
 
+async def create_background_job_once(
+    job_id: str,
+    job_type: str,
+    payload: dict,
+    *,
+    max_attempts: int = 3,
+) -> tuple[dict, bool]:
+    """Create a deterministic job once and return (job, created)."""
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute(
+            "SELECT 1 FROM background_jobs WHERE id = ? LIMIT 1",
+            (str(job_id),),
+        )
+        created = await cursor.fetchone() is None
+        if created:
+            await db.execute(
+                """INSERT INTO background_jobs
+                   (id, job_type, payload_json, max_attempts)
+                   VALUES (?, ?, ?, ?)""",
+                (
+                    str(job_id),
+                    str(job_type),
+                    json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                    max(1, int(max_attempts)),
+                ),
+            )
+        await db.commit()
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+    job = await get_background_job(job_id)
+    if not job:
+        raise RuntimeError("Background job was not persisted")
+    return job, created
+
+
 async def get_background_job(job_id: str) -> dict | None:
     async def read(fresh: bool) -> dict | None:
         db = await get_db(fresh=fresh)

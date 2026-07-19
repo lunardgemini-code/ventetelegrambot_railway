@@ -67,6 +67,62 @@ _RESELLER_AUTH_CACHE_TTL = 30.0
 _GET_STATS_CACHE = {}
 _GET_STATS_CACHE_TTL = 30
 _CATALOG_CACHE_GENERATION = 0
+RESELLER_TEST_PRODUCT_ID = max(
+    1,
+    int(os.environ.get("RESELLER_TEST_PRODUCT_ID", "2147483000")),
+)
+RESELLER_TEST_PRODUCT_PRICE = max(
+    0.01,
+    min(1.0, float(os.environ.get("RESELLER_TEST_PRODUCT_PRICE", "0.01"))),
+)
+RESELLER_TEST_PRODUCT_ENABLED = os.environ.get(
+    "RESELLER_TEST_PRODUCT_ENABLED", "true"
+).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _stable_request_fingerprint(payload: dict) -> str:
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _reseller_order_fingerprint(
+    product_id: int,
+    quantity: int,
+    activation_identifier: str,
+    customer_reference: str,
+) -> str:
+    return _stable_request_fingerprint({
+        "activation_identifier": activation_identifier,
+        "customer_reference": customer_reference,
+        "product_id": int(product_id),
+        "quantity": int(quantity),
+    })
+
+
+def get_reseller_test_product() -> dict | None:
+    if not RESELLER_TEST_PRODUCT_ENABLED:
+        return None
+    return {
+        "id": RESELLER_TEST_PRODUCT_ID,
+        "name": "VenteBot API Test Product",
+        "description": (
+            "Low-cost synthetic product for testing quote, order, idempotency, "
+            "status polling, and delivery parsing. No supplier is contacted."
+        ),
+        "emoji": "TEST",
+        "image_url": None,
+        "price_usd": round(RESELLER_TEST_PRODUCT_PRICE, 2),
+        "warranty_days": 0,
+        "delivery_type": "api_test",
+        "stock": 999999,
+        "price_tiers": [],
+        "api_test": True,
+    }
 
 
 def _bump_catalog_cache_generation() -> None:
@@ -5195,13 +5251,20 @@ async def create_reseller_api_key(user_telegram_id: int, name: str = "") -> dict
     secret = secrets.token_urlsafe(32)
     raw_key = f"vbr_live_{prefix}_{secret}"
     key_hash = _hash_reseller_key(raw_key)
+    webhook_secret_salt = secrets.token_hex(16)
     db = await get_db()
     try:
         cursor = await db.execute(
             """INSERT INTO reseller_api_keys
-               (user_telegram_id, name, key_prefix, key_hash)
-               VALUES (?, ?, ?, ?)""",
-            (int(user_telegram_id), name.strip(), prefix, key_hash),
+               (user_telegram_id, name, key_prefix, key_hash, webhook_secret_salt)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                int(user_telegram_id),
+                name.strip(),
+                prefix,
+                key_hash,
+                webhook_secret_salt,
+            ),
         )
         await db.commit()
         _RESELLER_AUTH_CACHE.clear()
@@ -5222,6 +5285,7 @@ async def rotate_reseller_api_key(user_telegram_id: int, name: str = "Bot API") 
     secret = secrets.token_urlsafe(32)
     raw_key = f"vbr_live_{prefix}_{secret}"
     key_hash = _hash_reseller_key(raw_key)
+    webhook_secret_salt = secrets.token_hex(16)
     db = await get_db()
     try:
         await db.execute(
@@ -5230,9 +5294,15 @@ async def rotate_reseller_api_key(user_telegram_id: int, name: str = "Bot API") 
         )
         cursor = await db.execute(
             """INSERT INTO reseller_api_keys
-               (user_telegram_id, name, key_prefix, key_hash)
-               VALUES (?, ?, ?, ?)""",
-            (int(user_telegram_id), name.strip(), prefix, key_hash),
+               (user_telegram_id, name, key_prefix, key_hash, webhook_secret_salt)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                int(user_telegram_id),
+                name.strip(),
+                prefix,
+                key_hash,
+                webhook_secret_salt,
+            ),
         )
         await db.commit()
         _RESELLER_AUTH_CACHE.clear()
@@ -5270,7 +5340,8 @@ async def list_reseller_api_keys() -> list[dict]:
     try:
         cursor = await db.execute(
             """SELECT rk.id, rk.user_telegram_id, rk.name, rk.key_prefix, rk.is_active,
-                      rk.created_at, rk.last_used_at,
+                      rk.created_at, rk.last_used_at, rk.ip_allowlist,
+                      rk.webhook_url, rk.webhook_enabled,
                       u.username, u.first_name, COALESCE(u.wallet_balance, 0) as wallet_balance,
                       COUNT(rol.order_id) as order_count,
                       COALESCE(SUM(o.amount_usd), 0) as total_spent
@@ -5282,9 +5353,122 @@ async def list_reseller_api_keys() -> list[dict]:
                ORDER BY rk.created_at DESC"""
         )
         rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["ip_allowlist"] = _decode_reseller_ip_allowlist(
+                item.get("ip_allowlist")
+            )
+            result.append(item)
+        return result
     finally:
         await db.close()
+
+
+def _decode_reseller_ip_allowlist(raw_value) -> list[str]:
+    if isinstance(raw_value, list):
+        return [str(item).strip() for item in raw_value if str(item).strip()]
+    try:
+        decoded = json.loads(str(raw_value or "[]"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        decoded = []
+    if not isinstance(decoded, list):
+        return []
+    return [str(item).strip() for item in decoded if str(item).strip()]
+
+
+def _public_reseller_security(row: dict | None) -> dict | None:
+    if not row:
+        return None
+    return {
+        "id": int(row["id"]),
+        "user_telegram_id": int(row["user_telegram_id"]),
+        "key_prefix": str(row.get("key_prefix") or ""),
+        "is_active": bool(row.get("is_active")),
+        "ip_allowlist": _decode_reseller_ip_allowlist(row.get("ip_allowlist")),
+        "webhook_url": str(row.get("webhook_url") or ""),
+        "webhook_enabled": bool(row.get("webhook_enabled")),
+        "webhook_secret_salt": str(row.get("webhook_secret_salt") or ""),
+    }
+
+
+async def get_reseller_api_security(
+    key_id: int,
+    *,
+    user_telegram_id: int | None = None,
+    active_only: bool = False,
+) -> dict | None:
+    db = await get_db()
+    try:
+        where = ["id = ?"]
+        params: list = [int(key_id)]
+        if user_telegram_id is not None:
+            where.append("user_telegram_id = ?")
+            params.append(int(user_telegram_id))
+        if active_only:
+            where.append("is_active = 1")
+        cursor = await db.execute(
+            "SELECT * FROM reseller_api_keys WHERE " + " AND ".join(where) + " LIMIT 1",
+            params,
+        )
+        row = await cursor.fetchone()
+        return _public_reseller_security(dict(row)) if row else None
+    finally:
+        await db.close()
+
+
+async def update_reseller_api_security(
+    key_id: int,
+    *,
+    user_telegram_id: int | None = None,
+    ip_allowlist: list[str] | None = None,
+    webhook_url: str | None = None,
+    webhook_enabled: bool | None = None,
+    rotate_webhook_secret: bool = False,
+) -> dict | None:
+    updates: list[str] = []
+    params: list = []
+    if ip_allowlist is not None:
+        updates.append("ip_allowlist = ?")
+        params.append(json.dumps(ip_allowlist, separators=(",", ":")))
+    if webhook_url is not None:
+        updates.append("webhook_url = ?")
+        params.append(str(webhook_url).strip())
+    if webhook_enabled is not None:
+        updates.append("webhook_enabled = ?")
+        params.append(1 if webhook_enabled else 0)
+    if rotate_webhook_secret:
+        updates.append("webhook_secret_salt = ?")
+        params.append(secrets.token_hex(16))
+
+    if not updates:
+        return await get_reseller_api_security(
+            key_id,
+            user_telegram_id=user_telegram_id,
+        )
+
+    where = ["id = ?"]
+    params.append(int(key_id))
+    if user_telegram_id is not None:
+        where.append("user_telegram_id = ?")
+        params.append(int(user_telegram_id))
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "UPDATE reseller_api_keys SET " + ", ".join(updates) +
+            " WHERE " + " AND ".join(where),
+            params,
+        )
+        await db.commit()
+        if cursor.rowcount not in (-1, 1):
+            return None
+    finally:
+        await db.close()
+    _RESELLER_AUTH_CACHE.clear()
+    return await get_reseller_api_security(
+        key_id,
+        user_telegram_id=user_telegram_id,
+    )
 
 
 async def revoke_reseller_api_key(key_id: int) -> bool:
@@ -5403,6 +5587,19 @@ async def get_reseller_wallet_transactions(user_telegram_id: int, limit: int = 5
 
 
 async def quote_reseller_order(product_id: int, quantity: int) -> dict:
+    test_product = get_reseller_test_product()
+    if test_product and int(product_id) == int(test_product["id"]):
+        quantity = int(quantity)
+        if quantity != 1:
+            raise ValueError("The API test product only supports quantity 1")
+        return {
+            "product_id": int(test_product["id"]),
+            "quantity": 1,
+            "unit_price": float(test_product["price_usd"]),
+            "total": float(test_product["price_usd"]),
+            "delivery_type": "api_test",
+            "stock": int(test_product["stock"]),
+        }
     product = await get_product(product_id)
     if not product or not product.get("is_active", 1) or product.get("is_deleted", 0):
         raise ValueError("Product unavailable")
@@ -5424,11 +5621,194 @@ async def quote_reseller_order(product_id: int, quantity: int) -> dict:
     }
 
 
+def _public_reseller_test_order(row: dict | None) -> dict | None:
+    if not row:
+        return None
+    test_product = get_reseller_test_product()
+    if not test_product:
+        return None
+    row_id = int(row["id"])
+    return {
+        "id": -row_id,
+        "status": "COMPLETED",
+        "product_id": int(test_product["id"]),
+        "product_name": str(test_product["name"]),
+        "quantity": int(row.get("quantity") or 1),
+        "amount_usd": float(row.get("amount_usd") or 0),
+        "delivery_type": "api_test",
+        "customer_reference": str(row.get("customer_reference") or ""),
+        "idempotency_key": str(row.get("idempotency_key") or ""),
+        "request_fingerprint": str(row.get("request_fingerprint") or ""),
+        "activation_identifier": None,
+        "created_at": row.get("created_at"),
+        "items": [
+            {"id": -row_id, "account_data": str(row.get("item_data") or "")}
+        ],
+    }
+
+
+async def get_reseller_test_order(
+    user_telegram_id: int,
+    order_id: int,
+) -> dict | None:
+    if int(order_id) >= 0:
+        return None
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT * FROM reseller_test_orders
+               WHERE user_telegram_id = ? AND id = ? LIMIT 1""",
+            (int(user_telegram_id), abs(int(order_id))),
+        )
+        row = await cursor.fetchone()
+        return _public_reseller_test_order(dict(row)) if row else None
+    finally:
+        await db.close()
+
+
+async def get_reseller_test_order_by_idempotency_key(
+    user_telegram_id: int,
+    idempotency_key: str,
+) -> dict | None:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT * FROM reseller_test_orders
+               WHERE user_telegram_id = ? AND idempotency_key = ? LIMIT 1""",
+            (int(user_telegram_id), str(idempotency_key)),
+        )
+        row = await cursor.fetchone()
+        return _public_reseller_test_order(dict(row)) if row else None
+    finally:
+        await db.close()
+
+
+async def create_reseller_test_order(
+    reseller_api_key_id: int,
+    user_telegram_id: int,
+    *,
+    quantity: int,
+    customer_reference: str,
+    idempotency_key: str | None,
+) -> dict:
+    test_product = get_reseller_test_product()
+    if not test_product:
+        raise ValueError("Product unavailable")
+    if int(quantity) != 1:
+        raise ValueError("The API test product only supports quantity 1")
+    idempotency_key = str(idempotency_key or "").strip()[:120]
+    if not idempotency_key:
+        raise ValueError("idempotency_key is required for the API test product")
+    customer_reference = str(customer_reference or "").strip()[:120]
+    fingerprint = _reseller_order_fingerprint(
+        int(test_product["id"]), 1, "", customer_reference
+    )
+
+    existing_standard = await get_reseller_order_by_idempotency_key(
+        int(user_telegram_id), idempotency_key
+    )
+    if existing_standard:
+        raise ValueError("Idempotency key already used with a different order request")
+
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute(
+            """SELECT * FROM reseller_test_orders
+               WHERE user_telegram_id = ? AND idempotency_key = ? LIMIT 1""",
+            (int(user_telegram_id), idempotency_key),
+        )
+        existing = await cursor.fetchone()
+        if existing:
+            await db.commit()
+            if str(existing["request_fingerprint"] or "") != fingerprint:
+                raise ValueError("Idempotency key already used with a different order request")
+            return {
+                "idempotent": True,
+                "order": _public_reseller_test_order(dict(existing)),
+            }
+
+        cursor = await db.execute(
+            """SELECT COUNT(*) AS count FROM reseller_test_orders
+               WHERE user_telegram_id = ?
+                 AND created_at >= datetime('now', '-1 hour')""",
+            (int(user_telegram_id),),
+        )
+        count_row = await cursor.fetchone()
+        if int(count_row["count"] or 0) >= 5:
+            await db.rollback()
+            raise ValueError("API test product limit reached; retry in one hour")
+
+        total = round(float(test_product["price_usd"]), 2)
+        cursor = await db.execute(
+            """UPDATE users
+               SET wallet_balance = MAX(0.0, COALESCE(wallet_balance, 0) - ?)
+               WHERE telegram_id = ? AND COALESCE(wallet_balance, 0) >= ?
+               RETURNING wallet_balance""",
+            (total, int(user_telegram_id), total - 1e-5),
+        )
+        balance_row = await cursor.fetchone()
+        if not balance_row:
+            await db.rollback()
+            raise ValueError("Insufficient wallet balance")
+        balance_after = float(balance_row["wallet_balance"] or 0)
+        item_data = "VENTEBOT_API_TEST_DELIVERY_OK"
+        cursor = await db.execute(
+            """INSERT INTO reseller_test_orders
+               (reseller_api_key_id, user_telegram_id, idempotency_key,
+                request_fingerprint, customer_reference, quantity,
+                amount_usd, balance_after, item_data)
+               VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)""",
+            (
+                int(reseller_api_key_id),
+                int(user_telegram_id),
+                idempotency_key,
+                fingerprint,
+                customer_reference,
+                total,
+                balance_after,
+                item_data,
+            ),
+        )
+        row_id = int(cursor.lastrowid)
+        await db.execute(
+            """INSERT INTO wallet_transactions
+               (user_telegram_id, type, amount, balance_after, description)
+               VALUES (?, 'purchase', ?, ?, ?)""",
+            (
+                int(user_telegram_id),
+                total,
+                balance_after,
+                f"Reseller API test order #-{row_id}",
+            ),
+        )
+        await db.commit()
+        order = await get_reseller_test_order(int(user_telegram_id), -row_id)
+        return {
+            "idempotent": False,
+            "order": order,
+            "balance_after": balance_after,
+            "unit_price": total,
+            "total": total,
+        }
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
 async def get_reseller_order(user_telegram_id: int, order_id: int) -> dict | None:
+    if int(order_id) < 0:
+        return await get_reseller_test_order(user_telegram_id, order_id)
     db = await get_db()
     try:
         cursor = await db.execute(
             """SELECT o.*, rol.customer_reference, rol.idempotency_key,
+                      rol.request_fingerprint,
                       p.name as product_name, p.emoji as product_emoji, p.delivery_type
                FROM reseller_order_links rol
                JOIN orders o ON o.id = rol.order_id
@@ -5444,6 +5824,240 @@ async def get_reseller_order(user_telegram_id: int, order_id: int) -> dict | Non
         await db.close()
     order["items"] = await get_stock_items_for_order(order_id)
     return order
+
+
+def _reseller_deposit_fingerprint(
+    amount_usd: float,
+    network: str,
+    reference: str,
+) -> str:
+    return _stable_request_fingerprint({
+        "amount_usd": round(float(amount_usd), 2),
+        "network": str(network).upper(),
+        "reference": str(reference),
+    })
+
+
+def _reseller_deposit_status(deposit: dict) -> str:
+    if deposit.get("processed_at"):
+        return "CREDITED"
+    if deposit.get("processing_error"):
+        return "REVIEW_REQUIRED"
+    provider_status = str(deposit.get("provider_status") or "creating").lower()
+    statuses = {
+        "creating": "CREATING",
+        "creation_unknown": "CREATION_UNKNOWN",
+        "creation_failed": "FAILED",
+        "waiting": "WAITING",
+        "confirming": "CONFIRMING",
+        "confirmed": "CONFIRMING",
+        "sending": "CONFIRMING",
+        "partially_paid": "UNDERPAID",
+        "finished": "CONFIRMING",
+        "expired": "EXPIRED",
+        "failed": "FAILED",
+        "refunded": "REFUNDED",
+    }
+    return statuses.get(provider_status, provider_status.upper() or "CREATING")
+
+
+def _reseller_deposit_expiry(deposit: dict) -> str | None:
+    provider_expiry = str(deposit.get("valid_until") or "").strip()
+    if provider_expiry:
+        return provider_expiry
+    created_at = str(deposit.get("created_at") or "").strip()
+    if not created_at:
+        return None
+    try:
+        parsed = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return (
+            parsed + timedelta(seconds=PAYMENT_TIMEOUT_SECONDS)
+        ).astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    except ValueError:
+        return None
+
+
+def public_reseller_deposit(deposit: dict | None) -> dict | None:
+    if not deposit:
+        return None
+    try:
+        raw_payload = json.loads(str(deposit.get("raw_payload") or "{}"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        raw_payload = {}
+    if not isinstance(raw_payload, dict):
+        raw_payload = {}
+    pay_amount = float(deposit.get("pay_amount") or 0)
+    wallet_amount = round(float(deposit.get("wallet_amount") or 0), 2)
+    return {
+        "deposit_id": str(deposit.get("public_id") or ""),
+        "status": _reseller_deposit_status(deposit),
+        "provider_status": str(deposit.get("provider_status") or "creating"),
+        "wallet_credit_amount": wallet_amount,
+        "price_currency": str(deposit.get("price_currency") or "usd").upper(),
+        "pay_amount": pay_amount or None,
+        "pay_currency": str(deposit.get("pay_currency") or "usdtbsc").upper(),
+        "network": str(deposit.get("requested_network") or "BEP20"),
+        "address": str(deposit.get("pay_address") or "") or None,
+        "internal_transfer_uid": None,
+        "memo": raw_payload.get("payin_extra_id"),
+        "reference": str(deposit.get("reference") or ""),
+        "idempotency_key": str(deposit.get("idempotency_key") or ""),
+        "actually_paid": float(deposit.get("actually_paid") or 0),
+        "fees": {
+            "ventebot_fee_usd": 0.0,
+            "provider_quote_included": True,
+        },
+        "expires_at": _reseller_deposit_expiry(deposit),
+        "created_at": deposit.get("created_at"),
+        "updated_at": deposit.get("updated_at"),
+        "credited_at": deposit.get("processed_at"),
+        "processing_error": deposit.get("processing_error"),
+    }
+
+
+async def _get_reseller_deposit_row(
+    *,
+    user_telegram_id: int | None = None,
+    public_id: str | None = None,
+    payment_id: str | int | None = None,
+    topup_id: int | None = None,
+) -> dict | None:
+    where: list[str] = []
+    params: list = []
+    if user_telegram_id is not None:
+        where.append("rd.user_telegram_id = ?")
+        params.append(int(user_telegram_id))
+    if public_id is not None:
+        where.append("rd.public_id = ?")
+        params.append(str(public_id))
+    if payment_id is not None:
+        where.append("nwt.payment_id = ?")
+        params.append(str(payment_id))
+    if topup_id is not None:
+        where.append("rd.topup_id = ?")
+        params.append(int(topup_id))
+    if not where:
+        return None
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT rd.id AS reseller_deposit_row_id, rd.public_id,
+                      rd.reseller_api_key_id, rd.user_telegram_id,
+                      rd.idempotency_key, rd.request_fingerprint,
+                      rd.reference, rd.network AS requested_network,
+                      rd.created_at AS deposit_created_at,
+                      nwt.*
+               FROM reseller_deposits rd
+               JOIN nowpayments_wallet_topups nwt ON nwt.id = rd.topup_id
+               WHERE """ + " AND ".join(where) + " LIMIT 1",
+            params,
+        )
+        row = await cursor.fetchone()
+        result = dict(row) if row else None
+        if result:
+            result["created_at"] = result.pop("deposit_created_at", result.get("created_at"))
+        return result
+    finally:
+        await db.close()
+
+
+async def get_reseller_deposit(
+    user_telegram_id: int,
+    public_id: str,
+) -> dict | None:
+    return await _get_reseller_deposit_row(
+        user_telegram_id=user_telegram_id,
+        public_id=public_id,
+    )
+
+
+async def get_reseller_deposit_by_payment_id(
+    payment_id: str | int,
+) -> dict | None:
+    return await _get_reseller_deposit_row(payment_id=payment_id)
+
+
+async def prepare_reseller_deposit(
+    reseller_api_key_id: int,
+    user_telegram_id: int,
+    amount_usd: float,
+    network: str,
+    idempotency_key: str,
+    reference: str = "",
+) -> dict:
+    amount_usd = round(float(amount_usd), 2)
+    network = str(network or "BEP20").strip().upper()
+    idempotency_key = str(idempotency_key or "").strip()[:120]
+    reference = str(reference or "").strip()[:120]
+    if amount_usd <= 0:
+        raise ValueError("Deposit amount must be positive")
+    if network not in {"BEP20", "BSC", "USDTBSC"}:
+        raise ValueError("Unsupported deposit network")
+    network = "BEP20"
+    if not idempotency_key:
+        raise ValueError("idempotency_key is required")
+    fingerprint = _reseller_deposit_fingerprint(amount_usd, network, reference)
+
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute(
+            """SELECT rd.public_id, rd.request_fingerprint
+               FROM reseller_deposits rd
+               WHERE rd.user_telegram_id = ? AND rd.idempotency_key = ?
+               LIMIT 1""",
+            (int(user_telegram_id), idempotency_key),
+        )
+        existing = await cursor.fetchone()
+        if existing:
+            await db.commit()
+            if str(existing["request_fingerprint"] or "") != fingerprint:
+                raise ValueError("Idempotency key already used with a different deposit request")
+            deposit = await get_reseller_deposit(
+                int(user_telegram_id),
+                str(existing["public_id"]),
+            )
+            return {"created": False, "deposit": deposit}
+
+        request_key = f"np-reseller-{int(user_telegram_id)}-{uuid.uuid4().hex}"
+        cursor = await db.execute(
+            """INSERT INTO nowpayments_wallet_topups
+               (user_telegram_id, request_key, provider_status, wallet_amount,
+                price_amount, price_currency, pay_currency)
+               VALUES (?, ?, 'creating', ?, ?, 'usd', 'usdtbsc')""",
+            (int(user_telegram_id), request_key, amount_usd, amount_usd),
+        )
+        topup_id = int(cursor.lastrowid)
+        public_id = f"dep_{secrets.token_urlsafe(12).replace('-', '').replace('_', '')[:16]}"
+        await db.execute(
+            """INSERT INTO reseller_deposits
+               (public_id, reseller_api_key_id, user_telegram_id, topup_id,
+                idempotency_key, request_fingerprint, reference, network)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                public_id,
+                int(reseller_api_key_id),
+                int(user_telegram_id),
+                topup_id,
+                idempotency_key,
+                fingerprint,
+                reference,
+                network,
+            ),
+        )
+        await db.commit()
+        deposit = await get_reseller_deposit(int(user_telegram_id), public_id)
+        return {"created": True, "deposit": deposit}
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
 
 
 async def get_reseller_order_by_idempotency_key(
@@ -5471,6 +6085,7 @@ async def create_reseller_order(
     activation_identifier: str | None = None,
     customer_reference: str = "",
     idempotency_key: str | None = None,
+    reseller_api_key_id: int | None = None,
 ) -> dict:
     """Crée et paie une commande revendeur depuis le wallet du revendeur."""
     invalidate_stats_cache()
@@ -5480,12 +6095,38 @@ async def create_reseller_order(
     customer_reference = (customer_reference or "").strip()[:120]
     idempotency_key = (idempotency_key or "").strip()[:120] or None
     activation_identifier = (activation_identifier or "").strip()
+    request_fingerprint = _reseller_order_fingerprint(
+        product_id,
+        quantity,
+        activation_identifier,
+        customer_reference,
+    )
+
+    test_product = get_reseller_test_product()
+    if test_product and product_id == int(test_product["id"]):
+        if reseller_api_key_id is None:
+            raise ValueError("Product unavailable")
+        return await create_reseller_test_order(
+            int(reseller_api_key_id),
+            reseller_user_telegram_id,
+            quantity=quantity,
+            customer_reference=customer_reference,
+            idempotency_key=idempotency_key,
+        )
 
     if idempotency_key:
+        existing_test_order = await get_reseller_test_order_by_idempotency_key(
+            reseller_user_telegram_id, idempotency_key
+        )
+        if existing_test_order:
+            raise ValueError("Idempotency key already used with a different order request")
         existing_order = await get_reseller_order_by_idempotency_key(
             reseller_user_telegram_id, idempotency_key
         )
         if existing_order:
+            stored_fingerprint = str(existing_order.get("request_fingerprint") or "")
+            if stored_fingerprint and stored_fingerprint != request_fingerprint:
+                raise ValueError("Idempotency key already used with a different order request")
             return {"idempotent": True, "order": existing_order}
 
     preflight_product = await get_product(product_id)
@@ -5501,13 +6142,16 @@ async def create_reseller_order(
         await db.execute("BEGIN IMMEDIATE")
         if idempotency_key:
             cursor = await db.execute(
-                """SELECT order_id FROM reseller_order_links
+                """SELECT order_id, request_fingerprint FROM reseller_order_links
                    WHERE reseller_user_telegram_id = ? AND idempotency_key = ?""",
                 (reseller_user_telegram_id, idempotency_key),
             )
             existing = await cursor.fetchone()
             if existing:
                 await db.commit()
+                stored_fingerprint = str(existing["request_fingerprint"] or "")
+                if stored_fingerprint and stored_fingerprint != request_fingerprint:
+                    raise ValueError("Idempotency key already used with a different order request")
                 order = await get_reseller_order(reseller_user_telegram_id, existing["order_id"])
                 return {"idempotent": True, "order": order}
 
@@ -5609,9 +6253,16 @@ async def create_reseller_order(
 
         await db.execute(
             """INSERT INTO reseller_order_links
-               (order_id, reseller_user_telegram_id, customer_reference, idempotency_key)
-               VALUES (?, ?, ?, ?)""",
-            (order_id, reseller_user_telegram_id, customer_reference, idempotency_key),
+               (order_id, reseller_user_telegram_id, customer_reference,
+                idempotency_key, request_fingerprint)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                order_id,
+                reseller_user_telegram_id,
+                customer_reference,
+                idempotency_key,
+                request_fingerprint,
+            ),
         )
         await db.execute(
             "INSERT INTO wallet_transactions (user_telegram_id, type, amount, balance_after, description) VALUES (?, 'purchase', ?, ?, ?)",

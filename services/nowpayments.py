@@ -27,7 +27,7 @@ from config import (
 
 logger = logging.getLogger(__name__)
 _HTTP_CLIENT: httpx.AsyncClient | None = None
-_MINIMUM_CACHE: tuple[float, dict] | None = None
+_MINIMUM_CACHE: dict[tuple[str, str, str, bool, bool], tuple[float, dict]] = {}
 NOWPAYMENTS_CHECKOUT_FEE_USD = Decimal("0.04")
 
 
@@ -138,7 +138,7 @@ async def close_nowpayments_client() -> None:
     if _HTTP_CLIENT is not None and not _HTTP_CLIENT.is_closed:
         await _HTTP_CLIENT.aclose()
     _HTTP_CLIENT = None
-    _MINIMUM_CACHE = None
+    _MINIMUM_CACHE = {}
 
 
 def _error_message(response: httpx.Response) -> str:
@@ -241,11 +241,31 @@ async def get_minimum_amount(
     currency_from: str = "usdtbsc",
     currency_to: str = "usdtbsc",
     fiat_equivalent: str = "usd",
+    is_fixed_rate: bool | None = None,
+    is_fee_paid_by_user: bool | None = None,
 ) -> dict:
     global _MINIMUM_CACHE
+    if not isinstance(_MINIMUM_CACHE, dict):
+        _MINIMUM_CACHE = {}
     now = time.monotonic()
-    if _MINIMUM_CACHE and now - _MINIMUM_CACHE[0] < 300:
-        return dict(_MINIMUM_CACHE[1])
+    effective_fee_mode = (
+        NOWPAYMENTS_FEE_PAID_BY_USER
+        if is_fee_paid_by_user is None
+        else bool(is_fee_paid_by_user)
+    )
+    effective_fixed_rate = (
+        NOWPAYMENTS_FIXED_RATE if is_fixed_rate is None else bool(is_fixed_rate)
+    ) or effective_fee_mode
+    cache_key = (
+        currency_from.lower(),
+        currency_to.lower(),
+        fiat_equivalent.lower(),
+        bool(effective_fixed_rate),
+        bool(effective_fee_mode),
+    )
+    cached = _MINIMUM_CACHE.get(cache_key)
+    if cached and now - cached[0] < 300:
+        return dict(cached[1])
     result = await _request(
         "GET",
         "/min-amount",
@@ -253,9 +273,9 @@ async def get_minimum_amount(
             "currency_from": currency_from.lower(),
             "currency_to": currency_to.lower(),
             "fiat_equivalent": fiat_equivalent.lower(),
-            "is_fixed_rate": "true" if (NOWPAYMENTS_FIXED_RATE or NOWPAYMENTS_FEE_PAID_BY_USER) else "false",
-            "is_fee_paid_by_user": "true" if NOWPAYMENTS_FEE_PAID_BY_USER else "false",
+            "is_fixed_rate": "true" if effective_fixed_rate else "false",
+            "is_fee_paid_by_user": "true" if effective_fee_mode else "false",
         },
     )
-    _MINIMUM_CACHE = (now, dict(result))
+    _MINIMUM_CACHE[cache_key] = (now, dict(result))
     return result

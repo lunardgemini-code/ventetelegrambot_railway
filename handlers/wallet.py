@@ -242,6 +242,18 @@ async def process_nowpayments_wallet_topup_notification(
     result = finalized_result or await finalize_nowpayments_wallet_topup(payment_id)
     action = result.get("action")
     payment = result.get("payment") or {}
+    try:
+        from services.reseller_webhooks import (
+            enqueue_reseller_deposit_webhook_for_payment,
+        )
+
+        await enqueue_reseller_deposit_webhook_for_payment(payment_id)
+    except Exception as exc:
+        logger.warning(
+            "Could not enqueue reseller deposit webhook for %s: %s",
+            payment_id,
+            exc,
+        )
     if not payment or (payment.get("notified_at") and not force_notification):
         return result
     notifiable = {

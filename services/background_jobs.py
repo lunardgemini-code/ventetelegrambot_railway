@@ -197,6 +197,19 @@ async def _run_restock_job(job: dict, bot) -> None:
     )
 
 
+async def _run_reseller_webhook_job(job: dict) -> None:
+    from services.reseller_webhooks import deliver_reseller_webhook
+
+    await deliver_reseller_webhook(job.get("payload") or {})
+    await complete_background_job(
+        str(job["id"]),
+        done=1,
+        failed=0,
+        total=1,
+        cursor_value=1,
+    )
+
+
 async def _process_job(job: dict, bot) -> None:
     job_type = str(job.get("job_type") or "")
     if job_type == "broadcast":
@@ -204,6 +217,9 @@ async def _process_job(job: dict, bot) -> None:
         return
     if job_type == "restock_notification":
         await _run_restock_job(job, bot)
+        return
+    if job_type == "reseller_webhook":
+        await _run_reseller_webhook_job(job)
         return
     raise ValueError(f"Unsupported background job type: {job_type}")
 

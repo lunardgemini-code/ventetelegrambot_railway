@@ -250,6 +250,8 @@ _reseller_rate_last_cleanup = 0
 _reseller_catalog_cache: dict[str, dict] = {}
 _reseller_catalog_lock: asyncio.Lock | None = None
 _reseller_catalog_lock_loop = None
+_reseller_deposit_refresh_at: dict[str, float] = {}
+_reseller_deposit_refresh_locks: dict[str, asyncio.Lock] = {}
 
 
 def _get_reseller_catalog_lock() -> asyncio.Lock:
@@ -259,6 +261,15 @@ def _get_reseller_catalog_lock() -> asyncio.Lock:
         _reseller_catalog_lock = asyncio.Lock()
         _reseller_catalog_lock_loop = loop
     return _reseller_catalog_lock
+
+
+def _get_reseller_deposit_refresh_lock(deposit_id: str) -> asyncio.Lock:
+    key = str(deposit_id)
+    lock = _reseller_deposit_refresh_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _reseller_deposit_refresh_locks[key] = lock
+    return lock
 
 
 def _is_reseller_api_path(path: str) -> bool:
@@ -387,6 +398,7 @@ async def verify_api_key(x_api_key: str = Header(None)):
 
 
 async def verify_reseller_key(
+    request: Request,
     response: Response,
     x_reseller_key: str = Header(None),
     x_api_key: str = Header(None),
@@ -408,6 +420,20 @@ async def verify_reseller_key(
         )
     if not reseller:
         _raise_reseller_error(status.HTTP_401_UNAUTHORIZED, "INVALID_API_KEY", "Invalid reseller API key")
+    from services.reseller_security import ip_is_allowed, request_client_ip
+
+    client_ip = request_client_ip(request)
+    if not ip_is_allowed(client_ip, reseller.get("ip_allowlist")):
+        logger.warning(
+            "Rejected reseller key %s from non-allowlisted IP %s",
+            reseller.get("key_prefix"),
+            client_ip,
+        )
+        _raise_reseller_error(
+            status.HTTP_403_FORBIDDEN,
+            "IP_NOT_ALLOWED",
+            "This IP address is not allowed for the reseller API key.",
+        )
     rate_headers = _check_reseller_rate_limit(str(reseller.get("id") or reseller.get("key_prefix") or reseller["user_telegram_id"]))
     for key, value in rate_headers.items():
         response.headers[key] = value
@@ -453,6 +479,94 @@ class ResellerCreateOrderRequest(BaseModel):
 
 class ResellerActivationIdentifierRequest(BaseModel):
     activation_identifier: str = Field(..., min_length=2, max_length=500)
+
+
+class ResellerDepositRequest(BaseModel):
+    amount_usd: float = Field(..., ge=0.01, le=10000)
+    network: str = Field("BEP20", min_length=3, max_length=20)
+    idempotency_key: str = Field(..., min_length=1, max_length=120)
+    reference: str = Field("", max_length=120)
+
+
+class ResellerSecurityRequest(BaseModel):
+    ip_allowlist: list[str] | None = Field(None, max_length=20)
+    webhook_url: str | None = Field(None, max_length=500)
+    webhook_enabled: bool | None = None
+    rotate_webhook_secret: bool = False
+
+
+def _public_reseller_security_config(config: dict) -> dict:
+    return {
+        "key_id": int(config["id"]),
+        "key_prefix": str(config.get("key_prefix") or ""),
+        "ip_allowlist": list(config.get("ip_allowlist") or []),
+        "webhook_url": str(config.get("webhook_url") or ""),
+        "webhook_enabled": bool(config.get("webhook_enabled")),
+    }
+
+
+async def _apply_reseller_security_update(
+    key_id: int,
+    data: ResellerSecurityRequest,
+    *,
+    user_telegram_id: int | None = None,
+) -> dict:
+    from database.models import get_reseller_api_security, update_reseller_api_security
+    from services.reseller_security import (
+        derive_webhook_secret,
+        normalize_ip_allowlist,
+        validate_webhook_url,
+    )
+
+    current = await get_reseller_api_security(
+        key_id,
+        user_telegram_id=user_telegram_id,
+    )
+    if not current:
+        raise HTTPException(status_code=404, detail="Reseller API key not found")
+
+    ip_allowlist = (
+        normalize_ip_allowlist(data.ip_allowlist)
+        if data.ip_allowlist is not None
+        else None
+    )
+    webhook_url = None
+    if data.webhook_url is not None:
+        webhook_url = await validate_webhook_url(data.webhook_url)
+    final_webhook_url = (
+        webhook_url if webhook_url is not None else str(current.get("webhook_url") or "")
+    )
+    final_webhook_enabled = (
+        bool(data.webhook_enabled)
+        if data.webhook_enabled is not None
+        else bool(current.get("webhook_enabled"))
+    )
+    if final_webhook_enabled and not final_webhook_url:
+        raise ValueError("A valid webhook URL is required before enabling webhooks")
+
+    rotate_secret = bool(data.rotate_webhook_secret) or (
+        final_webhook_enabled and not bool(current.get("webhook_enabled"))
+    )
+    updated = await update_reseller_api_security(
+        key_id,
+        user_telegram_id=user_telegram_id,
+        ip_allowlist=ip_allowlist,
+        webhook_url=webhook_url,
+        webhook_enabled=data.webhook_enabled,
+        rotate_webhook_secret=rotate_secret,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Reseller API key not found")
+    result = _public_reseller_security_config(updated)
+    if rotate_secret:
+        result["webhook_signing_secret"] = derive_webhook_secret(
+            str(updated.get("key_prefix") or ""),
+            str(updated.get("webhook_secret_salt") or ""),
+        )
+        result["webhook_signing_secret_note"] = (
+            "Store this secret now. It is only returned after creation or rotation."
+        )
+    return result
 
 
 class FinanceAdjustRequest(BaseModel):
@@ -700,7 +814,7 @@ def _reseller_openapi_schema() -> dict:
         "openapi": "3.0.3",
         "info": {
             "title": "VenteBot Reseller API",
-            "version": "1.1.0",
+            "version": "1.2.0",
             "description": (
                 "Public API for connecting a reseller bot to VenteBot. "
                 "Purchases debit the reseller account wallet.\n\n"
@@ -716,6 +830,8 @@ def _reseller_openapi_schema() -> dict:
             {"name": "Products", "description": "Catalog and pricing"},
             {"name": "Orders", "description": "Order creation and tracking"},
             {"name": "Wallet", "description": "Reseller wallet history"},
+            {"name": "Deposits", "description": "Just-in-time BEP20 wallet funding"},
+            {"name": "Security", "description": "IP restrictions and signed webhooks"},
         ],
         "components": {
             "securitySchemes": {
@@ -790,9 +906,10 @@ def _reseller_openapi_schema() -> dict:
                         "image_url": {"type": "string", "nullable": True, "example": "https://example.com/product.png"},
                         "price_usd": {"type": "number", "format": "float", "example": 5.0},
                         "warranty_days": {"type": "integer", "example": 30},
-                        "delivery_type": {"type": "string", "enum": ["stock", "activation", "supplier_api"], "example": "activation"},
+                        "delivery_type": {"type": "string", "enum": ["stock", "activation", "supplier_api", "api_test"], "example": "activation"},
                         "stock": {"type": "integer", "nullable": True, "example": None},
                         "price_tiers": {"type": "array", "items": {"$ref": "#/components/schemas/PriceTier"}},
+                        "api_test": {"type": "boolean", "default": False},
                     },
                 },
                 "QuoteRequest": {
@@ -847,7 +964,7 @@ def _reseller_openapi_schema() -> dict:
                         "idempotency_key": {
                             "type": "string",
                             "maxLength": 120,
-                            "description": "Unique value per purchase attempt to prevent duplicate orders.",
+                            "description": "Unique value per purchase attempt. Retrying the exact same request returns the original order; reusing it with a different payload returns HTTP 409.",
                             "example": "order-555-20260706-001",
                         },
                     },
@@ -973,7 +1090,7 @@ def _reseller_openapi_schema() -> dict:
                 "post": {
                     "tags": ["Orders"],
                     "summary": "Create an order",
-                    "description": "Debits the reseller wallet. Use idempotency_key to prevent duplicate purchases.",
+                    "description": "Debits the reseller wallet. idempotency_key remains safe after client timeouts and retries. The authenticated catalog includes a low-cost synthetic API test product that is never shown to regular Telegram customers.",
                     "requestBody": {
                         "required": True,
                         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateOrderRequest"}}},
@@ -1076,12 +1193,116 @@ def _reseller_openapi_schema() -> dict:
             },
         },
     }
+    schemas = schema["components"]["schemas"]
+    schemas.update({
+        "DepositRequest": {
+            "type": "object",
+            "required": ["amount_usd", "idempotency_key"],
+            "properties": {
+                "amount_usd": {"type": "number", "minimum": 0.01, "maximum": 10000, "example": 5.0},
+                "network": {"type": "string", "enum": ["BEP20"], "default": "BEP20"},
+                "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 120, "example": "deposit-customer-555-001"},
+                "reference": {"type": "string", "maxLength": 120, "example": "checkout-555"},
+            },
+        },
+        "Deposit": {
+            "type": "object",
+            "properties": {
+                "deposit_id": {"type": "string", "example": "dep_a1b2c3d4e5f6"},
+                "status": {"type": "string", "enum": ["CREATING", "CREATION_UNKNOWN", "WAITING", "CONFIRMING", "UNDERPAID", "CREDITED", "EXPIRED", "FAILED", "REFUNDED", "REVIEW_REQUIRED"]},
+                "provider_status": {"type": "string", "example": "waiting"},
+                "wallet_credit_amount": {"type": "number", "example": 5.0},
+                "pay_amount": {"type": "number", "nullable": True, "example": 5.012345},
+                "pay_currency": {"type": "string", "example": "USDTBSC"},
+                "network": {"type": "string", "example": "BEP20"},
+                "address": {"type": "string", "nullable": True, "example": "0x..."},
+                "internal_transfer_uid": {"type": "string", "nullable": True},
+                "memo": {"type": "string", "nullable": True},
+                "reference": {"type": "string"},
+                "idempotency_key": {"type": "string"},
+                "actually_paid": {"type": "number", "example": 0},
+                "fees": {"type": "object"},
+                "expires_at": {"type": "string", "nullable": True},
+                "created_at": {"type": "string"},
+                "updated_at": {"type": "string", "nullable": True},
+                "credited_at": {"type": "string", "nullable": True},
+                "processing_error": {"type": "string", "nullable": True},
+            },
+        },
+        "SecurityRequest": {
+            "type": "object",
+            "properties": {
+                "ip_allowlist": {"type": "array", "maxItems": 20, "items": {"type": "string"}, "example": ["203.0.113.10/32"]},
+                "webhook_url": {"type": "string", "example": "https://store.example.com/webhooks/ventebot"},
+                "webhook_enabled": {"type": "boolean"},
+                "rotate_webhook_secret": {"type": "boolean", "default": False},
+            },
+        },
+        "Security": {
+            "type": "object",
+            "properties": {
+                "key_id": {"type": "integer"},
+                "key_prefix": {"type": "string"},
+                "ip_allowlist": {"type": "array", "items": {"type": "string"}},
+                "webhook_url": {"type": "string"},
+                "webhook_enabled": {"type": "boolean"},
+                "webhook_signing_secret": {"type": "string", "description": "Only returned after initial enablement or explicit rotation."},
+            },
+        },
+    })
+    schema["paths"].update({
+        "/api/reseller/wallet/deposit-methods": {
+            "get": {
+                "tags": ["Deposits"],
+                "summary": "List supported deposit networks and current minimums",
+                "responses": {"200": {"description": "Deposit methods"}},
+            }
+        },
+        "/api/reseller/wallet/deposits": {
+            "post": {
+                "tags": ["Deposits"],
+                "summary": "Create an idempotent USDT BEP20 wallet deposit",
+                "description": "Send exactly deposit.pay_amount to deposit.address before expires_at. Poll the status endpoint or configure a signed webhook.",
+                "requestBody": {"required": True, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DepositRequest"}}}},
+                "responses": {
+                    "200": {"description": "Existing idempotent deposit", "content": {"application/json": {"schema": {"type": "object", "properties": {"success": {"type": "boolean"}, "idempotent": {"type": "boolean"}, "deposit": {"$ref": "#/components/schemas/Deposit"}}}}}},
+                    "201": {"description": "Deposit created", "content": {"application/json": {"schema": {"type": "object", "properties": {"success": {"type": "boolean"}, "idempotent": {"type": "boolean"}, "deposit": {"$ref": "#/components/schemas/Deposit"}}}}}},
+                    "409": {"description": "Idempotency key reused with a different payload"},
+                },
+            }
+        },
+        "/api/reseller/wallet/deposits/{deposit_id}": {
+            "get": {
+                "tags": ["Deposits"],
+                "summary": "Read and optionally refresh a deposit",
+                "parameters": [
+                    {"name": "deposit_id", "in": "path", "required": True, "schema": {"type": "string"}},
+                    {"name": "refresh", "in": "query", "schema": {"type": "boolean", "default": True}},
+                ],
+                "responses": {"200": {"description": "Deposit status"}, "404": {"description": "Deposit not found"}},
+            }
+        },
+        "/api/reseller/security": {
+            "get": {"tags": ["Security"], "summary": "Read IP and webhook settings", "responses": {"200": {"description": "Security settings"}}},
+            "put": {
+                "tags": ["Security"],
+                "summary": "Configure IP allowlisting and signed deposit webhooks",
+                "description": "Webhook requests contain X-Vente-Timestamp and X-Vente-Signature. Verify HMAC-SHA256 over timestamp + '.' + the raw request body. Events are retried durably.",
+                "requestBody": {"required": True, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SecurityRequest"}}}},
+                "responses": {"200": {"description": "Updated settings"}},
+            },
+        },
+    })
     error_response = {
         "description": "Unexpected server error.",
         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}},
     }
     unauthorized_response = {
         "description": "Missing, invalid, or revoked reseller API key.",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}},
+    }
+    forbidden_response = {
+        "description": "The calling IP is not in the API key allowlist.",
         "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}},
     }
     rate_limit_response = {
@@ -1122,6 +1343,7 @@ def _reseller_openapi_schema() -> dict:
         for operation in path_item.values():
             if isinstance(operation, dict) and "responses" in operation:
                 operation["responses"].setdefault("401", unauthorized_response)
+                operation["responses"].setdefault("403", forbidden_response)
                 operation["responses"].setdefault("429", rate_limit_response)
                 operation["responses"].setdefault("500", error_response)
                 operation["responses"].setdefault("503", unavailable_response)
@@ -1203,6 +1425,25 @@ async def api_admin_revoke_reseller_key(key_id: int):
         raise
     except Exception as exc:
         logger.error("API error revoke reseller key: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.patch(
+    "/api/resellers/keys/{key_id}/security",
+    dependencies=[Depends(verify_api_key)],
+)
+async def api_admin_update_reseller_security(
+    key_id: int,
+    data: ResellerSecurityRequest,
+):
+    try:
+        return {"status": "updated", "security": await _apply_reseller_security_update(key_id, data)}
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("API error update reseller security: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1766,6 +2007,7 @@ async def _build_reseller_catalog(lang: str) -> dict:
         get_all_products,
         get_all_stock_counts,
         get_price_tiers_for_products,
+        get_reseller_test_product,
     )
 
     products = await get_all_products()
@@ -1800,6 +2042,9 @@ async def _build_reseller_catalog(lang: str) -> dict:
                 for item in tiers
             ],
         })
+    test_product = get_reseller_test_product()
+    if test_product:
+        result.append(test_product)
     return _reseller_success(products=result)
 
 
@@ -1936,6 +2181,7 @@ async def api_reseller_create_order(data: ResellerCreateOrderRequest, reseller: 
     try:
         result = await create_reseller_order(
             reseller_user_telegram_id=reseller["user_telegram_id"],
+            reseller_api_key_id=reseller["id"],
             product_id=data.product_id,
             quantity=data.quantity,
             activation_identifier=data.activation_identifier,
@@ -1971,6 +2217,15 @@ async def api_reseller_create_order(data: ResellerCreateOrderRequest, reseller: 
         )
     except ValueError as exc:
         msg = str(exc)
+        if "Idempotency key already used" in msg:
+            _raise_reseller_error(409, "IDEMPOTENCY_CONFLICT", msg)
+        if "test product limit" in msg.lower():
+            _raise_reseller_error(
+                429,
+                "TEST_PRODUCT_RATE_LIMIT",
+                msg,
+                headers={"Retry-After": "3600"},
+            )
         code = 402 if "wallet" in msg.lower() else 400
         error_code = "INSUFFICIENT_BALANCE" if code == 402 else _reseller_error_from_detail(code, msg)["code"]
         _raise_reseller_error(code, error_code, msg)
@@ -2026,6 +2281,308 @@ async def api_reseller_submit_activation(order_id: int, data: ResellerActivation
     except Exception as exc:
         logger.error("API error reseller activation identifier: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/api/reseller/security")
+async def api_reseller_get_security(reseller: dict = Depends(verify_reseller_key)):
+    from database.models import get_reseller_api_security
+
+    config = await get_reseller_api_security(
+        int(reseller["id"]),
+        user_telegram_id=int(reseller["user_telegram_id"]),
+        active_only=True,
+    )
+    if not config:
+        _raise_reseller_error(404, "API_KEY_NOT_FOUND", "Reseller API key not found")
+    return _reseller_success(security=_public_reseller_security_config(config))
+
+
+@api.put("/api/reseller/security")
+async def api_reseller_update_security(
+    data: ResellerSecurityRequest,
+    reseller: dict = Depends(verify_reseller_key),
+):
+    try:
+        config = await _apply_reseller_security_update(
+            int(reseller["id"]),
+            data,
+            user_telegram_id=int(reseller["user_telegram_id"]),
+        )
+        return _reseller_success(security=config)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        _raise_reseller_error(400, "INVALID_SECURITY_CONFIGURATION", str(exc))
+    except Exception as exc:
+        logger.error("API error update reseller security: %s", exc, exc_info=True)
+        _raise_reseller_error(500, "INTERNAL_ERROR", "Internal server error")
+
+
+@api.get("/api/reseller/wallet/deposit-methods")
+async def api_reseller_deposit_methods(reseller: dict = Depends(verify_reseller_key)):
+    from services.nowpayments import get_minimum_amount, is_nowpayments_configured
+
+    available = is_nowpayments_configured()
+    minimum = None
+    provider_error = None
+    if available:
+        try:
+            quote = await get_minimum_amount(
+                currency_from="usdtbsc",
+                currency_to="usdtbsc",
+                fiat_equivalent="usd",
+                is_fixed_rate=False,
+                is_fee_paid_by_user=False,
+            )
+            minimum = float(quote.get("min_amount") or 0) or None
+        except Exception as exc:
+            provider_error = "Minimum currently unavailable; retry before creating a deposit."
+            logger.warning("Could not read reseller deposit minimum: %s", exc)
+    return _reseller_success(
+        methods=[{
+            "network": "BEP20",
+            "asset": "USDT",
+            "provider_currency": "USDTBSC",
+            "available": available,
+            "minimum_deposit_usd": minimum,
+            "fee": {"ventebot_fee_usd": 0.0, "provider_quote_included": True},
+            "expiry_seconds": PAYMENT_TIMEOUT_SECONDS,
+            "error": provider_error,
+        }],
+    )
+
+
+async def _refresh_reseller_deposit(deposit: dict) -> tuple[dict, bool]:
+    from database.models import (
+        finalize_nowpayments_wallet_topup,
+        get_reseller_deposit,
+        save_nowpayments_update,
+    )
+    from handlers.wallet import process_nowpayments_wallet_topup_notification
+    from services.nowpayments import get_payment_status
+
+    public_id = str(deposit.get("public_id") or "")
+    payment_id = str(deposit.get("payment_id") or "").strip()
+    terminal = {"CREDITED", "EXPIRED", "FAILED", "REFUNDED", "REVIEW_REQUIRED"}
+    from database.models import public_reseller_deposit
+
+    public = public_reseller_deposit(deposit) or {}
+    if not payment_id or public.get("status") in terminal:
+        return deposit, False
+    now = time.monotonic()
+    if now - _reseller_deposit_refresh_at.get(public_id, 0.0) < 10:
+        return deposit, False
+
+    async with _get_reseller_deposit_refresh_lock(public_id):
+        now = time.monotonic()
+        if now - _reseller_deposit_refresh_at.get(public_id, 0.0) < 10:
+            return deposit, False
+        _reseller_deposit_refresh_at[public_id] = now
+        try:
+            payload = await get_payment_status(payment_id)
+            await save_nowpayments_update(payload)
+            if tg_app and getattr(tg_app, "bot", None):
+                await process_nowpayments_wallet_topup_notification(tg_app.bot, payment_id)
+            else:
+                await finalize_nowpayments_wallet_topup(payment_id)
+            refreshed = await get_reseller_deposit(
+                int(deposit["user_telegram_id"]),
+                public_id,
+            )
+            return refreshed or deposit, False
+        except Exception as exc:
+            logger.warning("Reseller deposit refresh failed for %s: %s", public_id, exc)
+            return deposit, True
+
+
+async def _safe_enqueue_reseller_deposit_webhook(deposit: dict | None) -> None:
+    try:
+        from services.reseller_webhooks import enqueue_reseller_deposit_webhook
+
+        await enqueue_reseller_deposit_webhook(deposit)
+    except Exception as exc:
+        logger.warning("Could not enqueue reseller deposit webhook: %s", exc)
+
+
+@api.post("/api/reseller/wallet/deposits")
+async def api_reseller_create_deposit(
+    data: ResellerDepositRequest,
+    reseller: dict = Depends(verify_reseller_key),
+):
+    from database.models import (
+        attach_nowpayments_wallet_topup,
+        get_reseller_deposit,
+        mark_nowpayments_wallet_topup_creation_failed,
+        prepare_reseller_deposit,
+        public_reseller_deposit,
+    )
+    from handlers.payment import _nowpayments_callback_url
+    from services.nowpayments import (
+        NowPaymentsError,
+        create_payment,
+        get_minimum_amount,
+        is_nowpayments_configured,
+    )
+
+    network = data.network.strip().upper()
+    if network not in {"BEP20", "BSC", "USDTBSC"}:
+        _raise_reseller_error(400, "UNSUPPORTED_NETWORK", "Only USDT on BEP20 is supported")
+    if not is_nowpayments_configured():
+        _raise_reseller_error(503, "DEPOSITS_UNAVAILABLE", "BEP20 deposits are temporarily unavailable")
+    callback_url = _nowpayments_callback_url()
+    if not callback_url.lower().startswith("https://"):
+        _raise_reseller_error(503, "DEPOSITS_UNAVAILABLE", "Deposit callback is not configured")
+
+    try:
+        minimum_quote = await get_minimum_amount(
+            currency_from="usdtbsc",
+            currency_to="usdtbsc",
+            fiat_equivalent="usd",
+            is_fixed_rate=False,
+            is_fee_paid_by_user=False,
+        )
+        minimum = float(minimum_quote.get("min_amount") or 0)
+    except Exception as exc:
+        logger.warning("Reseller deposit minimum lookup failed: %s", exc)
+        _raise_reseller_error(
+            503,
+            "DEPOSIT_PROVIDER_UNAVAILABLE",
+            "Deposit provider is temporarily unavailable. Retry shortly.",
+            headers={"Retry-After": "5"},
+        )
+    if minimum > 0 and float(data.amount_usd) + 1e-9 < minimum:
+        _raise_reseller_error(
+            400,
+            "MINIMUM_DEPOSIT_NOT_MET",
+            f"Minimum BEP20 deposit is {minimum:g} USDT.",
+            minimum_deposit_usd=minimum,
+        )
+
+    try:
+        prepared = await prepare_reseller_deposit(
+            int(reseller["id"]),
+            int(reseller["user_telegram_id"]),
+            float(data.amount_usd),
+            "BEP20",
+            data.idempotency_key,
+            data.reference,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if "Idempotency key already used" in message:
+            _raise_reseller_error(409, "IDEMPOTENCY_CONFLICT", message)
+        _raise_reseller_error(400, "INVALID_DEPOSIT", message)
+
+    deposit = prepared["deposit"]
+    if not prepared["created"]:
+        return _reseller_success(idempotent=True, deposit=public_reseller_deposit(deposit))
+
+    request_key = str(deposit.get("request_key") or "")
+    try:
+        provider_payment = await create_payment(
+            price_amount=float(data.amount_usd),
+            order_id=request_key,
+            order_description=f"VenteBot reseller wallet deposit {deposit['public_id']}",
+            callback_url=callback_url,
+            pay_currency="usdtbsc",
+            is_fixed_rate=False,
+            is_fee_paid_by_user=False,
+        )
+    except NowPaymentsError as exc:
+        await mark_nowpayments_wallet_topup_creation_failed(
+            request_key,
+            uncertain=bool(exc.retryable),
+            error=str(exc),
+        )
+        deposit = await get_reseller_deposit(
+            int(reseller["user_telegram_id"]),
+            str(deposit["public_id"]),
+        )
+        await _safe_enqueue_reseller_deposit_webhook(deposit)
+        code = 503 if exc.retryable else 400
+        _raise_reseller_error(
+            code,
+            "DEPOSIT_CREATION_UNCERTAIN" if exc.retryable else "DEPOSIT_CREATION_REJECTED",
+            str(exc),
+            headers={"Retry-After": "5"} if exc.retryable else None,
+            deposit=public_reseller_deposit(deposit),
+        )
+
+    try:
+        from database.db import is_transient_db_connection_error
+
+        attach_error = None
+        for attempt in range(3):
+            try:
+                await attach_nowpayments_wallet_topup(request_key, provider_payment)
+                attach_error = None
+                break
+            except Exception as exc:
+                attach_error = exc
+                if not is_transient_db_connection_error(exc) or attempt == 2:
+                    break
+                await asyncio.sleep(0.15 * (attempt + 1))
+        if attach_error is not None:
+            raise attach_error
+        deposit = await get_reseller_deposit(
+            int(reseller["user_telegram_id"]),
+            str(deposit["public_id"]),
+        )
+        await _safe_enqueue_reseller_deposit_webhook(deposit)
+        return JSONResponse(
+            status_code=201,
+            content=jsonable_encoder(
+                _reseller_success(idempotent=False, deposit=public_reseller_deposit(deposit))
+            ),
+            headers=dict(reseller.get("_rate_headers") or {}),
+        )
+    except Exception as exc:
+        provider_payment_id = str(provider_payment.get("payment_id") or "unknown")
+        logger.error(
+            "NOWPayments created reseller deposit %s but persistence failed for provider payment %s: %s",
+            deposit.get("public_id"),
+            provider_payment_id,
+            exc,
+            exc_info=True,
+        )
+        await mark_nowpayments_wallet_topup_creation_failed(
+            request_key,
+            uncertain=True,
+            error=f"Provider payment {provider_payment_id} persistence failed: {exc}",
+        )
+        deposit = await get_reseller_deposit(
+            int(reseller["user_telegram_id"]),
+            str(deposit["public_id"]),
+        )
+        await _safe_enqueue_reseller_deposit_webhook(deposit)
+        _raise_reseller_error(
+            503,
+            "DEPOSIT_PERSISTENCE_UNCERTAIN",
+            "The provider may have created this deposit, but its state could not be persisted. Do not create another deposit; contact support with the deposit ID.",
+            headers={"Retry-After": "5"},
+            deposit=public_reseller_deposit(deposit),
+        )
+
+
+@api.get("/api/reseller/wallet/deposits/{deposit_id}")
+async def api_reseller_get_deposit(
+    deposit_id: str,
+    refresh: bool = True,
+    reseller: dict = Depends(verify_reseller_key),
+):
+    from database.models import get_reseller_deposit, public_reseller_deposit
+
+    deposit = await get_reseller_deposit(
+        int(reseller["user_telegram_id"]),
+        deposit_id,
+    )
+    if not deposit:
+        _raise_reseller_error(404, "DEPOSIT_NOT_FOUND", "Deposit not found")
+    stale = False
+    if refresh:
+        deposit, stale = await _refresh_reseller_deposit(deposit)
+    await _safe_enqueue_reseller_deposit_webhook(deposit)
+    return _reseller_success(deposit=public_reseller_deposit(deposit), stale=stale)
 
 
 @api.get("/api/reseller/wallet/transactions")
@@ -4509,6 +5066,8 @@ async def post_shutdown(application: Application) -> None:
         logger.warning("Final performance metric flush failed: %s", exc)
     from services.nowpayments import close_nowpayments_client
     await close_nowpayments_client()
+    from services.reseller_webhooks import close_reseller_webhook_client
+    await close_reseller_webhook_client()
     from services.supplier_registry import close_supplier_clients
     await close_supplier_clients()
     from services.sports_api import close_sports_client

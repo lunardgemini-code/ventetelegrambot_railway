@@ -160,6 +160,9 @@ Object.assign(LANG.ru, {overview_kicker:'Сегодня', overview_title:'Маг
 Object.assign(LANG.ar, {overview_kicker:'اليوم', overview_title:'نظرة عامة على المتجر', today_revenue:'إيرادات اليوم', today_orders:'مبيعات اليوم', priorities:'الأولويات', actions_title:'بحاجة إلى معالجة', activity:'النشاط', recent_orders:'أحدث الطلبات', view_all:'عرض الكل', pending_metric:'الطلبات المعلقة'});
 Object.assign(LANG.fr, {nav_supplier_bots:'API Bot Gestion', supplier_title:'API Bot Gestion', supplier_sync:'Synchroniser'});
 Object.assign(LANG.en, {nav_supplier_bots:'Bot API Management', supplier_title:'Bot API Management', supplier_sync:'Sync catalog'});
+Object.assign(LANG.fr, {reseller_security:'Securite API', reseller_ip_allowlist:'Adresses IP autorisees', reseller_ip_hint:'Une IP ou un reseau CIDR par ligne. Vide = toutes les IP.', reseller_webhook_enable:'Activer les webhooks de depot', reseller_webhook_rotate:'Generer un nouveau secret', reseller_secret_once:'Copiez ce secret maintenant :'});
+Object.assign(LANG.en, {reseller_security:'API security', reseller_ip_allowlist:'Allowed IP addresses', reseller_ip_hint:'One IP or CIDR network per line. Empty = all IPs.', reseller_webhook_enable:'Enable deposit webhooks', reseller_webhook_rotate:'Generate a new signing secret', reseller_secret_once:'Copy this secret now:'});
+['ar','zh','vi','ru'].forEach(lang => Object.assign(LANG[lang], {reseller_security:LANG.en.reseller_security, reseller_ip_allowlist:LANG.en.reseller_ip_allowlist, reseller_ip_hint:LANG.en.reseller_ip_hint, reseller_webhook_enable:LANG.en.reseller_webhook_enable, reseller_webhook_rotate:LANG.en.reseller_webhook_rotate, reseller_secret_once:LANG.en.reseller_secret_once}));
 Object.assign(LANG.ar, {nav_supplier_bots:'إدارة API للبوت', supplier_title:'إدارة API للبوت', supplier_sync:'مزامنة الكتالوج'});
 Object.assign(LANG.zh, {nav_supplier_bots:'机器人 API 管理', supplier_title:'机器人 API 管理', supplier_sync:'同步目录'});
 Object.assign(LANG.vi, {nav_supplier_bots:'Quản lý API Bot', supplier_title:'Quản lý API Bot', supplier_sync:'Đồng bộ danh mục'});
@@ -253,6 +256,9 @@ const DOM = {
     openTicketsContainer:$('open-tickets-container'),
     resellersTableBody:$('resellers-table-body'), resellerUserId:$('reseller-user-id'), resellerKeyName:$('reseller-key-name'),
     btnCreateResellerKey:$('btn-create-reseller-key'), resellerKeyOutput:$('reseller-key-output'), resellerNewKey:$('reseller-new-key'),
+    resellerSecurityModal:$('reseller-security-modal'), resellerSecurityForm:$('reseller-security-form'), resellerSecurityKeyId:$('reseller-security-key-id'),
+    resellerIpAllowlist:$('reseller-ip-allowlist'), resellerWebhookUrl:$('reseller-webhook-url'), resellerWebhookEnabled:$('reseller-webhook-enabled'),
+    resellerWebhookRotate:$('reseller-webhook-rotate'), resellerWebhookSecretOutput:$('reseller-webhook-secret-output'), resellerWebhookSecret:$('reseller-webhook-secret'),
     supplierSettingsForm:$('supplier-settings-form'), supplierEnabled:$('supplier-enabled'), supplierMarginType:$('supplier-margin-type'), supplierMarginValue:$('supplier-margin-value'),
     supplierProviderSwitcher:$('supplier-provider-switcher'), supplierProviderName:$('supplier-provider-name'), supplierRateGroup:$('supplier-rate-group'), supplierRateLabel:$('supplier-rate-label'), supplierUnitsPerUsd:$('supplier-units-per-usd'), supplierCredentialEnv:$('supplier-credential-env'),
     btnSupplierSync:$('btn-supplier-sync'), supplierConnection:$('supplier-connection'), supplierWalletBalance:$('supplier-wallet-balance'), supplierLastSync:$('supplier-last-sync'), supplierSelectedCount:$('supplier-selected-count'), supplierReviewCount:$('supplier-review-count'),
@@ -427,6 +433,7 @@ function setupEvents() {
     $$('[data-worker-adjust]').forEach(button => button.addEventListener('click', () => adjustWebhookWorkers(Number(button.dataset.workerAdjust || 0))));
     $$('[data-worker-reset]').forEach(button => button.addEventListener('click', () => setManualWebhookWorkers(Number(button.dataset.workerReset || 8))));
     if (DOM.btnCreateResellerKey) DOM.btnCreateResellerKey.addEventListener('click', createResellerKey);
+    if (DOM.resellerSecurityForm) DOM.resellerSecurityForm.addEventListener('submit', saveResellerSecurity);
     if (DOM.btnSupplierSync) DOM.btnSupplierSync.addEventListener('click', syncSupplierBot);
     if (DOM.supplierSettingsForm) DOM.supplierSettingsForm.addEventListener('submit', saveSupplierSettings);
     if (DOM.supplierProductSearch) DOM.supplierProductSearch.addEventListener('input', renderSupplierProducts);
@@ -538,7 +545,7 @@ function setupEvents() {
         showModal(DOM.promoModal);
     });
     $('btn-open-binance-modal').addEventListener('click', openBinanceModal);
-    $$('.btn-close-modal').forEach(b => b.addEventListener('click', () => { [DOM.prodModal,DOM.stockModal,DOM.promoModal,DOM.tiersModal,DOM.orderDetailModal,DOM.viewStockModal,DOM.editProdModal,DOM.revenueModal,DOM.binanceModal,DOM.gameMatchModal,DOM.supplierDescriptionModal,DOM.userPurchasesModal,$('banModal'),$('finance-withdraw-modal'),$('finance-adjust-modal'), $('exportModal')].forEach(m => { if (m) hideModal(m); }); }));
+    $$('.btn-close-modal').forEach(b => b.addEventListener('click', () => { [DOM.prodModal,DOM.stockModal,DOM.promoModal,DOM.tiersModal,DOM.orderDetailModal,DOM.viewStockModal,DOM.editProdModal,DOM.revenueModal,DOM.binanceModal,DOM.gameMatchModal,DOM.supplierDescriptionModal,DOM.userPurchasesModal,DOM.resellerSecurityModal,$('banModal'),$('finance-withdraw-modal'),$('finance-adjust-modal'), $('exportModal')].forEach(m => { if (m) hideModal(m); }); }));
 
     
     if (DOM.prodDeliveryType) {
@@ -2377,11 +2384,13 @@ async function loadResellers() {
     DOM.resellersTableBody.innerHTML = state.resellers.map(k => {
         const client = k.username ? `@${escapeHtml(k.username)}` : escapeHtml(k.first_name || k.user_telegram_id);
         const active = Number(k.is_active) === 1;
-        const status = active ? `<span class="status-badge completed">${t('active')}</span>` : `<span class="status-badge cancelled">${t('inactive')}</span>`;
+        const securityBadges = `${Array.isArray(k.ip_allowlist) && k.ip_allowlist.length ? '<span class="status-badge pending">IP</span>' : ''}${Number(k.webhook_enabled) === 1 ? '<span class="status-badge completed">Webhook</span>' : ''}`;
+        const status = `${active ? `<span class="status-badge completed">${t('active')}</span>` : `<span class="status-badge cancelled">${t('inactive')}</span>`}${securityBadges}`;
         const created = k.created_at ? parseUTCDate(k.created_at).toLocaleDateString() : '';
+        const securityAction = `<button class="btn-table-action" onclick="openResellerSecurity(${k.id})" title="${t('reseller_security')}"><i class="fa-solid fa-shield-halved"></i></button>`;
         const action = active
-            ? `<button class="btn-table-action delete" onclick="revokeResellerKey(${k.id})" title="${t('reseller_revoke')}"><i class="fa-solid fa-ban"></i></button>`
-            : '—';
+            ? `${securityAction}<button class="btn-table-action delete" onclick="revokeResellerKey(${k.id})" title="${t('reseller_revoke')}"><i class="fa-solid fa-ban"></i></button>`
+            : securityAction;
         return `<tr>
             <td><strong>#${k.id}</strong></td>
             <td>${client}<br><code>${k.user_telegram_id}</code></td>
@@ -2395,6 +2404,51 @@ async function loadResellers() {
             <td>${action}</td>
         </tr>`;
     }).join('');
+}
+
+window.openResellerSecurity = function(id) {
+    const reseller = (state.resellers || []).find(item => Number(item.id) === Number(id));
+    if (!reseller || !DOM.resellerSecurityModal) return;
+    DOM.resellerSecurityKeyId.value = String(reseller.id);
+    DOM.resellerIpAllowlist.value = Array.isArray(reseller.ip_allowlist) ? reseller.ip_allowlist.join('\n') : '';
+    DOM.resellerWebhookUrl.value = reseller.webhook_url || '';
+    DOM.resellerWebhookEnabled.checked = Number(reseller.webhook_enabled) === 1 || reseller.webhook_enabled === true;
+    DOM.resellerWebhookRotate.checked = false;
+    DOM.resellerWebhookSecret.textContent = '';
+    DOM.resellerWebhookSecretOutput.classList.add('hidden');
+    showModal(DOM.resellerSecurityModal);
+};
+
+async function saveResellerSecurity(event) {
+    event.preventDefault();
+    const keyId = Number(DOM.resellerSecurityKeyId.value || 0);
+    if (!keyId) return;
+    const ipAllowlist = DOM.resellerIpAllowlist.value
+        .split(/[\n,]+/)
+        .map(value => value.trim())
+        .filter(Boolean);
+    showLoading(true);
+    try {
+        const result = await apiCall(`/api/resellers/keys/${keyId}/security`, 'PATCH', {
+            ip_allowlist: ipAllowlist,
+            webhook_url: DOM.resellerWebhookUrl.value.trim(),
+            webhook_enabled: DOM.resellerWebhookEnabled.checked,
+            rotate_webhook_secret: DOM.resellerWebhookRotate.checked
+        });
+        const secret = result.security && result.security.webhook_signing_secret;
+        if (secret) {
+            DOM.resellerWebhookSecret.textContent = secret;
+            DOM.resellerWebhookSecretOutput.classList.remove('hidden');
+            DOM.resellerWebhookRotate.checked = false;
+        } else {
+            hideModal(DOM.resellerSecurityModal);
+        }
+        await loadResellers();
+    } catch (error) {
+        alert(error.message);
+    } finally {
+        showLoading(false);
+    }
 }
 
 async function createResellerKey() {

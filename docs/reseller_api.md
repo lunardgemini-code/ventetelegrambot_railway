@@ -2,7 +2,7 @@
 
 This API lets a partner bot resell VenteBot products using the reseller account wallet balance.
 
-API version: `1.1.0`. This documentation update is backward compatible with existing integrations.
+API version: `1.2.0`. This release is backward compatible with existing integrations. Existing catalog, quote, order, status, and wallet-history calls do not need to change.
 
 Interactive Swagger documentation:
 
@@ -34,6 +34,7 @@ If a reseller generates a new key from the bot, the previous active key is autom
 - The reseller wallet must have enough balance.
 - API purchases debit the reseller wallet.
 - To avoid duplicate purchases if your bot retries the same request, always send a stable `idempotency_key` and reuse it for every retry of that purchase.
+- Reusing an order or deposit `idempotency_key` with a different request body returns `409 IDEMPOTENCY_CONFLICT`.
 - For `stock` products, delivered accounts are returned in `order.items`.
 - For `supplier_api` products, send the order only when its status is `COMPLETED`. If the response is `PAID_PENDING_DELIVERY`, poll the order endpoint until delivery finishes instead of sending an empty message.
 - For `activation` products, send `activation_identifier` when creating the order, or later with the dedicated endpoint.
@@ -120,6 +121,10 @@ X-Catalog-Stale: false
 ```
 
 `X-Catalog-Stale: true` means a temporary database or supplier failure occurred and the API safely returned its last known catalog snapshot. Purchases still perform their own live balance and stock checks.
+
+### Low-cost API test product
+
+The authenticated reseller catalog also contains **VenteBot API Test Product** with `delivery_type: "api_test"` and `api_test: true`. It is virtual and is never displayed in the regular Telegram customer catalog. It costs `$0.01`, supports quantity `1`, returns synthetic delivery data, and is limited to five purchases per reseller account per hour. It uses the real reseller wallet so the entire debit, idempotency, response parsing, and delivery flow can be tested safely.
 
 ## Quote Before Buying
 
@@ -281,13 +286,135 @@ X-Reseller-Key: YOUR_KEY
 
 `limit` accepts values from `1` to `100`. The default is `50`.
 
+## Just-in-time BEP20 Wallet Funding
+
+The reseller can fund its VenteBot wallet automatically before creating an order. The current implementation supports `USDT` on `BEP20`. Direct crypto payment attached to each reseller order is not exposed; deposit only the missing wallet amount, wait for `CREDITED`, then create the normal idempotent order.
+
+Recommended flow:
+
+1. Receive and confirm your own customer's payment.
+2. Call `GET /api/reseller/me` and calculate the missing VenteBot wallet amount.
+3. Read the current network minimum from `GET /api/reseller/wallet/deposit-methods`.
+4. Create one deposit with a persistent `idempotency_key`.
+5. Send exactly the returned `pay_amount` to the returned `address` before `expires_at`.
+6. Poll the deposit every 10 to 15 seconds, or receive signed webhooks.
+7. Create the reseller order only after the deposit status becomes `CREDITED`.
+
+### Supported deposit methods
+
+```http
+GET /api/reseller/wallet/deposit-methods
+X-Reseller-Key: YOUR_KEY
+```
+
+The provider minimum can change, so read `minimum_deposit_usd` immediately before creating a deposit. A null minimum with an `error` means the provider minimum is temporarily unavailable.
+
+### Create a deposit
+
+```http
+POST /api/reseller/wallet/deposits
+X-Reseller-Key: YOUR_KEY
+Content-Type: application/json
+
+{
+  "amount_usd": 5.0,
+  "network": "BEP20",
+  "idempotency_key": "fund-checkout-555-001",
+  "reference": "checkout-555"
+}
+```
+
+Example response:
+
+```json
+{
+  "success": true,
+  "idempotent": false,
+  "deposit": {
+    "deposit_id": "dep_a1b2c3d4e5f6",
+    "status": "WAITING",
+    "wallet_credit_amount": 5.0,
+    "pay_amount": 5.012345,
+    "pay_currency": "USDTBSC",
+    "network": "BEP20",
+    "address": "0x...",
+    "memo": null,
+    "fees": {
+      "ventebot_fee_usd": 0.0,
+      "provider_quote_included": true
+    },
+    "expires_at": "2026-07-19T18:10:00Z"
+  }
+}
+```
+
+The wallet receives `wallet_credit_amount`. The blockchain transfer must use the exact provider `pay_amount`; never add or subtract a local fee buffer. Retrying the exact request with the same key returns the existing deposit and never creates a second provider invoice.
+
+### Read a deposit
+
+```http
+GET /api/reseller/wallet/deposits/dep_a1b2c3d4e5f6?refresh=true
+X-Reseller-Key: YOUR_KEY
+```
+
+Statuses are `CREATING`, `CREATION_UNKNOWN`, `WAITING`, `CONFIRMING`, `UNDERPAID`, `CREDITED`, `EXPIRED`, `FAILED`, `REFUNDED`, or `REVIEW_REQUIRED`. `stale: true` means VenteBot returned its last stored state because the payment provider could not be refreshed; retry later without creating another deposit.
+
+## IP Allowlisting and Signed Webhooks
+
+Read or update security settings with:
+
+```http
+GET /api/reseller/security
+X-Reseller-Key: YOUR_KEY
+```
+
+```http
+PUT /api/reseller/security
+X-Reseller-Key: YOUR_KEY
+Content-Type: application/json
+
+{
+  "ip_allowlist": ["203.0.113.10/32"],
+  "webhook_url": "https://store.example.com/webhooks/ventebot",
+  "webhook_enabled": true,
+  "rotate_webhook_secret": false
+}
+```
+
+Use IP restrictions only when the calling bot has a stable outbound IP. An empty list allows every IP. Webhook URLs must use HTTPS, port 443, and resolve only to public IP addresses.
+
+The signing secret is returned only when webhooks are enabled for the first time or when `rotate_webhook_secret` is true. Store it immediately. Deposit events are retried by a durable background queue and include:
+
+```http
+X-Vente-Event-Id: evt_...
+X-Vente-Event: deposit.credited
+X-Vente-Timestamp: 1784484000
+X-Vente-Signature: v1=...
+```
+
+Verify `HMAC-SHA256(secret, timestamp + "." + raw_request_body)`, reject timestamps older than five minutes, compare signatures in constant time, and deduplicate by `X-Vente-Event-Id`.
+
+```js
+import crypto from "node:crypto";
+
+function validVenteSignature(rawBody, timestamp, received, secret) {
+  const expected = "v1=" + crypto
+    .createHmac("sha256", secret)
+    .update(`${timestamp}.${rawBody}`)
+    .digest("hex");
+  return expected.length === received.length &&
+    crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(received));
+}
+```
+
 ## Common Error Codes
 
 - `401`: missing, invalid, or revoked key.
 - `400`: unavailable product, insufficient stock, invalid quantity, or an order in the wrong state.
 - `402`: insufficient wallet balance.
+- `403`: the caller IP is outside the configured allowlist.
 - `404`: order not found or outside the reseller account.
-- `409`: the order state changed while an activation identifier was being submitted; reload the order before deciding whether to retry.
+- `409`: an idempotency key was reused with a different request, or an order state changed during an update.
 - `422`: invalid request format, for example missing `product_id`, non-numeric `quantity`, or an activation identifier that is too short.
 - `429`: rate limit exceeded.
 - `500`: unexpected server error. Keep the same `idempotency_key` if you retry a purchase whose result is unknown.
