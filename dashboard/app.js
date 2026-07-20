@@ -184,6 +184,118 @@ Object.assign(LANG.zh, {nav_game:'游戏与比赛', tab_game:'游戏与比赛'})
 Object.assign(LANG.vi, {nav_game:'Trò chơi & Trận đấu', tab_game:'Trò chơi & Trận đấu'});
 Object.assign(LANG.ru, {nav_game:'Игра и матчи', tab_game:'Игра и матчи'});
 
+const AI_TRANSLATIONS = {
+fr: {
+    nav_ai_bot:"IA Bot", ai_context:"Recherche stricte parmi tous les catalogues fournisseurs",
+    ai_eyebrow:"Comparateur multi-fournisseur", ai_intro:"Classez tout le catalogue avec l'IA, puis comparez les offres par produit et durée.",
+    ai_sync_all:"Synchroniser tous les bots", ai_analyze:"Analyse IA", ai_bots_configured:"Bots configurés", ai_products_indexed:"Produits indexés", ai_last_analysis:"Dernière analyse", ai_state:"État", ai_never:"Jamais",
+    ai_status_ready:"Prêt", ai_status_completed:"Terminé", ai_status_failed:"Échec", ai_status_analysis_running:"Analyse IA en cours", ai_status_sync_running:"Synchronisation en cours", ai_status_waiting:"En attente", ai_status_unavailable:"Indisponible", ai_sync_waiting:"Synchronisation en attente",
+    ai_background_hint:"La tâche continue sur Railway même si vous fermez le dashboard.", ai_search_product:"Produit recherché", ai_search_example:"Ex. Grok 1 mois", ai_duration:"Durée", ai_auto:"Auto", ai_unit:"Unité", ai_month_one:"mois", ai_months:"Mois", ai_day_one:"jour", ai_days:"Jours", ai_years:"Années",
+    ai_min_warranty:"Garantie minimale", ai_any_f:"Indifférente", ai_any_m:"Indifférent", ai_warranty_known:"Garantie connue", ai_7_days:"7 jours", ai_30_days:"30 jours", ai_90_days:"90 jours", ai_delivery:"Livraison", ai_account_provided:"Compte fourni", ai_customer_activation:"Activation client", ai_access:"Accès", ai_private:"Privé", ai_shared:"Partagé",
+    ai_max_price:"Prix maximum ($)", ai_no_limit:"Aucune limite", ai_show_unfunded:"Afficher aussi les offres sans solde suffisant", ai_unfunded_hint:"Ces offres servent à comparer les prix, mais ne sont pas achetables pour le moment.", ai_search_best:"Rechercher la meilleure offre",
+    ai_compliant_results:"Résultats conformes", ai_search_prompt:"Synchronisez les bots, puis lancez une recherche.", ai_no_search:"Aucune recherche lancée.", ai_similar_products:"Produits similaires", ai_analysis_prompt:"Synchronisez les bots, puis lancez l'analyse IA.", ai_refresh_groups:"Actualiser les groupes", ai_no_analysis:"Aucune analyse lancée.",
+    ai_col_product:"Produit", ai_col_supplier:"Fournisseur", ai_col_price:"Prix", ai_col_warranty:"Garantie", ai_col_stock:"Stock", ai_col_reliability:"Fiabilité", ai_col_analysis:"Analyse", ai_col_action:"Action", ai_col_group:"Groupe", ai_col_characteristics:"Caractéristiques", ai_col_best_offer:"Meilleure offre", ai_col_alternatives:"Alternatives", ai_col_max_difference:"Écart maximal",
+    ai_operation_analysis:"Analyse IA", ai_operation_sync:"Synchronisation", ai_progress:"{operation} : {processed}/{total}{failures}", ai_failures:" · Échecs : {count}",
+    ai_analysis_done:"Analyse IA terminée. Les produits similaires sont regroupés.", ai_sync_done:"Catalogues synchronisés. Vous pouvez lancer l'analyse IA.", ai_analysis_failed:"L'analyse IA s'est terminée avec une erreur.", ai_sync_failed:"La synchronisation s'est terminée avec une erreur.", ai_sync_launched:"Synchronisation globale lancée.", ai_sync_already:"Une synchronisation est déjà en cours.", ai_sync_launch_error:"Impossible de lancer la synchronisation.", ai_analysis_launched:"Indexation IA complète lancée sur tout le catalogue.", ai_analysis_already:"Une analyse IA est déjà en cours.", ai_analysis_launch_error:"Impossible de lancer l'analyse IA.",
+    ai_no_groups:"Aucun groupe disponible. Synchronisez les bots, puis lancez l'analyse IA.", ai_no_products_analyzed:"Aucun produit analysé.", ai_group_summary:"Produits disponibles : {available} · Groupes : {groups} · Groupes multi-offres : {comparison}", ai_days_warranty:"Garantie : {days} jours", ai_no_warranty:"Sans garantie", ai_full_warranty:"Garantie complète", ai_mixed_warranties:"Garanties variées", ai_limited_warranty:"Garantie : {days} jours",
+    ai_delivery_unknown:"Livraison non précisée", ai_delivery_mixed:"Modes de livraison variés", ai_access_unknown:"Accès non précisé", ai_access_mixed:"Accès variés", ai_regions_mixed:"Régions variées", ai_supplier_balance:"Solde fournisseur : ${balance}", ai_stock_ratio:"achetable / disponible", ai_cheapest:"Moins cher", ai_open_supplier:"Ouvrir ce fournisseur", ai_comparable_offers:"Offres comparables : {count}", ai_classification_incomplete:"Classification incomplète", ai_show_all_offers:"Afficher toutes les offres", ai_hide_offers:"Masquer les offres", ai_groups_loading:"Chargement des groupes...", ai_groups_unavailable:"Groupes indisponibles.", ai_duration_unknown:"Durée non précisée",
+    ai_results_summary:"Offres conformes : {count} · Classement par coût et fiabilité.", ai_hidden_summary:"Offres conformes masquées faute de solde fournisseur : {count}.", ai_no_criteria:"Aucune offre ne respecte tous les critères. Vérifiez la durée, la garantie et les autres filtres.", ai_unfunded_exists:"Des offres existent. Activez « Afficher aussi les offres sans solde suffisant » pour les comparer.", ai_no_result:"Aucun résultat conforme.", ai_sync_unknown:"Synchronisation inconnue", ai_sync_recent:"Synchronisé récemment", ai_sync_hours:"Synchronisé il y a {hours} h", ai_connection_disabled:"connexion désactivée", ai_balance:"Solde : ${balance}", ai_warranty_days:"{days} jours", ai_searching:"Recherche en cours...", ai_search_unavailable:"Recherche indisponible.",
+    ai_reason_compliant:"Conforme aux filtres", ai_reason_reliability:"Fiabilité {percent} %", ai_reason_affordable:"Unités achetables : {count}", ai_reason_unfunded:"Solde fournisseur insuffisant",
+    ai_error_default:"Une erreur est survenue dans IA Bot.", ai_error_query_required:"Saisissez un produit à rechercher.", ai_error_duration:"La durée indiquée n'est pas valide.", ai_error_filter:"L'un des filtres de recherche n'est pas valide.", ai_error_no_suppliers:"Aucun bot fournisseur actif et configuré.", ai_error_analysis_running:"Une analyse IA est déjà en cours.", ai_error_sync_running:"Une synchronisation est déjà en cours.", ai_error_job_missing:"Cette tâche IA n'existe plus.", ai_error_sync_missing:"Cette tâche de synchronisation n'existe plus.", ai_error_server:"Le serveur IA Bot a rencontré une erreur temporaire."
+},
+en: {
+    nav_ai_bot:"AI Bot", ai_context:"Strict search across all supplier catalogs",
+    ai_eyebrow:"Multi-supplier comparison", ai_intro:"Classify the entire catalog with AI, then compare offers by product and duration.",
+    ai_sync_all:"Sync all bots", ai_analyze:"AI analysis", ai_bots_configured:"Configured bots", ai_products_indexed:"Indexed products", ai_last_analysis:"Last analysis", ai_state:"Status", ai_never:"Never",
+    ai_status_ready:"Ready", ai_status_completed:"Completed", ai_status_failed:"Failed", ai_status_analysis_running:"AI analysis in progress", ai_status_sync_running:"Synchronization in progress", ai_status_waiting:"Waiting", ai_status_unavailable:"Unavailable", ai_sync_waiting:"Waiting to synchronize",
+    ai_background_hint:"The task continues on Railway even if you close the dashboard.", ai_search_product:"Product search", ai_search_example:"E.g. Grok 1 month", ai_duration:"Duration", ai_auto:"Auto", ai_unit:"Unit", ai_month_one:"month", ai_months:"Months", ai_day_one:"day", ai_days:"Days", ai_years:"Years",
+    ai_min_warranty:"Minimum warranty", ai_any_f:"Any", ai_any_m:"Any", ai_warranty_known:"Known warranty", ai_7_days:"7 days", ai_30_days:"30 days", ai_90_days:"90 days", ai_delivery:"Delivery", ai_account_provided:"Account provided", ai_customer_activation:"Customer activation", ai_access:"Access", ai_private:"Private", ai_shared:"Shared",
+    ai_max_price:"Maximum price ($)", ai_no_limit:"No limit", ai_show_unfunded:"Also show offers with insufficient balance", ai_unfunded_hint:"These offers can be used for price comparison, but cannot be purchased right now.", ai_search_best:"Find the best offer",
+    ai_compliant_results:"Matching results", ai_search_prompt:"Sync the bots, then run a search.", ai_no_search:"No search has been run.", ai_similar_products:"Similar products", ai_analysis_prompt:"Sync the bots, then run the AI analysis.", ai_refresh_groups:"Refresh groups", ai_no_analysis:"No analysis has been run.",
+    ai_col_product:"Product", ai_col_supplier:"Supplier", ai_col_price:"Price", ai_col_warranty:"Warranty", ai_col_stock:"Stock", ai_col_reliability:"Reliability", ai_col_analysis:"Analysis", ai_col_action:"Action", ai_col_group:"Group", ai_col_characteristics:"Characteristics", ai_col_best_offer:"Best offer", ai_col_alternatives:"Alternatives", ai_col_max_difference:"Maximum difference",
+    ai_operation_analysis:"AI analysis", ai_operation_sync:"Synchronization", ai_progress:"{operation}: {processed}/{total}{failures}", ai_failures:" · Failures: {count}",
+    ai_analysis_done:"AI analysis completed. Similar products have been grouped.", ai_sync_done:"Catalogs synchronized. You can now run the AI analysis.", ai_analysis_failed:"The AI analysis ended with an error.", ai_sync_failed:"Synchronization ended with an error.", ai_sync_launched:"Full synchronization started.", ai_sync_already:"A synchronization is already in progress.", ai_sync_launch_error:"Unable to start synchronization.", ai_analysis_launched:"Full AI indexing started for the entire catalog.", ai_analysis_already:"An AI analysis is already in progress.", ai_analysis_launch_error:"Unable to start the AI analysis.",
+    ai_no_groups:"No groups available. Sync the bots, then run the AI analysis.", ai_no_products_analyzed:"No products analyzed.", ai_group_summary:"Available products: {available} · Groups: {groups} · Multi-offer groups: {comparison}", ai_days_warranty:"{days}-day warranty", ai_no_warranty:"No warranty", ai_full_warranty:"Full warranty", ai_mixed_warranties:"Various warranties", ai_limited_warranty:"{days}-day warranty",
+    ai_delivery_unknown:"Delivery not specified", ai_delivery_mixed:"Various delivery methods", ai_access_unknown:"Access not specified", ai_access_mixed:"Various access types", ai_regions_mixed:"Various regions", ai_supplier_balance:"Supplier balance: ${balance}", ai_stock_ratio:"purchasable / available", ai_cheapest:"Cheapest", ai_open_supplier:"Open this supplier", ai_comparable_offers:"Comparable offers: {count}", ai_classification_incomplete:"Incomplete classification", ai_show_all_offers:"Show all offers", ai_hide_offers:"Hide offers", ai_groups_loading:"Loading groups...", ai_groups_unavailable:"Groups unavailable.", ai_duration_unknown:"Duration not specified",
+    ai_results_summary:"Matching offers: {count} · Ranked by cost and reliability.", ai_hidden_summary:"Matching offers hidden due to insufficient supplier balance: {count}.", ai_no_criteria:"No offer matches every criterion. Check the duration, warranty, and other filters.", ai_unfunded_exists:"Offers are available. Enable “Also show offers with insufficient balance” to compare them.", ai_no_result:"No matching results.", ai_sync_unknown:"Synchronization unknown", ai_sync_recent:"Synchronized recently", ai_sync_hours:"Synchronized {hours}h ago", ai_connection_disabled:"connection disabled", ai_balance:"Balance: ${balance}", ai_warranty_days:"{days} days", ai_searching:"Searching...", ai_search_unavailable:"Search unavailable.",
+    ai_reason_compliant:"Matches filters", ai_reason_reliability:"Reliability {percent}%", ai_reason_affordable:"Purchasable units: {count}", ai_reason_unfunded:"Insufficient supplier balance",
+    ai_error_default:"An error occurred in AI Bot.", ai_error_query_required:"Enter a product to search for.", ai_error_duration:"The selected duration is invalid.", ai_error_filter:"One of the search filters is invalid.", ai_error_no_suppliers:"No active and configured supplier bot.", ai_error_analysis_running:"An AI analysis is already in progress.", ai_error_sync_running:"A synchronization is already in progress.", ai_error_job_missing:"This AI task no longer exists.", ai_error_sync_missing:"This synchronization task no longer exists.", ai_error_server:"The AI Bot server encountered a temporary error."
+},
+ar: {
+    nav_ai_bot:"بوت الذكاء الاصطناعي", ai_context:"بحث دقيق في جميع كتالوجات الموردين",
+    ai_eyebrow:"مقارنة بين عدة موردين", ai_intro:"صنّف الكتالوج بالكامل بالذكاء الاصطناعي، ثم قارن العروض حسب المنتج والمدة.",
+    ai_sync_all:"مزامنة جميع البوتات", ai_analyze:"تحليل بالذكاء الاصطناعي", ai_bots_configured:"البوتات المهيأة", ai_products_indexed:"المنتجات المفهرسة", ai_last_analysis:"آخر تحليل", ai_state:"الحالة", ai_never:"أبدًا",
+    ai_status_ready:"جاهز", ai_status_completed:"مكتمل", ai_status_failed:"فشل", ai_status_analysis_running:"التحليل جارٍ", ai_status_sync_running:"المزامنة جارية", ai_status_waiting:"قيد الانتظار", ai_status_unavailable:"غير متاح", ai_sync_waiting:"بانتظار المزامنة",
+    ai_background_hint:"تستمر المهمة على Railway حتى إذا أغلقت لوحة التحكم.", ai_search_product:"البحث عن منتج", ai_search_example:"مثال: Grok لمدة شهر", ai_duration:"المدة", ai_auto:"تلقائي", ai_unit:"الوحدة", ai_month_one:"شهر", ai_months:"أشهر", ai_day_one:"يوم", ai_days:"أيام", ai_years:"سنوات",
+    ai_min_warranty:"الحد الأدنى للضمان", ai_any_f:"الكل", ai_any_m:"الكل", ai_warranty_known:"ضمان معروف", ai_7_days:"7 أيام", ai_30_days:"30 يومًا", ai_90_days:"90 يومًا", ai_delivery:"التسليم", ai_account_provided:"حساب جاهز", ai_customer_activation:"تفعيل حساب العميل", ai_access:"نوع الوصول", ai_private:"خاص", ai_shared:"مشترك",
+    ai_max_price:"السعر الأقصى ($)", ai_no_limit:"بدون حد", ai_show_unfunded:"إظهار العروض ذات الرصيد غير الكافي أيضًا", ai_unfunded_hint:"يمكن استخدام هذه العروض لمقارنة الأسعار، لكنها غير قابلة للشراء الآن.", ai_search_best:"البحث عن أفضل عرض",
+    ai_compliant_results:"النتائج المطابقة", ai_search_prompt:"زامن البوتات ثم ابدأ البحث.", ai_no_search:"لم يتم إجراء بحث.", ai_similar_products:"المنتجات المتشابهة", ai_analysis_prompt:"زامن البوتات ثم شغّل التحليل.", ai_refresh_groups:"تحديث المجموعات", ai_no_analysis:"لم يتم إجراء تحليل.",
+    ai_col_product:"المنتج", ai_col_supplier:"المورد", ai_col_price:"السعر", ai_col_warranty:"الضمان", ai_col_stock:"المخزون", ai_col_reliability:"الموثوقية", ai_col_analysis:"التحليل", ai_col_action:"الإجراء", ai_col_group:"المجموعة", ai_col_characteristics:"الخصائص", ai_col_best_offer:"أفضل عرض", ai_col_alternatives:"البدائل", ai_col_max_difference:"أقصى فرق",
+    ai_operation_analysis:"تحليل الذكاء الاصطناعي", ai_operation_sync:"المزامنة", ai_progress:"{operation}: {processed}/{total}{failures}", ai_failures:" · حالات الفشل: {count}",
+    ai_analysis_done:"اكتمل التحليل وتم تجميع المنتجات المتشابهة.", ai_sync_done:"تمت مزامنة الكتالوجات. يمكنك الآن تشغيل التحليل.", ai_analysis_failed:"انتهى التحليل بخطأ.", ai_sync_failed:"انتهت المزامنة بخطأ.", ai_sync_launched:"بدأت المزامنة الكاملة.", ai_sync_already:"توجد مزامنة جارية بالفعل.", ai_sync_launch_error:"تعذر بدء المزامنة.", ai_analysis_launched:"بدأت الفهرسة الكاملة للكتالوج بالذكاء الاصطناعي.", ai_analysis_already:"يوجد تحليل جارٍ بالفعل.", ai_analysis_launch_error:"تعذر بدء التحليل.",
+    ai_no_groups:"لا توجد مجموعات. زامن البوتات ثم شغّل التحليل.", ai_no_products_analyzed:"لم يتم تحليل أي منتج.", ai_group_summary:"المنتجات المتاحة: {available} · المجموعات: {groups} · مجموعات متعددة العروض: {comparison}", ai_days_warranty:"ضمان {days} يومًا", ai_no_warranty:"بدون ضمان", ai_full_warranty:"ضمان كامل", ai_mixed_warranties:"ضمانات متنوعة", ai_limited_warranty:"ضمان {days} يومًا",
+    ai_delivery_unknown:"طريقة التسليم غير محددة", ai_delivery_mixed:"طرق تسليم متنوعة", ai_access_unknown:"نوع الوصول غير محدد", ai_access_mixed:"أنواع وصول متنوعة", ai_regions_mixed:"مناطق متنوعة", ai_supplier_balance:"رصيد المورد: ${balance}", ai_stock_ratio:"قابل للشراء / متاح", ai_cheapest:"الأرخص", ai_open_supplier:"فتح هذا المورد", ai_comparable_offers:"العروض القابلة للمقارنة: {count}", ai_classification_incomplete:"تصنيف غير مكتمل", ai_show_all_offers:"إظهار جميع العروض", ai_hide_offers:"إخفاء العروض", ai_groups_loading:"جارٍ تحميل المجموعات...", ai_groups_unavailable:"المجموعات غير متاحة.", ai_duration_unknown:"المدة غير محددة",
+    ai_results_summary:"العروض المطابقة: {count} · مرتبة حسب التكلفة والموثوقية.", ai_hidden_summary:"عروض مطابقة مخفية بسبب عدم كفاية رصيد المورد: {count}.", ai_no_criteria:"لا يوجد عرض يطابق جميع المعايير. تحقق من المدة والضمان وبقية الفلاتر.", ai_unfunded_exists:"توجد عروض. فعّل خيار إظهار العروض ذات الرصيد غير الكافي لمقارنتها.", ai_no_result:"لا توجد نتائج مطابقة.", ai_sync_unknown:"حالة المزامنة غير معروفة", ai_sync_recent:"تمت المزامنة مؤخرًا", ai_sync_hours:"تمت المزامنة قبل {hours} ساعة", ai_connection_disabled:"الاتصال معطل", ai_balance:"الرصيد: ${balance}", ai_warranty_days:"{days} يومًا", ai_searching:"جارٍ البحث...", ai_search_unavailable:"البحث غير متاح.",
+    ai_reason_compliant:"مطابق للفلاتر", ai_reason_reliability:"الموثوقية {percent}%", ai_reason_affordable:"الوحدات القابلة للشراء: {count}", ai_reason_unfunded:"رصيد المورد غير كافٍ",
+    ai_error_default:"حدث خطأ في بوت الذكاء الاصطناعي.", ai_error_query_required:"أدخل منتجًا للبحث عنه.", ai_error_duration:"المدة المحددة غير صالحة.", ai_error_filter:"أحد فلاتر البحث غير صالح.", ai_error_no_suppliers:"لا يوجد بوت مورد نشط ومهيأ.", ai_error_analysis_running:"يوجد تحليل جارٍ بالفعل.", ai_error_sync_running:"توجد مزامنة جارية بالفعل.", ai_error_job_missing:"مهمة التحليل هذه لم تعد موجودة.", ai_error_sync_missing:"مهمة المزامنة هذه لم تعد موجودة.", ai_error_server:"واجه خادم بوت الذكاء الاصطناعي خطأً مؤقتًا."
+},
+zh: {
+    nav_ai_bot:"AI 智能选品", ai_context:"严格搜索所有供应商目录",
+    ai_eyebrow:"多供应商比较", ai_intro:"使用 AI 对整个目录分类，然后按产品和时长比较报价。",
+    ai_sync_all:"同步所有机器人", ai_analyze:"AI 分析", ai_bots_configured:"已配置机器人", ai_products_indexed:"已索引产品", ai_last_analysis:"上次分析", ai_state:"状态", ai_never:"从未",
+    ai_status_ready:"就绪", ai_status_completed:"已完成", ai_status_failed:"失败", ai_status_analysis_running:"AI 分析中", ai_status_sync_running:"同步中", ai_status_waiting:"等待中", ai_status_unavailable:"不可用", ai_sync_waiting:"等待同步",
+    ai_background_hint:"即使关闭控制台，任务也会继续在 Railway 上运行。", ai_search_product:"搜索产品", ai_search_example:"例如：Grok 1 个月", ai_duration:"时长", ai_auto:"自动", ai_unit:"单位", ai_month_one:"个月", ai_months:"月", ai_day_one:"天", ai_days:"天", ai_years:"年",
+    ai_min_warranty:"最低保修", ai_any_f:"不限", ai_any_m:"不限", ai_warranty_known:"已知保修", ai_7_days:"7 天", ai_30_days:"30 天", ai_90_days:"90 天", ai_delivery:"交付方式", ai_account_provided:"提供账号", ai_customer_activation:"客户账号激活", ai_access:"访问类型", ai_private:"独享", ai_shared:"共享",
+    ai_max_price:"最高价格 ($)", ai_no_limit:"不限", ai_show_unfunded:"同时显示余额不足的报价", ai_unfunded_hint:"这些报价可用于价格比较，但目前无法购买。", ai_search_best:"查找最佳报价",
+    ai_compliant_results:"匹配结果", ai_search_prompt:"先同步机器人，然后开始搜索。", ai_no_search:"尚未进行搜索。", ai_similar_products:"相似产品", ai_analysis_prompt:"先同步机器人，然后运行 AI 分析。", ai_refresh_groups:"刷新分组", ai_no_analysis:"尚未进行分析。",
+    ai_col_product:"产品", ai_col_supplier:"供应商", ai_col_price:"价格", ai_col_warranty:"保修", ai_col_stock:"库存", ai_col_reliability:"可靠性", ai_col_analysis:"分析", ai_col_action:"操作", ai_col_group:"分组", ai_col_characteristics:"特征", ai_col_best_offer:"最佳报价", ai_col_alternatives:"其他报价", ai_col_max_difference:"最大价差",
+    ai_operation_analysis:"AI 分析", ai_operation_sync:"同步", ai_progress:"{operation}：{processed}/{total}{failures}", ai_failures:" · 失败：{count}",
+    ai_analysis_done:"AI 分析已完成，相似产品已分组。", ai_sync_done:"目录已同步，现在可以运行 AI 分析。", ai_analysis_failed:"AI 分析因错误而结束。", ai_sync_failed:"同步因错误而结束。", ai_sync_launched:"已开始完整同步。", ai_sync_already:"已有同步任务正在运行。", ai_sync_launch_error:"无法开始同步。", ai_analysis_launched:"已开始对整个目录进行完整 AI 索引。", ai_analysis_already:"已有 AI 分析正在运行。", ai_analysis_launch_error:"无法开始 AI 分析。",
+    ai_no_groups:"暂无分组。请先同步机器人，然后运行 AI 分析。", ai_no_products_analyzed:"尚未分析产品。", ai_group_summary:"可用产品：{available} · 分组：{groups} · 多报价分组：{comparison}", ai_days_warranty:"保修 {days} 天", ai_no_warranty:"无保修", ai_full_warranty:"全程保修", ai_mixed_warranties:"多种保修", ai_limited_warranty:"保修 {days} 天",
+    ai_delivery_unknown:"未注明交付方式", ai_delivery_mixed:"多种交付方式", ai_access_unknown:"未注明访问类型", ai_access_mixed:"多种访问类型", ai_regions_mixed:"多个地区", ai_supplier_balance:"供应商余额：${balance}", ai_stock_ratio:"可购买 / 可用", ai_cheapest:"最低价", ai_open_supplier:"打开此供应商", ai_comparable_offers:"可比较报价：{count}", ai_classification_incomplete:"分类不完整", ai_show_all_offers:"显示所有报价", ai_hide_offers:"隐藏报价", ai_groups_loading:"正在加载分组...", ai_groups_unavailable:"分组不可用。", ai_duration_unknown:"未注明时长",
+    ai_results_summary:"匹配报价：{count} · 按成本和可靠性排序。", ai_hidden_summary:"因供应商余额不足而隐藏的匹配报价：{count}。", ai_no_criteria:"没有报价符合全部条件。请检查时长、保修和其他筛选条件。", ai_unfunded_exists:"存在可比较的报价。启用“同时显示余额不足的报价”即可查看。", ai_no_result:"没有匹配结果。", ai_sync_unknown:"同步状态未知", ai_sync_recent:"最近已同步", ai_sync_hours:"{hours} 小时前同步", ai_connection_disabled:"连接已禁用", ai_balance:"余额：${balance}", ai_warranty_days:"{days} 天", ai_searching:"搜索中...", ai_search_unavailable:"搜索不可用。",
+    ai_reason_compliant:"符合筛选条件", ai_reason_reliability:"可靠性 {percent}%", ai_reason_affordable:"可购买数量：{count}", ai_reason_unfunded:"供应商余额不足",
+    ai_error_default:"AI 智能选品发生错误。", ai_error_query_required:"请输入要搜索的产品。", ai_error_duration:"所选时长无效。", ai_error_filter:"某个搜索筛选条件无效。", ai_error_no_suppliers:"没有已启用并配置的供应商机器人。", ai_error_analysis_running:"已有 AI 分析正在运行。", ai_error_sync_running:"已有同步任务正在运行。", ai_error_job_missing:"此 AI 任务已不存在。", ai_error_sync_missing:"此同步任务已不存在。", ai_error_server:"AI 智能选品服务器遇到临时错误。"
+},
+vi: {
+    nav_ai_bot:"AI Bot", ai_context:"Tìm kiếm chính xác trong toàn bộ danh mục nhà cung cấp",
+    ai_eyebrow:"So sánh nhiều nhà cung cấp", ai_intro:"Phân loại toàn bộ danh mục bằng AI, sau đó so sánh ưu đãi theo sản phẩm và thời hạn.",
+    ai_sync_all:"Đồng bộ tất cả bot", ai_analyze:"Phân tích AI", ai_bots_configured:"Bot đã cấu hình", ai_products_indexed:"Sản phẩm đã lập chỉ mục", ai_last_analysis:"Lần phân tích gần nhất", ai_state:"Trạng thái", ai_never:"Chưa bao giờ",
+    ai_status_ready:"Sẵn sàng", ai_status_completed:"Hoàn tất", ai_status_failed:"Thất bại", ai_status_analysis_running:"Đang phân tích AI", ai_status_sync_running:"Đang đồng bộ", ai_status_waiting:"Đang chờ", ai_status_unavailable:"Không khả dụng", ai_sync_waiting:"Đang chờ đồng bộ",
+    ai_background_hint:"Tác vụ vẫn tiếp tục trên Railway ngay cả khi bạn đóng dashboard.", ai_search_product:"Tìm sản phẩm", ai_search_example:"Ví dụ: Grok 1 tháng", ai_duration:"Thời hạn", ai_auto:"Tự động", ai_unit:"Đơn vị", ai_month_one:"tháng", ai_months:"Tháng", ai_day_one:"ngày", ai_days:"Ngày", ai_years:"Năm",
+    ai_min_warranty:"Bảo hành tối thiểu", ai_any_f:"Bất kỳ", ai_any_m:"Bất kỳ", ai_warranty_known:"Có thông tin bảo hành", ai_7_days:"7 ngày", ai_30_days:"30 ngày", ai_90_days:"90 ngày", ai_delivery:"Hình thức giao", ai_account_provided:"Cung cấp tài khoản", ai_customer_activation:"Kích hoạt tài khoản khách", ai_access:"Quyền truy cập", ai_private:"Riêng tư", ai_shared:"Dùng chung",
+    ai_max_price:"Giá tối đa ($)", ai_no_limit:"Không giới hạn", ai_show_unfunded:"Hiển thị cả ưu đãi không đủ số dư", ai_unfunded_hint:"Các ưu đãi này dùng để so sánh giá nhưng hiện chưa thể mua.", ai_search_best:"Tìm ưu đãi tốt nhất",
+    ai_compliant_results:"Kết quả phù hợp", ai_search_prompt:"Đồng bộ các bot rồi bắt đầu tìm kiếm.", ai_no_search:"Chưa thực hiện tìm kiếm.", ai_similar_products:"Sản phẩm tương tự", ai_analysis_prompt:"Đồng bộ các bot rồi chạy phân tích AI.", ai_refresh_groups:"Làm mới nhóm", ai_no_analysis:"Chưa thực hiện phân tích.",
+    ai_col_product:"Sản phẩm", ai_col_supplier:"Nhà cung cấp", ai_col_price:"Giá", ai_col_warranty:"Bảo hành", ai_col_stock:"Kho", ai_col_reliability:"Độ tin cậy", ai_col_analysis:"Phân tích", ai_col_action:"Thao tác", ai_col_group:"Nhóm", ai_col_characteristics:"Đặc điểm", ai_col_best_offer:"Ưu đãi tốt nhất", ai_col_alternatives:"Lựa chọn khác", ai_col_max_difference:"Chênh lệch tối đa",
+    ai_operation_analysis:"Phân tích AI", ai_operation_sync:"Đồng bộ", ai_progress:"{operation}: {processed}/{total}{failures}", ai_failures:" · Thất bại: {count}",
+    ai_analysis_done:"Phân tích AI hoàn tất. Các sản phẩm tương tự đã được gom nhóm.", ai_sync_done:"Danh mục đã đồng bộ. Bạn có thể chạy phân tích AI.", ai_analysis_failed:"Phân tích AI kết thúc với lỗi.", ai_sync_failed:"Đồng bộ kết thúc với lỗi.", ai_sync_launched:"Đã bắt đầu đồng bộ toàn bộ.", ai_sync_already:"Một phiên đồng bộ đang chạy.", ai_sync_launch_error:"Không thể bắt đầu đồng bộ.", ai_analysis_launched:"Đã bắt đầu lập chỉ mục AI cho toàn bộ danh mục.", ai_analysis_already:"Một phiên phân tích AI đang chạy.", ai_analysis_launch_error:"Không thể bắt đầu phân tích AI.",
+    ai_no_groups:"Chưa có nhóm. Hãy đồng bộ các bot rồi chạy phân tích AI.", ai_no_products_analyzed:"Chưa có sản phẩm được phân tích.", ai_group_summary:"Sản phẩm khả dụng: {available} · Nhóm: {groups} · Nhóm nhiều ưu đãi: {comparison}", ai_days_warranty:"Bảo hành {days} ngày", ai_no_warranty:"Không bảo hành", ai_full_warranty:"Bảo hành toàn thời hạn", ai_mixed_warranties:"Nhiều loại bảo hành", ai_limited_warranty:"Bảo hành {days} ngày",
+    ai_delivery_unknown:"Chưa nêu hình thức giao", ai_delivery_mixed:"Nhiều hình thức giao", ai_access_unknown:"Chưa nêu quyền truy cập", ai_access_mixed:"Nhiều loại quyền truy cập", ai_regions_mixed:"Nhiều khu vực", ai_supplier_balance:"Số dư nhà cung cấp: ${balance}", ai_stock_ratio:"có thể mua / khả dụng", ai_cheapest:"Rẻ nhất", ai_open_supplier:"Mở nhà cung cấp này", ai_comparable_offers:"Ưu đãi có thể so sánh: {count}", ai_classification_incomplete:"Phân loại chưa đầy đủ", ai_show_all_offers:"Hiển thị tất cả ưu đãi", ai_hide_offers:"Ẩn ưu đãi", ai_groups_loading:"Đang tải nhóm...", ai_groups_unavailable:"Nhóm không khả dụng.", ai_duration_unknown:"Chưa nêu thời hạn",
+    ai_results_summary:"Ưu đãi phù hợp: {count} · Xếp hạng theo chi phí và độ tin cậy.", ai_hidden_summary:"Ưu đãi phù hợp bị ẩn do nhà cung cấp không đủ số dư: {count}.", ai_no_criteria:"Không có ưu đãi nào đáp ứng mọi tiêu chí. Hãy kiểm tra thời hạn, bảo hành và các bộ lọc khác.", ai_unfunded_exists:"Có ưu đãi để so sánh. Bật “Hiển thị cả ưu đãi không đủ số dư” để xem.", ai_no_result:"Không có kết quả phù hợp.", ai_sync_unknown:"Không rõ trạng thái đồng bộ", ai_sync_recent:"Đã đồng bộ gần đây", ai_sync_hours:"Đã đồng bộ {hours} giờ trước", ai_connection_disabled:"kết nối đã tắt", ai_balance:"Số dư: ${balance}", ai_warranty_days:"{days} ngày", ai_searching:"Đang tìm kiếm...", ai_search_unavailable:"Tìm kiếm không khả dụng.",
+    ai_reason_compliant:"Phù hợp bộ lọc", ai_reason_reliability:"Độ tin cậy {percent}%", ai_reason_affordable:"Số lượng có thể mua: {count}", ai_reason_unfunded:"Số dư nhà cung cấp không đủ",
+    ai_error_default:"Đã xảy ra lỗi trong AI Bot.", ai_error_query_required:"Nhập sản phẩm cần tìm.", ai_error_duration:"Thời hạn đã chọn không hợp lệ.", ai_error_filter:"Một bộ lọc tìm kiếm không hợp lệ.", ai_error_no_suppliers:"Không có bot nhà cung cấp nào đang hoạt động và được cấu hình.", ai_error_analysis_running:"Một phiên phân tích AI đang chạy.", ai_error_sync_running:"Một phiên đồng bộ đang chạy.", ai_error_job_missing:"Tác vụ AI này không còn tồn tại.", ai_error_sync_missing:"Tác vụ đồng bộ này không còn tồn tại.", ai_error_server:"Máy chủ AI Bot gặp lỗi tạm thời."
+},
+ru: {
+    nav_ai_bot:"ИИ-бот", ai_context:"Точный поиск по всем каталогам поставщиков",
+    ai_eyebrow:"Сравнение поставщиков", ai_intro:"Классифицируйте весь каталог с помощью ИИ и сравнивайте предложения по продукту и сроку.",
+    ai_sync_all:"Синхронизировать всех ботов", ai_analyze:"Анализ ИИ", ai_bots_configured:"Настроенные боты", ai_products_indexed:"Проиндексированные товары", ai_last_analysis:"Последний анализ", ai_state:"Состояние", ai_never:"Никогда",
+    ai_status_ready:"Готово", ai_status_completed:"Завершено", ai_status_failed:"Ошибка", ai_status_analysis_running:"Выполняется анализ ИИ", ai_status_sync_running:"Выполняется синхронизация", ai_status_waiting:"Ожидание", ai_status_unavailable:"Недоступно", ai_sync_waiting:"Ожидание синхронизации",
+    ai_background_hint:"Задача продолжит выполняться на Railway, даже если закрыть панель.", ai_search_product:"Поиск товара", ai_search_example:"Например: Grok на 1 месяц", ai_duration:"Срок", ai_auto:"Авто", ai_unit:"Единица", ai_month_one:"месяц", ai_months:"Месяцы", ai_day_one:"день", ai_days:"Дни", ai_years:"Годы",
+    ai_min_warranty:"Минимальная гарантия", ai_any_f:"Любая", ai_any_m:"Любой", ai_warranty_known:"Известная гарантия", ai_7_days:"7 дней", ai_30_days:"30 дней", ai_90_days:"90 дней", ai_delivery:"Доставка", ai_account_provided:"Готовый аккаунт", ai_customer_activation:"Активация аккаунта клиента", ai_access:"Доступ", ai_private:"Личный", ai_shared:"Общий",
+    ai_max_price:"Максимальная цена ($)", ai_no_limit:"Без ограничений", ai_show_unfunded:"Показывать предложения с недостаточным балансом", ai_unfunded_hint:"Эти предложения можно сравнивать по цене, но сейчас их нельзя купить.", ai_search_best:"Найти лучшее предложение",
+    ai_compliant_results:"Подходящие результаты", ai_search_prompt:"Синхронизируйте ботов и выполните поиск.", ai_no_search:"Поиск ещё не выполнялся.", ai_similar_products:"Похожие товары", ai_analysis_prompt:"Синхронизируйте ботов и запустите анализ ИИ.", ai_refresh_groups:"Обновить группы", ai_no_analysis:"Анализ ещё не выполнялся.",
+    ai_col_product:"Товар", ai_col_supplier:"Поставщик", ai_col_price:"Цена", ai_col_warranty:"Гарантия", ai_col_stock:"Наличие", ai_col_reliability:"Надёжность", ai_col_analysis:"Анализ", ai_col_action:"Действие", ai_col_group:"Группа", ai_col_characteristics:"Характеристики", ai_col_best_offer:"Лучшее предложение", ai_col_alternatives:"Альтернативы", ai_col_max_difference:"Максимальная разница",
+    ai_operation_analysis:"Анализ ИИ", ai_operation_sync:"Синхронизация", ai_progress:"{operation}: {processed}/{total}{failures}", ai_failures:" · Ошибки: {count}",
+    ai_analysis_done:"Анализ ИИ завершён. Похожие товары сгруппированы.", ai_sync_done:"Каталоги синхронизированы. Теперь можно запустить анализ ИИ.", ai_analysis_failed:"Анализ ИИ завершился с ошибкой.", ai_sync_failed:"Синхронизация завершилась с ошибкой.", ai_sync_launched:"Полная синхронизация запущена.", ai_sync_already:"Синхронизация уже выполняется.", ai_sync_launch_error:"Не удалось запустить синхронизацию.", ai_analysis_launched:"Запущена полная ИИ-индексация всего каталога.", ai_analysis_already:"Анализ ИИ уже выполняется.", ai_analysis_launch_error:"Не удалось запустить анализ ИИ.",
+    ai_no_groups:"Групп пока нет. Синхронизируйте ботов и запустите анализ ИИ.", ai_no_products_analyzed:"Нет проанализированных товаров.", ai_group_summary:"Доступные товары: {available} · Группы: {groups} · Группы с несколькими предложениями: {comparison}", ai_days_warranty:"Гарантия: {days} дн.", ai_no_warranty:"Без гарантии", ai_full_warranty:"Полная гарантия", ai_mixed_warranties:"Разные гарантии", ai_limited_warranty:"Гарантия: {days} дн.",
+    ai_delivery_unknown:"Способ доставки не указан", ai_delivery_mixed:"Разные способы доставки", ai_access_unknown:"Тип доступа не указан", ai_access_mixed:"Разные типы доступа", ai_regions_mixed:"Разные регионы", ai_supplier_balance:"Баланс поставщика: ${balance}", ai_stock_ratio:"можно купить / доступно", ai_cheapest:"Самое дешёвое", ai_open_supplier:"Открыть поставщика", ai_comparable_offers:"Сравнимые предложения: {count}", ai_classification_incomplete:"Неполная классификация", ai_show_all_offers:"Показать все предложения", ai_hide_offers:"Скрыть предложения", ai_groups_loading:"Загрузка групп...", ai_groups_unavailable:"Группы недоступны.", ai_duration_unknown:"Срок не указан",
+    ai_results_summary:"Подходящие предложения: {count} · Сортировка по цене и надёжности.", ai_hidden_summary:"Подходящие предложения скрыты из-за недостаточного баланса поставщика: {count}.", ai_no_criteria:"Нет предложения, соответствующего всем условиям. Проверьте срок, гарантию и другие фильтры.", ai_unfunded_exists:"Предложения существуют. Включите показ предложений с недостаточным балансом для сравнения.", ai_no_result:"Нет подходящих результатов.", ai_sync_unknown:"Статус синхронизации неизвестен", ai_sync_recent:"Недавно синхронизировано", ai_sync_hours:"Синхронизировано {hours} ч. назад", ai_connection_disabled:"подключение отключено", ai_balance:"Баланс: ${balance}", ai_warranty_days:"{days} дн.", ai_searching:"Поиск...", ai_search_unavailable:"Поиск недоступен.",
+    ai_reason_compliant:"Соответствует фильтрам", ai_reason_reliability:"Надёжность {percent}%", ai_reason_affordable:"Можно купить: {count}", ai_reason_unfunded:"Недостаточный баланс поставщика",
+    ai_error_default:"Произошла ошибка в ИИ-боте.", ai_error_query_required:"Введите товар для поиска.", ai_error_duration:"Выбран неверный срок.", ai_error_filter:"Один из фильтров поиска недействителен.", ai_error_no_suppliers:"Нет активных и настроенных ботов-поставщиков.", ai_error_analysis_running:"Анализ ИИ уже выполняется.", ai_error_sync_running:"Синхронизация уже выполняется.", ai_error_job_missing:"Эта задача ИИ больше не существует.", ai_error_sync_missing:"Эта задача синхронизации больше не существует.", ai_error_server:"Сервер ИИ-бота столкнулся с временной ошибкой."
+}
+};
+Object.entries(AI_TRANSLATIONS).forEach(([language, strings]) => Object.assign(LANG[language], strings));
+
 const state = {
     botUrl:'', apiKey:'', currentLang:'fr', currentTab:'dashboard-tab',
     categories:[], products:[], orders:[], activations:[], resellers:[], users:[], promos:[], tickets:[], walletHistory:[], binanceAccounts:[],
@@ -197,7 +309,7 @@ const state = {
     paymentReviewCategory:'all', paymentReviewIncludeResolved:false, paymentReviewItems:[],
     dynamicPriceChart:null, dynamicSimulationChart:null,
     productStats:[], productMomentum:null, productMomentumSelected:[], deadProductAlerts:[], supplierBot:null, supplierBots:[], activeSupplierCode:'canboso', supplierView:'catalog', supplierStats:null, supplierStatsDays:30, supplierStatsChart:null, supplierRoutes:[],
-    aiSupplierStatus:null, aiSupplierResults:[], aiSupplierGroups:[], aiSupplierJobId:null, aiSupplierSyncTimer:null,
+    aiSupplierStatus:null, aiSupplierResults:[], aiSupplierGroups:[], aiSupplierResultData:null, aiSupplierGroupData:null, aiSupplierJobId:null, aiSupplierSyncTimer:null,
     gameProvider:null, gameCatalog:[], gameMatches:[], gameCompetitions:[], gameView:'catalog', currentGameMatch:null,
     autoscaleChart:null, autoscaleStatus:null
 };
@@ -319,6 +431,17 @@ const DOM = {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 function t(key) { return LANG[state.currentLang]?.[key] || LANG.fr[key] || key; }
 
+function tf(key, values={}) {
+    return Object.entries(values).reduce(
+        (message, [name, value]) => message.replaceAll(`{${name}}`, String(value)),
+        t(key),
+    );
+}
+
+function currentLocale() {
+    return {fr:'fr-FR', en:'en-GB', ar:'ar', zh:'zh-CN', vi:'vi-VN', ru:'ru-RU'}[state.currentLang] || 'fr-FR';
+}
+
 function parseUTCDate(str) {
     if (!str) return new Date();
     let isoStr = str;
@@ -331,6 +454,7 @@ function parseUTCDate(str) {
 function applyTranslations() {
     $$('[data-i18n]').forEach(el => { const k = el.getAttribute('data-i18n'); const v = t(k); if (v) el.textContent = v; });
     $$('[data-i18n-placeholder]').forEach(el => { const k = el.getAttribute('data-i18n-placeholder'); const v = t(k); if (v) el.placeholder = v; });
+    $$('[data-i18n-title]').forEach(el => { const k = el.getAttribute('data-i18n-title'); const v = t(k); if (v) el.title = v; });
     document.documentElement.dir = state.currentLang === 'ar' ? 'rtl' : 'ltr';
     document.documentElement.lang = state.currentLang;
     $$('.lang-btn').forEach(b => b.classList.toggle('active', b.getAttribute('data-lang') === state.currentLang));
@@ -342,6 +466,8 @@ function setLang(lang) {
     state.currentLang = lang;
     localStorage.setItem('vb_lang', lang);
     applyTranslations();
+    updateCurrentTabLabels();
+    rerenderAiSupplierContent();
     if (!DOM.appContainer.classList.contains('hidden')) refreshData();
 }
 
@@ -3214,21 +3340,21 @@ window.reviewSupplierRoute = async function(routeId, status) {
     }
 };
 
-function aiSupplierErrorMessage(error, fallback = 'Une erreur est survenue dans IA Bot.') {
+function aiSupplierErrorMessage(error, fallbackKey='ai_error_default') {
     const message = String(error?.message || '').trim();
     const translations = {
-        SEARCH_QUERY_REQUIRED: 'Saisissez un produit à rechercher.',
-        INVALID_DURATION: "La durée indiquée n'est pas valide.",
-        INVALID_SEARCH_FILTER: "L'un des filtres de recherche n'est pas valide.",
-        NO_CONFIGURED_SUPPLIERS: 'Aucun bot fournisseur actif et configuré.',
-        SUPPLIER_ANALYSIS_IN_PROGRESS: 'Une analyse IA est déjà en cours.',
-        SUPPLIER_SYNC_IN_PROGRESS: 'Une synchronisation est déjà en cours.',
-        'Supplier AI job not found': "Cette tâche IA n'existe plus.",
-        'Sync job not found': "Cette tâche de synchronisation n'existe plus.",
-        'Internal server error': 'Le serveur IA Bot a rencontré une erreur temporaire.',
+        SEARCH_QUERY_REQUIRED: 'ai_error_query_required',
+        INVALID_DURATION: 'ai_error_duration',
+        INVALID_SEARCH_FILTER: 'ai_error_filter',
+        NO_CONFIGURED_SUPPLIERS: 'ai_error_no_suppliers',
+        SUPPLIER_ANALYSIS_IN_PROGRESS: 'ai_error_analysis_running',
+        SUPPLIER_SYNC_IN_PROGRESS: 'ai_error_sync_running',
+        'Supplier AI job not found': 'ai_error_job_missing',
+        'Sync job not found': 'ai_error_sync_missing',
+        'Internal server error': 'ai_error_server',
     };
     const match = Object.entries(translations).find(([technicalMessage]) => message.includes(technicalMessage));
-    return match ? match[1] : (message || fallback);
+    return t(match ? match[1] : fallbackKey);
 }
 
 function renderAiSupplierJob(job) {
@@ -3238,7 +3364,7 @@ function renderAiSupplierJob(job) {
     if (DOM.btnAiSupplierSync) DOM.btnAiSupplierSync.disabled = Boolean(active);
     if (DOM.btnAiSupplierAnalyze) DOM.btnAiSupplierAnalyze.disabled = Boolean(active);
     if (!job) {
-        DOM.aiSyncState.textContent = 'Prêt';
+        DOM.aiSyncState.textContent = t('ai_status_ready');
         return;
     }
     const isAnalysis = job.kind === 'analysis';
@@ -3247,18 +3373,33 @@ function renderAiSupplierJob(job) {
     const total = Math.max(0, Number(job.total || 0));
     const processed = Math.min(total, done + failed);
     const percent = total ? Math.round(processed / total * 100) : 0;
-    DOM.aiSyncState.textContent = job.status === 'completed'
-        ? 'Terminé'
-        : job.status === 'failed'
-            ? 'Échec'
-            : job.status === 'running'
-                ? (isAnalysis ? 'Analyse IA en cours' : 'Synchronisation en cours')
-                : 'En attente';
-    const stepLabel = total === 1 ? 'étape' : 'étapes';
-    const failureLabel = failed === 1 ? 'échec' : 'échecs';
-    DOM.aiSyncProgressLabel.textContent = `${isAnalysis ? 'Analyse IA' : 'Synchronisation'} : ${processed}/${total} ${stepLabel}${failed ? ` · ${failed} ${failureLabel}` : ''}`;
+    const statusKeys = {
+        completed: 'ai_status_completed',
+        failed: 'ai_status_failed',
+        queued: 'ai_status_waiting',
+    };
+    DOM.aiSyncState.textContent = job.status === 'running'
+        ? t(isAnalysis ? 'ai_status_analysis_running' : 'ai_status_sync_running')
+        : t(statusKeys[job.status] || 'ai_status_waiting');
+    const failures = failed ? tf('ai_failures', {count: failed}) : '';
+    DOM.aiSyncProgressLabel.textContent = tf('ai_progress', {
+        operation: t(isAnalysis ? 'ai_operation_analysis' : 'ai_operation_sync'),
+        processed,
+        total,
+        failures,
+    });
     DOM.aiSyncProgressValue.textContent = `${percent}%`;
     DOM.aiSyncProgressBar.style.width = `${percent}%`;
+}
+
+function renderAiSupplierStatusData(data) {
+    if (!data || !DOM.aiSupplierCount) return;
+    DOM.aiSupplierCount.textContent = Number(data.configured_suppliers || 0).toLocaleString(currentLocale());
+    DOM.aiProductCount.textContent = Number(data.indexed_products || 0).toLocaleString(currentLocale());
+    DOM.aiLastAnalysis.textContent = data.last_analysis
+        ? parseUTCDate(data.last_analysis).toLocaleString(currentLocale())
+        : t('ai_never');
+    renderAiSupplierJob(data.job);
 }
 
 async function loadAiSupplierStatus() {
@@ -3266,15 +3407,12 @@ async function loadAiSupplierStatus() {
     try {
         const data = await apiCall('/api/ai-supplier/status');
         state.aiSupplierStatus = data;
-        DOM.aiSupplierCount.textContent = Number(data.configured_suppliers || 0).toLocaleString();
-        DOM.aiProductCount.textContent = Number(data.indexed_products || 0).toLocaleString();
-        DOM.aiLastAnalysis.textContent = data.last_analysis ? parseUTCDate(data.last_analysis).toLocaleString() : 'Jamais';
-        renderAiSupplierJob(data.job);
+        renderAiSupplierStatusData(data);
         if (data.job && ['queued', 'running'].includes(String(data.job.status || ''))) {
             pollAiSupplierJob(data.job.job_id);
         }
     } catch (error) {
-        DOM.aiSyncState.textContent = 'Indisponible';
+        DOM.aiSyncState.textContent = t('ai_status_unavailable');
         console.error('AI supplier status failed:', error);
     }
 }
@@ -3294,11 +3432,11 @@ function pollAiSupplierJob(jobId) {
                 await loadAiSupplierStatus();
                 if (job.status === 'completed' && job.kind === 'analysis') {
                     await loadAiSupplierGroups();
-                    showToast('Analyse IA terminée. Les produits similaires sont regroupés.', 'success');
+                    showToast(t('ai_analysis_done'), 'success');
                 } else if (job.status === 'completed') {
-                    showToast("Catalogues synchronisés. Vous pouvez lancer l'analyse IA.", 'success');
+                    showToast(t('ai_sync_done'), 'success');
                 } else {
-                    showToast(job.kind === 'analysis' ? 'Analyse IA terminée avec une erreur.' : 'Synchronisation terminée avec une erreur.', 'error');
+                    showToast(t(job.kind === 'analysis' ? 'ai_analysis_failed' : 'ai_sync_failed'), 'error');
                 }
             }
         } catch (error) {
@@ -3315,9 +3453,9 @@ async function syncAllAiSuppliers() {
         const job = response.job || {};
         renderAiSupplierJob(job);
         pollAiSupplierJob(job.job_id);
-        showToast(response.created ? 'Synchronisation globale lancée.' : 'Une synchronisation est déjà en cours.', 'info');
+        showToast(t(response.created ? 'ai_sync_launched' : 'ai_sync_already'), 'info');
     } catch (error) {
-        showToast(aiSupplierErrorMessage(error, 'Impossible de lancer la synchronisation.'), 'error');
+        showToast(aiSupplierErrorMessage(error, 'ai_sync_launch_error'), 'error');
     }
 }
 
@@ -3327,52 +3465,123 @@ async function analyzeAllAiSuppliers() {
         const job = response.job || {};
         renderAiSupplierJob(job);
         pollAiSupplierJob(job.job_id);
-        showToast(response.created ? 'Indexation IA complète lancée sur tout le catalogue.' : 'Une analyse IA est déjà en cours.', 'info');
+        showToast(t(response.created ? 'ai_analysis_launched' : 'ai_analysis_already'), 'info');
     } catch (error) {
-        showToast(aiSupplierErrorMessage(error, "Impossible de lancer l'analyse IA."), 'error');
+        showToast(aiSupplierErrorMessage(error, 'ai_analysis_launch_error'), 'error');
     }
+}
+
+function aiDurationLabel(result) {
+    if (result.duration_months) {
+        const count = Number(result.duration_months);
+        const unit = t(count === 1 ? 'ai_month_one' : 'ai_months').toLocaleLowerCase(currentLocale());
+        return `${count} ${unit}`;
+    }
+    if (result.duration_days) {
+        const count = Number(result.duration_days);
+        const unit = t(count === 1 ? 'ai_day_one' : 'ai_days').toLocaleLowerCase(currentLocale());
+        return `${count} ${unit}`;
+    }
+    return t('ai_duration_unknown');
+}
+
+function aiDeliveryLabel(mode) {
+    const keys = {
+        account: 'ai_account_provided',
+        activation: 'ai_customer_activation',
+        mixed: 'ai_delivery_mixed',
+        unknown: 'ai_delivery_unknown',
+    };
+    return t(keys[String(mode || 'unknown')] || 'ai_delivery_unknown');
+}
+
+function aiAccessLabel(mode) {
+    const keys = {
+        private: 'ai_private',
+        shared: 'ai_shared',
+        mixed: 'ai_access_mixed',
+        unknown: 'ai_access_unknown',
+    };
+    return t(keys[String(mode || 'unknown')] || 'ai_access_unknown');
+}
+
+function aiWarrantyLabel(days) {
+    const warrantyDays = Number(days || 0);
+    return warrantyDays ? tf('ai_days_warranty', {days: warrantyDays}) : t('ai_no_warranty');
+}
+
+function aiGroupWarrantyLabel(group) {
+    const kind = String(group.warranty_kind || 'none');
+    if (kind === 'mixed') return t('ai_mixed_warranties');
+    if (kind === 'full') return t('ai_full_warranty');
+    if (kind === 'none') return t('ai_no_warranty');
+    if (kind.startsWith('limited:')) {
+        return tf('ai_limited_warranty', {days: Number(kind.split(':')[1] || 0)});
+    }
+    return t('ai_no_warranty');
+}
+
+function aiGroupSignature(group) {
+    const parts = [aiDurationLabel(group), aiGroupWarrantyLabel(group)];
+    const delivery = String(group.delivery_mode || 'unknown');
+    const access = String(group.access_mode || 'unknown');
+    const region = String(group.region || '');
+    if (delivery !== 'unknown') parts.push(aiDeliveryLabel(delivery));
+    if (access !== 'unknown') parts.push(aiAccessLabel(access));
+    if (region === 'MIXED') parts.push(t('ai_regions_mixed'));
+    else if (region) parts.push(region);
+    return parts.filter(Boolean).join(' · ');
 }
 
 function renderAiSupplierGroups(data) {
     const groups = data.groups || [];
     state.aiSupplierGroups = groups;
+    state.aiSupplierGroupData = data;
     if (!groups.length) {
-        DOM.aiGroupsSummary.textContent = "Aucun groupe disponible. Synchronisez les bots, puis lancez l'analyse IA.";
-        DOM.aiGroupsBody.innerHTML = '<tr><td colspan="6" class="empty-state">Aucun produit analysé.</td></tr>';
+        DOM.aiGroupsSummary.textContent = t('ai_no_groups');
+        DOM.aiGroupsBody.innerHTML = `<tr><td colspan="6" class="empty-state">${escapeHtml(t('ai_no_products_analyzed'))}</td></tr>`;
         return;
     }
-    const availableCount = Number(data.available_products || 0);
-    const comparisonCount = Number(data.comparison_groups || 0);
-    DOM.aiGroupsSummary.textContent = `${availableCount} produit${availableCount === 1 ? '' : 's'} disponible${availableCount === 1 ? '' : 's'} dans ${groups.length} groupe${groups.length === 1 ? '' : 's'}, dont ${comparisonCount} avec plusieurs offres.`;
+    DOM.aiGroupsSummary.textContent = tf('ai_group_summary', {
+        available: Number(data.available_products || 0).toLocaleString(currentLocale()),
+        groups: groups.length.toLocaleString(currentLocale()),
+        comparison: Number(data.comparison_groups || 0).toLocaleString(currentLocale()),
+    });
     DOM.aiGroupsBody.innerHTML = groups.map((group, index) => {
         const offers = group.offers || [];
         const best = offers[0] || {};
-        const alternatives = Math.max(0, Number(group.offer_count || offers.length) - 1);
+        const offerCount = Number(group.offer_count || offers.length);
+        const alternatives = Math.max(0, offerCount - 1);
         const details = offers.map((offer, offerIndex) => {
             const affordable = Number(offer.affordable_stock || 0);
-            const warranty = Number(offer.warranty_days || 0) ? `${Number(offer.warranty_days)} j de garantie` : 'Sans garantie';
             const attributes = [
-                warranty,
+                aiWarrantyLabel(offer.warranty_days),
                 aiDeliveryLabel(offer.delivery_mode),
                 aiAccessLabel(offer.access_mode),
                 offer.region || '',
             ].filter(Boolean).join(' · ');
+            const rank = offerIndex === 0
+                ? `<i class="fa-solid fa-crown" title="${escapeHtml(t('ai_cheapest'))}"></i>`
+                : `#${offerIndex + 1}`;
             return `<div class="ai-group-offer">
-                <span class="ai-group-offer-rank">${offerIndex === 0 ? '<i class="fa-solid fa-crown" title="Moins cher"></i>' : `#${offerIndex + 1}`}</span>
+                <span class="ai-group-offer-rank">${rank}</span>
                 <span class="ai-group-offer-product"><strong>${escapeHtml(offer.name || '?')}</strong><small>${escapeHtml(attributes)}</small></span>
-                <span class="ai-group-offer-supplier"><strong>${escapeHtml(offer.supplier_name || offer.supplier_code || '?')}</strong><small>Solde fournisseur : $${Number(offer.wallet_balance || 0).toFixed(2)}</small></span>
+                <span class="ai-group-offer-supplier"><strong>${escapeHtml(offer.supplier_name || offer.supplier_code || '?')}</strong><small>${escapeHtml(tf('ai_supplier_balance', {balance: Number(offer.wallet_balance || 0).toFixed(2)}))}</small></span>
                 <strong class="ai-group-offer-price">$${Number(offer.price || 0).toFixed(2)}</strong>
-                <span class="ai-group-offer-stock ${affordable > 0 ? '' : 'is-unfunded'}"><strong>${affordable}/${Number(offer.remote_stock || 0)}</strong><small>achetable / disponible</small></span>
-                <button class="btn-table-action" type="button" onclick="openAiSupplier('${escapeHtml(offer.supplier_code || '')}')" title="Ouvrir ce fournisseur"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>
+                <span class="ai-group-offer-stock ${affordable > 0 ? '' : 'is-unfunded'}"><strong>${affordable}/${Number(offer.remote_stock || 0)}</strong><small>${escapeHtml(t('ai_stock_ratio'))}</small></span>
+                <button class="btn-table-action" type="button" onclick="openAiSupplier('${escapeHtml(offer.supplier_code || '')}')" title="${escapeHtml(t('ai_open_supplier'))}"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>
             </div>`;
         }).join('');
+        const classification = group.comparable
+            ? tf('ai_comparable_offers', {count: offerCount})
+            : t('ai_classification_incomplete');
         return `<tr>
-            <td class="ai-group-title"><strong>${escapeHtml(group.label || 'Produit')}</strong><small>${group.comparable ? `${Number(group.offer_count || offers.length)} offre${Number(group.offer_count || offers.length) === 1 ? '' : 's'} comparable${Number(group.offer_count || offers.length) === 1 ? '' : 's'}` : 'Classification incomplète'}</small></td>
-            <td>${escapeHtml(group.signature || '')}</td>
+            <td class="ai-group-title"><strong>${escapeHtml(group.label || t('ai_col_product'))}</strong><small>${escapeHtml(classification)}</small></td>
+            <td>${escapeHtml(aiGroupSignature(group))}</td>
             <td class="ai-group-best"><strong class="ai-group-best-price">$${Number(group.best_price || 0).toFixed(2)}</strong><small>${escapeHtml(best.supplier_name || best.supplier_code || '?')}</small></td>
             <td><strong>${alternatives}</strong></td>
             <td><strong>$${Number(group.max_saving || 0).toFixed(2)}</strong></td>
-            <td><button id="ai-group-toggle-${index}" class="btn-table-action" type="button" onclick="toggleAiSupplierGroup(${index})" title="Afficher toutes les offres"><i class="fa-solid fa-chevron-down"></i></button></td>
+            <td><button id="ai-group-toggle-${index}" class="btn-table-action" type="button" onclick="toggleAiSupplierGroup(${index})" title="${escapeHtml(t('ai_show_all_offers'))}"><i class="fa-solid fa-chevron-down"></i></button></td>
         </tr>
         <tr id="ai-group-details-${index}" class="ai-group-details hidden"><td colspan="6"><div class="ai-group-offers">${details}</div></td></tr>`;
     }).join('');
@@ -3381,12 +3590,12 @@ function renderAiSupplierGroups(data) {
 async function loadAiSupplierGroups() {
     if (!DOM.aiGroupsBody) return;
     if (!state.aiSupplierGroups.length) {
-        DOM.aiGroupsBody.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i> Chargement des groupes...</td></tr>';
+        DOM.aiGroupsBody.innerHTML = `<tr><td colspan="6" class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i> ${escapeHtml(t('ai_groups_loading'))}</td></tr>`;
     }
     try {
         renderAiSupplierGroups(await apiCall('/api/ai-supplier/groups'));
     } catch (error) {
-        DOM.aiGroupsBody.innerHTML = `<tr><td colspan="6" class="empty-state">${escapeHtml(aiSupplierErrorMessage(error, 'Groupes indisponibles.'))}</td></tr>`;
+        DOM.aiGroupsBody.innerHTML = `<tr><td colspan="6" class="empty-state">${escapeHtml(aiSupplierErrorMessage(error, 'ai_groups_unavailable'))}</td></tr>`;
         console.error('AI supplier groups failed:', error);
     }
 }
@@ -3399,48 +3608,33 @@ window.toggleAiSupplierGroup = function(index) {
     details.classList.toggle('hidden', !opening);
     const icon = button.querySelector('i');
     if (icon) icon.className = opening ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down';
-    button.title = opening ? 'Masquer les offres' : 'Afficher toutes les offres';
+    button.title = t(opening ? 'ai_hide_offers' : 'ai_show_all_offers');
 };
 
-function aiDurationLabel(result) {
-    if (result.duration_months) return `${Number(result.duration_months)} mois`;
-    if (result.duration_days) return `${Number(result.duration_days)} jours`;
-    return 'Durée non précisée';
-}
-
-function aiDeliveryLabel(mode) {
-    const labels = {
-        account: 'Compte fourni',
-        activation: 'Activation client',
-        mixed: 'Modes de livraison variés',
-        unknown: 'Livraison non précisée',
-    };
-    return labels[String(mode || 'unknown')] || labels.unknown;
-}
-
-function aiAccessLabel(mode) {
-    const labels = {
-        private: 'Privé',
-        shared: 'Partagé',
-        mixed: 'Accès variés',
-        unknown: 'Accès non précisé',
-    };
-    return labels[String(mode || 'unknown')] || labels.unknown;
+function aiResultReason(result) {
+    const affordable = Number(result.affordable_stock || 0);
+    const parts = [
+        t('ai_reason_compliant'),
+        tf('ai_reason_reliability', {percent: Math.round(Number(result.reliability || 0) * 100)}),
+        affordable > 0
+            ? tf('ai_reason_affordable', {count: affordable})
+            : t('ai_reason_unfunded'),
+    ];
+    return parts.join(' · ');
 }
 
 function renderAiSupplierResults(data) {
     const results = data.results || [];
     const hiddenUnfunded = Number(data.hidden_unfunded_count || 0);
     state.aiSupplierResults = results;
+    state.aiSupplierResultData = data;
     DOM.aiResultsSummary.textContent = results.length
-        ? `${results.length} offre${results.length === 1 ? '' : 's'} strictement conforme${results.length === 1 ? '' : 's'}, classée${results.length === 1 ? '' : 's'} par coût et fiabilité.`
+        ? tf('ai_results_summary', {count: results.length.toLocaleString(currentLocale())})
         : hiddenUnfunded > 0
-            ? `${hiddenUnfunded} offre${hiddenUnfunded === 1 ? '' : 's'} conforme${hiddenUnfunded === 1 ? '' : 's'} masquée${hiddenUnfunded === 1 ? '' : 's'}, car le solde fournisseur est insuffisant.`
-            : 'Aucune offre ne respecte tous les critères. Vérifiez la durée, la garantie et les autres filtres.';
+            ? tf('ai_hidden_summary', {count: hiddenUnfunded.toLocaleString(currentLocale())})
+            : t('ai_no_criteria');
     if (!results.length) {
-        const message = hiddenUnfunded > 0
-            ? 'Des offres existent. Activez « Afficher aussi les offres sans solde suffisant » pour les comparer.'
-            : 'Aucun résultat conforme.';
+        const message = t(hiddenUnfunded > 0 ? 'ai_unfunded_exists' : 'ai_no_result');
         DOM.aiResultsBody.innerHTML = `<tr><td colspan="9" class="empty-state">${escapeHtml(message)}</td></tr>`;
         return;
     }
@@ -3448,20 +3642,31 @@ function renderAiSupplierResults(data) {
         const affordable = Number(result.affordable_stock || 0);
         const stockClass = affordable > 0 ? '' : 'ai-result-warning';
         const freshness = Number(result.freshness_hours || 0);
-        const freshnessLabel = freshness >= 9999 ? 'Synchronisation inconnue' : freshness < 1 ? 'Synchronisé récemment' : `Synchronisé il y a ${Math.round(freshness)} h`;
+        const freshnessLabel = freshness >= 9999
+            ? t('ai_sync_unknown')
+            : freshness < 1
+                ? t('ai_sync_recent')
+                : tf('ai_sync_hours', {hours: Math.round(freshness)});
         const warrantyDays = Number(result.warranty_days || 0);
+        const connectionState = result.supplier_enabled ? '' : ` · ${t('ai_connection_disabled')}`;
         return `<tr>
             <td class="${index === 0 ? 'ai-result-best' : ''}">${index === 0 ? '<i class="fa-solid fa-crown"></i> 1' : index + 1}</td>
             <td class="ai-result-product"><strong>${escapeHtml(result.name || '?')}</strong><small>${escapeHtml(aiDurationLabel(result))} · ${escapeHtml(aiDeliveryLabel(result.delivery_mode))} · ${escapeHtml(aiAccessLabel(result.access_mode))}</small></td>
-            <td class="ai-result-supplier"><strong>${escapeHtml(result.supplier_name || result.supplier_code)}</strong><small>${escapeHtml(result.supplier_code || '')}${result.supplier_enabled ? '' : ' · connexion désactivée'}</small></td>
-            <td><strong>$${Number(result.price || 0).toFixed(2)}</strong><span class="table-secondary">solde : $${Number(result.wallet_balance || 0).toFixed(2)}</span></td>
-            <td><strong>${warrantyDays ? `${warrantyDays} ${warrantyDays === 1 ? 'jour' : 'jours'}` : 'Sans garantie'}</strong></td>
-            <td class="${stockClass}"><strong>${affordable}/${Number(result.remote_stock || 0)}</strong><span class="table-secondary">achetable / disponible</span></td>
+            <td class="ai-result-supplier"><strong>${escapeHtml(result.supplier_name || result.supplier_code)}</strong><small>${escapeHtml(result.supplier_code || '')}${escapeHtml(connectionState)}</small></td>
+            <td><strong>$${Number(result.price || 0).toFixed(2)}</strong><span class="table-secondary">${escapeHtml(tf('ai_balance', {balance: Number(result.wallet_balance || 0).toFixed(2)}))}</span></td>
+            <td><strong>${escapeHtml(warrantyDays ? tf('ai_warranty_days', {days: warrantyDays}) : t('ai_no_warranty'))}</strong></td>
+            <td class="${stockClass}"><strong>${affordable}/${Number(result.remote_stock || 0)}</strong><span class="table-secondary">${escapeHtml(t('ai_stock_ratio'))}</span></td>
             <td><strong>${Math.round(Number(result.reliability || 0) * 100)}%</strong><span class="table-secondary">${escapeHtml(freshnessLabel)}</span></td>
-            <td class="ai-result-analysis"><strong>${Math.round(Number(result.confidence || 0) * 100)}%</strong><small>${escapeHtml(result.reason || '')}</small></td>
-            <td><button class="btn-table-action" type="button" onclick="openAiSupplier('${escapeHtml(result.supplier_code || '')}')" title="Ouvrir ce fournisseur"><i class="fa-solid fa-arrow-up-right-from-square"></i></button></td>
+            <td class="ai-result-analysis"><strong>${Math.round(Number(result.confidence || 0) * 100)}%</strong><small>${escapeHtml(aiResultReason(result))}</small></td>
+            <td><button class="btn-table-action" type="button" onclick="openAiSupplier('${escapeHtml(result.supplier_code || '')}')" title="${escapeHtml(t('ai_open_supplier'))}"><i class="fa-solid fa-arrow-up-right-from-square"></i></button></td>
         </tr>`;
     }).join('');
+}
+
+function rerenderAiSupplierContent() {
+    if (state.aiSupplierStatus) renderAiSupplierStatusData(state.aiSupplierStatus);
+    if (state.aiSupplierGroupData) renderAiSupplierGroups(state.aiSupplierGroupData);
+    if (state.aiSupplierResultData) renderAiSupplierResults(state.aiSupplierResultData);
 }
 
 async function searchAiSuppliers(event) {
@@ -3477,12 +3682,12 @@ async function searchAiSuppliers(event) {
         include_unfunded: DOM.aiIncludeUnfunded.checked,
         limit: 30,
     };
-    DOM.aiResultsBody.innerHTML = '<tr><td colspan="9" class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i> Recherche en cours...</td></tr>';
+    DOM.aiResultsBody.innerHTML = `<tr><td colspan="9" class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i> ${escapeHtml(t('ai_searching'))}</td></tr>`;
     try {
         const data = await apiCall('/api/ai-supplier/search', 'POST', payload);
         renderAiSupplierResults(data);
     } catch (error) {
-        const message = aiSupplierErrorMessage(error, 'Recherche indisponible.');
+        const message = aiSupplierErrorMessage(error, 'ai_search_unavailable');
         DOM.aiResultsBody.innerHTML = `<tr><td colspan="9" class="empty-state">${escapeHtml(message)}</td></tr>`;
         showToast(message, 'error');
     }
@@ -4381,6 +4586,15 @@ const tabContexts = {
     'wallet-history-tab':'Mouvements des soldes clients', 'finance-tab':'Revenus et ajustements',
     'binance-tab':'Comptes de réception'
 };
+const tabContextKeys = {'ai-bot-tab':'ai_context'};
+
+function updateCurrentTabLabels() {
+    if (DOM.currentTabTitle) DOM.currentTabTitle.textContent = t(tabKeys[state.currentTab] || 'tab_dashboard');
+    if (DOM.pageContext) {
+        const contextKey = tabContextKeys[state.currentTab];
+        DOM.pageContext.textContent = contextKey ? t(contextKey) : (tabContexts[state.currentTab] || '');
+    }
+}
 
 function escapeHtml(str) {
     if (str === null || str === undefined) return '';
@@ -4399,9 +4613,8 @@ function switchTab(tabId) {
     $$('.tab-content').forEach(c=>c.classList.remove('active'));
     const ai = document.querySelector(`.menu-item[data-tab="${tabId}"]`); if(ai) ai.classList.add('active');
     const ac = $(tabId); if(ac) ac.classList.add('active');
-    DOM.currentTabTitle.textContent = t(tabKeys[tabId]||'tab_dashboard');
-    if (DOM.pageContext) DOM.pageContext.textContent = tabContexts[tabId] || '';
     state.currentTab = tabId;
+    updateCurrentTabLabels();
     if (!DOM.appContainer.classList.contains('hidden')) refreshData();
 }
 

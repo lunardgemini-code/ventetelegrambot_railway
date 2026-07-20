@@ -1,0 +1,53 @@
+import re
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class DashboardAiI18nTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = (ROOT / "dashboard" / "app.js").read_text(encoding="utf-8")
+        cls.html = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
+        cls.translation_block = cls.app.split(
+            "const AI_TRANSLATIONS = {", 1
+        )[1].split("Object.entries(AI_TRANSLATIONS)", 1)[0]
+        cls.french_block = cls.translation_block.split(
+            "\nfr: {", 1
+        )[1].split("\n},\nen: {", 1)[0]
+
+    def test_every_ai_translation_exists_in_all_six_languages(self):
+        french_keys = set(re.findall(r"\b(?:ai_[a-z0-9_]+|nav_ai_bot)\s*:", self.french_block))
+        self.assertGreater(len(french_keys), 90)
+        for raw_key in french_keys:
+            key = raw_key.rstrip(":").strip()
+            occurrences = len(re.findall(rf"\b{re.escape(key)}\s*:", self.translation_block))
+            self.assertEqual(occurrences, 6, f"{key} is not translated in every language")
+
+    def test_every_ai_html_key_is_in_the_translation_dictionary(self):
+        ai_section = self.html.split('<section id="ai-bot-tab"', 1)[1].split("</section>", 1)[0]
+        html_keys = set(re.findall(r'data-i18n(?:-placeholder|-title)?="(ai_[a-z0-9_]+|nav_ai_bot)"', ai_section))
+        french_keys = set(re.findall(r"\b(ai_[a-z0-9_]+|nav_ai_bot)\s*:", self.french_block))
+        self.assertFalse(html_keys - french_keys)
+
+    def test_dynamic_results_do_not_render_backend_french_or_raw_modes(self):
+        ai_code = self.app.split("function aiSupplierErrorMessage", 1)[1].split(
+            "async function loadWalletHistory", 1
+        )[0]
+        referenced_keys = set(re.findall(r"['\"](ai_[a-z0-9_]+)['\"]", ai_code))
+        french_keys = set(re.findall(r"\b(ai_[a-z0-9_]+)\s*:", self.french_block))
+        self.assertFalse(referenced_keys - french_keys)
+        self.assertNotIn("result.reason", ai_code)
+        self.assertNotIn("group.signature", ai_code)
+        self.assertNotIn("result.delivery_mode || 'unknown'", ai_code)
+        self.assertNotIn("result.access_mode || 'unknown'", ai_code)
+
+    def test_dashboard_assets_use_the_i18n_cache_version(self):
+        self.assertIn('app.js?v=20260720-ai-i18n', self.html)
+        self.assertIn('style.css?v=20260720-ai-i18n', self.html)
+
+
+if __name__ == "__main__":
+    unittest.main()

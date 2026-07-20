@@ -13,7 +13,7 @@
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
-    <link rel="stylesheet" href="style.css?v=20260720-ai-groups">
+    <link rel="stylesheet" href="style.css?v=20260720-ai-i18n">
     <link rel="stylesheet" href="revamp.css?v=20260717-user-purchases">
 </head>
 <body>
@@ -731,57 +731,57 @@
             <section id="ai-bot-tab" class="tab-content">
                 <div class="flex-justify mb-4 ai-supplier-heading">
                     <div>
-                        <p class="eyebrow">Comparateur multi-fournisseur</p>
-                        <h2><i class="fa-solid fa-magnifying-glass-chart"></i> IA Bot</h2>
-                        <p>Classez tout le catalogue avec l'IA, puis comparez les offres par produit et durée.</p>
+                        <p class="eyebrow" data-i18n="ai_eyebrow">Comparateur multi-fournisseur</p>
+                        <h2><i class="fa-solid fa-magnifying-glass-chart"></i> <span data-i18n="nav_ai_bot">IA Bot</span></h2>
+                        <p data-i18n="ai_intro">Classez tout le catalogue avec l'IA, puis comparez les offres par produit et durée.</p>
                     </div>
                     <div class="ai-heading-actions">
-                        <button id="btn-ai-supplier-sync" class="btn-secondary btn-sm" type="button"><i class="fa-solid fa-arrows-rotate"></i> Synchroniser tous les bots</button>
-                        <button id="btn-ai-supplier-analyze" class="btn-primary btn-sm" type="button"><i class="fa-solid fa-wand-magic-sparkles"></i> Analyse IA</button>
+                        <button id="btn-ai-supplier-sync" class="btn-secondary btn-sm" type="button"><i class="fa-solid fa-arrows-rotate"></i> <span data-i18n="ai_sync_all">Synchroniser tous les bots</span></button>
+                        <button id="btn-ai-supplier-analyze" class="btn-primary btn-sm" type="button"><i class="fa-solid fa-wand-magic-sparkles"></i> <span data-i18n="ai_analyze">Analyse IA</span></button>
                     </div>
                 </div>
                 <div class="ai-supplier-status glass-panel">
-                    <div><span>Bots configurés</span><strong id="ai-supplier-count">0</strong></div>
-                    <div><span>Produits indexés</span><strong id="ai-product-count">0</strong></div>
-                    <div><span>Dernière analyse</span><strong id="ai-last-analysis">Jamais</strong></div>
-                    <div><span>État</span><strong id="ai-sync-state">Prêt</strong></div>
+                    <div><span data-i18n="ai_bots_configured">Bots configurés</span><strong id="ai-supplier-count">0</strong></div>
+                    <div><span data-i18n="ai_products_indexed">Produits indexés</span><strong id="ai-product-count">0</strong></div>
+                    <div><span data-i18n="ai_last_analysis">Dernière analyse</span><strong id="ai-last-analysis" data-i18n="ai_never">Jamais</strong></div>
+                    <div><span data-i18n="ai_state">État</span><strong id="ai-sync-state" data-i18n="ai_status_ready">Prêt</strong></div>
                 </div>
                 <div id="ai-sync-progress-panel" class="ai-sync-progress glass-panel hidden" aria-live="polite">
-                    <div><strong id="ai-sync-progress-label">Synchronisation en attente</strong><span id="ai-sync-progress-value">0%</span></div>
+                    <div><strong id="ai-sync-progress-label" data-i18n="ai_sync_waiting">Synchronisation en attente</strong><span id="ai-sync-progress-value">0%</span></div>
                     <div class="ai-progress-track"><span id="ai-sync-progress-bar"></span></div>
-                    <small>La tâche continue sur Railway même si vous fermez le dashboard.</small>
+                    <small data-i18n="ai_background_hint">La tâche continue sur Railway même si vous fermez le dashboard.</small>
                 </div>
                 <form id="ai-supplier-search-form" class="ai-supplier-search glass-panel">
                     <div class="form-group ai-query-field">
-                        <label for="ai-supplier-query">Produit recherché</label>
-                        <div class="ai-query-input"><i class="fa-solid fa-magnifying-glass"></i><input id="ai-supplier-query" type="search" maxlength="120" placeholder="Ex. Grok 1 mois" required></div>
+                        <label for="ai-supplier-query" data-i18n="ai_search_product">Produit recherché</label>
+                        <div class="ai-query-input"><i class="fa-solid fa-magnifying-glass"></i><input id="ai-supplier-query" type="search" maxlength="120" placeholder="Ex. Grok 1 mois" data-i18n-placeholder="ai_search_example" required></div>
                     </div>
-                    <div class="form-group"><label for="ai-duration-value">Durée</label><input id="ai-duration-value" type="number" min="1" max="4000" placeholder="Auto"></div>
-                    <div class="form-group"><label for="ai-duration-unit">Unité</label><select id="ai-duration-unit"><option value="months">Mois</option><option value="days">Jours</option><option value="years">Années</option></select></div>
-                    <div class="form-group"><label for="ai-warranty-filter">Garantie minimale</label><select id="ai-warranty-filter"><option value="0">Indifférente</option><option value="1">Garantie connue</option><option value="7">7 jours</option><option value="30">30 jours</option><option value="90">90 jours</option></select></div>
-                    <div class="form-group"><label for="ai-delivery-filter">Livraison</label><select id="ai-delivery-filter"><option value="unknown">Indifférente</option><option value="account">Compte fourni</option><option value="activation">Activation client</option></select></div>
-                    <div class="form-group"><label for="ai-access-filter">Accès</label><select id="ai-access-filter"><option value="unknown">Indifférent</option><option value="private">Privé</option><option value="shared">Partagé</option></select></div>
-                    <div class="form-group"><label for="ai-max-price">Prix maximum ($)</label><input id="ai-max-price" type="number" min="0" step="0.01" placeholder="Aucune limite"></div>
-                    <label class="ai-unfunded-control"><input id="ai-include-unfunded" type="checkbox" checked><span><strong>Afficher aussi les offres sans solde suffisant</strong><small>Ces offres servent à comparer les prix, mais ne sont pas achetables pour le moment.</small></span></label>
-                    <button class="btn-primary ai-search-submit" type="submit"><i class="fa-solid fa-magnifying-glass"></i> Rechercher la meilleure offre</button>
+                    <div class="form-group"><label for="ai-duration-value" data-i18n="ai_duration">Durée</label><input id="ai-duration-value" type="number" min="1" max="4000" placeholder="Auto" data-i18n-placeholder="ai_auto"></div>
+                    <div class="form-group"><label for="ai-duration-unit" data-i18n="ai_unit">Unité</label><select id="ai-duration-unit"><option value="months" data-i18n="ai_months">Mois</option><option value="days" data-i18n="ai_days">Jours</option><option value="years" data-i18n="ai_years">Années</option></select></div>
+                    <div class="form-group"><label for="ai-warranty-filter" data-i18n="ai_min_warranty">Garantie minimale</label><select id="ai-warranty-filter"><option value="0" data-i18n="ai_any_f">Indifférente</option><option value="1" data-i18n="ai_warranty_known">Garantie connue</option><option value="7" data-i18n="ai_7_days">7 jours</option><option value="30" data-i18n="ai_30_days">30 jours</option><option value="90" data-i18n="ai_90_days">90 jours</option></select></div>
+                    <div class="form-group"><label for="ai-delivery-filter" data-i18n="ai_delivery">Livraison</label><select id="ai-delivery-filter"><option value="unknown" data-i18n="ai_any_f">Indifférente</option><option value="account" data-i18n="ai_account_provided">Compte fourni</option><option value="activation" data-i18n="ai_customer_activation">Activation client</option></select></div>
+                    <div class="form-group"><label for="ai-access-filter" data-i18n="ai_access">Accès</label><select id="ai-access-filter"><option value="unknown" data-i18n="ai_any_m">Indifférent</option><option value="private" data-i18n="ai_private">Privé</option><option value="shared" data-i18n="ai_shared">Partagé</option></select></div>
+                    <div class="form-group"><label for="ai-max-price" data-i18n="ai_max_price">Prix maximum ($)</label><input id="ai-max-price" type="number" min="0" step="0.01" placeholder="Aucune limite" data-i18n-placeholder="ai_no_limit"></div>
+                    <label class="ai-unfunded-control"><input id="ai-include-unfunded" type="checkbox" checked><span><strong data-i18n="ai_show_unfunded">Afficher aussi les offres sans solde suffisant</strong><small data-i18n="ai_unfunded_hint">Ces offres servent à comparer les prix, mais ne sont pas achetables pour le moment.</small></span></label>
+                    <button class="btn-primary ai-search-submit" type="submit"><i class="fa-solid fa-magnifying-glass"></i> <span data-i18n="ai_search_best">Rechercher la meilleure offre</span></button>
                 </form>
                 <div class="ai-results-heading">
-                    <div><h3>Résultats conformes</h3><p id="ai-results-summary">Synchronisez les bots, puis lancez une recherche.</p></div>
+                    <div><h3 data-i18n="ai_compliant_results">Résultats conformes</h3><p id="ai-results-summary" data-i18n="ai_search_prompt">Synchronisez les bots, puis lancez une recherche.</p></div>
                 </div>
                 <div class="glass-panel overflow-hidden ai-results-panel">
                     <table class="data-table ai-results-table">
-                        <thead><tr><th>#</th><th>Produit</th><th>Fournisseur</th><th>Prix</th><th>Garantie</th><th>Stock</th><th>Fiabilité</th><th>Analyse</th><th>Action</th></tr></thead>
-                        <tbody id="ai-results-body"><tr><td colspan="9" class="empty-state">Aucune recherche lancée.</td></tr></tbody>
+                        <thead><tr><th>#</th><th data-i18n="ai_col_product">Produit</th><th data-i18n="ai_col_supplier">Fournisseur</th><th data-i18n="ai_col_price">Prix</th><th data-i18n="ai_col_warranty">Garantie</th><th data-i18n="ai_col_stock">Stock</th><th data-i18n="ai_col_reliability">Fiabilité</th><th data-i18n="ai_col_analysis">Analyse</th><th data-i18n="ai_col_action">Action</th></tr></thead>
+                        <tbody id="ai-results-body"><tr><td colspan="9" class="empty-state" data-i18n="ai_no_search">Aucune recherche lancée.</td></tr></tbody>
                     </table>
                 </div>
                 <div class="ai-groups-heading">
-                    <div><h3>Produits similaires</h3><p id="ai-groups-summary">Synchronisez les bots, puis lancez l'analyse IA.</p></div>
-                    <button id="btn-ai-groups-refresh" class="btn-icon" type="button" title="Actualiser les groupes"><i class="fa-solid fa-rotate"></i></button>
+                    <div><h3 data-i18n="ai_similar_products">Produits similaires</h3><p id="ai-groups-summary" data-i18n="ai_analysis_prompt">Synchronisez les bots, puis lancez l'analyse IA.</p></div>
+                    <button id="btn-ai-groups-refresh" class="btn-icon" type="button" title="Actualiser les groupes" data-i18n-title="ai_refresh_groups"><i class="fa-solid fa-rotate"></i></button>
                 </div>
                 <div class="glass-panel overflow-hidden ai-groups-panel">
                     <table class="data-table ai-groups-table">
-                        <thead><tr><th>Groupe</th><th>Caractéristiques</th><th>Meilleure offre</th><th>Alternatives</th><th>Écart maximal</th><th>Action</th></tr></thead>
-                        <tbody id="ai-groups-body"><tr><td colspan="6" class="empty-state">Aucune analyse lancée.</td></tr></tbody>
+                        <thead><tr><th data-i18n="ai_col_group">Groupe</th><th data-i18n="ai_col_characteristics">Caractéristiques</th><th data-i18n="ai_col_best_offer">Meilleure offre</th><th data-i18n="ai_col_alternatives">Alternatives</th><th data-i18n="ai_col_max_difference">Écart maximal</th><th data-i18n="ai_col_action">Action</th></tr></thead>
+                        <tbody id="ai-groups-body"><tr><td colspan="6" class="empty-state" data-i18n="ai_no_analysis">Aucune analyse lancée.</td></tr></tbody>
                     </table>
                 </div>
             </section>
@@ -1566,7 +1566,7 @@
 </div>
 
 
-    <script defer src="app.js?v=20260720-ai-groups"></script>
+    <script defer src="app.js?v=20260720-ai-i18n"></script>
     <script>
     /* ── Mobile Sidebar Toggle ── */
     (function() {
