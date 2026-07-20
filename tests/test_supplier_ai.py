@@ -105,11 +105,13 @@ class SupplierAISearchTests(unittest.IsolatedAsyncioTestCase):
             "include_unfunded": False,
         })
         self.assertEqual(hidden["count"], 0)
+        self.assertEqual(hidden["hidden_unfunded_count"], 1)
         visible = await self._search({
             "query": "Grok 1 month full warranty",
             "include_unfunded": True,
         })
         self.assertEqual(visible["count"], 1)
+        self.assertEqual(visible["hidden_unfunded_count"], 0)
         self.assertEqual(visible["results"][0]["affordable_stock"], 0)
 
     async def test_reanalysis_reuses_unchanged_index_rows(self):

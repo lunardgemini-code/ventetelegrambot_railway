@@ -13,7 +13,7 @@
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
-    <link rel="stylesheet" href="style.css?v=20260720-ai-bot">
+    <link rel="stylesheet" href="style.css?v=20260720-ai-results">
     <link rel="stylesheet" href="revamp.css?v=20260717-user-purchases">
 </head>
 <body>
@@ -759,7 +759,7 @@
                     <div class="form-group"><label for="ai-delivery-filter">Livraison</label><select id="ai-delivery-filter"><option value="unknown">Indifferente</option><option value="account">Compte fourni</option><option value="activation">Activation client</option></select></div>
                     <div class="form-group"><label for="ai-access-filter">Acces</label><select id="ai-access-filter"><option value="unknown">Indifferent</option><option value="private">Prive</option><option value="shared">Partage</option></select></div>
                     <div class="form-group"><label for="ai-max-price">Prix maximum ($)</label><input id="ai-max-price" type="number" min="0" step="0.01" placeholder="Aucune limite"></div>
-                    <label class="ai-unfunded-control"><input id="ai-include-unfunded" type="checkbox"><span><strong>Inclure les wallets insuffisants</strong><small>Sinon, seules les offres achetables maintenant sont affichees.</small></span></label>
+                    <label class="ai-unfunded-control"><input id="ai-include-unfunded" type="checkbox" checked><span><strong>Afficher aussi les wallets insuffisants</strong><small>Ces offres servent a comparer les prix, mais ne sont pas achetables maintenant.</small></span></label>
                     <button class="btn-primary ai-search-submit" type="submit"><i class="fa-solid fa-magnifying-glass"></i> Rechercher la meilleure offre</button>
                 </form>
                 <div class="ai-results-heading">
@@ -1553,7 +1553,7 @@
 </div>
 
 
-    <script defer src="app.js?v=20260720-ai-bot"></script>
+    <script defer src="app.js?v=20260720-ai-results"></script>
     <script>
     /* ── Mobile Sidebar Toggle ── */
     (function() {

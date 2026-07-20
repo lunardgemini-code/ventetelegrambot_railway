@@ -3292,12 +3292,18 @@ function aiDurationLabel(result) {
 
 function renderAiSupplierResults(data) {
     const results = data.results || [];
+    const hiddenUnfunded = Number(data.hidden_unfunded_count || 0);
     state.aiSupplierResults = results;
     DOM.aiResultsSummary.textContent = results.length
         ? `${results.length} offre(s) strictement conforme(s), classees par cout et fiabilite.`
-        : 'Aucune offre ne respecte tous les criteres. Verifiez la duree, la garantie ou incluez les wallets insuffisants.';
+        : hiddenUnfunded > 0
+            ? `${hiddenUnfunded} offre(s) conforme(s) masquee(s), car leur wallet fournisseur est insuffisant.`
+            : 'Aucune offre ne respecte tous les criteres. Verifiez la duree, la garantie et les autres filtres.';
     if (!results.length) {
-        DOM.aiResultsBody.innerHTML = '<tr><td colspan="9" class="empty-state">Aucun resultat conforme.</td></tr>';
+        const message = hiddenUnfunded > 0
+            ? 'Des offres existent. Activez "Afficher aussi les wallets insuffisants" pour les comparer.'
+            : 'Aucun resultat conforme.';
+        DOM.aiResultsBody.innerHTML = `<tr><td colspan="9" class="empty-state">${escapeHtml(message)}</td></tr>`;
         return;
     }
     DOM.aiResultsBody.innerHTML = results.map((result, index) => {

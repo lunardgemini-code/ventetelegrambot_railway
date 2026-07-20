@@ -315,6 +315,7 @@ async def search_supplier_catalog(filters: dict) -> dict:
     include_unfunded = bool(filters.get("include_unfunded"))
     now = datetime.now(timezone.utc)
     results = []
+    hidden_unfunded_count = 0
     for row in rows:
         code = str(row["supplier_code"])
         price = max(0.0, float(row.get("base_price") or 0))
@@ -344,6 +345,7 @@ async def search_supplier_catalog(filters: dict) -> dict:
         balance = float(wallets.get(code, {}).get("balance") or 0)
         affordable = min(stock, int(math.floor((balance + 1e-9) / price)))
         if not include_unfunded and affordable <= 0:
+            hidden_unfunded_count += 1
             continue
         completed = max(0, int(row.get("completed_orders") or 0))
         failed = max(0, int(row.get("failed_orders") or 0))
@@ -400,6 +402,7 @@ async def search_supplier_catalog(filters: dict) -> dict:
             "include_unfunded": include_unfunded,
         },
         "count": min(len(results), limit),
+        "hidden_unfunded_count": hidden_unfunded_count,
         "results": results[:limit],
     }
 
