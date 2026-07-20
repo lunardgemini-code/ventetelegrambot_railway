@@ -1773,5 +1773,18 @@ async def init_db() -> None:
             await db.commit()
             current_version = 15
 
+        if 15 <= current_version < 16:
+            await db.execute(
+                """CREATE INDEX IF NOT EXISTS idx_reseller_prices_telegram_active
+                   ON reseller_product_prices(user_telegram_id, product_id, expires_at)
+                   WHERE is_active = 1 AND apply_to_telegram = 1"""
+            )
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (16, ?)",
+                ("reseller_telegram_price_cache_index",),
+            )
+            await db.commit()
+            current_version = 16
+
     finally:
         await db.close()

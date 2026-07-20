@@ -59,10 +59,15 @@ class PersistentBackgroundJobTests(unittest.IsolatedAsyncioTestCase):
                 "'webhook_autoscale_decisions') ORDER BY name"
             )
             tables = [row["name"] for row in await cursor.fetchall()]
+            cursor = await db.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index' "
+                "AND name = 'idx_reseller_prices_telegram_active'"
+            )
+            telegram_price_index = await cursor.fetchone()
         finally:
             await db.close()
 
-        self.assertEqual(versions, list(range(1, 16)))
+        self.assertEqual(versions, list(range(1, 17)))
         self.assertEqual(tables, [
             "background_jobs",
             "performance_action_hourly",
@@ -70,6 +75,7 @@ class PersistentBackgroundJobTests(unittest.IsolatedAsyncioTestCase):
             "webhook_autoscale_decisions",
             "webhook_autoscale_settings",
         ])
+        self.assertIsNotNone(telegram_price_index)
 
     async def test_webhook_autoscale_settings_and_decisions_are_persistent(self):
         settings = await update_webhook_autoscale_settings(

@@ -30,6 +30,7 @@ class ResellerFundingTests(unittest.IsolatedAsyncioTestCase):
         db_module.TURSO_URL = ""
         db_module._sqlite_wal_configured = False
         models._RESELLER_AUTH_CACHE.clear()
+        models._TELEGRAM_SPECIAL_PRICE_USERS_CACHE = None
         await init_db()
         await models.get_or_create_user(7001, "reseller", "Reseller")
         await models.topup_wallet(7001, 1.0, "Admin test credit")
@@ -37,6 +38,7 @@ class ResellerFundingTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         models._RESELLER_AUTH_CACHE.clear()
+        models._TELEGRAM_SPECIAL_PRICE_USERS_CACHE = None
         db_module.TURSO_URL = self.original_turso_url
         if self.original_db_path is None:
             os.environ.pop("DB_PATH", None)
@@ -268,9 +270,10 @@ class ResellerFundingTests(unittest.IsolatedAsyncioTestCase):
             "Test product",
             0.75,
         )
-        await models.set_price_tiers(product_id, [
-            {"min_qty": 2, "max_qty": 10, "price_usd": 0.60}
-        ])
+        await models.set_price_tiers(
+            product_id,
+            [{"min_qty": 2, "max_qty": 10, "price_usd": 0.60}],
+        )
         await models.add_stock_items(product_id, ["item-1", "item-2", "item-3", "item-4"])
         await models.upsert_reseller_special_price(7001, product_id, 0.55)
         bot._reseller_catalog_cache.clear()
@@ -390,6 +393,31 @@ class ResellerFundingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(telegram_pricing["unit_price"], 0.60)
         self.assertEqual(telegram_pricing["pricing_type"], "standard")
         self.assertEqual(telegram_products[0]["price_usd"], 0.75)
+
+    async def test_standard_telegram_buyer_skips_special_price_lookup(self):
+        category_id = await models.add_category("Cached standard pricing")
+        product_id = await models.add_product(
+            category_id, "Standard Telegram product", "Test", 0.75
+        )
+        await models.set_price_tiers(product_id, [
+            {"min_qty": 2, "max_qty": 10, "price_usd": 0.60}
+        ])
+        models._TELEGRAM_SPECIAL_PRICE_USERS_CACHE = (
+            models.time.monotonic(),
+            frozenset({7001}),
+        )
+
+        with patch(
+            "database.models._reseller_pricing_from_db",
+            AsyncMock(side_effect=AssertionError("special lookup must be skipped")),
+        ):
+            pricing = await models.get_telegram_order_pricing(
+                7999, product_id, 2
+            )
+
+        self.assertEqual(pricing["pricing_type"], "standard")
+        self.assertEqual(pricing["unit_price"], 0.60)
+        self.assertIsNone(pricing["special_price_id"])
 
     async def test_supplier_cost_protection_rejects_unprofitable_special_price(self):
         category_id = await models.add_category("Supplier")

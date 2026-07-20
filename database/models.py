@@ -43,6 +43,19 @@ def _get_nowpayments_expiry_lock() -> asyncio.Lock:
     return _NOWPAYMENTS_EXPIRY_LOCK
 
 
+def _get_telegram_special_price_users_cache_lock() -> asyncio.Lock:
+    global _TELEGRAM_SPECIAL_PRICE_USERS_CACHE_LOCK
+    global _TELEGRAM_SPECIAL_PRICE_USERS_CACHE_LOCK_LOOP
+    loop = asyncio.get_running_loop()
+    if (
+        _TELEGRAM_SPECIAL_PRICE_USERS_CACHE_LOCK is None
+        or _TELEGRAM_SPECIAL_PRICE_USERS_CACHE_LOCK_LOOP is not loop
+    ):
+        _TELEGRAM_SPECIAL_PRICE_USERS_CACHE_LOCK = asyncio.Lock()
+        _TELEGRAM_SPECIAL_PRICE_USERS_CACHE_LOCK_LOOP = loop
+    return _TELEGRAM_SPECIAL_PRICE_USERS_CACHE_LOCK
+
+
 def _utcnow() -> datetime:
     """Return naive UTC for compatibility with existing SQLite timestamps."""
     return datetime.now(timezone.utc).replace(tzinfo=None)
@@ -65,7 +78,12 @@ _RESELLER_LAST_USED_TOUCH_INTERVAL = 60.0
 _RESELLER_AUTH_CACHE: dict[str, tuple[float, dict]] = {}
 _RESELLER_AUTH_CACHE_TTL = 30.0
 _TELEGRAM_SPECIAL_PRICE_USERS_CACHE: tuple[float, frozenset[int]] | None = None
-_TELEGRAM_SPECIAL_PRICE_USERS_CACHE_TTL = 30.0
+_TELEGRAM_SPECIAL_PRICE_USERS_CACHE_TTL = max(
+    30.0,
+    float(os.environ.get("TELEGRAM_SPECIAL_PRICE_USERS_CACHE_SECONDS", "300")),
+)
+_TELEGRAM_SPECIAL_PRICE_USERS_CACHE_LOCK = None
+_TELEGRAM_SPECIAL_PRICE_USERS_CACHE_LOCK_LOOP = None
 _GET_STATS_CACHE = {}
 _GET_STATS_CACHE_TTL = 30
 _CATALOG_CACHE_GENERATION = 0
@@ -5504,19 +5522,87 @@ async def get_reseller_order_pricing(
     return await _enforce_reseller_price_cost_floor(pricing, int(product_id))
 
 
+async def _get_telegram_special_price_user_ids() -> frozenset[int]:
+    global _TELEGRAM_SPECIAL_PRICE_USERS_CACHE
+    now = time.monotonic()
+    cached = _TELEGRAM_SPECIAL_PRICE_USERS_CACHE
+    if (
+        cached is not None
+        and now - cached[0] < _TELEGRAM_SPECIAL_PRICE_USERS_CACHE_TTL
+    ):
+        return cached[1]
+
+    async with _get_telegram_special_price_users_cache_lock():
+        now = time.monotonic()
+        cached = _TELEGRAM_SPECIAL_PRICE_USERS_CACHE
+        if (
+            cached is not None
+            and now - cached[0] < _TELEGRAM_SPECIAL_PRICE_USERS_CACHE_TTL
+        ):
+            return cached[1]
+        db = await get_db()
+        try:
+            cursor = await db.execute(
+                """SELECT DISTINCT user_telegram_id
+                   FROM reseller_product_prices
+                   WHERE is_active = 1 AND apply_to_telegram = 1
+                     AND (expires_at IS NULL OR datetime(expires_at) > CURRENT_TIMESTAMP)"""
+            )
+            user_ids = frozenset(
+                int(row["user_telegram_id"]) for row in await cursor.fetchall()
+            )
+        finally:
+            await db.close()
+        _TELEGRAM_SPECIAL_PRICE_USERS_CACHE = (time.monotonic(), user_ids)
+        return user_ids
+
+
+async def _get_standard_telegram_order_pricing(
+    product_id: int,
+    quantity: int,
+) -> dict:
+    product = await get_product(int(product_id))
+    if (
+        not product
+        or not bool(product.get("is_active"))
+        or bool(product.get("is_deleted"))
+    ):
+        raise ValueError("Product unavailable")
+    unit_price = round(
+        float(await get_effective_price(int(product_id), max(1, int(quantity)))),
+        2,
+    )
+    return {
+        "product": product,
+        "unit_price": unit_price,
+        "standard_unit_price": unit_price,
+        "pricing_type": "standard",
+        "special_price_id": None,
+        "special_price_updated_at": None,
+        "enforce_cost_floor": False,
+        "apply_to_telegram": False,
+    }
+
+
 async def get_telegram_order_pricing(
     user_telegram_id: int,
     product_id: int,
     quantity: int,
 ) -> dict:
     """Return the locked unit price for a purchase started inside Telegram."""
+    quantity = max(1, int(quantity))
+    special_user_ids = await _get_telegram_special_price_user_ids()
+    if int(user_telegram_id) not in special_user_ids:
+        return await _get_standard_telegram_order_pricing(
+            int(product_id), quantity
+        )
     db = await get_db()
     try:
         pricing = await _reseller_pricing_from_db(
             db,
             int(user_telegram_id),
             int(product_id),
-            max(1, int(quantity)),
+            quantity,
             telegram_only=True,
         )
     finally:
@@ -5567,26 +5653,8 @@ async def apply_telegram_special_prices_to_products(
     user_telegram_id: int,
 ) -> list[dict]:
     """Apply Telegram-enabled reseller prices to products shown in the bot."""
-    global _TELEGRAM_SPECIAL_PRICE_USERS_CACHE
-    now = time.monotonic()
-    cached = _TELEGRAM_SPECIAL_PRICE_USERS_CACHE
-    if cached is None or now - cached[0] >= _TELEGRAM_SPECIAL_PRICE_USERS_CACHE_TTL:
-        db = await get_db()
-        try:
-            cursor = await db.execute(
-                """SELECT DISTINCT user_telegram_id
-                   FROM reseller_product_prices
-                   WHERE is_active = 1 AND COALESCE(apply_to_telegram, 1) = 1
-                     AND (expires_at IS NULL OR datetime(expires_at) > CURRENT_TIMESTAMP)"""
-            )
-            user_ids = frozenset(
-                int(row["user_telegram_id"]) for row in await cursor.fetchall()
-            )
-        finally:
-            await db.close()
-        cached = (now, user_ids)
-        _TELEGRAM_SPECIAL_PRICE_USERS_CACHE = cached
-    if int(user_telegram_id) not in cached[1]:
+    special_user_ids = await _get_telegram_special_price_user_ids()
+    if int(user_telegram_id) not in special_user_ids:
         return products
     payload = await _apply_special_prices_to_catalog(
         {"products": products}, int(user_telegram_id), telegram_only=True
