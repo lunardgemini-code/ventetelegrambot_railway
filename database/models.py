@@ -2098,9 +2098,8 @@ async def get_product_full_details(product_id: int) -> tuple[dict | None, int, l
             reserved = 0
         stock_count = max(0, total_unsold - reserved)
         if product.get("delivery_type") == "supplier_api":
-            from database.suppliers import get_supplier_product_by_local_product, supplier_available_stock
-            supplier_product = await get_supplier_product_by_local_product(product_id)
-            stock_count = await supplier_available_stock(supplier_product) if supplier_product else 0
+            from database.suppliers import get_supplier_available_stock
+            stock_count = await get_supplier_available_stock(product_id)
 
         # 3. Paliers de prix (Tiers) via cache si possible
         global _TIERS_CACHE
@@ -2157,8 +2156,8 @@ async def get_stock_count(product_id: int) -> int:
         )
         supplier_row = await cursor.fetchone()
         if supplier_row:
-            from database.suppliers import supplier_available_stock
-            return await supplier_available_stock(dict(supplier_row))
+            from database.suppliers import get_supplier_available_stock
+            return await get_supplier_available_stock(product_id)
         # 1. Stock total non vendu en base
         cursor = await db.execute(
             "SELECT COUNT(*) as cnt FROM stock_items WHERE product_id = ? AND is_sold = 0",

@@ -436,6 +436,14 @@ async def sync_supplier_products(
             for external_id, row in existing_by_id.items()
             if bool(row.get("enabled"))
         }
+        route_cursor = await db.execute(
+            """SELECT sp.external_product_id
+               FROM supplier_product_routes spr
+               JOIN supplier_products sp ON sp.id = spr.supplier_product_id
+               WHERE sp.supplier_code = ? AND spr.status IN ('proposed', 'confirmed')""",
+            (supplier_code,),
+        )
+        active_ids.update(str(row["external_product_id"]) for row in await route_cursor.fetchall())
         compared_ids = (
             set(normalized_by_id)
             if refresh_disabled
@@ -1024,6 +1032,245 @@ async def get_supplier_product_by_local_product(
         await db.close()
 
 
+async def get_supplier_dashboard_summaries(supplier_codes: list[str]) -> dict[str, dict]:
+    """Load provider switcher counts/settings without loading every catalog."""
+    codes = [_provider(code)["code"] for code in supplier_codes]
+    if not codes:
+        return {}
+    db = await get_db()
+    try:
+        setting_keys = []
+        for code in codes:
+            prefix = _settings_prefix(code)
+            setting_keys.extend((f"{prefix}_enabled", f"{prefix}_last_sync"))
+        placeholders = ",".join("?" for _ in setting_keys)
+        cursor = await db.execute(
+            f"SELECT key, value FROM settings WHERE key IN ({placeholders})",
+            setting_keys,
+        )
+        settings = {str(row["key"]): str(row["value"]) for row in await cursor.fetchall()}
+        code_placeholders = ",".join("?" for _ in codes)
+        cursor = await db.execute(
+            f"""SELECT supplier_code, COUNT(*) AS products_count,
+                       SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) AS selected_count
+                FROM supplier_products WHERE supplier_code IN ({code_placeholders})
+                GROUP BY supplier_code""",
+            codes,
+        )
+        counts = {str(row["supplier_code"]): dict(row) for row in await cursor.fetchall()}
+        summaries = {}
+        for code in codes:
+            prefix = _settings_prefix(code)
+            row = counts.get(code, {})
+            summaries[code] = {
+                "enabled": settings.get(
+                    f"{prefix}_enabled", "1" if code == DEFAULT_SUPPLIER_CODE else "0"
+                ) != "0",
+                "last_sync": settings.get(f"{prefix}_last_sync", ""),
+                "products_count": int(row.get("products_count") or 0),
+                "selected_count": int(row.get("selected_count") or 0),
+            }
+        return summaries
+    finally:
+        await db.close()
+
+
+async def list_enabled_supplier_codes(supplier_codes: list[str]) -> set[str]:
+    summaries = await get_supplier_dashboard_summaries(supplier_codes)
+    return {code for code, summary in summaries.items() if summary["enabled"]}
+
+
+async def list_supplier_router_catalog() -> dict:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT sp.id, sp.supplier_code, sp.external_product_id,
+                      sp.local_product_id, sp.name, sp.description, sp.base_price,
+                      sp.remote_stock, sp.enabled, sp.warranty_days,
+                      p.price_usd AS sale_price,
+                      p.warranty_days AS promised_warranty_days
+               FROM supplier_products sp
+               LEFT JOIN products p ON p.id = sp.local_product_id
+               ORDER BY sp.supplier_code, sp.name"""
+        )
+        products = [dict(row) for row in await cursor.fetchall()]
+        return {
+            "anchors": [row for row in products if row.get("local_product_id") and row.get("enabled")],
+            "products": products,
+        }
+    finally:
+        await db.close()
+
+
+async def upsert_supplier_route_proposals(proposals: list[dict]) -> int:
+    if not proposals:
+        return 0
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        saved = 0
+        for proposal in proposals:
+            cursor = await db.execute(
+                "SELECT status FROM supplier_product_routes WHERE local_product_id = ? AND supplier_product_id = ?",
+                (int(proposal["local_product_id"]), int(proposal["supplier_product_id"])),
+            )
+            existing = await cursor.fetchone()
+            if existing and str(existing["status"]) in {"confirmed", "rejected"}:
+                continue
+            await db.execute(
+                """INSERT INTO supplier_product_routes
+                   (local_product_id, supplier_product_id, status, confidence,
+                    match_source, reason, attributes_json, updated_at)
+                   VALUES (?, ?, 'proposed', ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                   ON CONFLICT(local_product_id, supplier_product_id) DO UPDATE SET
+                    confidence = excluded.confidence,
+                    match_source = excluded.match_source,
+                    reason = excluded.reason,
+                    attributes_json = excluded.attributes_json,
+                    updated_at = CURRENT_TIMESTAMP""",
+                (
+                    int(proposal["local_product_id"]),
+                    int(proposal["supplier_product_id"]),
+                    float(proposal.get("confidence") or 0),
+                    str(proposal.get("match_source") or "deterministic"),
+                    str(proposal.get("reason") or "")[:500],
+                    json.dumps(proposal.get("attributes") or {}, ensure_ascii=False, separators=(",", ":")),
+                ),
+            )
+            saved += 1
+        await db.commit()
+        return saved
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def list_supplier_routes(status: str = "") -> list[dict]:
+    db = await get_db()
+    try:
+        params = []
+        where = ""
+        if status in {"proposed", "confirmed", "rejected"}:
+            where = "WHERE spr.status = ?"
+            params.append(status)
+        cursor = await db.execute(
+            f"""SELECT spr.*, p.name AS local_product_name, p.price_usd AS sale_price,
+                       anchor.supplier_code AS anchor_supplier_code,
+                       candidate.supplier_code AS candidate_supplier_code,
+                       candidate.external_product_id, candidate.name AS candidate_name,
+                       candidate.base_price AS candidate_price,
+                       candidate.remote_stock AS candidate_stock
+                FROM supplier_product_routes spr
+                JOIN products p ON p.id = spr.local_product_id
+                LEFT JOIN supplier_products anchor ON anchor.local_product_id = spr.local_product_id
+                JOIN supplier_products candidate ON candidate.id = spr.supplier_product_id
+                {where}
+                ORDER BY CASE spr.status WHEN 'proposed' THEN 0 WHEN 'confirmed' THEN 1 ELSE 2 END,
+                         spr.confidence DESC, spr.updated_at DESC""",
+            params,
+        )
+        return [dict(row) for row in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+
+async def review_supplier_route(route_id: int, status: str) -> dict:
+    if status not in {"confirmed", "rejected"}:
+        raise ValueError("INVALID_ROUTE_STATUS")
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT id FROM supplier_product_routes WHERE id = ?",
+            (int(route_id),),
+        )
+        if not await cursor.fetchone():
+            raise ValueError("SUPPLIER_ROUTE_NOT_FOUND")
+        await db.execute(
+            """UPDATE supplier_product_routes SET status = ?, reviewed_at = CURRENT_TIMESTAMP,
+                      updated_at = CURRENT_TIMESTAMP WHERE id = ?""",
+            (status, int(route_id)),
+        )
+        await db.commit()
+        cursor = await db.execute("SELECT * FROM supplier_product_routes WHERE id = ?", (int(route_id),))
+        row = await cursor.fetchone()
+        return dict(row)
+    finally:
+        await db.close()
+
+
+async def get_supplier_route_candidates(local_product_id: int) -> list[dict]:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT sp.*, route_product.price_usd AS route_sale_price,
+                      COALESCE(stats.completed_orders, 0) AS completed_orders,
+                      COALESCE(stats.failed_orders, 0) AS failed_orders,
+                      COALESCE(stats.unknown_orders, 0) AS unknown_orders,
+                      CASE WHEN sp.local_product_id = ? THEN 'primary' ELSE 'confirmed' END AS route_kind
+               FROM supplier_products sp
+               LEFT JOIN (
+                    SELECT supplier_code, external_product_id,
+                           SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed_orders,
+                           SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_orders,
+                           SUM(CASE WHEN status = 'unknown' THEN 1 ELSE 0 END) AS unknown_orders
+                    FROM supplier_orders GROUP BY supplier_code, external_product_id
+               ) stats ON stats.supplier_code = sp.supplier_code
+                      AND stats.external_product_id = sp.external_product_id
+               LEFT JOIN products route_product ON route_product.id = ?
+               WHERE (sp.local_product_id = ? AND sp.enabled = 1)
+                  OR sp.id IN (
+                      SELECT supplier_product_id FROM supplier_product_routes
+                      WHERE local_product_id = ? AND status = 'confirmed'
+                  )""",
+            (
+                int(local_product_id), int(local_product_id),
+                int(local_product_id), int(local_product_id),
+            ),
+        )
+        rows = [dict(row) for row in await cursor.fetchall()]
+        for row in rows:
+            row["provider_enabled"] = await _supplier_enabled(db, str(row["supplier_code"]))
+            if row.get("route_kind") == "confirmed":
+                row["margin_type"] = "sale_price"
+                row["margin_value"] = float(row.get("route_sale_price") or 0)
+        return rows
+    finally:
+        await db.close()
+
+
+async def get_ranked_supplier_route_candidates(
+    local_product_id: int, quantity: int, unit_revenue: float
+) -> list[dict]:
+    from services.supplier_router import rank_supplier_candidates
+
+    candidates = [
+        row for row in await get_supplier_route_candidates(local_product_id)
+        if row.get("provider_enabled") or row.get("route_kind") == "primary"
+    ]
+    if len(candidates) == 1 and candidates[0].get("route_kind") == "primary":
+        ranked = rank_supplier_candidates(candidates, unit_revenue)
+        return ranked or [{**candidates[0], "route_score": float(candidates[0].get("base_price") or 0), "reliability": 1.0}]
+
+    async def with_stock(mapping: dict) -> dict | None:
+        try:
+            available = await supplier_available_stock(mapping)
+        except Exception:
+            return None
+        return {**mapping, "available_stock": available} if available >= max(1, int(quantity)) else None
+
+    checked = [row for row in await asyncio.gather(*(with_stock(row) for row in candidates)) if row]
+    ranked = rank_supplier_candidates(checked, unit_revenue)
+    if ranked:
+        return ranked
+    primary = next((row for row in checked if row.get("route_kind") == "primary"), None)
+    return [{**primary, "route_score": float(primary.get("base_price") or 0), "reliability": 1.0}] if primary else []
+
+
 async def get_supplier_product_by_mapping_id(
     mapping_id: int,
     supplier_code: str = DEFAULT_SUPPLIER_CODE,
@@ -1064,12 +1311,27 @@ async def supplier_stock_counts() -> dict[int, int]:
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT local_product_id, supplier_code, remote_stock, base_price, "
-            "margin_type, margin_value "
-            "FROM supplier_products WHERE enabled = 1 "
-            "AND local_product_id IS NOT NULL"
+            """SELECT sp.local_product_id, sp.supplier_code, sp.remote_stock,
+                      sp.base_price, sp.margin_type, sp.margin_value,
+                      p.price_usd AS sale_price, 'primary' AS route_kind
+               FROM supplier_products sp
+               JOIN products p ON p.id = sp.local_product_id
+               WHERE sp.enabled = 1 AND sp.local_product_id IS NOT NULL
+               UNION ALL
+               SELECT spr.local_product_id, sp.supplier_code, sp.remote_stock,
+                      sp.base_price, 'sale_price' AS margin_type,
+                      p.price_usd AS margin_value, p.price_usd AS sale_price,
+                      'confirmed' AS route_kind
+               FROM supplier_product_routes spr
+               JOIN supplier_products sp ON sp.id = spr.supplier_product_id
+               JOIN products p ON p.id = spr.local_product_id
+               WHERE spr.status = 'confirmed'"""
         )
         rows = [dict(row) for row in await cursor.fetchall()]
+        enabled_by_code = {
+            code: await _supplier_enabled(db, code)
+            for code in {row["supplier_code"] for row in rows}
+        }
         rates = {
             code: await _units_per_usd(db, code)
             for code in {row["supplier_code"] for row in rows}
@@ -1089,29 +1351,36 @@ async def supplier_stock_counts() -> dict[int, int]:
     balances = dict(await asyncio.gather(*(
         read_balance(code, rate) for code, rate in rates.items()
     )))
-    return {
-        int(row["local_product_id"]): (
-            calculate_affordable_stock(
-                row.get("remote_stock"),
-                row.get("base_price"),
-                balances.get(row["supplier_code"], 0.0),
-            )
-            if supplier_price_is_safe(
-                row.get("base_price"),
-                str(row.get("margin_type") or "inherit"),
-                row.get("margin_value") or 0,
-            )
-            else 0
-        )
-        for row in rows
-    }
-
+    counts: dict[int, int] = {}
+    for row in rows:
+        local_id = int(row["local_product_id"])
+        if not enabled_by_code.get(row["supplier_code"], False):
+            counts.setdefault(local_id, 0)
+            continue
+        affordable = calculate_affordable_stock(
+            row.get("remote_stock"),
+            row.get("base_price"),
+            balances.get(row["supplier_code"], 0.0),
+        ) if supplier_price_is_safe(
+            row.get("base_price"),
+            str(row.get("margin_type") or "inherit"),
+            row.get("margin_value") or 0,
+        ) else 0
+        counts[local_id] = counts.get(local_id, 0) + affordable
+    return counts
 
 async def get_supplier_available_stock(local_product_id: int) -> int:
-    mapping = await get_supplier_product_by_local_product(local_product_id)
-    if not mapping:
+    mappings = [
+        row for row in await get_supplier_route_candidates(local_product_id)
+        if row.get("provider_enabled")
+    ]
+    if not mappings:
         return 0
-    return await supplier_available_stock(mapping)
+    values = await asyncio.gather(
+        *(supplier_available_stock(mapping) for mapping in mappings),
+        return_exceptions=True,
+    )
+    return sum(value for value in values if isinstance(value, int))
 
 
 async def supplier_available_stock(mapping: dict) -> int:
@@ -1175,11 +1444,11 @@ async def claim_supplier_order(
             await db.execute(
                 "UPDATE supplier_orders SET status = 'purchasing', "
                 "attempts = attempts + 1, error = NULL, "
-                "cost_usd = COALESCE(cost_usd, ?), "
+                "supplier_code = ?, external_product_id = ?, cost_usd = ?, "
                 "revenue_usd = COALESCE(revenue_usd, ?), "
-                "cost_estimated = CASE WHEN cost_usd IS NULL THEN 0 ELSE cost_estimated END, "
+                "cost_estimated = 0, "
                 "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (cost_usd, revenue_usd, int(row["id"])),
+                (supplier_code, str(mapping["external_product_id"]), cost_usd, revenue_usd, int(row["id"])),
             )
             await db.commit()
             return {**row, "status": "purchasing", "claimed": True}

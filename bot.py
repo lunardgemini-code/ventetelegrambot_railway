@@ -1449,24 +1449,26 @@ async def api_admin_update_reseller_security(
 
 @api.get("/api/supplier-bots", dependencies=[Depends(verify_api_key)])
 async def api_list_supplier_bots():
-    from database.suppliers import get_supplier_dashboard
+    from database.suppliers import get_supplier_dashboard_summaries
     from services.supplier_registry import (
         is_supplier_configured,
         list_supplier_providers,
     )
 
+    registered = list_supplier_providers()
+    summaries = await get_supplier_dashboard_summaries(
+        [str(provider["code"]) for provider in registered]
+    )
     providers = []
-    for provider in list_supplier_providers():
-        data = await get_supplier_dashboard(provider["code"])
+    for provider in registered:
+        data = summaries.get(provider["code"], {})
         providers.append(
             {
                 **provider,
                 "configured": is_supplier_configured(provider["code"]),
                 "enabled": bool(data["enabled"]),
-                "products_count": len(data.get("products", [])),
-                "selected_count": sum(
-                    1 for product in data.get("products", []) if product["enabled"]
-                ),
+                "products_count": int(data.get("products_count") or 0),
+                "selected_count": int(data.get("selected_count") or 0),
                 "last_sync": data.get("last_sync"),
             }
         )
@@ -1723,6 +1725,56 @@ async def api_update_supplier_product_descriptions(
         raise HTTPException(status_code=code, detail=str(exc))
     except Exception as exc:
         logger.error("API supplier descriptions error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/api/supplier-router/routes", dependencies=[Depends(verify_api_key)])
+async def api_list_supplier_routes(status: str = ""):
+    from database.suppliers import list_supplier_routes
+
+    try:
+        normalized = str(status or "").strip().lower()
+        if normalized and normalized not in {"proposed", "confirmed", "rejected"}:
+            raise HTTPException(status_code=400, detail="Invalid route status")
+        return {"routes": await list_supplier_routes(normalized)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("API supplier router list error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/supplier-router/propose", dependencies=[Depends(verify_api_key)])
+async def api_propose_supplier_routes(data: dict | None = None):
+    from services.supplier_router import propose_supplier_routes
+
+    payload = data or {}
+    try:
+        return await propose_supplier_routes(
+            use_ai=bool(payload.get("use_ai", True)),
+            max_pairs=max(1, min(int(payload.get("max_pairs") or 80), 200)),
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("API supplier router proposal error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.put("/api/supplier-router/routes/{route_id}", dependencies=[Depends(verify_api_key)])
+async def api_review_supplier_route(route_id: int, data: dict):
+    from database.suppliers import review_supplier_route
+
+    try:
+        route = await review_supplier_route(
+            route_id, str(data.get("status") or "").strip().lower()
+        )
+        return {"status": "updated", "route": route}
+    except ValueError as exc:
+        code = 404 if str(exc) == "SUPPLIER_ROUTE_NOT_FOUND" else 400
+        raise HTTPException(status_code=code, detail=str(exc))
+    except Exception as exc:
+        logger.error("API supplier router review error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

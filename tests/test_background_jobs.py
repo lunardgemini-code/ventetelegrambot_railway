@@ -60,7 +60,7 @@ class PersistentBackgroundJobTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await db.close()
 
-        self.assertEqual(versions, list(range(1, 12)))
+        self.assertEqual(versions, list(range(1, 13)))
         self.assertEqual(tables, [
             "background_jobs",
             "performance_action_hourly",

@@ -13,7 +13,7 @@
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
-    <link rel="stylesheet" href="style.css?v=20260715-supplier-image">
+    <link rel="stylesheet" href="style.css?v=20260720-supplier-router">
     <link rel="stylesheet" href="revamp.css?v=20260717-user-purchases">
 </head>
 <body>
@@ -659,6 +659,7 @@
                 <div class="supplier-view-tabs" role="tablist" aria-label="Vue API Bot Gestion">
                     <button type="button" class="active" data-supplier-view="catalog" role="tab" aria-selected="true"><i class="fa-solid fa-boxes-stacked"></i> Catalogue</button>
                     <button type="button" data-supplier-view="stats" role="tab" aria-selected="false"><i class="fa-solid fa-chart-line"></i> Statistiques</button>
+                    <button type="button" data-supplier-view="router" role="tab" aria-selected="false"><i class="fa-solid fa-code-branch"></i> Routeur intelligent</button>
                 </div>
                 <div id="supplier-catalog-view">
                 <div class="glass-panel supplier-settings-panel">
@@ -703,6 +704,23 @@
                     <div class="supplier-table-toolbar"><div><h3>Ventes par produit</h3><p>Identifiez les produits qui génèrent le plus de volume et de marge.</p></div></div>
                     <div class="glass-panel overflow-hidden">
                         <table class="data-table supplier-stats-table"><thead><tr><th>Produit</th><th>Articles</th><th>Commandes</th><th>Revenus</th><th>Dépensé</th><th>Bénéfice</th><th>Marge</th></tr></thead><tbody id="supplier-stats-products-body"><tr><td colspan="7" class="empty-state">Aucune vente sur cette période.</td></tr></tbody></table>
+                    </div>
+                </div>
+                <div id="supplier-router-view" class="hidden">
+                    <div class="supplier-router-toolbar">
+                        <div><h3>Produits equivalents</h3><p>Gemini propose les rapprochements. Seules les lignes confirmees servent aux commandes.</p></div>
+                        <button id="btn-supplier-router-scan" type="button" class="btn-primary btn-sm"><i class="fa-solid fa-wand-magic-sparkles"></i> Analyser les catalogues</button>
+                    </div>
+                    <div class="supplier-router-summary glass-panel">
+                        <div><span>A verifier</span><strong id="supplier-router-proposed">0</strong></div>
+                        <div><span>Routes actives</span><strong id="supplier-router-confirmed">0</strong></div>
+                        <div><span>Securite</span><strong>Validation manuelle</strong></div>
+                    </div>
+                    <div class="glass-panel overflow-hidden">
+                        <table class="data-table supplier-router-table">
+                            <thead><tr><th>Votre produit</th><th>Offre candidate</th><th>Prix</th><th>Confiance</th><th>Etat</th><th>Actions</th></tr></thead>
+                            <tbody id="supplier-router-body"><tr><td colspan="6" class="empty-state">Lancez une analyse pour rechercher les produits equivalents.</td></tr></tbody>
+                        </table>
                     </div>
                 </div>
             </section>
@@ -1487,7 +1505,7 @@
 </div>
 
 
-<script defer src="app.js?v=20260719-reseller-security"></script>
+<script defer src="app.js?v=20260720-supplier-router"></script>
     <script>
     /* ── Mobile Sidebar Toggle ── */
     (function() {

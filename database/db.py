@@ -1653,5 +1653,35 @@ async def init_db() -> None:
             await db.commit()
             current_version = 11
 
+        if 11 <= current_version < 12:
+            version_twelve_statements = [
+                """CREATE TABLE IF NOT EXISTS supplier_product_routes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    local_product_id INTEGER NOT NULL,
+                    supplier_product_id INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'proposed',
+                    confidence REAL NOT NULL DEFAULT 0,
+                    match_source TEXT NOT NULL DEFAULT 'deterministic',
+                    reason TEXT NOT NULL DEFAULT '',
+                    attributes_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    reviewed_at TIMESTAMP,
+                    UNIQUE(local_product_id, supplier_product_id),
+                    FOREIGN KEY (local_product_id) REFERENCES products(id),
+                    FOREIGN KEY (supplier_product_id) REFERENCES supplier_products(id)
+                )""",
+                "CREATE INDEX IF NOT EXISTS idx_supplier_routes_local_status ON supplier_product_routes(local_product_id, status)",
+                "CREATE INDEX IF NOT EXISTS idx_supplier_routes_mapping_status ON supplier_product_routes(supplier_product_id, status)",
+            ]
+            for sql in version_twelve_statements:
+                await db.execute(sql)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (12, ?)",
+                ("multi_supplier_product_router",),
+            )
+            await db.commit()
+            current_version = 12
+
     finally:
         await db.close()

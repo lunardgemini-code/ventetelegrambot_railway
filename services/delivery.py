@@ -19,6 +19,7 @@ async def deliver_order(order_id: int, product_id: int) -> list[dict] | None:
         fail_supplier_order,
         finish_supplier_order,
         get_supplier_product_by_local_product,
+        get_ranked_supplier_route_candidates,
     )
 
     mapping = await get_supplier_product_by_local_product(product_id)
@@ -32,30 +33,44 @@ async def deliver_order(order_id: int, product_id: int) -> list[dict] | None:
         if not order:
             return None
         quantity = max(1, int(order.get("quantity") or 1))
-        supplier_order = await claim_supplier_order(order_id, mapping, quantity)
-        if not supplier_order.get("claimed"):
-            if supplier_order.get("status") == "completed":
-                return decoded_supplier_items(supplier_order)
-            logger.warning("Supplier order %s is already %s", order_id, supplier_order.get("status"))
+        unit_revenue = max(0.0, float(order.get("amount_usd") or 0)) / quantity
+        candidates = await get_ranked_supplier_route_candidates(
+            product_id, quantity, unit_revenue
+        )
+        if not candidates:
+            logger.error("No funded and profitable supplier route for order %d", order_id)
             return None
-        try:
-            result = await purchase_supplier_product(
-                mapping.get("supplier_code") or "canboso",
-                mapping["external_product_id"],
-                quantity,
-                buyer_info=f"VenteBot order #{order_id}",
-            )
-            items = await finish_supplier_order(int(supplier_order["id"]), result)
-            logger.info("Supplier order %d delivered %d item(s)", order_id, len(items))
-            return items
-        except SupplierAPIError as exc:
-            await fail_supplier_order(
-                int(supplier_order["id"]),
-                str(exc),
-                unknown=bool(exc.outcome_unknown),
-            )
-            logger.error("Supplier delivery failed for order %d: %s", order_id, exc)
-            return None
+        for candidate in candidates:
+            supplier_order = await claim_supplier_order(order_id, candidate, quantity)
+            if not supplier_order.get("claimed"):
+                if supplier_order.get("status") == "completed":
+                    return decoded_supplier_items(supplier_order)
+                logger.warning("Supplier order %s is already %s", order_id, supplier_order.get("status"))
+                return None
+            try:
+                result = await purchase_supplier_product(
+                    candidate.get("supplier_code") or "canboso",
+                    candidate["external_product_id"],
+                    quantity,
+                    buyer_info=f"VenteBot order #{order_id}",
+                )
+                items = await finish_supplier_order(int(supplier_order["id"]), result)
+                logger.info(
+                    "Supplier order %d delivered %d item(s) via %s",
+                    order_id, len(items), candidate.get("supplier_code"),
+                )
+                return items
+            except SupplierAPIError as exc:
+                await fail_supplier_order(
+                    int(supplier_order["id"]), str(exc), unknown=bool(exc.outcome_unknown)
+                )
+                logger.error(
+                    "Supplier route %s failed for order %d: %s",
+                    candidate.get("supplier_code"), order_id, exc,
+                )
+                if exc.outcome_unknown:
+                    return None
+        return None
 
     stock_items = await reserve_stock_items_for_order(order_id, product_id)
     if not stock_items:

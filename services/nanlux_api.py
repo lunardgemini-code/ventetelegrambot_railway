@@ -83,6 +83,7 @@ async def _request(method: str, path: str, **kwargs) -> Any:
                     _error_message(response),
                     status_code=response.status_code,
                     retryable=retryable,
+                    outcome_unknown=(method == "POST" and response.status_code >= 500),
                 )
                 if retryable and attempt + 1 < attempts:
                     await asyncio.sleep(1)
@@ -107,7 +108,10 @@ async def _request(method: str, path: str, **kwargs) -> Any:
                 outcome_unknown=method == "POST",
             ) from exc
         except (ValueError, json.JSONDecodeError) as exc:
-            raise SupplierAPIError("MMO NanLux returned invalid JSON") from exc
+            raise SupplierAPIError(
+                "MMO NanLux returned invalid JSON",
+                outcome_unknown=method == "POST",
+            ) from exc
     raise SupplierAPIError("MMO NanLux request failed", retryable=True)
 
 

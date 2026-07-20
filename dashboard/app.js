@@ -193,7 +193,7 @@ const state = {
     revenueChart:null, ordersChart:null, productSalesChart:null, productMomentumChart:null,
     paymentReviewCategory:'all', paymentReviewIncludeResolved:false, paymentReviewItems:[],
     dynamicPriceChart:null, dynamicSimulationChart:null,
-    productStats:[], productMomentum:null, productMomentumSelected:[], deadProductAlerts:[], supplierBot:null, supplierBots:[], activeSupplierCode:'canboso', supplierView:'catalog', supplierStats:null, supplierStatsDays:30, supplierStatsChart:null,
+    productStats:[], productMomentum:null, productMomentumSelected:[], deadProductAlerts:[], supplierBot:null, supplierBots:[], activeSupplierCode:'canboso', supplierView:'catalog', supplierStats:null, supplierStatsDays:30, supplierStatsChart:null, supplierRoutes:[],
     gameProvider:null, gameCatalog:[], gameMatches:[], gameCompetitions:[], gameView:'catalog', currentGameMatch:null,
     autoscaleChart:null, autoscaleStatus:null
 };
@@ -263,7 +263,7 @@ const DOM = {
     supplierProviderSwitcher:$('supplier-provider-switcher'), supplierProviderName:$('supplier-provider-name'), supplierRateGroup:$('supplier-rate-group'), supplierRateLabel:$('supplier-rate-label'), supplierUnitsPerUsd:$('supplier-units-per-usd'), supplierCredentialEnv:$('supplier-credential-env'),
     btnSupplierSync:$('btn-supplier-sync'), supplierConnection:$('supplier-connection'), supplierWalletBalance:$('supplier-wallet-balance'), supplierLastSync:$('supplier-last-sync'), supplierSelectedCount:$('supplier-selected-count'), supplierReviewCount:$('supplier-review-count'),
     supplierProductSearch:$('supplier-product-search'), supplierProductsTableBody:$('supplier-products-table-body'),
-    supplierCatalogView:$('supplier-catalog-view'), supplierStatsView:$('supplier-stats-view'), supplierStatsRevenue:$('supplier-stats-revenue'), supplierStatsCost:$('supplier-stats-cost'), supplierStatsProfit:$('supplier-stats-profit'), supplierStatsMargin:$('supplier-stats-margin'),
+    supplierCatalogView:$('supplier-catalog-view'), supplierStatsView:$('supplier-stats-view'), supplierRouterView:$('supplier-router-view'), supplierRouterBody:$('supplier-router-body'), supplierRouterProposed:$('supplier-router-proposed'), supplierRouterConfirmed:$('supplier-router-confirmed'), btnSupplierRouterScan:$('btn-supplier-router-scan'), supplierStatsRevenue:$('supplier-stats-revenue'), supplierStatsCost:$('supplier-stats-cost'), supplierStatsProfit:$('supplier-stats-profit'), supplierStatsMargin:$('supplier-stats-margin'),
     supplierStatsItems:$('supplier-stats-items'), supplierStatsOrders:$('supplier-stats-orders'), supplierStatsOrdersSub:$('supplier-stats-orders-sub'), supplierStatsSuccess:$('supplier-stats-success'), supplierStatsQuality:$('supplier-stats-quality'), supplierStatsChart:$('supplier-stats-chart'), supplierStatsProductsBody:$('supplier-stats-products-body'),
     supplierDescriptionModal:$('supplier-description-modal'), supplierDescriptionForm:$('supplier-description-form'), supplierDescriptionProductId:$('supplier-description-product-id'),
     supplierDescriptionTitle:$('supplier-description-title'), supplierDescriptionSource:$('supplier-description-source'),
@@ -435,6 +435,7 @@ function setupEvents() {
     if (DOM.btnCreateResellerKey) DOM.btnCreateResellerKey.addEventListener('click', createResellerKey);
     if (DOM.resellerSecurityForm) DOM.resellerSecurityForm.addEventListener('submit', saveResellerSecurity);
     if (DOM.btnSupplierSync) DOM.btnSupplierSync.addEventListener('click', syncSupplierBot);
+    if (DOM.btnSupplierRouterScan) DOM.btnSupplierRouterScan.addEventListener('click', scanSupplierRoutes);
     if (DOM.supplierSettingsForm) DOM.supplierSettingsForm.addEventListener('submit', saveSupplierSettings);
     if (DOM.supplierProductSearch) DOM.supplierProductSearch.addEventListener('input', renderSupplierProducts);
     $$('[data-supplier-view]').forEach(button => button.addEventListener('click', () => setSupplierView(button.dataset.supplierView)));
@@ -2780,16 +2781,18 @@ async function handleGameTableAction(event) {
 }
 
 async function setSupplierView(view) {
-    const nextView = view === 'stats' ? 'stats' : 'catalog';
+    const nextView = ['stats', 'router'].includes(view) ? view : 'catalog';
     state.supplierView = nextView;
     DOM.supplierCatalogView?.classList.toggle('hidden', nextView !== 'catalog');
     DOM.supplierStatsView?.classList.toggle('hidden', nextView !== 'stats');
+    DOM.supplierRouterView?.classList.toggle('hidden', nextView !== 'router');
     $$('[data-supplier-view]').forEach(button => {
         const active = button.dataset.supplierView === nextView;
         button.classList.toggle('active', active);
         button.setAttribute('aria-selected', String(active));
     });
     if (nextView === 'stats') await loadSupplierStats();
+    if (nextView === 'router') await loadSupplierRoutes();
 }
 
 async function setSupplierStatsDays(rawDays) {
@@ -2929,6 +2932,7 @@ async function loadSupplierBot() {
         if (DOM.btnSupplierSync) DOM.btnSupplierSync.disabled = !supplier.configured;
         renderSupplierProducts();
         if (state.supplierView === 'stats') await loadSupplierStats();
+        if (state.supplierView === 'router') await loadSupplierRoutes();
     } catch (error) {
         DOM.supplierProductsTableBody.innerHTML = `<tr><td colspan="8" class="empty-state">${escapeHtml(error.message || 'Impossible de charger le fournisseur.')}</td></tr>`;
     }
@@ -3121,6 +3125,77 @@ async function syncSupplierBot() {
         showLoading(false);
     }
 }
+
+async function loadSupplierRoutes() {
+    if (!DOM.supplierRouterBody) return;
+    try {
+        const data = await apiCall('/api/supplier-router/routes');
+        state.supplierRoutes = data.routes || [];
+        renderSupplierRoutes();
+    } catch (error) {
+        DOM.supplierRouterBody.innerHTML = `<tr><td colspan="6" class="empty-state">${escapeHtml(error.message || 'Impossible de charger les routes.')}</td></tr>`;
+    }
+}
+
+function renderSupplierRoutes() {
+    const routes = state.supplierRoutes || [];
+    if (DOM.supplierRouterProposed) DOM.supplierRouterProposed.textContent = routes.filter(route => route.status === 'proposed').length;
+    if (DOM.supplierRouterConfirmed) DOM.supplierRouterConfirmed.textContent = routes.filter(route => route.status === 'confirmed').length;
+    if (!routes.length) {
+        DOM.supplierRouterBody.innerHTML = '<tr><td colspan="6" class="empty-state">Aucune equivalence proposee.</td></tr>';
+        return;
+    }
+    DOM.supplierRouterBody.innerHTML = routes.map(route => {
+        const status = String(route.status || 'proposed');
+        const statusLabel = status === 'confirmed' ? 'Active' : status === 'rejected' ? 'Refusee' : 'A verifier';
+        const actions = status === 'proposed'
+            ? `<div class="table-actions"><button class="btn-table-action router-accept" type="button" onclick="reviewSupplierRoute(${Number(route.id)},'confirmed')" title="Confirmer"><i class="fa-solid fa-check"></i></button><button class="btn-table-action router-reject" type="button" onclick="reviewSupplierRoute(${Number(route.id)},'rejected')" title="Refuser"><i class="fa-solid fa-xmark"></i></button></div>`
+            : status === 'confirmed'
+                ? `<button class="btn-table-action router-reject" type="button" onclick="reviewSupplierRoute(${Number(route.id)},'rejected')" title="Desactiver"><i class="fa-solid fa-ban"></i></button>`
+                : '-';
+        return `<tr>
+            <td><strong>${escapeHtml(route.local_product_name || '?')}</strong><small>${escapeHtml(route.anchor_supplier_code || '')}</small></td>
+            <td><strong>${escapeHtml(route.candidate_name || '?')}</strong><small>${escapeHtml(route.candidate_supplier_code || '')} · ID ${escapeHtml(route.external_product_id || '')}</small></td>
+            <td><strong>$${Number(route.candidate_price || 0).toFixed(2)}</strong><small>Vente $${Number(route.sale_price || 0).toFixed(2)} · stock ${Number(route.candidate_stock || 0)}</small></td>
+            <td><strong>${Math.round(Number(route.confidence || 0) * 100)}%</strong><small>${escapeHtml(route.match_source || '')}</small></td>
+            <td><span class="status-badge supplier-route-${escapeHtml(status)}">${statusLabel}</span></td>
+            <td>${actions}</td>
+        </tr>`;
+    }).join('');
+}
+
+async function scanSupplierRoutes() {
+    const button = DOM.btnSupplierRouterScan;
+    const original = button?.innerHTML;
+    try {
+        if (button) {
+            button.disabled = true;
+            button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Analyse en cours';
+        }
+        const result = await apiCall('/api/supplier-router/propose', 'POST', {use_ai:true, max_pairs:80});
+        await loadSupplierRoutes();
+        showToast(`${Number(result.proposals || 0)} rapprochement(s) propose(s).`, 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = original;
+        }
+    }
+}
+
+window.reviewSupplierRoute = async function(routeId, status) {
+    const action = status === 'confirmed' ? 'activer' : 'desactiver';
+    if (!window.confirm(`Confirmer : ${action} cette route fournisseur ?`)) return;
+    try {
+        await apiCall(`/api/supplier-router/routes/${Number(routeId)}`, 'PUT', {status});
+        await Promise.all([loadSupplierRoutes(), loadProducts()]);
+        showToast('Route fournisseur mise a jour.', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+};
 
 async function loadWalletHistory() {
     const type = state.whFilter === 'all' ? '' : `&tx_type=${state.whFilter}`;

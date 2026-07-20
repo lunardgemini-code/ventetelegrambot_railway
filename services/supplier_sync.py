@@ -9,8 +9,10 @@ import time
 
 from database.suppliers import (
     get_supplier_mapping_by_local_product,
+    list_enabled_supplier_codes,
     get_supplier_product_by_local_product,
     get_supplier_units_per_usd,
+    get_supplier_route_candidates,
     supplier_available_stock,
     sync_supplier_products,
 )
@@ -108,17 +110,23 @@ async def refresh_supplier_product_stock(
     if not bool(mapping.get("enabled")):
         return 0
 
-    supplier_code = str(mapping.get("supplier_code") or "canboso")
-    await sync_supplier_catalog(
-        supplier_code,
-        min_interval_seconds=min_interval_seconds,
-        refresh_balance=True,
-        refresh_disabled=False,
-    )
-    refreshed = await get_supplier_product_by_local_product(local_product_id)
-    if not refreshed:
-        return 0
-    available = await supplier_available_stock(refreshed)
+    candidates = await get_supplier_route_candidates(local_product_id)
+    provider_codes = sorted({str(row.get("supplier_code") or "canboso") for row in candidates if row.get("provider_enabled")})
+    sync_results = await asyncio.gather(*(
+        sync_supplier_catalog(
+            code,
+            min_interval_seconds=min_interval_seconds,
+            refresh_balance=True,
+            refresh_disabled=False,
+        ) for code in provider_codes
+    ), return_exceptions=True)
+    if sync_results and all(isinstance(result, Exception) for result in sync_results):
+        raise sync_results[0]
+    refreshed_candidates = await get_supplier_route_candidates(local_product_id)
+    available_values = await asyncio.gather(*(
+        supplier_available_stock(row) for row in refreshed_candidates if row.get("provider_enabled")
+    ), return_exceptions=True)
+    available = sum(value for value in available_values if isinstance(value, int))
 
     db = await get_db()
     try:
@@ -163,6 +171,13 @@ async def supplier_catalog_sync_worker(
                 provider
                 for provider in list_supplier_providers()
                 if is_supplier_configured(str(provider["code"]))
+            ]
+            enabled_codes = await list_enabled_supplier_codes(
+                [str(provider["code"]) for provider in providers]
+            )
+            providers = [
+                provider for provider in providers
+                if str(provider["code"]) in enabled_codes
             ]
             for index, provider in enumerate(providers):
                 code = str(provider["code"])
