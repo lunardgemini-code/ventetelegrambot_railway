@@ -119,7 +119,10 @@ class PersistentBackgroundJobTests(unittest.IsolatedAsyncioTestCase):
         db = await db_module.get_db()
         try:
             await db.execute(
-                "UPDATE background_jobs SET claimed_at = datetime('now', '-10 minutes') WHERE id = ?",
+                """UPDATE background_jobs
+                   SET claimed_at = datetime('now', '-10 minutes'),
+                       updated_at = datetime('now', '-10 minutes')
+                   WHERE id = ?""",
                 ("job-1",),
             )
             await db.commit()
@@ -138,6 +141,28 @@ class PersistentBackgroundJobTests(unittest.IsolatedAsyncioTestCase):
         )
         completed = await get_background_job("job-1")
         self.assertEqual(completed["status"], "completed")
+
+    async def test_recent_job_heartbeat_prevents_duplicate_requeue(self):
+        await create_background_job("job-heartbeat", "broadcast", {"text": "Hello"})
+        claimed = await claim_next_background_job()
+        self.assertEqual(claimed["status"], "running")
+
+        db = await db_module.get_db()
+        try:
+            await db.execute(
+                "UPDATE background_jobs SET claimed_at = datetime('now', '-10 minutes') WHERE id = ?",
+                ("job-heartbeat",),
+            )
+            await db.commit()
+        finally:
+            await db.close()
+        await update_background_job_progress(
+            "job-heartbeat", done=1, failed=0, total=10, cursor_value=1
+        )
+
+        self.assertEqual(await requeue_stale_background_jobs(180), 0)
+        active = await get_background_job("job-heartbeat")
+        self.assertEqual(active["status"], "running")
 
     async def test_dedicated_job_types_do_not_block_regular_worker(self):
         first, created = await create_background_job_unless_active(

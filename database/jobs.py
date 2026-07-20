@@ -347,7 +347,7 @@ async def requeue_stale_background_jobs(stale_seconds: int = 180) -> int:
                    available_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP,
                    error = COALESCE(error, 'Recovered after interrupted worker')
                WHERE status = 'running'
-                 AND claimed_at <= datetime('now', ?)""",
+                 AND COALESCE(updated_at, claimed_at) <= datetime('now', ?)""",
             (modifier,),
         )
         await db.commit()
