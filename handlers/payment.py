@@ -27,6 +27,7 @@ from database.models import (
     get_product,
     get_sale_notification_details,
     get_stock_count,
+    get_telegram_order_pricing,
     get_user_lang,
     purchase_order_with_wallet,
     record_product_buy_click,
@@ -510,11 +511,37 @@ async def _process_quantity(
             await update.message.reply_text(msg)
         return WAITING_QUANTITY
 
-    # Calculate total price using batch pricing tiers
-    from database.models import get_effective_price
-    unit_price = await get_effective_price(product_id, quantity)
-    total_price = unit_price * quantity
     telegram_id = update.effective_user.id
+    try:
+        pricing = await get_telegram_order_pricing(
+            telegram_id, product_id, quantity
+        )
+    except ValueError as exc:
+        logger.info(
+            "Telegram special price unavailable for user %s product %s: %s",
+            telegram_id,
+            product_id,
+            exc,
+        )
+        msg = t("pay_error", lang)
+        if is_callback:
+            await safe_edit_message_text(
+                update.callback_query,
+                msg,
+                reply_markup=back_keyboard(
+                    f"back_prods:{product['category_id']}", lang
+                ),
+            )
+        else:
+            await update.message.reply_text(
+                msg,
+                reply_markup=back_keyboard(
+                    f"back_prods:{product['category_id']}", lang
+                ),
+            )
+        return ConversationHandler.END
+    unit_price = float(pricing["unit_price"])
+    total_price = round(unit_price * quantity, 2)
 
     # â”€â”€ Prevent duplicate orders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # Cancel any previous PENDING order for this user to avoid duplicates

@@ -1758,5 +1758,20 @@ async def init_db() -> None:
             await db.commit()
             current_version = 14
 
+        if 14 <= current_version < 15:
+            reseller_price_columns = await _columns_for("reseller_product_prices")
+            if "apply_to_telegram" not in reseller_price_columns:
+                await db.execute(
+                    "ALTER TABLE reseller_product_prices "
+                    "ADD COLUMN apply_to_telegram INTEGER NOT NULL DEFAULT 1"
+                )
+                reseller_price_columns.add("apply_to_telegram")
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (15, ?)",
+                ("reseller_special_price_scope",),
+            )
+            await db.commit()
+            current_version = 15
+
     finally:
         await db.close()

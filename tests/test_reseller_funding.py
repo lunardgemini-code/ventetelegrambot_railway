@@ -1,11 +1,13 @@
 import os
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import httpx
 
 import bot
+from handlers import payment
 
 from database import db as db_module
 from database import models
@@ -324,11 +326,70 @@ class ResellerFundingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(order_response.json()["unit_price"], 0.55)
         self.assertEqual(order_response.json()["total"], 1.10)
         self.assertAlmostEqual(await models.get_wallet_balance(7001), 2.90)
+        telegram_pricing = await models.get_telegram_order_pricing(
+            7001, product_id, 2
+        )
+        self.assertEqual(telegram_pricing["unit_price"], 0.55)
+        telegram_products = await models.apply_telegram_special_prices_to_products(
+            [await models.get_product(product_id)], 7001
+        )
+        self.assertEqual(telegram_products[0]["price_usd"], 0.55)
+
+        update = SimpleNamespace(
+            effective_user=SimpleNamespace(id=7001),
+            callback_query=None,
+            message=AsyncMock(),
+        )
+        context = SimpleNamespace(user_data={})
+        with patch(
+            "handlers.payment.show_payment_method_screen",
+            AsyncMock(return_value=payment.WAITING_PAYMENT_METHOD),
+        ):
+            state = await payment._process_quantity(
+                update,
+                context,
+                product_id,
+                1,
+                "en",
+                is_callback=False,
+            )
+        telegram_order = await models.get_order(context.user_data["pending_order_id"])
+        self.assertEqual(state, payment.WAITING_PAYMENT_METHOD)
+        self.assertEqual(telegram_order["amount_usd"], 0.55)
 
         listed = await models.list_reseller_api_keys()
         reseller_rows = [row for row in listed if int(row["user_telegram_id"]) == 7001]
         self.assertTrue(reseller_rows)
         self.assertEqual(int(reseller_rows[0]["special_price_count"]), 1)
+
+    async def test_api_only_special_price_does_not_change_telegram_price(self):
+        category_id = await models.add_category("API-only pricing")
+        product_id = await models.add_product(
+            category_id, "Gemini API only", "Test", 0.75
+        )
+        await models.set_price_tiers(product_id, [
+            {"min_qty": 2, "max_qty": 10, "price_usd": 0.60}
+        ])
+        saved = await models.upsert_reseller_special_price(
+            7001,
+            product_id,
+            0.55,
+            apply_to_telegram=False,
+        )
+
+        api_pricing = await models.get_reseller_order_pricing(7001, product_id, 2)
+        telegram_pricing = await models.get_telegram_order_pricing(
+            7001, product_id, 2
+        )
+        telegram_products = await models.apply_telegram_special_prices_to_products(
+            [await models.get_product(product_id)], 7001
+        )
+
+        self.assertFalse(saved["apply_to_telegram"])
+        self.assertEqual(api_pricing["unit_price"], 0.55)
+        self.assertEqual(telegram_pricing["unit_price"], 0.60)
+        self.assertEqual(telegram_pricing["pricing_type"], "standard")
+        self.assertEqual(telegram_products[0]["price_usd"], 0.75)
 
     async def test_supplier_cost_protection_rejects_unprofitable_special_price(self):
         category_id = await models.add_category("Supplier")

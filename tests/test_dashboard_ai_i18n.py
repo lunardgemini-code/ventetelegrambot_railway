@@ -46,14 +46,16 @@ class DashboardAiI18nTests(unittest.TestCase):
         self.assertNotIn("result.access_mode || 'unknown'", ai_code)
 
     def test_dashboard_assets_use_the_i18n_cache_version(self):
-        self.assertIn('app.js?v=20260720-reseller-prices', self.html)
-        self.assertIn('style.css?v=20260720-reseller-prices', self.html)
+        self.assertIn('app.js?v=20260720-reseller-telegram-prices', self.html)
+        self.assertIn('style.css?v=20260720-reseller-telegram-prices', self.html)
 
     def test_reseller_special_price_controls_are_wired_and_responsive(self):
         self.assertIn('id="reseller-special-prices-modal"', self.html)
         self.assertIn('id="reseller-special-prices-form"', self.html)
         self.assertIn('openResellerSpecialPrices(${k.user_telegram_id})', self.app)
         self.assertIn("/special-prices", self.app)
+        self.assertIn('id="reseller-special-telegram"', self.html)
+        self.assertIn('apply_to_telegram: DOM.resellerSpecialTelegram.checked', self.app)
         self.assertIn('.reseller-special-prices-form', self.styles)
         self.assertIn('@media (max-width: 720px)', self.styles)
 

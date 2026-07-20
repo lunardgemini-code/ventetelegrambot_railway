@@ -64,6 +64,8 @@ _RESELLER_LAST_USED_TOUCH_CACHE: dict[int, float] = {}
 _RESELLER_LAST_USED_TOUCH_INTERVAL = 60.0
 _RESELLER_AUTH_CACHE: dict[str, tuple[float, dict]] = {}
 _RESELLER_AUTH_CACHE_TTL = 30.0
+_TELEGRAM_SPECIAL_PRICE_USERS_CACHE: tuple[float, frozenset[int]] | None = None
+_TELEGRAM_SPECIAL_PRICE_USERS_CACHE_TTL = 30.0
 _GET_STATS_CACHE = {}
 _GET_STATS_CACHE_TTL = 30
 _CATALOG_CACHE_GENERATION = 0
@@ -5330,8 +5332,10 @@ async def upsert_reseller_special_price(
     *,
     is_active: bool = True,
     enforce_cost_floor: bool = True,
+    apply_to_telegram: bool = True,
     expires_at=None,
 ) -> dict:
+    global _TELEGRAM_SPECIAL_PRICE_USERS_CACHE
     user_telegram_id = int(user_telegram_id)
     product_id = int(product_id)
     price_usd = round(float(price_usd), 2)
@@ -5364,12 +5368,13 @@ async def upsert_reseller_special_price(
         await db.execute(
             """INSERT INTO reseller_product_prices
                (user_telegram_id, product_id, price_usd, is_active,
-                enforce_cost_floor, expires_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                enforce_cost_floor, apply_to_telegram, expires_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                ON CONFLICT(user_telegram_id, product_id) DO UPDATE SET
                    price_usd = excluded.price_usd,
                    is_active = excluded.is_active,
                    enforce_cost_floor = excluded.enforce_cost_floor,
+                   apply_to_telegram = excluded.apply_to_telegram,
                    expires_at = excluded.expires_at,
                    updated_at = CURRENT_TIMESTAMP""",
             (
@@ -5378,10 +5383,12 @@ async def upsert_reseller_special_price(
                 price_usd,
                 1 if is_active else 0,
                 1 if enforce_cost_floor else 0,
+                1 if apply_to_telegram else 0,
                 expiry,
             ),
         )
         await db.commit()
+        _TELEGRAM_SPECIAL_PRICE_USERS_CACHE = None
     finally:
         await db.close()
     prices = await list_reseller_special_prices(user_telegram_id)
@@ -5392,6 +5399,7 @@ async def delete_reseller_special_price(
     user_telegram_id: int,
     product_id: int,
 ) -> bool:
+    global _TELEGRAM_SPECIAL_PRICE_USERS_CACHE
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -5399,6 +5407,7 @@ async def delete_reseller_special_price(
             (int(user_telegram_id), int(product_id)),
         )
         await db.commit()
+        _TELEGRAM_SPECIAL_PRICE_USERS_CACHE = None
         return cursor.rowcount > 0
     finally:
         await db.close()
@@ -5409,6 +5418,8 @@ async def _reseller_pricing_from_db(
     user_telegram_id: int,
     product_id: int,
     quantity: int,
+    *,
+    telegram_only: bool = False,
 ) -> dict:
     cursor = await db.execute(
         "SELECT * FROM products WHERE id = ? AND is_active = 1 AND COALESCE(is_deleted, 0) = 0",
@@ -5429,11 +5440,15 @@ async def _reseller_pricing_from_db(
             standard_price = dynamic_tier_price(product, float(tier["price_usd"]))
             break
 
+    telegram_filter = (
+        " AND COALESCE(apply_to_telegram, 1) = 1" if telegram_only else ""
+    )
     cursor = await db.execute(
         """SELECT * FROM reseller_product_prices
            WHERE user_telegram_id = ? AND product_id = ? AND is_active = 1
-             AND (expires_at IS NULL OR datetime(expires_at) > CURRENT_TIMESTAMP)
-           LIMIT 1""",
+             AND (expires_at IS NULL OR datetime(expires_at) > CURRENT_TIMESTAMP)"""
+        + telegram_filter
+        + " LIMIT 1",
         (int(user_telegram_id), int(product_id)),
     )
     special_row = await cursor.fetchone()
@@ -5449,21 +5464,15 @@ async def _reseller_pricing_from_db(
         "special_price_id": int(special["id"]) if special else None,
         "special_price_updated_at": special.get("updated_at") if special else None,
         "enforce_cost_floor": bool(special.get("enforce_cost_floor")) if special else False,
+        "apply_to_telegram": bool(special.get("apply_to_telegram")) if special else False,
     }
 
 
-async def get_reseller_order_pricing(
-    user_telegram_id: int,
+async def _enforce_reseller_price_cost_floor(
+    pricing: dict,
     product_id: int,
-    quantity: int,
 ) -> dict:
-    db = await get_db()
-    try:
-        pricing = await _reseller_pricing_from_db(
-            db, int(user_telegram_id), int(product_id), max(1, int(quantity))
-        )
-    finally:
-        await db.close()
+    """Recheck supplier cost immediately before a special price is used."""
     if (
         pricing["pricing_type"] == "reseller_special"
         and pricing["enforce_cost_floor"]
@@ -5480,13 +5489,52 @@ async def get_reseller_order_pricing(
     return pricing
 
 
-async def apply_reseller_special_prices_to_catalog(
+async def get_reseller_order_pricing(
+    user_telegram_id: int,
+    product_id: int,
+    quantity: int,
+) -> dict:
+    db = await get_db()
+    try:
+        pricing = await _reseller_pricing_from_db(
+            db, int(user_telegram_id), int(product_id), max(1, int(quantity))
+        )
+    finally:
+        await db.close()
+    return await _enforce_reseller_price_cost_floor(pricing, int(product_id))
+
+
+async def get_telegram_order_pricing(
+    user_telegram_id: int,
+    product_id: int,
+    quantity: int,
+) -> dict:
+    """Return the locked unit price for a purchase started inside Telegram."""
+    db = await get_db()
+    try:
+        pricing = await _reseller_pricing_from_db(
+            db,
+            int(user_telegram_id),
+            int(product_id),
+            max(1, int(quantity)),
+            telegram_only=True,
+        )
+    finally:
+        await db.close()
+    return await _enforce_reseller_price_cost_floor(pricing, int(product_id))
+
+
+async def _apply_special_prices_to_catalog(
     payload: dict,
     user_telegram_id: int,
+    *,
+    telegram_only: bool,
 ) -> dict:
     prices = await list_reseller_special_prices(
         int(user_telegram_id), active_only=True
     )
+    if telegram_only:
+        prices = [price for price in prices if bool(price.get("apply_to_telegram"))]
     by_product = {int(row["product_id"]): row for row in prices}
     products = []
     for source in payload.get("products", []):
@@ -5503,6 +5551,47 @@ async def apply_reseller_special_prices_to_catalog(
             product["special_price_expires_at"] = special.get("expires_at")
         products.append(product)
     return {**payload, "products": products}
+
+
+async def apply_reseller_special_prices_to_catalog(
+    payload: dict,
+    user_telegram_id: int,
+) -> dict:
+    return await _apply_special_prices_to_catalog(
+        payload, int(user_telegram_id), telegram_only=False
+    )
+
+
+async def apply_telegram_special_prices_to_products(
+    products: list[dict],
+    user_telegram_id: int,
+) -> list[dict]:
+    """Apply Telegram-enabled reseller prices to products shown in the bot."""
+    global _TELEGRAM_SPECIAL_PRICE_USERS_CACHE
+    now = time.monotonic()
+    cached = _TELEGRAM_SPECIAL_PRICE_USERS_CACHE
+    if cached is None or now - cached[0] >= _TELEGRAM_SPECIAL_PRICE_USERS_CACHE_TTL:
+        db = await get_db()
+        try:
+            cursor = await db.execute(
+                """SELECT DISTINCT user_telegram_id
+                   FROM reseller_product_prices
+                   WHERE is_active = 1 AND COALESCE(apply_to_telegram, 1) = 1
+                     AND (expires_at IS NULL OR datetime(expires_at) > CURRENT_TIMESTAMP)"""
+            )
+            user_ids = frozenset(
+                int(row["user_telegram_id"]) for row in await cursor.fetchall()
+            )
+        finally:
+            await db.close()
+        cached = (now, user_ids)
+        _TELEGRAM_SPECIAL_PRICE_USERS_CACHE = cached
+    if int(user_telegram_id) not in cached[1]:
+        return products
+    payload = await _apply_special_prices_to_catalog(
+        {"products": products}, int(user_telegram_id), telegram_only=True
+    )
+    return payload["products"]
 
 
 def _hash_reseller_key(raw_key: str) -> str:

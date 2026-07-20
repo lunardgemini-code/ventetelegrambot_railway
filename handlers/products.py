@@ -11,6 +11,7 @@ from telegram.error import Forbidden
 from telegram.ext import ContextTypes
 
 from database.models import (
+    apply_telegram_special_prices_to_products,
     get_all_products,
     get_product,
     get_stock_count,
@@ -268,6 +269,9 @@ async def show_products_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
             product for product in products
             if product.get("delivery_type") != "supplier_api" or stock_counts.get(product["id"], 0) > 0
         ]
+        products = await apply_telegram_special_prices_to_products(
+            products, update.effective_user.id
+        )
 
         if not products:
             text = t("no_categories", lang)
@@ -360,6 +364,20 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
                 reply_markup=back_keyboard("back_products", lang),
             )
             return
+
+        priced_products = await apply_telegram_special_prices_to_products(
+            [product], update.effective_user.id
+        )
+        if not priced_products:
+            await safe_edit_message_text(
+                query,
+                t("product_not_found", lang),
+                reply_markup=back_keyboard("back_products", lang),
+            )
+            return
+        product = priced_products[0]
+        if product.get("pricing_type") == "reseller_special":
+            tiers = []
 
         # Analytics is deliberately off the response path.
         view_task = asyncio.create_task(record_product_view(product_id, update.effective_user.id))

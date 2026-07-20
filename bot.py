@@ -500,6 +500,7 @@ class ResellerSpecialPriceRequest(BaseModel):
     price_usd: float = Field(..., gt=0, le=1_000_000)
     is_active: bool = True
     enforce_cost_floor: bool = True
+    apply_to_telegram: bool = True
     expires_at: datetime | None = None
 
 
@@ -1504,6 +1505,7 @@ async def api_admin_upsert_reseller_special_price(
             data.price_usd,
             is_active=data.is_active,
             enforce_cost_floor=data.enforce_cost_floor,
+            apply_to_telegram=data.apply_to_telegram,
             expires_at=data.expires_at,
         )
         return {"status": "updated", "price": price}

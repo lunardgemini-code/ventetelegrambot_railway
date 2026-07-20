@@ -13,7 +13,7 @@
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
-    <link rel="stylesheet" href="style.css?v=20260720-reseller-prices">
+    <link rel="stylesheet" href="style.css?v=20260720-reseller-telegram-prices">
     <link rel="stylesheet" href="revamp.css?v=20260720-reseller-prices">
 </head>
 <body>
@@ -1558,6 +1558,10 @@
                 <span><strong data-i18n="reseller_special_active">Tarif actif</strong></span>
             </label>
             <label class="game-publish-control reseller-special-toggle">
+                <input id="reseller-special-telegram" type="checkbox" checked>
+                <span><strong data-i18n="reseller_special_telegram">Appliquer aussi sur Telegram</strong><small data-i18n="reseller_special_telegram_hint">Le même tarif sera utilisé sur son compte Telegram et via son API.</small></span>
+            </label>
+            <label class="game-publish-control reseller-special-toggle">
                 <input id="reseller-special-cost-protection" type="checkbox" checked>
                 <span><strong data-i18n="reseller_cost_protection">Protection du coût fournisseur</strong><small data-i18n="reseller_cost_protection_hint">Bloque la vente si le coût fournisseur atteint ou dépasse ce tarif.</small></span>
             </label>
@@ -1603,7 +1607,7 @@
 </div>
 
 
-    <script defer src="app.js?v=20260720-reseller-prices"></script>
+    <script defer src="app.js?v=20260720-reseller-telegram-prices"></script>
     <script>
     /* ── Mobile Sidebar Toggle ── */
     (function() {
