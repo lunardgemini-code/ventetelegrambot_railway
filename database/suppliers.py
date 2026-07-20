@@ -160,6 +160,7 @@ async def _supplier_config(db, supplier_code: str) -> dict:
         "margin_value": f"{prefix}_margin_value",
         "units_per_usd": f"{prefix}_units_per_usd",
         "last_sync": f"{prefix}_last_sync",
+        "display_name": f"{prefix}_display_name",
     }
     placeholders = ",".join("?" for _ in keys)
     cursor = await db.execute(
@@ -193,7 +194,62 @@ async def _supplier_config(db, supplier_code: str) -> dict:
         "margin_value": margin_value,
         "units_per_usd": units_per_usd,
         "last_sync": values.get(keys["last_sync"], ""),
+        "display_name": values.get(keys["display_name"], ""),
     }
+
+
+async def update_supplier_detected_identity(
+    supplier_code: str,
+    identity: dict,
+) -> bool:
+    """Persist a safe provider label only when the detected identity changed."""
+    supplier_code = _provider(supplier_code)["code"]
+    values = {
+        "display_name": str(identity.get("provider_name") or "").strip()[:80],
+        "bot_source": str(identity.get("bot_source") or "").strip()[:80],
+        "account_name": str(identity.get("account_name") or "").strip()[:80],
+    }
+    values = {key: value for key, value in values.items() if value}
+    if not values.get("display_name"):
+        return False
+
+    prefix = _settings_prefix(supplier_code)
+    db = await get_db()
+    try:
+        keys = [f"{prefix}_{key}" for key in values]
+        placeholders = ",".join("?" for _ in keys)
+        cursor = await db.execute(
+            f"SELECT key, value FROM settings WHERE key IN ({placeholders})",
+            keys,
+        )
+        current = {
+            str(row["key"]): str(row["value"])
+            for row in await cursor.fetchall()
+        }
+        changes = [
+            (f"{prefix}_{key}", value)
+            for key, value in values.items()
+            if current.get(f"{prefix}_{key}") != value
+        ]
+        if not changes:
+            return False
+        await db.execute("BEGIN IMMEDIATE")
+        for key, value in changes:
+            await db.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, value),
+            )
+        await db.commit()
+        return True
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
 
 
 async def _units_per_usd(db, supplier_code: str) -> float:
@@ -624,6 +680,7 @@ async def get_supplier_dashboard(
         )
         return {
             "supplier_code": supplier_code,
+            "display_name": config["display_name"],
             "enabled": config["enabled"],
             "margin_type": global_type,
             "margin_value": global_value,
@@ -1042,7 +1099,11 @@ async def get_supplier_dashboard_summaries(supplier_codes: list[str]) -> dict[st
         setting_keys = []
         for code in codes:
             prefix = _settings_prefix(code)
-            setting_keys.extend((f"{prefix}_enabled", f"{prefix}_last_sync"))
+            setting_keys.extend((
+                f"{prefix}_enabled",
+                f"{prefix}_last_sync",
+                f"{prefix}_display_name",
+            ))
         placeholders = ",".join("?" for _ in setting_keys)
         cursor = await db.execute(
             f"SELECT key, value FROM settings WHERE key IN ({placeholders})",
@@ -1067,6 +1128,7 @@ async def get_supplier_dashboard_summaries(supplier_codes: list[str]) -> dict[st
                     f"{prefix}_enabled", "1" if code == DEFAULT_SUPPLIER_CODE else "0"
                 ) != "0",
                 "last_sync": settings.get(f"{prefix}_last_sync", ""),
+                "display_name": settings.get(f"{prefix}_display_name", ""),
                 "products_count": int(row.get("products_count") or 0),
                 "selected_count": int(row.get("selected_count") or 0),
             }

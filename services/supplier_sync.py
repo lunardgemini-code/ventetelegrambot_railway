@@ -15,6 +15,7 @@ from database.suppliers import (
     get_supplier_route_candidates,
     supplier_available_stock,
     sync_supplier_products,
+    update_supplier_detected_identity,
 )
 from database.db import get_db
 from services.supplier_api import SupplierAPIError
@@ -88,6 +89,7 @@ async def sync_supplier_catalog(
                     f"{code} wallet balance could not be refreshed",
                     retryable=True,
                 )
+            await update_supplier_detected_identity(code, balance)
 
         normalized = {**result, "status": "synced"}
         _LAST_SUCCESSFUL_SYNC[code] = time.monotonic()

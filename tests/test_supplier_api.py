@@ -15,6 +15,7 @@ from database.suppliers import (
     sync_supplier_products,
     update_supplier_product,
     update_supplier_product_descriptions,
+    update_supplier_detected_identity,
     update_supplier_settings,
 )
 from services.delivery import deliver_order
@@ -567,10 +568,30 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
             "balanceUsd": 2.5,
             "balanceText": "$2.50",
             "updatedAt": None,
+            "botSource": "Gemini Store Bot",
+            "requester": {"name": "Rayan"},
         })
         self.assertEqual(balance["currency"], "USD")
         self.assertEqual(balance["balance"], 2.5)
         self.assertEqual(balance["balance_text"], "$2.50")
+        self.assertEqual(balance["provider_name"], "Gemini Store Bot")
+        self.assertEqual(balance["account_name"], "Rayan")
+
+    async def test_detected_supplier_name_is_persisted_for_dashboard(self):
+        changed = await update_supplier_detected_identity("canboso", {
+            "provider_name": "Gemini Store Bot",
+            "bot_source": "Gemini Store Bot",
+            "account_name": "Rayan",
+        })
+        dashboard = await get_supplier_dashboard("canboso")
+
+        self.assertTrue(changed)
+        self.assertEqual(dashboard["display_name"], "Gemini Store Bot")
+        self.assertFalse(await update_supplier_detected_identity("canboso", {
+            "provider_name": "Gemini Store Bot",
+            "bot_source": "Gemini Store Bot",
+            "account_name": "Rayan",
+        }))
 
     def test_nanlux_catalog_converts_vnd_cost_price_to_usd(self):
         products = normalize_nanlux_products(

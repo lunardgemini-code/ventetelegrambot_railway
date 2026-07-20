@@ -220,6 +220,8 @@ async def list_canboso_products() -> list[dict]:
 
 
 def normalize_balance(payload: Any) -> dict:
+    from services.supplier_identity import extract_supplier_identity
+
     if not isinstance(payload, dict) or payload.get("success") is False:
         raise SupplierAPIError("Canboso returned an invalid balance response")
     currency = str(payload.get("walletCurrency") or "USD").upper()
@@ -233,6 +235,7 @@ def normalize_balance(payload: Any) -> dict:
         "currency": currency,
         "balance_text": str(payload.get("balanceText") or f"{balance:.2f} {currency}"),
         "updated_at": payload.get("updatedAt"),
+        **extract_supplier_identity(payload),
     }
 
 

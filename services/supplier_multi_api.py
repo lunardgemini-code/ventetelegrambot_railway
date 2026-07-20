@@ -242,28 +242,31 @@ async def list_products(provider: dict, units_per_usd: float) -> list[dict]:
 
 
 def _normalize_balance(payload: Any, adapter: str, units_per_usd: float) -> dict:
+    from services.supplier_identity import extract_supplier_identity
+
     if not isinstance(payload, dict) or payload.get("success") is False:
         raise SupplierAPIError("Supplier returned an invalid balance response")
+    identity = extract_supplier_identity(payload)
     if adapter == "canboso":
         currency = str(payload.get("walletCurrency") or "USD").upper()
         raw = payload.get("balanceUsd") if payload.get("balanceUsd") is not None else payload.get("balance")
         balance = _number(raw)
-        return {"balance": balance, "currency": "USD", "balance_text": f"{balance:.2f} USD"}
+        return {"balance": balance, "currency": "USD", "balance_text": f"{balance:.2f} USD", **identity}
     if adapter == "tunvn":
         balance = _number(payload.get("balance_usdt"))
         if balance <= 0 and _number(payload.get("balance_vnd")) > 0:
             balance = _number(payload.get("balance_vnd")) / max(1.0, units_per_usd)
-        return {"balance": balance, "currency": "USD", "balance_text": f"{balance:.2f} USD"}
+        return {"balance": balance, "currency": "USD", "balance_text": f"{balance:.2f} USD", **identity}
     if adapter == "akunding":
         balance = _number(payload.get("balance"))
-        return {"balance": balance, "currency": "USD", "balance_text": f"{balance:.2f} USD"}
+        return {"balance": balance, "currency": "USD", "balance_text": f"{balance:.2f} USD", **identity}
     if adapter == "pixverify":
         profile = payload.get("profile") if isinstance(payload.get("profile"), dict) else payload
         balance = _number(profile.get("api_usable_balance") or profile.get("topup_credit_balance"))
-        return {"balance": balance, "currency": "USD", "balance_text": f"{balance:.2f} USD"}
+        return {"balance": balance, "currency": "USD", "balance_text": f"{balance:.2f} USD", **identity}
     if adapter == "safwan":
         balance = _number(payload.get("balance") or payload.get("wallet_balance"))
-        return {"balance": balance, "currency": "USD", "balance_text": f"{balance:.2f} USD"}
+        return {"balance": balance, "currency": "USD", "balance_text": f"{balance:.2f} USD", **identity}
     raise SupplierAPIError(f"Unsupported supplier adapter: {adapter}")
 
 

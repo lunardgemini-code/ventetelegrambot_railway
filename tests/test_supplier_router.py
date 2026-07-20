@@ -10,6 +10,7 @@ from services.supplier_multi_api import (
     _normalize_tunvn_products,
 )
 from services.supplier_api import SupplierAPIError
+from services.supplier_identity import extract_supplier_identity
 from services.supplier_registry import list_supplier_providers
 from services.supplier_router import (
     compatibility_score,
@@ -71,6 +72,16 @@ class SupplierRouterUnitTests(unittest.TestCase):
         signature = extract_product_signature("Gemini 18 months", "private activation")
         self.assertEqual(signature["family"], "gemini")
         self.assertEqual(signature["duration_months"], 18)
+
+    def test_supplier_identity_only_copies_whitelisted_names(self):
+        identity = extract_supplier_identity({
+            "botSource": "Store One",
+            "requester": {"name": "Rayan", "api_key": "never-copy-this"},
+            "api_key": "also-never-copy-this",
+        })
+        self.assertEqual(identity["provider_name"], "Store One")
+        self.assertEqual(identity["account_name"], "Rayan")
+        self.assertNotIn("api_key", identity)
 
 
 class SupplierRouterHTTPTests(unittest.IsolatedAsyncioTestCase):

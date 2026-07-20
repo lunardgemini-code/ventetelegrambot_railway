@@ -1465,6 +1465,7 @@ async def api_list_supplier_bots():
         providers.append(
             {
                 **provider,
+                "name": data.get("display_name") or provider["name"],
                 "configured": is_supplier_configured(provider["code"]),
                 "enabled": bool(data["enabled"]),
                 "products_count": int(data.get("products_count") or 0),
@@ -1491,7 +1492,7 @@ async def api_get_supplier_bot(supplier_code: str):
         configured = is_supplier_configured(provider["code"])
         data.update(
             configured=configured,
-            supplier=provider["name"],
+            supplier=data.get("display_name") or provider["name"],
             base_url=provider["base_url"],
             source_currency=provider["source_currency"],
             credential_env=provider["credential_env"],
