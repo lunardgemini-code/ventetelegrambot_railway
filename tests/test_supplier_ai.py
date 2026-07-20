@@ -104,6 +104,13 @@ class SupplierAISearchTests(unittest.IsolatedAsyncioTestCase):
             "database",
         )
         self.assertEqual(
+            supplier_ai_pressure_reason(
+                {"database": {"p95_ms": 800}},
+                include_historical=False,
+            ),
+            "",
+        )
+        self.assertEqual(
             supplier_ai_pressure_reason({
                 "queue": {"current": 0, "p95_wait_ms": 20},
                 "workers": {"utilization_1m": 0.2},

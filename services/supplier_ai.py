@@ -357,7 +357,11 @@ def _parse_datetime(value) -> datetime | None:
         return None
 
 
-def supplier_ai_pressure_reason(snapshot: dict | None) -> str:
+def supplier_ai_pressure_reason(
+    snapshot: dict | None,
+    *,
+    include_historical: bool = True,
+) -> str:
     metrics = snapshot or {}
     queue = metrics.get("queue") or {}
     workers = metrics.get("workers") or {}
@@ -374,10 +378,11 @@ def supplier_ai_pressure_reason(snapshot: dict | None) -> str:
         or float(workers.get("utilization_1m") or 0) >= 0.80
     ):
         return "webhook_workers"
-    if (
+    if bool(writes.get("locked")) or int(writes.get("waiters") or 0) > 0:
+        return "database"
+    if include_historical and (
         int(database.get("connection_errors") or 0) > 0
         or float(database.get("p95_ms") or 0) >= 750
-        or int(writes.get("waiters") or 0) > 0
         or int(writes.get("timeouts") or 0) > 0
         or float(writes.get("p95_wait_ms") or 0) >= 750
     ):
@@ -389,7 +394,13 @@ def supplier_ai_pressure_reason(snapshot: dict | None) -> str:
         return "event_loop"
     if float(memory.get("rss_mb") or 0) >= 450:
         return "memory"
-    if diagnosis in {"external_api", "workers", "database", "event_loop", "memory"}:
+    historical_diagnoses = {
+        "external_api", "workers", "database", "event_loop", "memory"
+    }
+    active_diagnoses = {"workers", "event_loop", "memory"}
+    if diagnosis in (
+        historical_diagnoses if include_historical else active_diagnoses
+    ):
         return diagnosis
     return ""
 
@@ -1027,7 +1038,10 @@ async def supplier_ai_job_worker(
             payload = job.get("payload") or {}
             if payload.get("automatic") and snapshot_provider:
                 try:
-                    pressure = supplier_ai_pressure_reason(snapshot_provider())
+                    pressure = supplier_ai_pressure_reason(
+                        snapshot_provider(),
+                        include_historical=False,
+                    )
                 except Exception as exc:
                     logger.warning(
                         "Could not inspect bot pressure for automatic supplier job: %s",
