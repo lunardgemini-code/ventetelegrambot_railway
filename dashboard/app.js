@@ -3539,7 +3539,7 @@ function renderAiSupplierGroups(data) {
     state.aiSupplierGroupData = data;
     if (!groups.length) {
         DOM.aiGroupsSummary.textContent = t('ai_no_groups');
-        DOM.aiGroupsBody.innerHTML = `<tr><td colspan="6" class="empty-state">${escapeHtml(t('ai_no_products_analyzed'))}</td></tr>`;
+        DOM.aiGroupsBody.innerHTML = `<tr class="ai-empty-row"><td colspan="6" class="empty-state">${escapeHtml(t('ai_no_products_analyzed'))}</td></tr>`;
         return;
     }
     DOM.aiGroupsSummary.textContent = tf('ai_group_summary', {
@@ -3569,19 +3569,19 @@ function renderAiSupplierGroups(data) {
                 <span class="ai-group-offer-supplier"><strong>${escapeHtml(offer.supplier_name || offer.supplier_code || '?')}</strong><small>${escapeHtml(tf('ai_supplier_balance', {balance: Number(offer.wallet_balance || 0).toFixed(2)}))}</small></span>
                 <strong class="ai-group-offer-price">$${Number(offer.price || 0).toFixed(2)}</strong>
                 <span class="ai-group-offer-stock ${affordable > 0 ? '' : 'is-unfunded'}"><strong>${affordable}/${Number(offer.remote_stock || 0)}</strong><small>${escapeHtml(t('ai_stock_ratio'))}</small></span>
-                <button class="btn-table-action" type="button" onclick="openAiSupplier('${escapeHtml(offer.supplier_code || '')}')" title="${escapeHtml(t('ai_open_supplier'))}"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>
+                <button class="btn-table-action ai-group-offer-action" type="button" onclick="openAiSupplier('${escapeHtml(offer.supplier_code || '')}')" title="${escapeHtml(t('ai_open_supplier'))}"><i class="fa-solid fa-arrow-up-right-from-square"></i><span class="ai-mobile-action-label">${escapeHtml(t('ai_open_supplier'))}</span></button>
             </div>`;
         }).join('');
         const classification = group.comparable
             ? tf('ai_comparable_offers', {count: offerCount})
             : t('ai_classification_incomplete');
-        return `<tr>
-            <td class="ai-group-title"><strong>${escapeHtml(group.label || t('ai_col_product'))}</strong><small>${escapeHtml(classification)}</small></td>
-            <td>${escapeHtml(aiGroupSignature(group))}</td>
-            <td class="ai-group-best"><strong class="ai-group-best-price">$${Number(group.best_price || 0).toFixed(2)}</strong><small>${escapeHtml(best.supplier_name || best.supplier_code || '?')}</small></td>
-            <td><strong>${alternatives}</strong></td>
-            <td><strong>$${Number(group.max_saving || 0).toFixed(2)}</strong></td>
-            <td><button id="ai-group-toggle-${index}" class="btn-table-action" type="button" onclick="toggleAiSupplierGroup(${index})" title="${escapeHtml(t('ai_show_all_offers'))}"><i class="fa-solid fa-chevron-down"></i></button></td>
+        return `<tr id="ai-group-row-${index}" class="ai-group-row">
+            <td class="ai-group-title" data-label="${escapeHtml(t('ai_col_group'))}"><strong>${escapeHtml(group.label || t('ai_col_product'))}</strong><small>${escapeHtml(classification)}</small></td>
+            <td class="ai-group-signature" data-label="${escapeHtml(t('ai_col_characteristics'))}">${escapeHtml(aiGroupSignature(group))}</td>
+            <td class="ai-group-best" data-label="${escapeHtml(t('ai_col_best_offer'))}"><strong class="ai-group-best-price">$${Number(group.best_price || 0).toFixed(2)}</strong><small>${escapeHtml(best.supplier_name || best.supplier_code || '?')}</small></td>
+            <td class="ai-group-alternatives" data-label="${escapeHtml(t('ai_col_alternatives'))}"><strong>${alternatives}</strong></td>
+            <td class="ai-group-saving" data-label="${escapeHtml(t('ai_col_max_difference'))}"><strong>$${Number(group.max_saving || 0).toFixed(2)}</strong></td>
+            <td class="ai-group-action"><button id="ai-group-toggle-${index}" class="btn-table-action" type="button" onclick="toggleAiSupplierGroup(${index})" title="${escapeHtml(t('ai_show_all_offers'))}"><i class="fa-solid fa-chevron-down"></i><span class="ai-mobile-action-label">${escapeHtml(t('ai_show_all_offers'))}</span></button></td>
         </tr>
         <tr id="ai-group-details-${index}" class="ai-group-details hidden"><td colspan="6"><div class="ai-group-offers">${details}</div></td></tr>`;
     }).join('');
@@ -3590,12 +3590,12 @@ function renderAiSupplierGroups(data) {
 async function loadAiSupplierGroups() {
     if (!DOM.aiGroupsBody) return;
     if (!state.aiSupplierGroups.length) {
-        DOM.aiGroupsBody.innerHTML = `<tr><td colspan="6" class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i> ${escapeHtml(t('ai_groups_loading'))}</td></tr>`;
+        DOM.aiGroupsBody.innerHTML = `<tr class="ai-empty-row"><td colspan="6" class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i> ${escapeHtml(t('ai_groups_loading'))}</td></tr>`;
     }
     try {
         renderAiSupplierGroups(await apiCall('/api/ai-supplier/groups'));
     } catch (error) {
-        DOM.aiGroupsBody.innerHTML = `<tr><td colspan="6" class="empty-state">${escapeHtml(aiSupplierErrorMessage(error, 'ai_groups_unavailable'))}</td></tr>`;
+        DOM.aiGroupsBody.innerHTML = `<tr class="ai-empty-row"><td colspan="6" class="empty-state">${escapeHtml(aiSupplierErrorMessage(error, 'ai_groups_unavailable'))}</td></tr>`;
         console.error('AI supplier groups failed:', error);
     }
 }
@@ -3603,12 +3603,16 @@ async function loadAiSupplierGroups() {
 window.toggleAiSupplierGroup = function(index) {
     const details = $(`ai-group-details-${index}`);
     const button = $(`ai-group-toggle-${index}`);
+    const row = $(`ai-group-row-${index}`);
     if (!details || !button) return;
     const opening = details.classList.contains('hidden');
     details.classList.toggle('hidden', !opening);
+    if (row) row.classList.toggle('is-open', opening);
     const icon = button.querySelector('i');
     if (icon) icon.className = opening ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down';
     button.title = t(opening ? 'ai_hide_offers' : 'ai_show_all_offers');
+    const label = button.querySelector('.ai-mobile-action-label');
+    if (label) label.textContent = t(opening ? 'ai_hide_offers' : 'ai_show_all_offers');
 };
 
 function aiResultReason(result) {
@@ -3635,7 +3639,7 @@ function renderAiSupplierResults(data) {
             : t('ai_no_criteria');
     if (!results.length) {
         const message = t(hiddenUnfunded > 0 ? 'ai_unfunded_exists' : 'ai_no_result');
-        DOM.aiResultsBody.innerHTML = `<tr><td colspan="9" class="empty-state">${escapeHtml(message)}</td></tr>`;
+        DOM.aiResultsBody.innerHTML = `<tr class="ai-empty-row"><td colspan="9" class="empty-state">${escapeHtml(message)}</td></tr>`;
         return;
     }
     DOM.aiResultsBody.innerHTML = results.map((result, index) => {
@@ -3649,16 +3653,16 @@ function renderAiSupplierResults(data) {
                 : tf('ai_sync_hours', {hours: Math.round(freshness)});
         const warrantyDays = Number(result.warranty_days || 0);
         const connectionState = result.supplier_enabled ? '' : ` · ${t('ai_connection_disabled')}`;
-        return `<tr>
-            <td class="${index === 0 ? 'ai-result-best' : ''}">${index === 0 ? '<i class="fa-solid fa-crown"></i> 1' : index + 1}</td>
-            <td class="ai-result-product"><strong>${escapeHtml(result.name || '?')}</strong><small>${escapeHtml(aiDurationLabel(result))} · ${escapeHtml(aiDeliveryLabel(result.delivery_mode))} · ${escapeHtml(aiAccessLabel(result.access_mode))}</small></td>
-            <td class="ai-result-supplier"><strong>${escapeHtml(result.supplier_name || result.supplier_code)}</strong><small>${escapeHtml(result.supplier_code || '')}${escapeHtml(connectionState)}</small></td>
-            <td><strong>$${Number(result.price || 0).toFixed(2)}</strong><span class="table-secondary">${escapeHtml(tf('ai_balance', {balance: Number(result.wallet_balance || 0).toFixed(2)}))}</span></td>
-            <td><strong>${escapeHtml(warrantyDays ? tf('ai_warranty_days', {days: warrantyDays}) : t('ai_no_warranty'))}</strong></td>
-            <td class="${stockClass}"><strong>${affordable}/${Number(result.remote_stock || 0)}</strong><span class="table-secondary">${escapeHtml(t('ai_stock_ratio'))}</span></td>
-            <td><strong>${Math.round(Number(result.reliability || 0) * 100)}%</strong><span class="table-secondary">${escapeHtml(freshnessLabel)}</span></td>
-            <td class="ai-result-analysis"><strong>${Math.round(Number(result.confidence || 0) * 100)}%</strong><small>${escapeHtml(aiResultReason(result))}</small></td>
-            <td><button class="btn-table-action" type="button" onclick="openAiSupplier('${escapeHtml(result.supplier_code || '')}')" title="${escapeHtml(t('ai_open_supplier'))}"><i class="fa-solid fa-arrow-up-right-from-square"></i></button></td>
+        return `<tr class="ai-result-row">
+            <td class="ai-result-rank ${index === 0 ? 'ai-result-best' : ''}">${index === 0 ? '<i class="fa-solid fa-crown"></i> 1' : index + 1}</td>
+            <td class="ai-result-product" data-label="${escapeHtml(t('ai_col_product'))}"><strong>${escapeHtml(result.name || '?')}</strong><small>${escapeHtml(aiDurationLabel(result))} · ${escapeHtml(aiDeliveryLabel(result.delivery_mode))} · ${escapeHtml(aiAccessLabel(result.access_mode))}</small></td>
+            <td class="ai-result-supplier" data-label="${escapeHtml(t('ai_col_supplier'))}"><strong>${escapeHtml(result.supplier_name || result.supplier_code)}</strong><small>${escapeHtml(result.supplier_code || '')}${escapeHtml(connectionState)}</small></td>
+            <td class="ai-result-price" data-label="${escapeHtml(t('ai_col_price'))}"><strong>$${Number(result.price || 0).toFixed(2)}</strong><span class="table-secondary">${escapeHtml(tf('ai_balance', {balance: Number(result.wallet_balance || 0).toFixed(2)}))}</span></td>
+            <td class="ai-result-warranty" data-label="${escapeHtml(t('ai_col_warranty'))}"><strong>${escapeHtml(warrantyDays ? tf('ai_warranty_days', {days: warrantyDays}) : t('ai_no_warranty'))}</strong></td>
+            <td class="ai-result-stock ${stockClass}" data-label="${escapeHtml(t('ai_col_stock'))}"><strong>${affordable}/${Number(result.remote_stock || 0)}</strong><span class="table-secondary">${escapeHtml(t('ai_stock_ratio'))}</span></td>
+            <td class="ai-result-reliability" data-label="${escapeHtml(t('ai_col_reliability'))}"><strong>${Math.round(Number(result.reliability || 0) * 100)}%</strong><span class="table-secondary">${escapeHtml(freshnessLabel)}</span></td>
+            <td class="ai-result-analysis" data-label="${escapeHtml(t('ai_col_analysis'))}"><strong>${Math.round(Number(result.confidence || 0) * 100)}%</strong><small>${escapeHtml(aiResultReason(result))}</small></td>
+            <td class="ai-result-action"><button class="btn-table-action" type="button" onclick="openAiSupplier('${escapeHtml(result.supplier_code || '')}')" title="${escapeHtml(t('ai_open_supplier'))}"><i class="fa-solid fa-arrow-up-right-from-square"></i><span class="ai-mobile-action-label">${escapeHtml(t('ai_open_supplier'))}</span></button></td>
         </tr>`;
     }).join('');
 }
@@ -3682,13 +3686,13 @@ async function searchAiSuppliers(event) {
         include_unfunded: DOM.aiIncludeUnfunded.checked,
         limit: 30,
     };
-    DOM.aiResultsBody.innerHTML = `<tr><td colspan="9" class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i> ${escapeHtml(t('ai_searching'))}</td></tr>`;
+    DOM.aiResultsBody.innerHTML = `<tr class="ai-empty-row"><td colspan="9" class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i> ${escapeHtml(t('ai_searching'))}</td></tr>`;
     try {
         const data = await apiCall('/api/ai-supplier/search', 'POST', payload);
         renderAiSupplierResults(data);
     } catch (error) {
         const message = aiSupplierErrorMessage(error, 'ai_search_unavailable');
-        DOM.aiResultsBody.innerHTML = `<tr><td colspan="9" class="empty-state">${escapeHtml(message)}</td></tr>`;
+        DOM.aiResultsBody.innerHTML = `<tr class="ai-empty-row"><td colspan="9" class="empty-state">${escapeHtml(message)}</td></tr>`;
         showToast(message, 'error');
     }
 }

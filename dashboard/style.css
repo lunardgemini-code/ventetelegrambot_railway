@@ -879,7 +879,8 @@ body.turbo-mode::before {
 .ai-progress-track { height:8px; overflow:hidden; background:var(--input-bg); border:1px solid var(--border-color); margin-top:.75rem; }
 .ai-progress-track span { display:block; width:0; height:100%; background:var(--primary-color); transition:width .25s ease; }
 .ai-groups-heading { display:flex; justify-content:space-between; align-items:end; margin-top:1.25rem; }
-.ai-groups-panel { border-radius:8px; margin-bottom:1.25rem; }
+.ai-groups-panel { border-radius:8px; margin-bottom:1.25rem; overflow-x:auto; }
+.ai-groups-table { min-width:880px; }
 .ai-groups-table td { vertical-align:middle; }
 .ai-group-title strong { display:block; }
 .ai-group-title small, .ai-group-best small { display:block; color:var(--color-text-muted); margin-top:.2rem; }
@@ -905,21 +906,26 @@ body.turbo-mode::before {
 .ai-unfunded-control small { color:var(--color-text-muted); line-height:1.25; }
 .ai-search-submit { width:auto; min-height:48px; }
 .ai-results-heading { display:flex; justify-content:space-between; align-items:end; }
-.ai-results-panel { border-radius:8px; }
+.ai-results-panel { border-radius:8px; overflow-x:auto; }
+.ai-results-table { min-width:1020px; }
 .ai-results-table td { vertical-align:middle; }
+.ai-results-table th:nth-child(2), .ai-results-table td:nth-child(2) { min-width:220px; }
+.ai-results-table th:nth-child(3), .ai-results-table td:nth-child(3) { min-width:150px; }
+.ai-results-table th:nth-child(4), .ai-results-table td:nth-child(4) { min-width:110px; }
 .ai-result-product strong, .ai-result-supplier strong { display:block; }
 .ai-result-product small, .ai-result-supplier small, .ai-result-analysis small { display:block; color:var(--color-text-muted); margin-top:.25rem; }
 .ai-result-best { color:var(--color-success); font-weight:700; }
 .ai-result-warning { color:var(--color-warning); }
+.ai-results-table .btn-table-action, .ai-groups-table .btn-table-action { color:var(--color-text-muted); }
+.ai-results-table .btn-table-action:hover, .ai-groups-table .btn-table-action:hover { color:var(--primary-color); background:color-mix(in srgb, var(--primary-color) 12%, transparent); }
+.ai-mobile-action-label { display:none; }
 
 @media (max-width: 1100px) {
     .ai-supplier-search { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .ai-query-field { grid-column:1 / -1; }
-    .ai-groups-panel { overflow-x:auto; }
-    .ai-groups-table { min-width:880px; }
 }
-@media (max-width: 760px) {
-    .ai-supplier-heading { align-items:flex-start; }
+@media (max-width: 820px) {
+    .ai-supplier-heading { align-items:flex-start; flex-direction:column; gap:1rem; }
     .ai-heading-actions { width:100%; justify-content:stretch; }
     .ai-heading-actions button { flex:1 1 190px; }
     .ai-supplier-status { grid-template-columns:repeat(2,minmax(0,1fr)); }
@@ -927,9 +933,171 @@ body.turbo-mode::before {
     .ai-supplier-status > div:nth-child(-n+2) { border-bottom:1px solid var(--border-color); }
     .ai-supplier-search { grid-template-columns:1fr; }
     .ai-query-field { grid-column:auto; }
+    .ai-unfunded-control { align-items:flex-start; min-height:0; }
     .ai-search-submit { width:100%; }
-    .ai-results-panel { overflow-x:auto; }
-    .ai-results-table { min-width:980px; }
-    .ai-group-offer { grid-template-columns:36px minmax(180px,1.6fr) minmax(140px,1fr) 90px 110px 40px; min-width:760px; }
-    .ai-group-details td { overflow-x:auto; }
+    .ai-results-heading, .ai-groups-heading { align-items:flex-start; gap:.75rem; }
+
+    .ai-results-panel, .ai-groups-panel {
+        overflow:visible;
+        border:0;
+        background:transparent;
+        box-shadow:none;
+    }
+    .ai-results-panel:hover, .ai-groups-panel:hover { box-shadow:none; border-color:transparent; }
+    .ai-results-table, .ai-groups-table,
+    .ai-results-table tbody, .ai-groups-table tbody {
+        display:block;
+        width:100%;
+        min-width:0;
+    }
+    .ai-results-table thead, .ai-groups-table thead { display:none; }
+
+    .ai-results-table .ai-result-row {
+        display:grid;
+        grid-template-columns:minmax(0,1fr) auto;
+        grid-template-areas:
+            "rank price"
+            "product product"
+            "supplier supplier"
+            "warranty stock"
+            "reliability reliability"
+            "analysis analysis"
+            "action action";
+        margin-bottom:.75rem;
+        overflow:hidden;
+        background:var(--bg-surface);
+        border:1px solid var(--border-color);
+        border-radius:8px;
+    }
+    .ai-results-table .ai-result-row td {
+        display:block;
+        min-width:0;
+        padding:.75rem 1rem;
+        border:0;
+        white-space:normal;
+        overflow-wrap:anywhere;
+    }
+    .ai-result-row td[data-label]::before {
+        content:attr(data-label);
+        display:block;
+        margin-bottom:.3rem;
+        color:var(--color-text-muted);
+        font-size:.72rem;
+        font-weight:600;
+        text-transform:uppercase;
+    }
+    .ai-result-row .ai-result-rank { grid-area:rank; align-self:center; font-size:.82rem; }
+    .ai-result-row .ai-result-product { grid-area:product; padding-top:.35rem; }
+    .ai-result-row .ai-result-product::before { display:none; }
+    .ai-result-row .ai-result-product strong { font-size:1rem; line-height:1.35; }
+    .ai-result-row .ai-result-supplier { grid-area:supplier; border-top:1px solid var(--border-color); }
+    .ai-result-row .ai-result-price { grid-area:price; text-align:right; }
+    .ai-result-row .ai-result-price::before { text-align:right; }
+    .ai-result-row .ai-result-price > strong { display:block; font-size:1.35rem; color:var(--color-success); }
+    .ai-result-row .ai-result-warranty { grid-area:warranty; border-top:1px solid var(--border-color); }
+    .ai-result-row .ai-result-stock { grid-area:stock; border-top:1px solid var(--border-color); }
+    .ai-result-row .ai-result-reliability { grid-area:reliability; border-top:1px solid var(--border-color); }
+    .ai-result-row .ai-result-analysis { grid-area:analysis; border-top:1px solid var(--border-color); }
+    .ai-result-row .ai-result-action { grid-area:action; padding-top:0; }
+    .ai-result-action .btn-table-action,
+    .ai-group-action .btn-table-action {
+        display:flex;
+        width:100%;
+        min-height:42px;
+        align-items:center;
+        justify-content:center;
+        gap:.55rem;
+        border:1px solid var(--border-color);
+        color:var(--color-text-main);
+    }
+    .ai-mobile-action-label { display:inline; font-weight:600; }
+
+    .ai-groups-table .ai-group-row {
+        display:grid;
+        grid-template-columns:minmax(0,1fr) auto;
+        grid-template-areas:
+            "title best"
+            "signature signature"
+            "alternatives saving"
+            "group-action group-action";
+        margin-bottom:.75rem;
+        overflow:hidden;
+        background:var(--bg-surface);
+        border:1px solid var(--border-color);
+        border-radius:8px;
+    }
+    .ai-groups-table .ai-group-row.is-open { margin-bottom:0; border-radius:8px 8px 0 0; }
+    .ai-groups-table .ai-group-row td {
+        display:block;
+        min-width:0;
+        padding:.75rem 1rem;
+        border:0;
+        white-space:normal;
+        overflow-wrap:anywhere;
+    }
+    .ai-group-row td[data-label]::before {
+        content:attr(data-label);
+        display:block;
+        margin-bottom:.3rem;
+        color:var(--color-text-muted);
+        font-size:.72rem;
+        font-weight:600;
+        text-transform:uppercase;
+    }
+    .ai-group-row .ai-group-title { grid-area:title; }
+    .ai-group-row .ai-group-title::before { display:none; }
+    .ai-group-row .ai-group-signature { grid-area:signature; border-top:1px solid var(--border-color); }
+    .ai-group-row .ai-group-best { grid-area:best; text-align:right; }
+    .ai-group-row .ai-group-best::before { text-align:right; }
+    .ai-group-row .ai-group-best-price { font-size:1.25rem; }
+    .ai-group-row .ai-group-alternatives { grid-area:alternatives; border-top:1px solid var(--border-color); }
+    .ai-group-row .ai-group-saving { grid-area:saving; border-top:1px solid var(--border-color); }
+    .ai-group-row .ai-group-action { grid-area:group-action; padding-top:0; }
+    .ai-group-details:not(.hidden) {
+        display:block;
+        margin-bottom:.75rem;
+        overflow:hidden;
+        border:1px solid var(--border-color);
+        border-top:0;
+        border-radius:0 0 8px 8px;
+    }
+    .ai-group-details > td { display:block; width:100%; overflow:visible; }
+    .ai-group-offers { padding:0 1rem; }
+    .ai-group-offer {
+        grid-template-columns:30px minmax(0,1fr) auto;
+        grid-template-areas:
+            "offer-rank offer-product offer-price"
+            "offer-rank offer-supplier offer-action"
+            "offer-stock offer-stock offer-stock";
+        min-width:0;
+        gap:.5rem .75rem;
+        padding:.9rem 0;
+    }
+    .ai-group-offer-rank { grid-area:offer-rank; align-self:start; }
+    .ai-group-offer-product { grid-area:offer-product; min-width:0; overflow-wrap:anywhere; }
+    .ai-group-offer-supplier { grid-area:offer-supplier; min-width:0; overflow-wrap:anywhere; }
+    .ai-group-offer-price { grid-area:offer-price; text-align:right; color:var(--color-success); }
+    .ai-group-offer-stock { grid-area:offer-stock; padding-top:.5rem; border-top:1px solid var(--border-color); }
+    .ai-group-offer-action { grid-area:offer-action; align-self:center; }
+    .ai-group-offer-action .ai-mobile-action-label { display:none; }
+
+    .ai-empty-row { display:block; }
+    .ai-empty-row .empty-state {
+        display:block;
+        width:100%;
+        padding:1.25rem;
+        white-space:normal;
+        background:var(--bg-surface);
+        border:1px solid var(--border-color);
+        border-radius:8px;
+    }
+}
+
+@media (max-width: 480px) {
+    .ai-heading-actions { flex-direction:column; }
+    .ai-heading-actions button { width:100%; flex-basis:auto; }
+    .ai-supplier-status > div { padding:.85rem; }
+    .ai-supplier-search { padding:1rem; gap:.85rem; }
+    .ai-results-table .ai-result-row td,
+    .ai-groups-table .ai-group-row td { padding:.7rem .8rem; }
 }

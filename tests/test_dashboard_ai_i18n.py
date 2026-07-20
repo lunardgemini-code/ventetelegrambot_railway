@@ -11,6 +11,7 @@ class DashboardAiI18nTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = (ROOT / "dashboard" / "app.js").read_text(encoding="utf-8")
         cls.html = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
+        cls.styles = (ROOT / "dashboard" / "style.css").read_text(encoding="utf-8")
         cls.translation_block = cls.app.split(
             "const AI_TRANSLATIONS = {", 1
         )[1].split("Object.entries(AI_TRANSLATIONS)", 1)[0]
@@ -45,8 +46,25 @@ class DashboardAiI18nTests(unittest.TestCase):
         self.assertNotIn("result.access_mode || 'unknown'", ai_code)
 
     def test_dashboard_assets_use_the_i18n_cache_version(self):
-        self.assertIn('app.js?v=20260720-ai-i18n', self.html)
-        self.assertIn('style.css?v=20260720-ai-i18n', self.html)
+        self.assertIn('app.js?v=20260720-ai-responsive', self.html)
+        self.assertIn('style.css?v=20260720-ai-responsive', self.html)
+
+    def test_ai_results_have_responsive_card_metadata(self):
+        ai_code = self.app.split("function renderAiSupplierGroups", 1)[1].split(
+            "async function loadWalletHistory", 1
+        )[0]
+        self.assertIn('class="ai-result-row"', ai_code)
+        self.assertIn('class="ai-group-row"', ai_code)
+        self.assertIn('data-label="${escapeHtml(t(\'ai_col_price\'))}"', ai_code)
+        self.assertIn('class="ai-mobile-action-label"', ai_code)
+
+    def test_ai_mobile_layout_does_not_force_wide_tables(self):
+        responsive = self.styles.split("@media (max-width: 820px)", 1)[1]
+        self.assertIn(".ai-results-table, .ai-groups-table", responsive)
+        self.assertIn("min-width:0", responsive)
+        self.assertIn('"rank price"', responsive)
+        self.assertIn('"title best"', responsive)
+        self.assertNotIn(".ai-results-table { min-width:980px; }", responsive)
 
 
 if __name__ == "__main__":

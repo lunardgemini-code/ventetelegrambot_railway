@@ -13,7 +13,7 @@
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
-    <link rel="stylesheet" href="style.css?v=20260720-ai-i18n">
+    <link rel="stylesheet" href="style.css?v=20260720-ai-responsive">
     <link rel="stylesheet" href="revamp.css?v=20260717-user-purchases">
 </head>
 <body>
@@ -768,20 +768,20 @@
                 <div class="ai-results-heading">
                     <div><h3 data-i18n="ai_compliant_results">Résultats conformes</h3><p id="ai-results-summary" data-i18n="ai_search_prompt">Synchronisez les bots, puis lancez une recherche.</p></div>
                 </div>
-                <div class="glass-panel overflow-hidden ai-results-panel">
+                <div class="glass-panel ai-results-panel">
                     <table class="data-table ai-results-table">
                         <thead><tr><th>#</th><th data-i18n="ai_col_product">Produit</th><th data-i18n="ai_col_supplier">Fournisseur</th><th data-i18n="ai_col_price">Prix</th><th data-i18n="ai_col_warranty">Garantie</th><th data-i18n="ai_col_stock">Stock</th><th data-i18n="ai_col_reliability">Fiabilité</th><th data-i18n="ai_col_analysis">Analyse</th><th data-i18n="ai_col_action">Action</th></tr></thead>
-                        <tbody id="ai-results-body"><tr><td colspan="9" class="empty-state" data-i18n="ai_no_search">Aucune recherche lancée.</td></tr></tbody>
+                        <tbody id="ai-results-body"><tr class="ai-empty-row"><td colspan="9" class="empty-state" data-i18n="ai_no_search">Aucune recherche lancée.</td></tr></tbody>
                     </table>
                 </div>
                 <div class="ai-groups-heading">
                     <div><h3 data-i18n="ai_similar_products">Produits similaires</h3><p id="ai-groups-summary" data-i18n="ai_analysis_prompt">Synchronisez les bots, puis lancez l'analyse IA.</p></div>
                     <button id="btn-ai-groups-refresh" class="btn-icon" type="button" title="Actualiser les groupes" data-i18n-title="ai_refresh_groups"><i class="fa-solid fa-rotate"></i></button>
                 </div>
-                <div class="glass-panel overflow-hidden ai-groups-panel">
+                <div class="glass-panel ai-groups-panel">
                     <table class="data-table ai-groups-table">
                         <thead><tr><th data-i18n="ai_col_group">Groupe</th><th data-i18n="ai_col_characteristics">Caractéristiques</th><th data-i18n="ai_col_best_offer">Meilleure offre</th><th data-i18n="ai_col_alternatives">Alternatives</th><th data-i18n="ai_col_max_difference">Écart maximal</th><th data-i18n="ai_col_action">Action</th></tr></thead>
-                        <tbody id="ai-groups-body"><tr><td colspan="6" class="empty-state" data-i18n="ai_no_analysis">Aucune analyse lancée.</td></tr></tbody>
+                        <tbody id="ai-groups-body"><tr class="ai-empty-row"><td colspan="6" class="empty-state" data-i18n="ai_no_analysis">Aucune analyse lancée.</td></tr></tbody>
                     </table>
                 </div>
             </section>
@@ -1566,7 +1566,7 @@
 </div>
 
 
-    <script defer src="app.js?v=20260720-ai-i18n"></script>
+    <script defer src="app.js?v=20260720-ai-responsive"></script>
     <script>
     /* ── Mobile Sidebar Toggle ── */
     (function() {
