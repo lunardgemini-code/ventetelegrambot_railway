@@ -712,13 +712,16 @@ async def _run_supplier_ai_analysis_job(job: dict) -> None:
     payload = job.get("payload") or {}
 
     async def heartbeat(_reviewed: int, _total_ai: int) -> None:
-        await update_background_job_progress(
-            job_id,
-            done=0,
-            failed=0,
-            total=1,
-            cursor_value=0,
-        )
+        try:
+            await update_background_job_progress(
+                job_id,
+                done=0,
+                failed=0,
+                total=1,
+                cursor_value=0,
+            )
+        except Exception as exc:
+            logger.warning("Supplier AI progress heartbeat failed: %s", str(exc)[:180])
 
     analysis = await analyze_supplier_catalog(
         use_ai=bool(payload.get("use_ai", True)),
@@ -753,6 +756,13 @@ async def supplier_ai_job_worker() -> None:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                logger.error(
+                    "Supplier AI job %s (%s) failed on attempt %s",
+                    job.get("id"),
+                    job.get("job_type"),
+                    job.get("attempts"),
+                    exc_info=True,
+                )
                 await fail_background_job(
                     str(job["id"]),
                     str(exc),
