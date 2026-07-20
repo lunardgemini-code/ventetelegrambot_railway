@@ -1683,5 +1683,36 @@ async def init_db() -> None:
             await db.commit()
             current_version = 12
 
+        if 12 <= current_version < 13:
+            version_thirteen_statements = [
+                """CREATE TABLE IF NOT EXISTS supplier_product_analysis (
+                    supplier_product_id INTEGER PRIMARY KEY,
+                    supplier_code TEXT NOT NULL,
+                    family TEXT NOT NULL DEFAULT '',
+                    duration_months INTEGER,
+                    duration_days INTEGER,
+                    delivery_mode TEXT NOT NULL DEFAULT 'unknown',
+                    access_mode TEXT NOT NULL DEFAULT 'unknown',
+                    region TEXT NOT NULL DEFAULT '',
+                    tokens_json TEXT NOT NULL DEFAULT '[]',
+                    analysis_source TEXT NOT NULL DEFAULT 'deterministic',
+                    confidence REAL NOT NULL DEFAULT 0,
+                    source_hash TEXT NOT NULL,
+                    analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (supplier_product_id) REFERENCES supplier_products(id)
+                )""",
+                "CREATE INDEX IF NOT EXISTS idx_supplier_analysis_family_duration ON supplier_product_analysis(family, duration_months, duration_days)",
+                "CREATE INDEX IF NOT EXISTS idx_supplier_analysis_code ON supplier_product_analysis(supplier_code)",
+                "CREATE INDEX IF NOT EXISTS idx_supplier_orders_product_status ON supplier_orders(supplier_code, external_product_id, status)",
+            ]
+            for sql in version_thirteen_statements:
+                await db.execute(sql)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (13, ?)",
+                ("supplier_ai_search_index",),
+            )
+            await db.commit()
+            current_version = 13
+
     finally:
         await db.close()

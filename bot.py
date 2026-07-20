@@ -1800,6 +1800,73 @@ async def api_review_supplier_route(route_id: int, data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@api.get("/api/ai-supplier/status", dependencies=[Depends(verify_api_key)])
+async def api_ai_supplier_status():
+    from services.supplier_ai import get_supplier_ai_status
+
+    try:
+        return await get_supplier_ai_status()
+    except Exception as exc:
+        logger.error("API supplier AI status error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/ai-supplier/sync", dependencies=[Depends(verify_api_key)])
+async def api_ai_supplier_sync(data: dict | None = None):
+    from services.supplier_ai import enqueue_supplier_ai_sync
+
+    try:
+        job, created = await enqueue_supplier_ai_sync(
+            use_ai=bool((data or {}).get("use_ai", True))
+        )
+        return {"created": created, "job": job}
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        logger.error("API supplier AI sync error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/api/ai-supplier/sync/{job_id}", dependencies=[Depends(verify_api_key)])
+async def api_ai_supplier_sync_job(job_id: str):
+    from database.jobs import get_background_job
+    from services.supplier_ai import SUPPLIER_AI_JOB_TYPE
+
+    try:
+        job = await get_background_job(job_id)
+        if not job or job.get("job_type") != SUPPLIER_AI_JOB_TYPE:
+            raise HTTPException(status_code=404, detail="Sync job not found")
+        return {
+            "job_id": job.get("id"),
+            "status": job.get("status"),
+            "done": int(job.get("progress_done") or 0),
+            "failed": int(job.get("progress_failed") or 0),
+            "total": int(job.get("progress_total") or 0),
+            "error": job.get("error"),
+            "created_at": job.get("created_at"),
+            "updated_at": job.get("updated_at"),
+            "completed_at": job.get("completed_at"),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("API supplier AI sync job error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/ai-supplier/search", dependencies=[Depends(verify_api_key)])
+async def api_ai_supplier_search(data: dict):
+    from services.supplier_ai import search_supplier_catalog
+
+    try:
+        return await search_supplier_catalog(data or {})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("API supplier AI search error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 def _raise_game_api_error(exc) -> None:
     from database.games import GameError
     from services.sports_api import SportsAPIError
@@ -5091,6 +5158,15 @@ async def post_init(application: Application) -> None:
             SUPPLIER_CATALOG_FULL_SYNC_SECONDS,
         )
 
+    task = application.bot_data.get("supplier_ai_job_task")
+    if not task or task.done():
+        from services.supplier_ai import supplier_ai_job_worker
+
+        application.bot_data["supplier_ai_job_task"] = asyncio.create_task(
+            supplier_ai_job_worker(), name="supplier-ai-job-worker"
+        )
+        logger.info("Persistent supplier AI job worker started")
+
     from services.nowpayments import is_nowpayments_configured
     if is_nowpayments_configured():
         task = application.bot_data.get("nowpayments_task")
@@ -5121,6 +5197,7 @@ async def post_shutdown(application: Application) -> None:
         application.bot_data.pop("performance_history_task", None),
         application.bot_data.pop("game_sync_task", None),
         application.bot_data.pop("supplier_catalog_sync_task", None),
+        application.bot_data.pop("supplier_ai_job_task", None),
         application.bot_data.pop("runtime_health_task", None),
     ]
     for task in tasks:

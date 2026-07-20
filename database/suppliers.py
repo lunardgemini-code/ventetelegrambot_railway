@@ -254,6 +254,41 @@ async def update_supplier_detected_identity(
         await db.close()
 
 
+async def update_supplier_wallet_snapshot(
+    supplier_code: str,
+    balance: dict,
+) -> None:
+    """Persist the last fresh USD balance for database-only catalog searches."""
+    supplier_code = _provider(supplier_code)["code"]
+    try:
+        amount = max(0.0, float(balance.get("balance") or 0))
+    except (TypeError, ValueError):
+        amount = 0.0
+    prefix = _settings_prefix(supplier_code)
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        await db.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (f"{prefix}_wallet_balance", str(amount)),
+        )
+        await db.execute(
+            "INSERT INTO settings (key, value) VALUES (?, CURRENT_TIMESTAMP) "
+            "ON CONFLICT(key) DO UPDATE SET value = CURRENT_TIMESTAMP",
+            (f"{prefix}_wallet_updated_at",),
+        )
+        await db.commit()
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
 async def _units_per_usd(db, supplier_code: str) -> float:
     provider = _provider(supplier_code)
     default = float(provider["default_units_per_usd"])

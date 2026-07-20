@@ -57,6 +57,7 @@ def public_background_job(job: dict | None) -> dict | None:
         "job_id": job.get("id"),
         "job_type": job.get("job_type"),
         "status": job.get("status"),
+        "done": int(job.get("progress_done") or 0),
         "sent": int(job.get("progress_done") or 0),
         "failed": int(job.get("progress_failed") or 0),
         "total": int(job.get("progress_total") or 0),
@@ -237,7 +238,9 @@ async def background_job_worker(bot) -> None:
                 await cleanup_background_jobs(retention_days=7)
                 last_maintenance = now
 
-            job = await claim_next_background_job()
+            job = await claim_next_background_job(
+                excluded_job_types={"supplier_ai_sync"}
+            )
             if not job:
                 await asyncio.sleep(_JOB_POLL_SECONDS)
                 continue

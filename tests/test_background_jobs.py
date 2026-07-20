@@ -12,6 +12,7 @@ from database.jobs import (
     claim_next_background_job,
     complete_background_job,
     create_background_job,
+    create_background_job_unless_active,
     get_background_job,
     get_performance_action_history,
     get_webhook_autoscale_settings,
@@ -54,16 +55,18 @@ class PersistentBackgroundJobTests(unittest.IsolatedAsyncioTestCase):
             cursor = await db.execute(
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN "
                 "('background_jobs', 'performance_action_hourly', "
-                "'webhook_autoscale_settings', 'webhook_autoscale_decisions') ORDER BY name"
+                "'supplier_product_analysis', 'webhook_autoscale_settings', "
+                "'webhook_autoscale_decisions') ORDER BY name"
             )
             tables = [row["name"] for row in await cursor.fetchall()]
         finally:
             await db.close()
 
-        self.assertEqual(versions, list(range(1, 13)))
+        self.assertEqual(versions, list(range(1, 14)))
         self.assertEqual(tables, [
             "background_jobs",
             "performance_action_hourly",
+            "supplier_product_analysis",
             "webhook_autoscale_decisions",
             "webhook_autoscale_settings",
         ])
@@ -135,6 +138,32 @@ class PersistentBackgroundJobTests(unittest.IsolatedAsyncioTestCase):
         )
         completed = await get_background_job("job-1")
         self.assertEqual(completed["status"], "completed")
+
+    async def test_dedicated_job_types_do_not_block_regular_worker(self):
+        first, created = await create_background_job_unless_active(
+            "ai-job-1",
+            "supplier_ai_sync",
+            {"supplier_codes": ["one"]},
+            progress_total=2,
+        )
+        duplicate, duplicate_created = await create_background_job_unless_active(
+            "ai-job-2",
+            "supplier_ai_sync",
+            {"supplier_codes": ["two"]},
+            progress_total=2,
+        )
+        await create_background_job("broadcast-job", "broadcast", {"text": "Hello"})
+
+        regular = await claim_next_background_job(
+            excluded_job_types={"supplier_ai_sync"}
+        )
+        ai_job = await claim_next_background_job(job_types={"supplier_ai_sync"})
+
+        self.assertTrue(created)
+        self.assertFalse(duplicate_created)
+        self.assertEqual(first["id"], duplicate["id"])
+        self.assertEqual(regular["id"], "broadcast-job")
+        self.assertEqual(ai_job["id"], "ai-job-1")
 
     async def test_broadcast_worker_forwards_saved_progress(self):
         checkpoint_update = AsyncMock()

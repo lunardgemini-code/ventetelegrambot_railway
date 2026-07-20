@@ -13,7 +13,7 @@
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
-    <link rel="stylesheet" href="style.css?v=20260720-supplier-router">
+    <link rel="stylesheet" href="style.css?v=20260720-ai-bot">
     <link rel="stylesheet" href="revamp.css?v=20260717-user-purchases">
 </head>
 <body>
@@ -67,6 +67,7 @@
                 <a href="#" class="menu-item" data-tab="tickets-tab"><i class="fa-solid fa-ticket"></i> <span data-i18n="nav_tickets">Tickets</span><span id="badge-tickets" class="badge hidden">0</span></a>
                 <a href="#" class="menu-item" data-tab="resellers-tab"><i class="fa-solid fa-handshake"></i> <span data-i18n="nav_resellers">Revendeurs</span></a>
                 <a href="#" class="menu-item" data-tab="supplier-bots-tab"><i class="fa-solid fa-plug-circle-bolt"></i> <span data-i18n="nav_supplier_bots">API Bot Gestion</span></a>
+                <a href="#" class="menu-item" data-tab="ai-bot-tab"><i class="fa-solid fa-magnifying-glass-chart"></i> <span data-i18n="nav_ai_bot">IA Bot</span></a>
                 <a href="#" class="menu-item" data-tab="game-tab"><i class="fa-solid fa-trophy"></i> <span data-i18n="nav_game">Jeu & Matchs</span><span id="badge-game-results" class="badge hidden">0</span></a>
                 <a href="#" class="menu-item" data-external="api-docs"><i class="fa-solid fa-book-open"></i> <span data-i18n="nav_api_docs">Documentation API</span></a>
                 <p class="nav-section-label">Outils</p>
@@ -723,6 +724,52 @@
                             <tbody id="supplier-router-body"><tr><td colspan="6" class="empty-state">Lancez une analyse pour rechercher les produits equivalents.</td></tr></tbody>
                         </table>
                     </div>
+                </div>
+            </section>
+
+            <!-- AI supplier catalog search -->
+            <section id="ai-bot-tab" class="tab-content">
+                <div class="flex-justify mb-4 ai-supplier-heading">
+                    <div>
+                        <p class="eyebrow">Comparateur multi-fournisseur</p>
+                        <h2><i class="fa-solid fa-magnifying-glass-chart"></i> IA Bot</h2>
+                        <p>Recherchez une offre strictement conforme, puis comparez prix, disponibilite et fiabilite.</p>
+                    </div>
+                    <button id="btn-ai-supplier-sync" class="btn-primary btn-sm" type="button"><i class="fa-solid fa-arrows-rotate"></i> Synchroniser tous les bots</button>
+                </div>
+                <div class="ai-supplier-status glass-panel">
+                    <div><span>Bots configures</span><strong id="ai-supplier-count">0</strong></div>
+                    <div><span>Produits indexes</span><strong id="ai-product-count">0</strong></div>
+                    <div><span>Derniere analyse</span><strong id="ai-last-analysis">Jamais</strong></div>
+                    <div><span>Etat</span><strong id="ai-sync-state">Pret</strong></div>
+                </div>
+                <div id="ai-sync-progress-panel" class="ai-sync-progress glass-panel hidden" aria-live="polite">
+                    <div><strong id="ai-sync-progress-label">Synchronisation en attente</strong><span id="ai-sync-progress-value">0%</span></div>
+                    <div class="ai-progress-track"><span id="ai-sync-progress-bar"></span></div>
+                    <small>La tache continue sur Railway meme si vous fermez le dashboard.</small>
+                </div>
+                <form id="ai-supplier-search-form" class="ai-supplier-search glass-panel">
+                    <div class="form-group ai-query-field">
+                        <label for="ai-supplier-query">Produit recherche</label>
+                        <div class="ai-query-input"><i class="fa-solid fa-magnifying-glass"></i><input id="ai-supplier-query" type="search" maxlength="120" placeholder="Ex. Grok 1 mois garantie complete" required></div>
+                    </div>
+                    <div class="form-group"><label for="ai-duration-value">Duree</label><input id="ai-duration-value" type="number" min="1" max="4000" placeholder="Auto"></div>
+                    <div class="form-group"><label for="ai-duration-unit">Unite</label><select id="ai-duration-unit"><option value="months">Mois</option><option value="days">Jours</option><option value="years">Annees</option></select></div>
+                    <div class="form-group"><label for="ai-warranty-filter">Garantie minimale</label><select id="ai-warranty-filter"><option value="0">Indifferente</option><option value="1">Garantie connue</option><option value="7">7 jours</option><option value="30">30 jours</option><option value="90">90 jours</option></select></div>
+                    <div class="form-group"><label for="ai-delivery-filter">Livraison</label><select id="ai-delivery-filter"><option value="unknown">Indifferente</option><option value="account">Compte fourni</option><option value="activation">Activation client</option></select></div>
+                    <div class="form-group"><label for="ai-access-filter">Acces</label><select id="ai-access-filter"><option value="unknown">Indifferent</option><option value="private">Prive</option><option value="shared">Partage</option></select></div>
+                    <div class="form-group"><label for="ai-max-price">Prix maximum ($)</label><input id="ai-max-price" type="number" min="0" step="0.01" placeholder="Aucune limite"></div>
+                    <label class="ai-unfunded-control"><input id="ai-include-unfunded" type="checkbox"><span><strong>Inclure les wallets insuffisants</strong><small>Sinon, seules les offres achetables maintenant sont affichees.</small></span></label>
+                    <button class="btn-primary ai-search-submit" type="submit"><i class="fa-solid fa-magnifying-glass"></i> Rechercher la meilleure offre</button>
+                </form>
+                <div class="ai-results-heading">
+                    <div><h3>Resultats conformes</h3><p id="ai-results-summary">Synchronisez les bots, puis lancez une recherche.</p></div>
+                </div>
+                <div class="glass-panel overflow-hidden ai-results-panel">
+                    <table class="data-table ai-results-table">
+                        <thead><tr><th>#</th><th>Produit</th><th>Fournisseur</th><th>Prix</th><th>Garantie</th><th>Stock</th><th>Fiabilite</th><th>Analyse</th><th>Action</th></tr></thead>
+                        <tbody id="ai-results-body"><tr><td colspan="9" class="empty-state">Aucune recherche lancee.</td></tr></tbody>
+                    </table>
                 </div>
             </section>
 
@@ -1506,7 +1553,7 @@
 </div>
 
 
-<script defer src="app.js?v=20260720-supplier-names"></script>
+    <script defer src="app.js?v=20260720-ai-bot"></script>
     <script>
     /* ── Mobile Sidebar Toggle ── */
     (function() {

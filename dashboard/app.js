@@ -160,6 +160,9 @@ Object.assign(LANG.ru, {overview_kicker:'Сегодня', overview_title:'Маг
 Object.assign(LANG.ar, {overview_kicker:'اليوم', overview_title:'نظرة عامة على المتجر', today_revenue:'إيرادات اليوم', today_orders:'مبيعات اليوم', priorities:'الأولويات', actions_title:'بحاجة إلى معالجة', activity:'النشاط', recent_orders:'أحدث الطلبات', view_all:'عرض الكل', pending_metric:'الطلبات المعلقة'});
 Object.assign(LANG.fr, {nav_supplier_bots:'API Bot Gestion', supplier_title:'API Bot Gestion', supplier_sync:'Synchroniser'});
 Object.assign(LANG.en, {nav_supplier_bots:'Bot API Management', supplier_title:'Bot API Management', supplier_sync:'Sync catalog'});
+Object.assign(LANG.fr, {nav_ai_bot:'IA Bot'});
+Object.assign(LANG.en, {nav_ai_bot:'AI Bot'});
+['ar','zh','vi','ru'].forEach(lang => Object.assign(LANG[lang], {nav_ai_bot:'AI Bot'}));
 Object.assign(LANG.fr, {reseller_security:'Securite API', reseller_ip_allowlist:'Adresses IP autorisees', reseller_ip_hint:'Une IP ou un reseau CIDR par ligne. Vide = toutes les IP.', reseller_webhook_enable:'Activer les webhooks de depot', reseller_webhook_rotate:'Generer un nouveau secret', reseller_secret_once:'Copiez ce secret maintenant :'});
 Object.assign(LANG.en, {reseller_security:'API security', reseller_ip_allowlist:'Allowed IP addresses', reseller_ip_hint:'One IP or CIDR network per line. Empty = all IPs.', reseller_webhook_enable:'Enable deposit webhooks', reseller_webhook_rotate:'Generate a new signing secret', reseller_secret_once:'Copy this secret now:'});
 ['ar','zh','vi','ru'].forEach(lang => Object.assign(LANG[lang], {reseller_security:LANG.en.reseller_security, reseller_ip_allowlist:LANG.en.reseller_ip_allowlist, reseller_ip_hint:LANG.en.reseller_ip_hint, reseller_webhook_enable:LANG.en.reseller_webhook_enable, reseller_webhook_rotate:LANG.en.reseller_webhook_rotate, reseller_secret_once:LANG.en.reseller_secret_once}));
@@ -194,6 +197,7 @@ const state = {
     paymentReviewCategory:'all', paymentReviewIncludeResolved:false, paymentReviewItems:[],
     dynamicPriceChart:null, dynamicSimulationChart:null,
     productStats:[], productMomentum:null, productMomentumSelected:[], deadProductAlerts:[], supplierBot:null, supplierBots:[], activeSupplierCode:'canboso', supplierView:'catalog', supplierStats:null, supplierStatsDays:30, supplierStatsChart:null, supplierRoutes:[],
+    aiSupplierStatus:null, aiSupplierResults:[], aiSupplierJobId:null, aiSupplierSyncTimer:null,
     gameProvider:null, gameCatalog:[], gameMatches:[], gameCompetitions:[], gameView:'catalog', currentGameMatch:null,
     autoscaleChart:null, autoscaleStatus:null
 };
@@ -265,6 +269,10 @@ const DOM = {
     supplierProductSearch:$('supplier-product-search'), supplierProductsTableBody:$('supplier-products-table-body'),
     supplierCatalogView:$('supplier-catalog-view'), supplierStatsView:$('supplier-stats-view'), supplierRouterView:$('supplier-router-view'), supplierRouterBody:$('supplier-router-body'), supplierRouterProposed:$('supplier-router-proposed'), supplierRouterConfirmed:$('supplier-router-confirmed'), btnSupplierRouterScan:$('btn-supplier-router-scan'), supplierStatsRevenue:$('supplier-stats-revenue'), supplierStatsCost:$('supplier-stats-cost'), supplierStatsProfit:$('supplier-stats-profit'), supplierStatsMargin:$('supplier-stats-margin'),
     supplierStatsItems:$('supplier-stats-items'), supplierStatsOrders:$('supplier-stats-orders'), supplierStatsOrdersSub:$('supplier-stats-orders-sub'), supplierStatsSuccess:$('supplier-stats-success'), supplierStatsQuality:$('supplier-stats-quality'), supplierStatsChart:$('supplier-stats-chart'), supplierStatsProductsBody:$('supplier-stats-products-body'),
+    btnAiSupplierSync:$('btn-ai-supplier-sync'), aiSupplierCount:$('ai-supplier-count'), aiProductCount:$('ai-product-count'), aiLastAnalysis:$('ai-last-analysis'), aiSyncState:$('ai-sync-state'),
+    aiSyncProgressPanel:$('ai-sync-progress-panel'), aiSyncProgressLabel:$('ai-sync-progress-label'), aiSyncProgressValue:$('ai-sync-progress-value'), aiSyncProgressBar:$('ai-sync-progress-bar'),
+    aiSupplierSearchForm:$('ai-supplier-search-form'), aiSupplierQuery:$('ai-supplier-query'), aiDurationValue:$('ai-duration-value'), aiDurationUnit:$('ai-duration-unit'), aiWarrantyFilter:$('ai-warranty-filter'),
+    aiDeliveryFilter:$('ai-delivery-filter'), aiAccessFilter:$('ai-access-filter'), aiMaxPrice:$('ai-max-price'), aiIncludeUnfunded:$('ai-include-unfunded'), aiResultsSummary:$('ai-results-summary'), aiResultsBody:$('ai-results-body'),
     supplierDescriptionModal:$('supplier-description-modal'), supplierDescriptionForm:$('supplier-description-form'), supplierDescriptionProductId:$('supplier-description-product-id'),
     supplierDescriptionTitle:$('supplier-description-title'), supplierDescriptionSource:$('supplier-description-source'),
     supplierCustomName:$('supplier-custom-name'), supplierCustomEmoji:$('supplier-custom-emoji'), supplierCustomEmojiId:$('supplier-custom-emoji-id'), supplierCustomImageUrl:$('supplier-custom-image-url'), supplierAutoTranslate:$('supplier-auto-translate'),
@@ -435,6 +443,8 @@ function setupEvents() {
     if (DOM.btnCreateResellerKey) DOM.btnCreateResellerKey.addEventListener('click', createResellerKey);
     if (DOM.resellerSecurityForm) DOM.resellerSecurityForm.addEventListener('submit', saveResellerSecurity);
     if (DOM.btnSupplierSync) DOM.btnSupplierSync.addEventListener('click', syncSupplierBot);
+    if (DOM.btnAiSupplierSync) DOM.btnAiSupplierSync.addEventListener('click', syncAllAiSuppliers);
+    if (DOM.aiSupplierSearchForm) DOM.aiSupplierSearchForm.addEventListener('submit', searchAiSuppliers);
     if (DOM.btnSupplierRouterScan) DOM.btnSupplierRouterScan.addEventListener('click', scanSupplierRoutes);
     if (DOM.supplierSettingsForm) DOM.supplierSettingsForm.addEventListener('submit', saveSupplierSettings);
     if (DOM.supplierProductSearch) DOM.supplierProductSearch.addEventListener('input', renderSupplierProducts);
@@ -1245,6 +1255,7 @@ const tabRefreshLoaders = {
     'activations-tab': [loadProducts, loadActivations],
     'resellers-tab': [loadResellers],
     'supplier-bots-tab': [loadSupplierBot],
+    'ai-bot-tab': [loadAiSupplierStatus],
     'game-tab': [loadGameManagement],
     'users-tab': [loadUsers],
     'tickets-tab': [loadTickets],
@@ -1255,7 +1266,7 @@ const tabRefreshLoaders = {
 };
 
 const fullRefreshLoaders = [
-    loadDashboardOverview, loadPerformanceMetrics, loadFinance, loadProducts, loadAllOrders, loadActivations, loadResellers, loadSupplierBot,
+    loadDashboardOverview, loadPerformanceMetrics, loadFinance, loadProducts, loadAllOrders, loadActivations, loadResellers, loadSupplierBot, loadAiSupplierStatus,
     loadTickets, loadUsers, loadPromos, loadWalletHistory, loadBinanceAccounts,
     loadPaymentSettings, loadStatsBundle, loadPaymentReview
 ];
@@ -3200,6 +3211,143 @@ window.reviewSupplierRoute = async function(routeId, status) {
     }
 };
 
+function renderAiSupplierJob(job) {
+    if (!DOM.aiSyncProgressPanel) return;
+    const active = job && ['queued', 'running'].includes(String(job.status || ''));
+    DOM.aiSyncProgressPanel.classList.toggle('hidden', !active);
+    if (DOM.btnAiSupplierSync) DOM.btnAiSupplierSync.disabled = Boolean(active);
+    if (!job) {
+        DOM.aiSyncState.textContent = 'Pret';
+        return;
+    }
+    const done = Number(job.done || job.sent || 0);
+    const failed = Number(job.failed || 0);
+    const total = Math.max(0, Number(job.total || 0));
+    const processed = Math.min(total, done + failed);
+    const percent = total ? Math.round(processed / total * 100) : 0;
+    DOM.aiSyncState.textContent = job.status === 'completed' ? 'Termine' : job.status === 'failed' ? 'Echec' : job.status === 'running' ? 'Analyse en cours' : 'En attente';
+    DOM.aiSyncProgressLabel.textContent = `${processed}/${total} etape(s) traitee(s)${failed ? ` · ${failed} echec(s)` : ''}`;
+    DOM.aiSyncProgressValue.textContent = `${percent}%`;
+    DOM.aiSyncProgressBar.style.width = `${percent}%`;
+}
+
+async function loadAiSupplierStatus() {
+    if (!DOM.aiSupplierCount) return;
+    try {
+        const data = await apiCall('/api/ai-supplier/status');
+        state.aiSupplierStatus = data;
+        DOM.aiSupplierCount.textContent = Number(data.configured_suppliers || 0).toLocaleString();
+        DOM.aiProductCount.textContent = Number(data.indexed_products || 0).toLocaleString();
+        DOM.aiLastAnalysis.textContent = data.last_analysis ? parseUTCDate(data.last_analysis).toLocaleString() : 'Jamais';
+        renderAiSupplierJob(data.job);
+        if (data.job && ['queued', 'running'].includes(String(data.job.status || ''))) {
+            pollAiSupplierJob(data.job.job_id);
+        }
+    } catch (error) {
+        DOM.aiSyncState.textContent = 'Indisponible';
+        console.error('AI supplier status failed:', error);
+    }
+}
+
+function pollAiSupplierJob(jobId) {
+    if (!jobId) return;
+    state.aiSupplierJobId = jobId;
+    if (state.aiSupplierSyncTimer) clearInterval(state.aiSupplierSyncTimer);
+    const poll = async () => {
+        try {
+            const job = await apiCall(`/api/ai-supplier/sync/${encodeURIComponent(jobId)}`);
+            renderAiSupplierJob(job);
+            if (['completed', 'failed'].includes(String(job.status || ''))) {
+                clearInterval(state.aiSupplierSyncTimer);
+                state.aiSupplierSyncTimer = null;
+                state.aiSupplierJobId = null;
+                await loadAiSupplierStatus();
+                showToast(job.status === 'completed' ? 'Tous les catalogues ont ete analyses.' : 'Analyse terminee avec une erreur.', job.status === 'completed' ? 'success' : 'error');
+            }
+        } catch (error) {
+            console.warn('AI supplier job poll failed:', error);
+        }
+    };
+    void poll();
+    state.aiSupplierSyncTimer = setInterval(poll, 2000);
+}
+
+async function syncAllAiSuppliers() {
+    try {
+        const response = await apiCall('/api/ai-supplier/sync', 'POST', {use_ai:true});
+        const job = response.job || {};
+        renderAiSupplierJob(job);
+        pollAiSupplierJob(job.job_id);
+        showToast(response.created ? 'Synchronisation globale lancee.' : 'Une synchronisation est deja en cours.', 'info');
+    } catch (error) {
+        showToast(error.message || 'Impossible de lancer la synchronisation.', 'error');
+    }
+}
+
+function aiDurationLabel(result) {
+    if (result.duration_months) return `${Number(result.duration_months)} mois`;
+    if (result.duration_days) return `${Number(result.duration_days)} jours`;
+    return 'Duree non precisee';
+}
+
+function renderAiSupplierResults(data) {
+    const results = data.results || [];
+    state.aiSupplierResults = results;
+    DOM.aiResultsSummary.textContent = results.length
+        ? `${results.length} offre(s) strictement conforme(s), classees par cout et fiabilite.`
+        : 'Aucune offre ne respecte tous les criteres. Verifiez la duree, la garantie ou incluez les wallets insuffisants.';
+    if (!results.length) {
+        DOM.aiResultsBody.innerHTML = '<tr><td colspan="9" class="empty-state">Aucun resultat conforme.</td></tr>';
+        return;
+    }
+    DOM.aiResultsBody.innerHTML = results.map((result, index) => {
+        const affordable = Number(result.affordable_stock || 0);
+        const stockClass = affordable > 0 ? '' : 'ai-result-warning';
+        const freshness = Number(result.freshness_hours || 0);
+        const freshnessLabel = freshness >= 9999 ? 'sync inconnue' : freshness < 1 ? 'sync recente' : `sync il y a ${Math.round(freshness)} h`;
+        return `<tr>
+            <td class="${index === 0 ? 'ai-result-best' : ''}">${index === 0 ? '<i class="fa-solid fa-crown"></i> 1' : index + 1}</td>
+            <td class="ai-result-product"><strong>${escapeHtml(result.name || '?')}</strong><small>${escapeHtml(aiDurationLabel(result))} · ${escapeHtml(result.delivery_mode || 'unknown')} · ${escapeHtml(result.access_mode || 'unknown')}</small></td>
+            <td class="ai-result-supplier"><strong>${escapeHtml(result.supplier_name || result.supplier_code)}</strong><small>${escapeHtml(result.supplier_code || '')}${result.supplier_enabled ? '' : ' · connexion desactivee'}</small></td>
+            <td><strong>$${Number(result.price || 0).toFixed(2)}</strong><span class="table-secondary">wallet $${Number(result.wallet_balance || 0).toFixed(2)}</span></td>
+            <td><strong>${Number(result.warranty_days || 0) || '—'}</strong><span class="table-secondary">jour(s)</span></td>
+            <td class="${stockClass}"><strong>${affordable}/${Number(result.remote_stock || 0)}</strong><span class="table-secondary">achetable / API</span></td>
+            <td><strong>${Math.round(Number(result.reliability || 0) * 100)}%</strong><span class="table-secondary">${escapeHtml(freshnessLabel)}</span></td>
+            <td class="ai-result-analysis"><strong>${Math.round(Number(result.confidence || 0) * 100)}%</strong><small>${escapeHtml(result.reason || '')}</small></td>
+            <td><button class="btn-table-action" type="button" onclick="openAiSupplier('${escapeHtml(result.supplier_code || '')}')" title="Ouvrir ce fournisseur"><i class="fa-solid fa-arrow-up-right-from-square"></i></button></td>
+        </tr>`;
+    }).join('');
+}
+
+async function searchAiSuppliers(event) {
+    event?.preventDefault();
+    const payload = {
+        query: DOM.aiSupplierQuery.value.trim(),
+        duration_value: DOM.aiDurationValue.value ? Number(DOM.aiDurationValue.value) : null,
+        duration_unit: DOM.aiDurationUnit.value,
+        min_warranty_days: Number(DOM.aiWarrantyFilter.value || 0),
+        delivery_mode: DOM.aiDeliveryFilter.value,
+        access_mode: DOM.aiAccessFilter.value,
+        max_price: DOM.aiMaxPrice.value ? Number(DOM.aiMaxPrice.value) : null,
+        include_unfunded: DOM.aiIncludeUnfunded.checked,
+        limit: 30,
+    };
+    DOM.aiResultsBody.innerHTML = '<tr><td colspan="9" class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i> Recherche en cours...</td></tr>';
+    try {
+        const data = await apiCall('/api/ai-supplier/search', 'POST', payload);
+        renderAiSupplierResults(data);
+    } catch (error) {
+        DOM.aiResultsBody.innerHTML = `<tr><td colspan="9" class="empty-state">${escapeHtml(error.message || 'Recherche indisponible.')}</td></tr>`;
+        showToast(error.message || 'Recherche indisponible.', 'error');
+    }
+}
+
+window.openAiSupplier = function(supplierCode) {
+    state.activeSupplierCode = String(supplierCode || 'canboso');
+    state.supplierBot = null;
+    switchTab('supplier-bots-tab');
+};
+
 async function loadWalletHistory() {
     const type = state.whFilter === 'all' ? '' : `&tx_type=${state.whFilter}`;
     let data;
@@ -4073,12 +4221,13 @@ async function handleSaveCryptoSettings(e) {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // Category select removed — not needed
 
-const tabKeys = { 'dashboard-tab':'tab_dashboard','stats-tab':'tab_stats','inventory-tab':'tab_inventory','orders-tab':'tab_orders','payment-review-tab':'payment_review_title','activations-tab':'nav_activations','resellers-tab':'nav_resellers','supplier-bots-tab':'nav_supplier_bots','game-tab':'tab_game','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
+const tabKeys = { 'dashboard-tab':'tab_dashboard','stats-tab':'tab_stats','inventory-tab':'tab_inventory','orders-tab':'tab_orders','payment-review-tab':'payment_review_title','activations-tab':'nav_activations','resellers-tab':'nav_resellers','supplier-bots-tab':'nav_supplier_bots','ai-bot-tab':'nav_ai_bot','game-tab':'tab_game','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
 const tabContexts = {
     'dashboard-tab':'Vue opérationnelle', 'stats-tab':'Tendances de ventes et produits',
     'inventory-tab':'Produits, prix et disponibilité', 'orders-tab':'Paiements et livraisons',
     'activations-tab':'Demandes manuelles à traiter', 'resellers-tab':'Accès et activité API',
     'supplier-bots-tab':'Catalogue distant, marges et produits affichés',
+    'ai-bot-tab':'Recherche stricte parmi tous les catalogues fournisseurs',
     'game-tab':'Catalogue sportif, matchs publiés et règlements',
     'payment-review-tab':'Anomalies NOWPayments et actions manuelles',
     'users-tab':'Clients, wallets et parrainages', 'tickets-tab':'Demandes de support ouvertes',

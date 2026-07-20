@@ -16,6 +16,7 @@ from database.suppliers import (
     supplier_available_stock,
     sync_supplier_products,
     update_supplier_detected_identity,
+    update_supplier_wallet_snapshot,
 )
 from database.db import get_db
 from services.supplier_api import SupplierAPIError
@@ -90,6 +91,7 @@ async def sync_supplier_catalog(
                     retryable=True,
                 )
             await update_supplier_detected_identity(code, balance)
+            await update_supplier_wallet_snapshot(code, balance)
 
         normalized = {**result, "status": "synced"}
         _LAST_SUCCESSFUL_SYNC[code] = time.monotonic()

@@ -14,7 +14,8 @@ import httpx
 
 _STOP_WORDS = {
     "account", "accounts", "acc", "the", "and", "with", "for", "full",
-    "warranty", "no", "new", "ready", "made", "premium", "pro", "plan",
+    "warranty", "garantie", "complete", "complet", "no", "new", "ready",
+    "made", "premium", "pro", "plan", "mois", "jour", "jours", "ans",
 }
 _ALIASES = {
     "chatgpt": "chatgpt", "chat": "chatgpt", "gpt": "chatgpt",
@@ -42,9 +43,9 @@ def extract_product_signature(name: str, description: str = "") -> dict:
             break
     duration_months = None
     duration_days = None
-    year = re.search(r"\b(\d{1,2})\s*(?:year|years|yr|yrs|y)\b", text)
-    month = re.search(r"\b(\d{1,3})\s*(?:month|months|mo|mos|m)\b", text)
-    day = re.search(r"\b(\d{1,4})\s*(?:day|days|d)\b", text)
+    year = re.search(r"\b(\d{1,2})\s*(?:year|years|yr|yrs|y|an|ans|annee|annees)\b", text)
+    month = re.search(r"\b(\d{1,3})\s*(?:month|months|mo|mos|m|mois)\b", text)
+    day = re.search(r"\b(\d{1,4})\s*(?:day|days|d|jour|jours)\b", text)
     if year:
         duration_months = int(year.group(1)) * 12
     elif month:
@@ -52,10 +53,13 @@ def extract_product_signature(name: str, description: str = "") -> dict:
     elif day:
         duration_days = int(day.group(1))
     delivery_mode = "activation" if any(term in text for term in (
-        "your account", "own account", "activation", "activate", "invite", "slot", "link"
-    )) else "account" if any(term in text for term in ("email", "password", "ready made")) else "unknown"
-    access = "shared" if "shared" in text and "no shared" not in text else "private" if any(
-        term in text for term in ("private", "no shared", "own account")
+        "your account", "own account", "votre compte", "activation", "activate",
+        "activer", "invite", "slot", "link", "lien"
+    )) else "account" if any(term in text for term in (
+        "email", "password", "mot de passe", "ready made", "compte fourni"
+    )) else "unknown"
+    access = "shared" if any(term in text for term in ("shared", "partage", "partagee")) and "no shared" not in text else "private" if any(
+        term in text for term in ("private", "prive", "privee", "no shared", "own account")
     ) else "unknown"
     return {
         "family": family,

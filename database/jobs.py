@@ -114,6 +114,55 @@ async def create_background_job_once(
     return job, created
 
 
+async def create_background_job_unless_active(
+    job_id: str,
+    job_type: str,
+    payload: dict,
+    *,
+    max_attempts: int = 3,
+    progress_total: int = 0,
+) -> tuple[dict, bool]:
+    """Create one job per type unless another queued/running job already exists."""
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute(
+            """SELECT * FROM background_jobs
+               WHERE job_type = ? AND status IN ('queued', 'running')
+               ORDER BY created_at DESC LIMIT 1""",
+            (str(job_type),),
+        )
+        job = _decode_job(await cursor.fetchone())
+        created = job is None
+        if created:
+            await db.execute(
+                """INSERT INTO background_jobs
+                   (id, job_type, payload_json, max_attempts, progress_total)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (
+                    str(job_id),
+                    str(job_type),
+                    json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                    max(1, int(max_attempts)),
+                    max(0, int(progress_total)),
+                ),
+            )
+        await db.commit()
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+    if created:
+        job = await get_background_job(job_id)
+    if not job:
+        raise RuntimeError("Background job was not persisted")
+    return job, created
+
+
 async def get_background_job(job_id: str) -> dict | None:
     async def read(fresh: bool) -> dict | None:
         db = await get_db(fresh=fresh)
@@ -129,23 +178,52 @@ async def get_background_job(job_id: str) -> dict | None:
     return await _retry_read(read)
 
 
-async def claim_next_background_job() -> dict | None:
+async def get_latest_background_job_by_type(job_type: str) -> dict | None:
+    async def read(fresh: bool) -> dict | None:
+        db = await get_db(fresh=fresh)
+        try:
+            cursor = await db.execute(
+                """SELECT * FROM background_jobs WHERE job_type = ?
+                   ORDER BY created_at DESC LIMIT 1""",
+                (str(job_type),),
+            )
+            return _decode_job(await cursor.fetchone())
+        finally:
+            await db.close()
+
+    return await _retry_read(read)
+
+
+async def claim_next_background_job(
+    *,
+    job_types: set[str] | None = None,
+    excluded_job_types: set[str] | None = None,
+) -> dict | None:
     """Atomically claim the oldest runnable job."""
     db = await get_db()
     try:
-        await db.execute("BEGIN IMMEDIATE")
+        filters = ["status = 'queued'", "available_at <= CURRENT_TIMESTAMP"]
+        params: list[str] = []
+        if job_types:
+            normalized = sorted({str(value) for value in job_types if str(value)})
+            filters.append(f"job_type IN ({','.join('?' for _ in normalized)})")
+            params.extend(normalized)
+        if excluded_job_types:
+            normalized = sorted({str(value) for value in excluded_job_types if str(value)})
+            filters.append(f"job_type NOT IN ({','.join('?' for _ in normalized)})")
+            params.extend(normalized)
         cursor = await db.execute(
-            """SELECT id FROM background_jobs
-               WHERE status = 'queued'
-                 AND available_at <= CURRENT_TIMESTAMP
-               ORDER BY created_at ASC, id ASC
-               LIMIT 1"""
+            f"""SELECT id FROM background_jobs
+                WHERE {' AND '.join(filters)}
+                ORDER BY created_at ASC, id ASC
+                LIMIT 1""",
+            params,
         )
         candidate = await cursor.fetchone()
         if not candidate:
-            await db.commit()
             return None
         job_id = str(candidate["id"])
+        await db.execute("BEGIN IMMEDIATE")
         cursor = await db.execute(
             """UPDATE background_jobs
                SET status = 'running', attempts = attempts + 1,
