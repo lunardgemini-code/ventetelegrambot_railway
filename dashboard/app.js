@@ -3308,7 +3308,7 @@ async function analyzeAllAiSuppliers() {
         const job = response.job || {};
         renderAiSupplierJob(job);
         pollAiSupplierJob(job.job_id);
-        showToast(response.created ? 'Analyse IA globale lancee.' : 'Une analyse IA est deja en cours.', 'info');
+        showToast(response.created ? 'Indexation IA complete lancee sur tout le catalogue.' : 'Une analyse IA est deja en cours.', 'info');
     } catch (error) {
         showToast(error.message || 'Impossible de lancer l\'analyse IA.', 'error');
     }
@@ -3330,9 +3330,15 @@ function renderAiSupplierGroups(data) {
         const details = offers.map((offer, offerIndex) => {
             const affordable = Number(offer.affordable_stock || 0);
             const warranty = Number(offer.warranty_days || 0) ? `${Number(offer.warranty_days)} j de garantie` : 'Sans garantie';
+            const attributes = [
+                warranty,
+                offer.delivery_mode === 'activation' ? 'Activation' : offer.delivery_mode === 'account' ? 'Compte fourni' : '',
+                offer.access_mode === 'private' ? 'Prive' : offer.access_mode === 'shared' ? 'Partage' : '',
+                offer.region || '',
+            ].filter(Boolean).join(' · ');
             return `<div class="ai-group-offer">
                 <span class="ai-group-offer-rank">${offerIndex === 0 ? '<i class="fa-solid fa-crown" title="Moins cher"></i>' : `#${offerIndex + 1}`}</span>
-                <span class="ai-group-offer-product"><strong>${escapeHtml(offer.name || '?')}</strong><small>${escapeHtml(warranty)}</small></span>
+                <span class="ai-group-offer-product"><strong>${escapeHtml(offer.name || '?')}</strong><small>${escapeHtml(attributes)}</small></span>
                 <span class="ai-group-offer-supplier"><strong>${escapeHtml(offer.supplier_name || offer.supplier_code || '?')}</strong><small>Wallet $${Number(offer.wallet_balance || 0).toFixed(2)}</small></span>
                 <strong class="ai-group-offer-price">$${Number(offer.price || 0).toFixed(2)}</strong>
                 <span class="ai-group-offer-stock ${affordable > 0 ? '' : 'is-unfunded'}"><strong>${affordable}/${Number(offer.remote_stock || 0)}</strong><small>achetable / API</small></span>

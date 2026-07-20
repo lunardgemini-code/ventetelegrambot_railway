@@ -48,31 +48,6 @@ logger = logging.getLogger(__name__)
 _POLL_SECONDS = 2.0
 _DELIVERY_MODES = {"account", "activation", "unknown"}
 _ACCESS_MODES = {"private", "shared", "unknown"}
-_GROUP_GENERIC_TOKENS = {
-    "account", "accounts", "activation", "activate", "active", "ready",
-    "email", "password", "private", "shared", "full", "warranty", "fw",
-    "guarantee", "garantie", "complete", "month", "months", "mois", "day",
-    "days", "jour", "jours", "year", "years", "ans", "global", "renewable",
-    "renew", "new", "old", "user", "users", "subscription", "plan", "with",
-    "and", "the", "for", "your", "own", "provided", "compte", "prive",
-    "partage", "lifetime", "stock", "instant", "delivery",
-}
-_GROUP_FAMILY_TOKENS = {
-    "chatgpt": {"chatgpt", "chat", "gpt", "openai"},
-    "gemini": {"gemini", "google", "googleone"},
-    "capcut": {"capcut"},
-    "coursera": {"coursera"},
-    "lovable": {"lovable"},
-    "grok": {"grok", "xai"},
-    "nordvpn": {"nord", "nordvpn", "vpn"},
-    "youtube": {"youtube", "yt"},
-    "linkedin": {"linkedin"},
-    "replit": {"replit"},
-    "elevenlabs": {"elevenlabs"},
-    "office365": {"office", "office365", "microsoft", "365"},
-}
-
-
 def _configured_providers() -> list[dict]:
     return [
         provider for provider in list_supplier_providers()
@@ -150,12 +125,16 @@ async def _gemini_analyze_batch(products: list[dict]) -> dict[int, dict]:
         for product in products
     ]
     prompt = (
-        "Classify digital product supplier listings. Return JSON only with this schema: "
+        "Classify every digital product supplier listing below. Return exactly one result "
+        "for every input id and return JSON only with this schema: "
         "{\"products\":[{\"id\":1,\"family\":\"grok\",\"duration_months\":1,"
         "\"duration_days\":null,\"delivery_mode\":\"account|activation|unknown\","
         "\"access_mode\":\"private|shared|unknown\",\"region\":\"GLOBAL\","
-        "\"confidence\":0.9}]}. Never invent a duration or access mode. A missing fact must "
-        "be null, empty, or unknown. Do not analyze prices, warranties, credentials, or customer data. Listings:\n"
+        "\"confidence\":0.9}]}. Family is the canonical core service or brand in lowercase; "
+        "never include duration, warranty, access, delivery, or plan qualifiers in family. "
+        "Duration is the purchased service duration, never the warranty duration. Warranty "
+        "must not affect the classification. Never invent a duration or access mode. A missing "
+        "fact must be null, empty, or unknown. Do not analyze prices, credentials, or customer data. Listings:\n"
         + json.dumps(safe_products, ensure_ascii=False)
     )
     payload = {
@@ -164,28 +143,50 @@ async def _gemini_analyze_batch(products: list[dict]) -> dict[int, dict]:
     }
     async with httpx.AsyncClient(timeout=35) as client:
         for index, model in enumerate(models):
-            try:
-                response = await client.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-                    json=payload,
-                    headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
-                )
-                if response.status_code == 404 and index + 1 < len(models):
-                    logger.warning("Gemini catalog model %s is unavailable; trying fallback", model)
-                    continue
-                response.raise_for_status()
-                text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
-                data = json.loads(re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.I).strip())
-                return {
-                    int(item["id"]): item
-                    for item in data.get("products", [])
-                    if isinstance(item, dict) and str(item.get("id", "")).isdigit()
-                }
-            except Exception as exc:
-                logger.warning("Gemini catalog analysis failed with model %s: %s", model, str(exc)[:180])
-                if index + 1 >= len(models):
+            for attempt in range(3):
+                try:
+                    response = await client.post(
+                        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                        json=payload,
+                        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+                    )
+                    if response.status_code == 404:
+                        if index + 1 < len(models):
+                            logger.warning("Gemini catalog model %s is unavailable; trying fallback", model)
+                        break
+                    if response.status_code == 429 or response.status_code >= 500:
+                        if attempt < 2:
+                            headers = getattr(response, "headers", {}) or {}
+                            try:
+                                retry_after = float(headers.get("Retry-After") or 0)
+                            except (TypeError, ValueError):
+                                retry_after = 0.0
+                            await asyncio.sleep(min(30.0, max(retry_after, 2.0 ** (attempt + 1))))
+                            continue
+                    response.raise_for_status()
+                    text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+                    data = json.loads(re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.I).strip())
+                    return {
+                        int(item["id"]): item
+                        for item in data.get("products", [])
+                        if isinstance(item, dict) and str(item.get("id", "")).isdigit()
+                    }
+                except Exception as exc:
+                    if attempt < 2:
+                        await asyncio.sleep(2.0 ** (attempt + 1))
+                        continue
+                    logger.warning("Gemini catalog analysis failed with model %s: %s", model, str(exc)[:180])
                     break
     return {}
+
+
+def _valid_ai_duration(suggestion: dict, key: str) -> int | None:
+    try:
+        value = int(suggestion.get(key))
+    except (TypeError, ValueError):
+        return None
+    maximum = 120 if key == "duration_months" else 4000
+    return value if 0 < value <= maximum else None
 
 
 def _merge_ai(analysis: dict, suggestion: dict | None) -> dict:
@@ -193,29 +194,30 @@ def _merge_ai(analysis: dict, suggestion: dict | None) -> dict:
         return analysis
     merged = dict(analysis)
     family = re.sub(r"[^a-z0-9_-]+", "", _ascii(suggestion.get("family") or ""))[:40]
-    if not merged["family"] and family:
+    if family:
         merged["family"] = family
-    for key in ("duration_months", "duration_days"):
-        if merged.get(key) is None:
-            try:
-                value = int(suggestion.get(key))
-                if 0 < value <= (120 if key == "duration_months" else 4000):
-                    merged[key] = value
-            except (TypeError, ValueError):
-                pass
+    months = _valid_ai_duration(suggestion, "duration_months")
+    days = _valid_ai_duration(suggestion, "duration_days")
+    if months is not None:
+        merged["duration_months"] = months
+        merged["duration_days"] = None
+    elif days is not None:
+        merged["duration_months"] = None
+        merged["duration_days"] = days
     delivery = str(suggestion.get("delivery_mode") or "unknown").lower()
     access = str(suggestion.get("access_mode") or "unknown").lower()
-    if merged["delivery_mode"] == "unknown" and delivery in _DELIVERY_MODES:
+    if delivery in _DELIVERY_MODES:
         merged["delivery_mode"] = delivery
-    if merged["access_mode"] == "unknown" and access in _ACCESS_MODES:
+    if access in _ACCESS_MODES:
         merged["access_mode"] = access
-    if not merged["region"]:
-        merged["region"] = re.sub(r"[^A-Za-z0-9_-]+", "", str(suggestion.get("region") or ""))[:40].upper()
+    merged["region"] = re.sub(
+        r"[^A-Za-z0-9_-]+", "", str(suggestion.get("region") or "")
+    )[:40].upper()
     try:
         ai_confidence = min(1.0, max(0.0, float(suggestion.get("confidence") or 0)))
     except (TypeError, ValueError):
         ai_confidence = 0.0
-    merged["confidence"] = max(float(merged["confidence"]), ai_confidence)
+    merged["confidence"] = ai_confidence
     merged["analysis_source"] = "gemini"
     return merged
 
@@ -236,29 +238,48 @@ async def analyze_supplier_catalog(
     analyses = {int(product["id"]): _deterministic_analysis(product) for product in changed}
     ai_reviewed = 0
     ai_used = 0
-    try:
-        max_ai = max(0, min(int(os.environ.get("GEMINI_CATALOG_MAX_PRODUCTS", "80")), 300))
-    except (TypeError, ValueError):
-        max_ai = 80
-    ambiguous = [
-        product for product in changed
-        if not analyses[int(product["id"])]["family"]
-        or analyses[int(product["id"])]["duration_months"] is None
-        and analyses[int(product["id"])]["duration_days"] is None
-    ][:max_ai]
-    if use_ai and os.environ.get("GEMINI_API_KEY", "").strip():
-        for start in range(0, len(ambiguous), 20):
-            batch = ambiguous[start:start + 20]
-            suggestions = await _gemini_analyze_batch(batch)
-            ai_reviewed += len(batch)
+    if use_ai and changed:
+        if not os.environ.get("GEMINI_API_KEY", "").strip():
+            raise RuntimeError("GEMINI_API_KEY is required for complete catalog analysis")
+        try:
+            batch_size = min(50, max(5, int(os.environ.get("GEMINI_CATALOG_BATCH_SIZE", "20"))))
+        except (TypeError, ValueError):
+            batch_size = 20
+        for start in range(0, len(changed), batch_size):
+            batch = changed[start:start + batch_size]
+            pending = {int(product["id"]): product for product in batch}
+            suggestions: dict[int, dict] = {}
+            for attempt in range(3):
+                if heartbeat:
+                    await heartbeat(ai_reviewed, len(changed))
+                received = await _gemini_analyze_batch(list(pending.values()))
+                suggestions.update({
+                    product_id: item
+                    for product_id, item in received.items()
+                    if product_id in pending
+                })
+                pending = {
+                    product_id: product
+                    for product_id, product in pending.items()
+                    if product_id not in suggestions
+                }
+                if not pending:
+                    break
+                if attempt < 2:
+                    await asyncio.sleep(1.5 * (attempt + 1))
+            if pending:
+                raise RuntimeError(
+                    f"Gemini returned an incomplete catalog batch ({len(pending)} product(s) missing)"
+                )
             for product in batch:
                 product_id = int(product["id"])
                 before = analyses[product_id]
                 analyses[product_id] = _merge_ai(before, suggestions.get(product_id))
                 if analyses[product_id]["analysis_source"] == "gemini":
                     ai_used += 1
+            ai_reviewed += len(batch)
             if heartbeat:
-                await heartbeat(ai_reviewed, len(ambiguous))
+                await heartbeat(ai_reviewed, len(changed))
     saved = await upsert_supplier_product_analysis(list(analyses.values()))
     return {
         "total": len(products),
@@ -450,18 +471,6 @@ async def search_supplier_catalog(filters: dict) -> dict:
     }
 
 
-def _group_variant_tokens(name: str, family: str) -> tuple[str, ...]:
-    tokens = set(re.findall(r"[a-z0-9]+", _ascii(name)))
-    tokens.difference_update(_GROUP_GENERIC_TOKENS)
-    tokens.difference_update(_GROUP_FAMILY_TOKENS.get(family, {family}))
-    tokens = {
-        token for token in tokens
-        if not token.isdigit()
-        and not re.fullmatch(r"\d+(?:m|mo|mos|month|months|d|day|days|y|yr|yrs|year|years)", token)
-    }
-    return tuple(sorted(tokens)[:10])
-
-
 def _warranty_group(warranty_days: int, duration_months, duration_days) -> tuple[str, str]:
     if warranty_days <= 0:
         return "none", "Sans garantie"
@@ -506,36 +515,25 @@ async def list_supplier_product_groups() -> dict:
         access = str(row.get("access_mode") or "unknown")
         region = str(row.get("region") or "").upper()
         warranty_days = max(0, int(row.get("warranty_days") or 0))
-        warranty_key, warranty_label = _warranty_group(warranty_days, months, days)
-        variants = _group_variant_tokens(str(row.get("name") or ""), family)
         comparable = bool(family and (months or days))
         if comparable:
-            group_key = (family, variants, months, days, warranty_key, delivery, access, region)
+            group_key = (family, months, days)
         else:
             group_key = ("unclassified", int(row["id"]))
         if group_key not in grouped:
             family_label = family.replace("_", " ").replace("-", " ").title() if family else str(row.get("name") or "Produit non classe")
-            if variants:
-                family_label = f"{family_label} {' '.join(variants).title()}"
-            qualifiers = [_group_duration_label(months, days), warranty_label]
-            if delivery != "unknown":
-                qualifiers.append("Activation" if delivery == "activation" else "Compte fourni")
-            if access != "unknown":
-                qualifiers.append("Prive" if access == "private" else "Partage")
-            if region:
-                qualifiers.append(region)
             grouped[group_key] = {
                 "family": family,
-                "variants": list(variants),
+                "variants": [],
                 "label": family_label,
-                "signature": " - ".join(qualifiers),
+                "signature": "",
                 "duration_months": months,
                 "duration_days": days,
-                "warranty_kind": warranty_key,
-                "warranty_label": warranty_label,
-                "delivery_mode": delivery,
-                "access_mode": access,
-                "region": region,
+                "warranty_kind": "",
+                "warranty_label": "",
+                "delivery_mode": "",
+                "access_mode": "",
+                "region": "",
                 "comparable": comparable,
                 "offers": [],
             }
@@ -560,6 +558,9 @@ async def list_supplier_product_groups() -> dict:
             "affordable_stock": affordable,
             "wallet_balance": round(balance, 2),
             "warranty_days": warranty_days,
+            "delivery_mode": delivery,
+            "access_mode": access,
+            "region": region,
             "reliability": round(reliability, 4),
             "confidence": round(float(row.get("confidence") or 0), 4),
             "freshness_hours": round(age_hours, 1),
@@ -574,8 +575,44 @@ async def list_supplier_product_groups() -> dict:
         ))
         best_price = offers[0]["price"]
         highest_price = max(offer["price"] for offer in offers)
+        warranties = {
+            _warranty_group(int(offer.get("warranty_days") or 0), group["duration_months"], group["duration_days"])
+            for offer in offers
+        }
+        if len(warranties) == 1:
+            warranty_kind, warranty_label = next(iter(warranties))
+        else:
+            warranty_kind, warranty_label = "mixed", "Garanties variees"
+        delivery_modes = {str(offer.get("delivery_mode") or "unknown") for offer in offers}
+        access_modes = {str(offer.get("access_mode") or "unknown") for offer in offers}
+        regions = {str(offer.get("region") or "") for offer in offers}
+        group_delivery = next(iter(delivery_modes)) if len(delivery_modes) == 1 else "mixed"
+        group_access = next(iter(access_modes)) if len(access_modes) == 1 else "mixed"
+        group_region = next(iter(regions)) if len(regions) == 1 else "MIXED"
+        qualifiers = [
+            _group_duration_label(group["duration_months"], group["duration_days"]),
+            warranty_label,
+        ]
+        if group_delivery == "mixed":
+            qualifiers.append("Livraisons variees")
+        elif group_delivery != "unknown":
+            qualifiers.append("Activation" if group_delivery == "activation" else "Compte fourni")
+        if group_access == "mixed":
+            qualifiers.append("Acces varies")
+        elif group_access != "unknown":
+            qualifiers.append("Prive" if group_access == "private" else "Partage")
+        if group_region == "MIXED":
+            qualifiers.append("Regions variees")
+        elif group_region:
+            qualifiers.append(group_region)
         groups.append({
             **group,
+            "signature": " - ".join(qualifiers),
+            "warranty_kind": warranty_kind,
+            "warranty_label": warranty_label,
+            "delivery_mode": group_delivery,
+            "access_mode": group_access,
+            "region": group_region,
             "group_id": f"group-{index}",
             "offer_count": len(offers),
             "best_price": best_price,
@@ -711,14 +748,14 @@ async def _run_supplier_ai_analysis_job(job: dict) -> None:
     job_id = str(job["id"])
     payload = job.get("payload") or {}
 
-    async def heartbeat(_reviewed: int, _total_ai: int) -> None:
+    async def heartbeat(reviewed: int, total_ai: int) -> None:
         try:
             await update_background_job_progress(
                 job_id,
-                done=0,
+                done=reviewed,
                 failed=0,
-                total=1,
-                cursor_value=0,
+                total=max(1, total_ai),
+                cursor_value=reviewed,
             )
         except Exception as exc:
             logger.warning("Supplier AI progress heartbeat failed: %s", str(exc)[:180])
@@ -729,12 +766,13 @@ async def _run_supplier_ai_analysis_job(job: dict) -> None:
         heartbeat=heartbeat,
     )
     await save_supplier_ai_run_summary({"analysis": analysis})
+    completed = max(1, int(analysis.get("ai_reviewed") or analysis.get("total") or 0))
     await complete_background_job(
         job_id,
-        done=1,
+        done=completed,
         failed=0,
-        total=1,
-        cursor_value=1,
+        total=completed,
+        cursor_value=completed,
     )
 
 
