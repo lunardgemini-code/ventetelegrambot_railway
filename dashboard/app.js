@@ -259,7 +259,7 @@ const DOM = {
     resellerSecurityModal:$('reseller-security-modal'), resellerSecurityForm:$('reseller-security-form'), resellerSecurityKeyId:$('reseller-security-key-id'),
     resellerIpAllowlist:$('reseller-ip-allowlist'), resellerWebhookUrl:$('reseller-webhook-url'), resellerWebhookEnabled:$('reseller-webhook-enabled'),
     resellerWebhookRotate:$('reseller-webhook-rotate'), resellerWebhookSecretOutput:$('reseller-webhook-secret-output'), resellerWebhookSecret:$('reseller-webhook-secret'),
-    supplierSettingsForm:$('supplier-settings-form'), supplierEnabled:$('supplier-enabled'), supplierMarginType:$('supplier-margin-type'), supplierMarginValue:$('supplier-margin-value'),
+    supplierSettingsForm:$('supplier-settings-form'), supplierEnabled:$('supplier-enabled'), supplierDisplayName:$('supplier-display-name'), supplierMarginType:$('supplier-margin-type'), supplierMarginValue:$('supplier-margin-value'),
     supplierProviderSwitcher:$('supplier-provider-switcher'), supplierProviderName:$('supplier-provider-name'), supplierRateGroup:$('supplier-rate-group'), supplierRateLabel:$('supplier-rate-label'), supplierUnitsPerUsd:$('supplier-units-per-usd'), supplierCredentialEnv:$('supplier-credential-env'),
     btnSupplierSync:$('btn-supplier-sync'), supplierConnection:$('supplier-connection'), supplierWalletBalance:$('supplier-wallet-balance'), supplierLastSync:$('supplier-last-sync'), supplierSelectedCount:$('supplier-selected-count'), supplierReviewCount:$('supplier-review-count'),
     supplierProductSearch:$('supplier-product-search'), supplierProductsTableBody:$('supplier-products-table-body'),
@@ -2912,6 +2912,8 @@ async function loadSupplierBot() {
         renderSupplierProviderSwitcher();
         state.supplierBot = await apiCall(`/api/supplier-bots/${encodeURIComponent(state.activeSupplierCode)}`);
         const supplier = state.supplierBot;
+        const providerSummary = state.supplierBots.find(provider => provider.code === state.activeSupplierCode);
+        if (providerSummary?.name) supplier.supplier = providerSummary.name;
         DOM.supplierConnection.textContent = `${supplier.supplier || state.activeSupplierCode} · ${supplier.configured ? (supplier.enabled ? 'Connecté' : 'Désactivé') : 'Clé absente'}`;
         DOM.supplierConnection.style.color = supplier.configured && supplier.enabled ? 'var(--color-success)' : 'var(--color-warning)';
         DOM.supplierWalletBalance.textContent = supplier.wallet?.balance_text || (supplier.wallet_error ? 'Indisponible' : '—');
@@ -2921,6 +2923,7 @@ async function loadSupplierBot() {
         const counts = supplier.order_counts || {};
         DOM.supplierReviewCount.textContent = Number(counts.failed || 0) + Number(counts.unknown || 0);
         DOM.supplierEnabled.checked = Boolean(supplier.enabled);
+        if (DOM.supplierDisplayName) DOM.supplierDisplayName.value = supplier.display_name || '';
         DOM.supplierMarginType.value = supplier.margin_type || 'fixed';
         DOM.supplierMarginValue.value = Number(supplier.margin_value || 0);
         if (DOM.supplierProviderName) DOM.supplierProviderName.textContent = supplier.supplier || state.activeSupplierCode;
@@ -3101,7 +3104,7 @@ async function saveSupplierSettings(event) {
     event.preventDefault();
     try {
         showLoading(true);
-        const payload = {enabled: Boolean(DOM.supplierEnabled.checked), margin_type: DOM.supplierMarginType.value, margin_value: Number(DOM.supplierMarginValue.value || 0)};
+        const payload = {enabled: Boolean(DOM.supplierEnabled.checked), display_name: DOM.supplierDisplayName?.value || '', margin_type: DOM.supplierMarginType.value, margin_value: Number(DOM.supplierMarginValue.value || 0)};
         if (!DOM.supplierRateGroup?.classList.contains('hidden')) payload.units_per_usd = Number(DOM.supplierUnitsPerUsd.value || 1);
         await apiCall(`/api/supplier-bots/${encodeURIComponent(state.activeSupplierCode)}/settings`, 'PUT', payload);
         await Promise.all([loadSupplierBot(), loadProducts()]);

@@ -161,6 +161,7 @@ async def _supplier_config(db, supplier_code: str) -> dict:
         "units_per_usd": f"{prefix}_units_per_usd",
         "last_sync": f"{prefix}_last_sync",
         "display_name": f"{prefix}_display_name",
+        "detected_name": f"{prefix}_detected_name",
     }
     placeholders = ",".join("?" for _ in keys)
     cursor = await db.execute(
@@ -195,6 +196,7 @@ async def _supplier_config(db, supplier_code: str) -> dict:
         "units_per_usd": units_per_usd,
         "last_sync": values.get(keys["last_sync"], ""),
         "display_name": values.get(keys["display_name"], ""),
+        "detected_name": values.get(keys["detected_name"], ""),
     }
 
 
@@ -205,12 +207,12 @@ async def update_supplier_detected_identity(
     """Persist a safe provider label only when the detected identity changed."""
     supplier_code = _provider(supplier_code)["code"]
     values = {
-        "display_name": str(identity.get("provider_name") or "").strip()[:80],
+        "detected_name": str(identity.get("provider_name") or "").strip()[:80],
         "bot_source": str(identity.get("bot_source") or "").strip()[:80],
         "account_name": str(identity.get("account_name") or "").strip()[:80],
     }
     values = {key: value for key, value in values.items() if value}
-    if not values.get("display_name"):
+    if not values.get("detected_name"):
         return False
 
     prefix = _settings_prefix(supplier_code)
@@ -681,6 +683,7 @@ async def get_supplier_dashboard(
         return {
             "supplier_code": supplier_code,
             "display_name": config["display_name"],
+            "detected_name": config["detected_name"],
             "enabled": config["enabled"],
             "margin_type": global_type,
             "margin_value": global_value,
@@ -855,6 +858,7 @@ async def update_supplier_settings(
     margin_value: float,
     supplier_code: str = DEFAULT_SUPPLIER_CODE,
     units_per_usd: float | None = None,
+    display_name: str | None = None,
 ) -> None:
     from database.models import _clear_stock_cache, clear_products_cache
 
@@ -865,6 +869,8 @@ async def update_supplier_settings(
     margin_value = max(0.0, min(float(margin_value), 100000.0))
     if units_per_usd is not None:
         units_per_usd = max(1.0, min(float(units_per_usd), 1000000000.0))
+    if display_name is not None:
+        display_name = " ".join(str(display_name).split())[:80]
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
@@ -876,6 +882,8 @@ async def update_supplier_settings(
         ]
         if units_per_usd is not None:
             settings.append((f"{prefix}_units_per_usd", str(units_per_usd)))
+        if display_name is not None:
+            settings.append((f"{prefix}_display_name", display_name))
         for key, value in settings:
             await db.execute(
                 "INSERT INTO settings (key, value) VALUES (?, ?) "
@@ -1103,6 +1111,7 @@ async def get_supplier_dashboard_summaries(supplier_codes: list[str]) -> dict[st
                 f"{prefix}_enabled",
                 f"{prefix}_last_sync",
                 f"{prefix}_display_name",
+                f"{prefix}_detected_name",
             ))
         placeholders = ",".join("?" for _ in setting_keys)
         cursor = await db.execute(
@@ -1129,6 +1138,7 @@ async def get_supplier_dashboard_summaries(supplier_codes: list[str]) -> dict[st
                 ) != "0",
                 "last_sync": settings.get(f"{prefix}_last_sync", ""),
                 "display_name": settings.get(f"{prefix}_display_name", ""),
+                "detected_name": settings.get(f"{prefix}_detected_name", ""),
                 "products_count": int(row.get("products_count") or 0),
                 "selected_count": int(row.get("selected_count") or 0),
             }

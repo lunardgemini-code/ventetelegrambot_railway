@@ -1449,6 +1449,8 @@ async def api_admin_update_reseller_security(
 
 @api.get("/api/supplier-bots", dependencies=[Depends(verify_api_key)])
 async def api_list_supplier_bots():
+    from collections import Counter
+
     from database.suppliers import get_supplier_dashboard_summaries
     from services.supplier_registry import (
         is_supplier_configured,
@@ -1459,13 +1461,27 @@ async def api_list_supplier_bots():
     summaries = await get_supplier_dashboard_summaries(
         [str(provider["code"]) for provider in registered]
     )
+    detected_counts = Counter(
+        str(data.get("detected_name") or "").strip().casefold()
+        for data in summaries.values()
+        if str(data.get("detected_name") or "").strip()
+    )
     providers = []
     for provider in registered:
         data = summaries.get(provider["code"], {})
+        custom_name = str(data.get("display_name") or "").strip()
+        detected_name = str(data.get("detected_name") or "").strip()
+        unique_detected_name = (
+            detected_name
+            if detected_name and detected_counts[detected_name.casefold()] == 1
+            else ""
+        )
         providers.append(
             {
                 **provider,
-                "name": data.get("display_name") or provider["name"],
+                "name": custom_name or unique_detected_name or provider["name"],
+                "display_name": custom_name,
+                "detected_name": detected_name,
                 "configured": is_supplier_configured(provider["code"]),
                 "enabled": bool(data["enabled"]),
                 "products_count": int(data.get("products_count") or 0),
@@ -1610,6 +1626,11 @@ async def api_update_supplier_settings(supplier_code: str, data: dict):
             units_per_usd=(
                 float(data["units_per_usd"])
                 if data.get("units_per_usd") is not None
+                else None
+            ),
+            display_name=(
+                str(data.get("display_name") or "")
+                if "display_name" in data
                 else None
             ),
         )

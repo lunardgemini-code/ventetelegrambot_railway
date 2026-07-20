@@ -8,6 +8,9 @@ from typing import Any
 
 _MAX_NAME_LENGTH = 80
 _EMPTY_NAMES = {"", "none", "null", "unknown", "n/a", "-"}
+_GENERIC_SOURCES = {
+    "api", "binance", "bot", "crypto", "telegram", "wallet",
+}
 
 
 def _clean_name(value: Any) -> str:
@@ -46,7 +49,11 @@ def extract_supplier_identity(payload: Any) -> dict[str, str]:
         if account_name:
             break
 
-    provider_name = bot_source or account_name
+    provider_name = (
+        bot_source
+        if bot_source and bot_source.lower() not in _GENERIC_SOURCES
+        else account_name
+    )
     return {
         key: value
         for key, value in {

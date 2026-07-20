@@ -586,12 +586,23 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
         dashboard = await get_supplier_dashboard("canboso")
 
         self.assertTrue(changed)
-        self.assertEqual(dashboard["display_name"], "Gemini Store Bot")
+        self.assertEqual(dashboard["detected_name"], "Gemini Store Bot")
         self.assertFalse(await update_supplier_detected_identity("canboso", {
             "provider_name": "Gemini Store Bot",
             "bot_source": "Gemini Store Bot",
             "account_name": "Rayan",
         }))
+
+    async def test_supplier_display_name_can_be_customized(self):
+        await update_supplier_settings(
+            supplier_code="canboso",
+            enabled=True,
+            margin_type="fixed",
+            margin_value=1,
+            display_name="My Supplier Bot",
+        )
+        dashboard = await get_supplier_dashboard("canboso")
+        self.assertEqual(dashboard["display_name"], "My Supplier Bot")
 
     def test_nanlux_catalog_converts_vnd_cost_price_to_usd(self):
         products = normalize_nanlux_products(

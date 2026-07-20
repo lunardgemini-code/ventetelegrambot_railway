@@ -83,6 +83,14 @@ class SupplierRouterUnitTests(unittest.TestCase):
         self.assertEqual(identity["account_name"], "Rayan")
         self.assertNotIn("api_key", identity)
 
+    def test_generic_payment_source_is_not_used_as_bot_name(self):
+        identity = extract_supplier_identity({
+            "botSource": "binance",
+            "requester": {"name": "RayanKL"},
+        })
+        self.assertEqual(identity["provider_name"], "RayanKL")
+        self.assertEqual(identity["bot_source"], "binance")
+
 
 class SupplierRouterHTTPTests(unittest.IsolatedAsyncioTestCase):
     async def test_post_server_error_has_unknown_outcome(self):
