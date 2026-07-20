@@ -1827,6 +1827,22 @@ async def api_ai_supplier_sync(data: dict | None = None):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@api.post("/api/ai-supplier/analyze", dependencies=[Depends(verify_api_key)])
+async def api_ai_supplier_analyze(data: dict | None = None):
+    from services.supplier_ai import enqueue_supplier_ai_analysis
+
+    try:
+        job, created = await enqueue_supplier_ai_analysis(
+            use_ai=bool((data or {}).get("use_ai", True))
+        )
+        return {"created": created, "job": job}
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        logger.error("API supplier AI analysis error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @api.get("/api/ai-supplier/sync/{job_id}", dependencies=[Depends(verify_api_key)])
 async def api_ai_supplier_sync_job(job_id: str):
     from database.jobs import get_background_job
@@ -1851,6 +1867,45 @@ async def api_ai_supplier_sync_job(job_id: str):
         raise
     except Exception as exc:
         logger.error("API supplier AI sync job error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/api/ai-supplier/job/{job_id}", dependencies=[Depends(verify_api_key)])
+async def api_ai_supplier_job(job_id: str):
+    from database.jobs import get_background_job
+    from services.supplier_ai import SUPPLIER_AI_ANALYZE_JOB_TYPE, SUPPLIER_AI_JOB_TYPE
+
+    try:
+        job = await get_background_job(job_id)
+        if not job or job.get("job_type") not in {SUPPLIER_AI_JOB_TYPE, SUPPLIER_AI_ANALYZE_JOB_TYPE}:
+            raise HTTPException(status_code=404, detail="Supplier AI job not found")
+        return {
+            "job_id": job.get("id"),
+            "kind": "analysis" if job.get("job_type") == SUPPLIER_AI_ANALYZE_JOB_TYPE else "sync",
+            "status": job.get("status"),
+            "done": int(job.get("progress_done") or 0),
+            "failed": int(job.get("progress_failed") or 0),
+            "total": int(job.get("progress_total") or 0),
+            "error": job.get("error"),
+            "created_at": job.get("created_at"),
+            "updated_at": job.get("updated_at"),
+            "completed_at": job.get("completed_at"),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("API supplier AI job error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/api/ai-supplier/groups", dependencies=[Depends(verify_api_key)])
+async def api_ai_supplier_groups():
+    from services.supplier_ai import list_supplier_product_groups
+
+    try:
+        return await list_supplier_product_groups()
+    except Exception as exc:
+        logger.error("API supplier AI groups error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

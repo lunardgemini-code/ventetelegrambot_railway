@@ -7,7 +7,11 @@ from database import db as db_module
 from database import models
 from database.db import init_db
 from database.suppliers import sync_supplier_products, update_supplier_wallet_snapshot
-from services.supplier_ai import analyze_supplier_catalog, search_supplier_catalog
+from services.supplier_ai import (
+    analyze_supplier_catalog,
+    list_supplier_product_groups,
+    search_supplier_catalog,
+)
 from services.supplier_router import extract_product_signature
 
 
@@ -120,6 +124,49 @@ class SupplierAISearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first["changed"], 5)
         self.assertEqual(second["changed"], 0)
         self.assertEqual(second["reused"], 5)
+
+    async def test_forced_analysis_rebuilds_the_complete_catalog(self):
+        await self._analyze()
+        with patch("services.supplier_ai._configured_providers", return_value=[self.provider]):
+            result = await analyze_supplier_catalog(use_ai=False, force=True)
+        self.assertEqual(result["changed"], 5)
+        self.assertEqual(result["reused"], 0)
+        self.assertTrue(result["forced"])
+
+    async def test_similar_products_are_grouped_with_the_cheapest_offer_first(self):
+        second_provider = {
+            "code": "nanlux",
+            "name": "Supplier Two",
+            "base_url": "https://second.invalid",
+        }
+        await sync_supplier_products(
+            [{
+                "external_product_id": "grok-cheaper",
+                "name": "Grok 1 month private account full warranty",
+                "description": "Private ready account with email and password",
+                "base_price": 1.5,
+                "remote_stock": 4,
+                "warranty_days": 30,
+            }],
+            "nanlux",
+        )
+        await update_supplier_wallet_snapshot("nanlux", {"balance": 10.0})
+        providers = [self.provider, second_provider]
+        with patch("services.supplier_ai._configured_providers", return_value=providers):
+            await analyze_supplier_catalog(use_ai=False, force=True)
+            response = await list_supplier_product_groups()
+        group = next(
+            item for item in response["groups"]
+            if item["family"] == "grok"
+            and item["duration_months"] == 1
+            and item["warranty_kind"] == "full"
+        )
+        self.assertEqual(group["offer_count"], 2)
+        self.assertEqual(
+            [offer["external_product_id"] for offer in group["offers"]],
+            ["grok-cheaper", "grok-month-warranty"],
+        )
+        self.assertEqual(group["best_price"], 1.5)
 
     def test_french_duration_and_product_constraints_are_parsed(self):
         signature = extract_product_signature(

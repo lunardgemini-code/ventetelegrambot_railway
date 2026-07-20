@@ -197,7 +197,7 @@ const state = {
     paymentReviewCategory:'all', paymentReviewIncludeResolved:false, paymentReviewItems:[],
     dynamicPriceChart:null, dynamicSimulationChart:null,
     productStats:[], productMomentum:null, productMomentumSelected:[], deadProductAlerts:[], supplierBot:null, supplierBots:[], activeSupplierCode:'canboso', supplierView:'catalog', supplierStats:null, supplierStatsDays:30, supplierStatsChart:null, supplierRoutes:[],
-    aiSupplierStatus:null, aiSupplierResults:[], aiSupplierJobId:null, aiSupplierSyncTimer:null,
+    aiSupplierStatus:null, aiSupplierResults:[], aiSupplierGroups:[], aiSupplierJobId:null, aiSupplierSyncTimer:null,
     gameProvider:null, gameCatalog:[], gameMatches:[], gameCompetitions:[], gameView:'catalog', currentGameMatch:null,
     autoscaleChart:null, autoscaleStatus:null
 };
@@ -269,8 +269,9 @@ const DOM = {
     supplierProductSearch:$('supplier-product-search'), supplierProductsTableBody:$('supplier-products-table-body'),
     supplierCatalogView:$('supplier-catalog-view'), supplierStatsView:$('supplier-stats-view'), supplierRouterView:$('supplier-router-view'), supplierRouterBody:$('supplier-router-body'), supplierRouterProposed:$('supplier-router-proposed'), supplierRouterConfirmed:$('supplier-router-confirmed'), btnSupplierRouterScan:$('btn-supplier-router-scan'), supplierStatsRevenue:$('supplier-stats-revenue'), supplierStatsCost:$('supplier-stats-cost'), supplierStatsProfit:$('supplier-stats-profit'), supplierStatsMargin:$('supplier-stats-margin'),
     supplierStatsItems:$('supplier-stats-items'), supplierStatsOrders:$('supplier-stats-orders'), supplierStatsOrdersSub:$('supplier-stats-orders-sub'), supplierStatsSuccess:$('supplier-stats-success'), supplierStatsQuality:$('supplier-stats-quality'), supplierStatsChart:$('supplier-stats-chart'), supplierStatsProductsBody:$('supplier-stats-products-body'),
-    btnAiSupplierSync:$('btn-ai-supplier-sync'), aiSupplierCount:$('ai-supplier-count'), aiProductCount:$('ai-product-count'), aiLastAnalysis:$('ai-last-analysis'), aiSyncState:$('ai-sync-state'),
+    btnAiSupplierSync:$('btn-ai-supplier-sync'), btnAiSupplierAnalyze:$('btn-ai-supplier-analyze'), btnAiGroupsRefresh:$('btn-ai-groups-refresh'), aiSupplierCount:$('ai-supplier-count'), aiProductCount:$('ai-product-count'), aiLastAnalysis:$('ai-last-analysis'), aiSyncState:$('ai-sync-state'),
     aiSyncProgressPanel:$('ai-sync-progress-panel'), aiSyncProgressLabel:$('ai-sync-progress-label'), aiSyncProgressValue:$('ai-sync-progress-value'), aiSyncProgressBar:$('ai-sync-progress-bar'),
+    aiGroupsSummary:$('ai-groups-summary'), aiGroupsBody:$('ai-groups-body'),
     aiSupplierSearchForm:$('ai-supplier-search-form'), aiSupplierQuery:$('ai-supplier-query'), aiDurationValue:$('ai-duration-value'), aiDurationUnit:$('ai-duration-unit'), aiWarrantyFilter:$('ai-warranty-filter'),
     aiDeliveryFilter:$('ai-delivery-filter'), aiAccessFilter:$('ai-access-filter'), aiMaxPrice:$('ai-max-price'), aiIncludeUnfunded:$('ai-include-unfunded'), aiResultsSummary:$('ai-results-summary'), aiResultsBody:$('ai-results-body'),
     supplierDescriptionModal:$('supplier-description-modal'), supplierDescriptionForm:$('supplier-description-form'), supplierDescriptionProductId:$('supplier-description-product-id'),
@@ -444,6 +445,8 @@ function setupEvents() {
     if (DOM.resellerSecurityForm) DOM.resellerSecurityForm.addEventListener('submit', saveResellerSecurity);
     if (DOM.btnSupplierSync) DOM.btnSupplierSync.addEventListener('click', syncSupplierBot);
     if (DOM.btnAiSupplierSync) DOM.btnAiSupplierSync.addEventListener('click', syncAllAiSuppliers);
+    if (DOM.btnAiSupplierAnalyze) DOM.btnAiSupplierAnalyze.addEventListener('click', analyzeAllAiSuppliers);
+    if (DOM.btnAiGroupsRefresh) DOM.btnAiGroupsRefresh.addEventListener('click', loadAiSupplierGroups);
     if (DOM.aiSupplierSearchForm) DOM.aiSupplierSearchForm.addEventListener('submit', searchAiSuppliers);
     if (DOM.btnSupplierRouterScan) DOM.btnSupplierRouterScan.addEventListener('click', scanSupplierRoutes);
     if (DOM.supplierSettingsForm) DOM.supplierSettingsForm.addEventListener('submit', saveSupplierSettings);
@@ -1255,7 +1258,7 @@ const tabRefreshLoaders = {
     'activations-tab': [loadProducts, loadActivations],
     'resellers-tab': [loadResellers],
     'supplier-bots-tab': [loadSupplierBot],
-    'ai-bot-tab': [loadAiSupplierStatus],
+    'ai-bot-tab': [loadAiSupplierStatus, loadAiSupplierGroups],
     'game-tab': [loadGameManagement],
     'users-tab': [loadUsers],
     'tickets-tab': [loadTickets],
@@ -1266,7 +1269,7 @@ const tabRefreshLoaders = {
 };
 
 const fullRefreshLoaders = [
-    loadDashboardOverview, loadPerformanceMetrics, loadFinance, loadProducts, loadAllOrders, loadActivations, loadResellers, loadSupplierBot, loadAiSupplierStatus,
+    loadDashboardOverview, loadPerformanceMetrics, loadFinance, loadProducts, loadAllOrders, loadActivations, loadResellers, loadSupplierBot, loadAiSupplierStatus, loadAiSupplierGroups,
     loadTickets, loadUsers, loadPromos, loadWalletHistory, loadBinanceAccounts,
     loadPaymentSettings, loadStatsBundle, loadPaymentReview
 ];
@@ -3216,17 +3219,25 @@ function renderAiSupplierJob(job) {
     const active = job && ['queued', 'running'].includes(String(job.status || ''));
     DOM.aiSyncProgressPanel.classList.toggle('hidden', !active);
     if (DOM.btnAiSupplierSync) DOM.btnAiSupplierSync.disabled = Boolean(active);
+    if (DOM.btnAiSupplierAnalyze) DOM.btnAiSupplierAnalyze.disabled = Boolean(active);
     if (!job) {
         DOM.aiSyncState.textContent = 'Pret';
         return;
     }
+    const isAnalysis = job.kind === 'analysis';
     const done = Number(job.done || job.sent || 0);
     const failed = Number(job.failed || 0);
     const total = Math.max(0, Number(job.total || 0));
     const processed = Math.min(total, done + failed);
     const percent = total ? Math.round(processed / total * 100) : 0;
-    DOM.aiSyncState.textContent = job.status === 'completed' ? 'Termine' : job.status === 'failed' ? 'Echec' : job.status === 'running' ? 'Analyse en cours' : 'En attente';
-    DOM.aiSyncProgressLabel.textContent = `${processed}/${total} etape(s) traitee(s)${failed ? ` · ${failed} echec(s)` : ''}`;
+    DOM.aiSyncState.textContent = job.status === 'completed'
+        ? 'Termine'
+        : job.status === 'failed'
+            ? 'Echec'
+            : job.status === 'running'
+                ? (isAnalysis ? 'Analyse IA en cours' : 'Synchronisation en cours')
+                : 'En attente';
+    DOM.aiSyncProgressLabel.textContent = `${isAnalysis ? 'Analyse IA' : 'Synchronisation'} : ${processed}/${total} etape(s)${failed ? ` · ${failed} echec(s)` : ''}`;
     DOM.aiSyncProgressValue.textContent = `${percent}%`;
     DOM.aiSyncProgressBar.style.width = `${percent}%`;
 }
@@ -3255,14 +3266,21 @@ function pollAiSupplierJob(jobId) {
     if (state.aiSupplierSyncTimer) clearInterval(state.aiSupplierSyncTimer);
     const poll = async () => {
         try {
-            const job = await apiCall(`/api/ai-supplier/sync/${encodeURIComponent(jobId)}`);
+            const job = await apiCall(`/api/ai-supplier/job/${encodeURIComponent(jobId)}`);
             renderAiSupplierJob(job);
             if (['completed', 'failed'].includes(String(job.status || ''))) {
                 clearInterval(state.aiSupplierSyncTimer);
                 state.aiSupplierSyncTimer = null;
                 state.aiSupplierJobId = null;
                 await loadAiSupplierStatus();
-                showToast(job.status === 'completed' ? 'Tous les catalogues ont ete analyses.' : 'Analyse terminee avec une erreur.', job.status === 'completed' ? 'success' : 'error');
+                if (job.status === 'completed' && job.kind === 'analysis') {
+                    await loadAiSupplierGroups();
+                    showToast('Analyse IA terminee. Les produits similaires sont regroupes.', 'success');
+                } else if (job.status === 'completed') {
+                    showToast('Catalogues synchronises. Vous pouvez lancer Analyse IA.', 'success');
+                } else {
+                    showToast(job.kind === 'analysis' ? 'Analyse IA terminee avec une erreur.' : 'Synchronisation terminee avec une erreur.', 'error');
+                }
             }
         } catch (error) {
             console.warn('AI supplier job poll failed:', error);
@@ -3274,7 +3292,7 @@ function pollAiSupplierJob(jobId) {
 
 async function syncAllAiSuppliers() {
     try {
-        const response = await apiCall('/api/ai-supplier/sync', 'POST', {use_ai:true});
+        const response = await apiCall('/api/ai-supplier/sync', 'POST', {});
         const job = response.job || {};
         renderAiSupplierJob(job);
         pollAiSupplierJob(job.job_id);
@@ -3283,6 +3301,79 @@ async function syncAllAiSuppliers() {
         showToast(error.message || 'Impossible de lancer la synchronisation.', 'error');
     }
 }
+
+async function analyzeAllAiSuppliers() {
+    try {
+        const response = await apiCall('/api/ai-supplier/analyze', 'POST', {use_ai:true});
+        const job = response.job || {};
+        renderAiSupplierJob(job);
+        pollAiSupplierJob(job.job_id);
+        showToast(response.created ? 'Analyse IA globale lancee.' : 'Une analyse IA est deja en cours.', 'info');
+    } catch (error) {
+        showToast(error.message || 'Impossible de lancer l\'analyse IA.', 'error');
+    }
+}
+
+function renderAiSupplierGroups(data) {
+    const groups = data.groups || [];
+    state.aiSupplierGroups = groups;
+    if (!groups.length) {
+        DOM.aiGroupsSummary.textContent = 'Aucun groupe disponible. Synchronisez les bots, puis lancez Analyse IA.';
+        DOM.aiGroupsBody.innerHTML = '<tr><td colspan="6" class="empty-state">Aucun produit analyse.</td></tr>';
+        return;
+    }
+    DOM.aiGroupsSummary.textContent = `${Number(data.available_products || 0)} produit(s) disponible(s) dans ${groups.length} groupe(s), dont ${Number(data.comparison_groups || 0)} avec plusieurs offres.`;
+    DOM.aiGroupsBody.innerHTML = groups.map((group, index) => {
+        const offers = group.offers || [];
+        const best = offers[0] || {};
+        const alternatives = Math.max(0, Number(group.offer_count || offers.length) - 1);
+        const details = offers.map((offer, offerIndex) => {
+            const affordable = Number(offer.affordable_stock || 0);
+            const warranty = Number(offer.warranty_days || 0) ? `${Number(offer.warranty_days)} j de garantie` : 'Sans garantie';
+            return `<div class="ai-group-offer">
+                <span class="ai-group-offer-rank">${offerIndex === 0 ? '<i class="fa-solid fa-crown" title="Moins cher"></i>' : `#${offerIndex + 1}`}</span>
+                <span class="ai-group-offer-product"><strong>${escapeHtml(offer.name || '?')}</strong><small>${escapeHtml(warranty)}</small></span>
+                <span class="ai-group-offer-supplier"><strong>${escapeHtml(offer.supplier_name || offer.supplier_code || '?')}</strong><small>Wallet $${Number(offer.wallet_balance || 0).toFixed(2)}</small></span>
+                <strong class="ai-group-offer-price">$${Number(offer.price || 0).toFixed(2)}</strong>
+                <span class="ai-group-offer-stock ${affordable > 0 ? '' : 'is-unfunded'}"><strong>${affordable}/${Number(offer.remote_stock || 0)}</strong><small>achetable / API</small></span>
+                <button class="btn-table-action" type="button" onclick="openAiSupplier('${escapeHtml(offer.supplier_code || '')}')" title="Ouvrir ce fournisseur"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>
+            </div>`;
+        }).join('');
+        return `<tr>
+            <td class="ai-group-title"><strong>${escapeHtml(group.label || 'Produit')}</strong><small>${group.comparable ? `${Number(group.offer_count || offers.length)} offre(s) comparable(s)` : 'Classification incomplete'}</small></td>
+            <td>${escapeHtml(group.signature || '')}</td>
+            <td class="ai-group-best"><strong class="ai-group-best-price">$${Number(group.best_price || 0).toFixed(2)}</strong><small>${escapeHtml(best.supplier_name || best.supplier_code || '?')}</small></td>
+            <td><strong>${alternatives}</strong></td>
+            <td><strong>$${Number(group.max_saving || 0).toFixed(2)}</strong></td>
+            <td><button id="ai-group-toggle-${index}" class="btn-table-action" type="button" onclick="toggleAiSupplierGroup(${index})" title="Afficher toutes les offres"><i class="fa-solid fa-chevron-down"></i></button></td>
+        </tr>
+        <tr id="ai-group-details-${index}" class="ai-group-details hidden"><td colspan="6"><div class="ai-group-offers">${details}</div></td></tr>`;
+    }).join('');
+}
+
+async function loadAiSupplierGroups() {
+    if (!DOM.aiGroupsBody) return;
+    if (!state.aiSupplierGroups.length) {
+        DOM.aiGroupsBody.innerHTML = '<tr><td colspan="6" class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i> Chargement des groupes...</td></tr>';
+    }
+    try {
+        renderAiSupplierGroups(await apiCall('/api/ai-supplier/groups'));
+    } catch (error) {
+        DOM.aiGroupsBody.innerHTML = `<tr><td colspan="6" class="empty-state">${escapeHtml(error.message || 'Groupes indisponibles.')}</td></tr>`;
+        console.error('AI supplier groups failed:', error);
+    }
+}
+
+window.toggleAiSupplierGroup = function(index) {
+    const details = $(`ai-group-details-${index}`);
+    const button = $(`ai-group-toggle-${index}`);
+    if (!details || !button) return;
+    const opening = details.classList.contains('hidden');
+    details.classList.toggle('hidden', !opening);
+    const icon = button.querySelector('i');
+    if (icon) icon.className = opening ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down';
+    button.title = opening ? 'Masquer les offres' : 'Afficher toutes les offres';
+};
 
 function aiDurationLabel(result) {
     if (result.duration_months) return `${Number(result.duration_months)} mois`;

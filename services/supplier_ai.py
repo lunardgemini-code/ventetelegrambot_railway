@@ -42,9 +42,33 @@ from services.supplier_sync import sync_supplier_catalog
 
 
 SUPPLIER_AI_JOB_TYPE = "supplier_ai_sync"
+SUPPLIER_AI_ANALYZE_JOB_TYPE = "supplier_ai_analyze"
 _POLL_SECONDS = 2.0
 _DELIVERY_MODES = {"account", "activation", "unknown"}
 _ACCESS_MODES = {"private", "shared", "unknown"}
+_GROUP_GENERIC_TOKENS = {
+    "account", "accounts", "activation", "activate", "active", "ready",
+    "email", "password", "private", "shared", "full", "warranty", "fw",
+    "guarantee", "garantie", "complete", "month", "months", "mois", "day",
+    "days", "jour", "jours", "year", "years", "ans", "global", "renewable",
+    "renew", "new", "old", "user", "users", "subscription", "plan", "with",
+    "and", "the", "for", "your", "own", "provided", "compte", "prive",
+    "partage", "lifetime", "stock", "instant", "delivery",
+}
+_GROUP_FAMILY_TOKENS = {
+    "chatgpt": {"chatgpt", "chat", "gpt", "openai"},
+    "gemini": {"gemini", "google", "googleone"},
+    "capcut": {"capcut"},
+    "coursera": {"coursera"},
+    "lovable": {"lovable"},
+    "grok": {"grok", "xai"},
+    "nordvpn": {"nord", "nordvpn", "vpn"},
+    "youtube": {"youtube", "yt"},
+    "linkedin": {"linkedin"},
+    "replit": {"replit"},
+    "elevenlabs": {"elevenlabs"},
+    "office365": {"office", "office365", "microsoft", "365"},
+}
 
 
 def _configured_providers() -> list[dict]:
@@ -185,12 +209,16 @@ def _merge_ai(analysis: dict, suggestion: dict | None) -> dict:
 async def analyze_supplier_catalog(
     *,
     use_ai: bool = True,
+    force: bool = False,
     heartbeat: Callable[[int, int], Awaitable[None]] | None = None,
 ) -> dict:
     providers = _configured_providers()
     codes = [str(provider["code"]) for provider in providers]
     products = await list_supplier_products_for_analysis(codes)
-    changed = [product for product in products if _source_hash(product) != product.get("indexed_source_hash")]
+    changed = [
+        product for product in products
+        if force or _source_hash(product) != product.get("indexed_source_hash")
+    ]
     analyses = {int(product["id"]): _deterministic_analysis(product) for product in changed}
     ai_reviewed = 0
     ai_used = 0
@@ -225,6 +253,7 @@ async def analyze_supplier_catalog(
         "indexed": saved,
         "ai_reviewed": ai_reviewed,
         "ai_used": ai_used,
+        "forced": bool(force),
     }
 
 
@@ -407,11 +436,161 @@ async def search_supplier_catalog(filters: dict) -> dict:
     }
 
 
+def _group_variant_tokens(name: str, family: str) -> tuple[str, ...]:
+    tokens = set(re.findall(r"[a-z0-9]+", _ascii(name)))
+    tokens.difference_update(_GROUP_GENERIC_TOKENS)
+    tokens.difference_update(_GROUP_FAMILY_TOKENS.get(family, {family}))
+    tokens = {
+        token for token in tokens
+        if not token.isdigit()
+        and not re.fullmatch(r"\d+(?:m|mo|mos|month|months|d|day|days|y|yr|yrs|year|years)", token)
+    }
+    return tuple(sorted(tokens)[:10])
+
+
+def _warranty_group(warranty_days: int, duration_months, duration_days) -> tuple[str, str]:
+    if warranty_days <= 0:
+        return "none", "Sans garantie"
+    total_days = 0
+    if duration_days:
+        total_days = max(0, int(duration_days))
+    elif duration_months:
+        total_days = max(0, int(duration_months) * 30)
+    if total_days and warranty_days >= math.ceil(total_days * 0.80):
+        return "full", "Garantie complete"
+    return f"limited:{warranty_days}", f"Garantie {warranty_days} j"
+
+
+def _group_duration_label(duration_months, duration_days) -> str:
+    if duration_months:
+        return f"{int(duration_months)} mois"
+    if duration_days:
+        return f"{int(duration_days)} jours"
+    return "Duree inconnue"
+
+
+async def list_supplier_product_groups() -> dict:
+    providers, metadata = await _provider_metadata()
+    codes = [str(provider["code"]) for provider in providers]
+    rows, wallets = await asyncio.gather(
+        list_indexed_supplier_products(codes),
+        get_supplier_wallet_snapshots(codes),
+    )
+    now = datetime.now(timezone.utc)
+    grouped: dict[tuple, dict] = {}
+    available_products = 0
+    for row in rows:
+        price = max(0.0, float(row.get("base_price") or 0))
+        stock = max(0, int(row.get("remote_stock") or 0))
+        if price <= 0 or stock <= 0:
+            continue
+        available_products += 1
+        family = str(row.get("family") or "").strip().lower()
+        months = int(row["duration_months"]) if row.get("duration_months") else None
+        days = int(row["duration_days"]) if row.get("duration_days") else None
+        delivery = str(row.get("delivery_mode") or "unknown")
+        access = str(row.get("access_mode") or "unknown")
+        region = str(row.get("region") or "").upper()
+        warranty_days = max(0, int(row.get("warranty_days") or 0))
+        warranty_key, warranty_label = _warranty_group(warranty_days, months, days)
+        variants = _group_variant_tokens(str(row.get("name") or ""), family)
+        comparable = bool(
+            family and (months or days)
+            and delivery != "unknown" and access != "unknown"
+        )
+        if comparable:
+            group_key = (family, variants, months, days, warranty_key, delivery, access, region)
+        else:
+            group_key = ("unclassified", int(row["id"]))
+        if group_key not in grouped:
+            family_label = family.replace("_", " ").replace("-", " ").title() if family else str(row.get("name") or "Produit non classe")
+            if variants:
+                family_label = f"{family_label} {' '.join(variants).title()}"
+            qualifiers = [_group_duration_label(months, days), warranty_label]
+            if delivery != "unknown":
+                qualifiers.append("Activation" if delivery == "activation" else "Compte fourni")
+            if access != "unknown":
+                qualifiers.append("Prive" if access == "private" else "Partage")
+            if region:
+                qualifiers.append(region)
+            grouped[group_key] = {
+                "family": family,
+                "variants": list(variants),
+                "label": family_label,
+                "signature": " - ".join(qualifiers),
+                "duration_months": months,
+                "duration_days": days,
+                "warranty_kind": warranty_key,
+                "warranty_label": warranty_label,
+                "delivery_mode": delivery,
+                "access_mode": access,
+                "region": region,
+                "comparable": comparable,
+                "offers": [],
+            }
+        code = str(row["supplier_code"])
+        balance = max(0.0, float(wallets.get(code, {}).get("balance") or 0))
+        affordable = min(stock, int(math.floor((balance + 1e-9) / price)))
+        completed = max(0, int(row.get("completed_orders") or 0))
+        failed = max(0, int(row.get("failed_orders") or 0))
+        unknown = max(0, int(row.get("unknown_orders") or 0))
+        reliability = (completed + 9.0) / (completed + failed + unknown + 10.0)
+        synced_at = _parse_datetime(row.get("last_synced_at"))
+        age_hours = max(0.0, (now - synced_at).total_seconds() / 3600) if synced_at else 9999.0
+        grouped[group_key]["offers"].append({
+            "supplier_product_id": int(row["id"]),
+            "supplier_code": code,
+            "supplier_name": metadata.get(code, {}).get("name", code),
+            "supplier_enabled": bool(metadata.get(code, {}).get("enabled")),
+            "external_product_id": str(row.get("external_product_id") or ""),
+            "name": str(row.get("name") or ""),
+            "price": round(price, 4),
+            "remote_stock": stock,
+            "affordable_stock": affordable,
+            "wallet_balance": round(balance, 2),
+            "warranty_days": warranty_days,
+            "reliability": round(reliability, 4),
+            "confidence": round(float(row.get("confidence") or 0), 4),
+            "freshness_hours": round(age_hours, 1),
+        })
+    groups = []
+    for index, group in enumerate(grouped.values(), start=1):
+        offers = group["offers"]
+        offers.sort(key=lambda offer: (
+            offer["price"],
+            -offer["reliability"],
+            offer["supplier_name"].casefold(),
+        ))
+        best_price = offers[0]["price"]
+        highest_price = max(offer["price"] for offer in offers)
+        groups.append({
+            **group,
+            "group_id": f"group-{index}",
+            "offer_count": len(offers),
+            "best_price": best_price,
+            "highest_price": highest_price,
+            "max_saving": round(max(0.0, highest_price - best_price), 4),
+        })
+    groups.sort(key=lambda group: (
+        not group["comparable"],
+        -group["offer_count"],
+        group["best_price"],
+        group["label"].casefold(),
+    ))
+    return {
+        "group_count": len(groups),
+        "available_products": available_products,
+        "comparison_groups": sum(1 for group in groups if group["offer_count"] > 1),
+        "groups": groups,
+    }
+
+
 def _public_job(job: dict | None) -> dict | None:
     if not job:
         return None
     return {
         "job_id": job.get("id"),
+        "kind": "analysis" if job.get("job_type") == SUPPLIER_AI_ANALYZE_JOB_TYPE else "sync",
         "status": job.get("status"),
         "done": int(job.get("progress_done") or 0),
         "failed": int(job.get("progress_failed") or 0),
@@ -427,26 +606,51 @@ async def enqueue_supplier_ai_sync(*, use_ai: bool = True) -> tuple[dict, bool]:
     codes = [str(provider["code"]) for provider in _configured_providers()]
     if not codes:
         raise ValueError("NO_CONFIGURED_SUPPLIERS")
+    analysis_job = await get_latest_background_job_by_type(SUPPLIER_AI_ANALYZE_JOB_TYPE)
+    if analysis_job and analysis_job.get("status") in {"queued", "running"}:
+        raise ValueError("SUPPLIER_ANALYSIS_IN_PROGRESS")
     job, created = await create_background_job_unless_active(
         secrets.token_urlsafe(12),
         SUPPLIER_AI_JOB_TYPE,
-        {"supplier_codes": codes, "use_ai": bool(use_ai)},
+        {"supplier_codes": codes},
         max_attempts=3,
-        progress_total=len(codes) + 1,
+        progress_total=len(codes),
+    )
+    return _public_job(job) or {}, created
+
+
+async def enqueue_supplier_ai_analysis(*, use_ai: bool = True) -> tuple[dict, bool]:
+    if not _configured_providers():
+        raise ValueError("NO_CONFIGURED_SUPPLIERS")
+    sync_job = await get_latest_background_job_by_type(SUPPLIER_AI_JOB_TYPE)
+    if sync_job and sync_job.get("status") in {"queued", "running"}:
+        raise ValueError("SUPPLIER_SYNC_IN_PROGRESS")
+    job, created = await create_background_job_unless_active(
+        secrets.token_urlsafe(12),
+        SUPPLIER_AI_ANALYZE_JOB_TYPE,
+        {"use_ai": bool(use_ai), "force": True},
+        max_attempts=3,
+        progress_total=1,
     )
     return _public_job(job) or {}, created
 
 
 async def get_supplier_ai_status() -> dict:
     providers = _configured_providers()
-    index, job = await asyncio.gather(
+    index, sync_job, analysis_job = await asyncio.gather(
         get_supplier_ai_index_status(),
         get_latest_background_job_by_type(SUPPLIER_AI_JOB_TYPE),
+        get_latest_background_job_by_type(SUPPLIER_AI_ANALYZE_JOB_TYPE),
     )
+    jobs = [job for job in (sync_job, analysis_job) if job]
+    active_jobs = [job for job in jobs if job.get("status") in {"queued", "running"}]
+    latest_job = max(active_jobs or jobs, key=lambda job: str(job.get("created_at") or ""), default=None)
     return {
         **index,
         "configured_suppliers": len(providers),
-        "job": _public_job(job),
+        "job": _public_job(latest_job),
+        "sync_job": _public_job(sync_job),
+        "analysis_job": _public_job(analysis_job),
     }
 
 
@@ -454,7 +658,7 @@ async def _run_supplier_ai_job(job: dict) -> None:
     job_id = str(job["id"])
     payload = job.get("payload") or {}
     codes = [str(code) for code in payload.get("supplier_codes") or []]
-    total = len(codes) + 1
+    total = len(codes)
     cursor = min(len(codes), max(0, int(job.get("cursor_value") or 0)))
     done = max(0, int(job.get("progress_done") or 0))
     failed = max(0, int(job.get("progress_failed") or 0))
@@ -483,39 +687,58 @@ async def _run_supplier_ai_job(job: dict) -> None:
             cursor_value=index + 1,
         )
 
-    async def heartbeat(_reviewed: int, _total_ai: int) -> None:
-        await update_background_job_progress(
-            job_id,
-            done=done,
-            failed=failed,
-            total=total,
-            cursor_value=len(codes),
-        )
-
-    analysis = await analyze_supplier_catalog(
-        use_ai=bool(payload.get("use_ai", True)),
-        heartbeat=heartbeat,
-    )
-    summary = {"providers": provider_results, "analysis": analysis}
-    await save_supplier_ai_run_summary(summary)
     await complete_background_job(
         job_id,
-        done=done + 1,
+        done=done,
         failed=failed,
         total=total,
         cursor_value=total,
     )
 
 
+async def _run_supplier_ai_analysis_job(job: dict) -> None:
+    job_id = str(job["id"])
+    payload = job.get("payload") or {}
+
+    async def heartbeat(_reviewed: int, _total_ai: int) -> None:
+        await update_background_job_progress(
+            job_id,
+            done=0,
+            failed=0,
+            total=1,
+            cursor_value=0,
+        )
+
+    analysis = await analyze_supplier_catalog(
+        use_ai=bool(payload.get("use_ai", True)),
+        force=bool(payload.get("force", True)),
+        heartbeat=heartbeat,
+    )
+    await save_supplier_ai_run_summary({"analysis": analysis})
+    await complete_background_job(
+        job_id,
+        done=1,
+        failed=0,
+        total=1,
+        cursor_value=1,
+    )
+
+
 async def supplier_ai_job_worker() -> None:
     while True:
         try:
-            job = await claim_next_background_job(job_types={SUPPLIER_AI_JOB_TYPE})
+            job = await claim_next_background_job(job_types={
+                SUPPLIER_AI_JOB_TYPE,
+                SUPPLIER_AI_ANALYZE_JOB_TYPE,
+            })
             if not job:
                 await asyncio.sleep(_POLL_SECONDS)
                 continue
             try:
-                await _run_supplier_ai_job(job)
+                if job.get("job_type") == SUPPLIER_AI_ANALYZE_JOB_TYPE:
+                    await _run_supplier_ai_analysis_job(job)
+                else:
+                    await _run_supplier_ai_job(job)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -531,10 +754,13 @@ async def supplier_ai_job_worker() -> None:
 
 
 __all__ = [
+    "SUPPLIER_AI_ANALYZE_JOB_TYPE",
     "SUPPLIER_AI_JOB_TYPE",
     "analyze_supplier_catalog",
+    "enqueue_supplier_ai_analysis",
     "enqueue_supplier_ai_sync",
     "get_supplier_ai_status",
+    "list_supplier_product_groups",
     "search_supplier_catalog",
     "supplier_ai_job_worker",
 ]

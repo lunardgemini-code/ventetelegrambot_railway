@@ -13,7 +13,7 @@
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
-    <link rel="stylesheet" href="style.css?v=20260720-ai-results">
+    <link rel="stylesheet" href="style.css?v=20260720-ai-groups">
     <link rel="stylesheet" href="revamp.css?v=20260717-user-purchases">
 </head>
 <body>
@@ -735,7 +735,10 @@
                         <h2><i class="fa-solid fa-magnifying-glass-chart"></i> IA Bot</h2>
                         <p>Recherchez une offre strictement conforme, puis comparez prix, disponibilite et fiabilite.</p>
                     </div>
-                    <button id="btn-ai-supplier-sync" class="btn-primary btn-sm" type="button"><i class="fa-solid fa-arrows-rotate"></i> Synchroniser tous les bots</button>
+                    <div class="ai-heading-actions">
+                        <button id="btn-ai-supplier-sync" class="btn-secondary btn-sm" type="button"><i class="fa-solid fa-arrows-rotate"></i> Synchroniser tous les bots</button>
+                        <button id="btn-ai-supplier-analyze" class="btn-primary btn-sm" type="button"><i class="fa-solid fa-wand-magic-sparkles"></i> Analyse IA</button>
+                    </div>
                 </div>
                 <div class="ai-supplier-status glass-panel">
                     <div><span>Bots configures</span><strong id="ai-supplier-count">0</strong></div>
@@ -747,6 +750,16 @@
                     <div><strong id="ai-sync-progress-label">Synchronisation en attente</strong><span id="ai-sync-progress-value">0%</span></div>
                     <div class="ai-progress-track"><span id="ai-sync-progress-bar"></span></div>
                     <small>La tache continue sur Railway meme si vous fermez le dashboard.</small>
+                </div>
+                <div class="ai-groups-heading">
+                    <div><h3>Produits similaires</h3><p id="ai-groups-summary">Synchronisez les bots, puis lancez Analyse IA.</p></div>
+                    <button id="btn-ai-groups-refresh" class="btn-icon" type="button" title="Actualiser les groupes"><i class="fa-solid fa-rotate"></i></button>
+                </div>
+                <div class="glass-panel overflow-hidden ai-groups-panel">
+                    <table class="data-table ai-groups-table">
+                        <thead><tr><th>Groupe</th><th>Caracteristiques</th><th>Meilleure offre</th><th>Alternatives</th><th>Ecart max</th><th>Action</th></tr></thead>
+                        <tbody id="ai-groups-body"><tr><td colspan="6" class="empty-state">Aucune analyse lancee.</td></tr></tbody>
+                    </table>
                 </div>
                 <form id="ai-supplier-search-form" class="ai-supplier-search glass-panel">
                     <div class="form-group ai-query-field">
@@ -1553,7 +1566,7 @@
 </div>
 
 
-    <script defer src="app.js?v=20260720-ai-results"></script>
+    <script defer src="app.js?v=20260720-ai-groups"></script>
     <script>
     /* ── Mobile Sidebar Toggle ── */
     (function() {
