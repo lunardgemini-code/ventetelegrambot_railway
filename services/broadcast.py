@@ -4,16 +4,75 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+from contextlib import asynccontextmanager
 from collections.abc import Awaitable, Callable
 
+from telegram import Bot
 from telegram.error import BadRequest, RetryAfter
+from telegram.request import HTTPXRequest
 
 from database.models import get_all_users
 
 
 logger = logging.getLogger(__name__)
 _BROADCAST_LOCK = asyncio.Lock()
-_BATCH_SIZE = 20
+_DEFAULT_BATCH_SIZE = 8
+_MAX_BATCH_SIZE = 10
+_DEFAULT_POOL_SIZE = 8
+
+
+def _bounded_env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    return min(maximum, max(minimum, value))
+
+
+def _broadcast_batch_size() -> int:
+    return _bounded_env_int(
+        "BROADCAST_BATCH_SIZE",
+        _DEFAULT_BATCH_SIZE,
+        minimum=1,
+        maximum=_MAX_BATCH_SIZE,
+    )
+
+
+def _build_isolated_broadcast_bot(main_bot) -> Bot | None:
+    """Create a Bot whose HTTP pool is never shared with interactive traffic."""
+    token = str(getattr(main_bot, "token", "") or "").strip()
+    if not token:
+        # Lightweight test doubles do not expose a token.
+        return None
+    pool_size = _bounded_env_int(
+        "BROADCAST_CONNECTION_POOL_SIZE",
+        _DEFAULT_POOL_SIZE,
+        minimum=2,
+        maximum=12,
+    )
+    request = HTTPXRequest(
+        connection_pool_size=pool_size,
+        connect_timeout=10.0,
+        read_timeout=20.0,
+        write_timeout=20.0,
+        pool_timeout=5.0,
+        media_write_timeout=30.0,
+    )
+    return Bot(token=token, request=request)
+
+
+@asynccontextmanager
+async def _isolated_broadcast_transport(main_bot):
+    dedicated_bot = _build_isolated_broadcast_bot(main_bot)
+    if dedicated_bot is None:
+        yield main_bot
+        return
+    await dedicated_bot.initialize()
+    try:
+        yield dedicated_bot
+    finally:
+        await dedicated_bot.shutdown()
 
 
 def validate_broadcast_content(text: str, photo: str | None = None) -> None:
@@ -96,7 +155,7 @@ async def execute_broadcast(
     initial_sent: int = 0,
     initial_failed: int = 0,
 ) -> tuple[int, int, int]:
-    """Send a rate-controlled broadcast and return sent, failed, total."""
+    """Send a rate-controlled broadcast through an isolated Telegram pool."""
     text = str(text or "")
     photo = str(photo or "").strip() or None
     validate_broadcast_content(text, photo)
@@ -112,26 +171,40 @@ async def execute_broadcast(
     sent = max(0, int(initial_sent))
     failed = max(0, int(initial_failed))
 
+    batch_size = _broadcast_batch_size()
     async with _BROADCAST_LOCK:
-        for offset in range(start_offset, total, _BATCH_SIZE):
-            batch = users[offset:offset + _BATCH_SIZE]
-            results = await asyncio.gather(*(
-                _send_one(bot, int(user["telegram_id"]), text, photo, reply_markup)
-                for user in batch
-            ))
-            sent += sum(1 for result in results if result)
-            failed += sum(1 for result in results if not result)
-            if progress:
-                progress_result = progress(sent, failed, total)
-                if asyncio.iscoroutine(progress_result):
-                    await progress_result
-            next_offset = min(total, offset + len(batch))
-            if checkpoint:
-                checkpoint_result = checkpoint(sent, failed, total, next_offset)
-                if asyncio.iscoroutine(checkpoint_result):
-                    await checkpoint_result
-            if offset + _BATCH_SIZE < total:
-                await asyncio.sleep(1.0)
+        async with _isolated_broadcast_transport(bot) as broadcast_bot:
+            logger.info(
+                "Broadcast transport started: recipients=%d batch_size=%d isolated=%s",
+                total - start_offset,
+                batch_size,
+                broadcast_bot is not bot,
+            )
+            for offset in range(start_offset, total, batch_size):
+                batch = users[offset:offset + batch_size]
+                results = await asyncio.gather(*(
+                    _send_one(
+                        broadcast_bot,
+                        int(user["telegram_id"]),
+                        text,
+                        photo,
+                        reply_markup,
+                    )
+                    for user in batch
+                ))
+                sent += sum(1 for result in results if result)
+                failed += sum(1 for result in results if not result)
+                if progress:
+                    progress_result = progress(sent, failed, total)
+                    if asyncio.iscoroutine(progress_result):
+                        await progress_result
+                next_offset = min(total, offset + len(batch))
+                if checkpoint:
+                    checkpoint_result = checkpoint(sent, failed, total, next_offset)
+                    if asyncio.iscoroutine(checkpoint_result):
+                        await checkpoint_result
+                if offset + batch_size < total:
+                    await asyncio.sleep(1.0)
 
     logger.info("Broadcast completed: sent=%d failed=%d total=%d", sent, failed, total)
     return sent, failed, total
