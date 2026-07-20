@@ -1,3 +1,4 @@
+import asyncio
 import os
 import tempfile
 import unittest
@@ -9,6 +10,7 @@ from database.db import init_db
 from database.suppliers import sync_supplier_products, update_supplier_wallet_snapshot
 from services.supplier_ai import (
     _gemini_analyze_batch,
+    _gemini_batch_with_heartbeat,
     _merge_ai,
     analyze_supplier_catalog,
     list_supplier_product_groups,
@@ -212,6 +214,24 @@ class SupplierAISearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(set(reviewed_ids)), 5)
         self.assertEqual(result["ai_reviewed"], 5)
         self.assertEqual(result["ai_used"], 5)
+
+    async def test_slow_gemini_batch_keeps_the_job_heartbeat_alive(self):
+        heartbeat = AsyncMock()
+
+        async def slow_analysis(_products):
+            await asyncio.sleep(0.04)
+            return {1: {"id": 1, "family": "grok"}}
+
+        with patch("services.supplier_ai._AI_HEARTBEAT_SECONDS", 0.01), patch(
+            "services.supplier_ai._gemini_analyze_batch", side_effect=slow_analysis
+        ):
+            result = await _gemini_batch_with_heartbeat(
+                [{"id": 1}], heartbeat=heartbeat, reviewed=20, total=100
+            )
+
+        self.assertEqual(result[1]["family"], "grok")
+        self.assertGreaterEqual(heartbeat.await_count, 2)
+        heartbeat.assert_awaited_with(20, 100)
 
     async def test_catalog_index_writes_are_split_into_small_turso_batches(self):
         products = [

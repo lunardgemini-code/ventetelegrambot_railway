@@ -46,6 +46,7 @@ SUPPLIER_AI_JOB_TYPE = "supplier_ai_sync"
 SUPPLIER_AI_ANALYZE_JOB_TYPE = "supplier_ai_analyze"
 logger = logging.getLogger(__name__)
 _POLL_SECONDS = 2.0
+_AI_HEARTBEAT_SECONDS = 25.0
 _DELIVERY_MODES = {"account", "activation", "unknown"}
 _ACCESS_MODES = {"private", "shared", "unknown"}
 def _configured_providers() -> list[dict]:
@@ -180,6 +181,27 @@ async def _gemini_analyze_batch(products: list[dict]) -> dict[int, dict]:
     return {}
 
 
+async def _gemini_batch_with_heartbeat(
+    products: list[dict],
+    *,
+    heartbeat: Callable[[int, int], Awaitable[None]] | None,
+    reviewed: int,
+    total: int,
+) -> dict[int, dict]:
+    task = asyncio.create_task(_gemini_analyze_batch(products))
+    try:
+        while True:
+            done, _pending = await asyncio.wait({task}, timeout=_AI_HEARTBEAT_SECONDS)
+            if task in done:
+                return task.result()
+            if heartbeat:
+                await heartbeat(reviewed, total)
+    finally:
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+
 def _valid_ai_duration(suggestion: dict, key: str) -> int | None:
     try:
         value = int(suggestion.get(key))
@@ -252,7 +274,12 @@ async def analyze_supplier_catalog(
             for attempt in range(3):
                 if heartbeat:
                     await heartbeat(ai_reviewed, len(changed))
-                received = await _gemini_analyze_batch(list(pending.values()))
+                received = await _gemini_batch_with_heartbeat(
+                    list(pending.values()),
+                    heartbeat=heartbeat,
+                    reviewed=ai_reviewed,
+                    total=len(changed),
+                )
                 suggestions.update({
                     product_id: item
                     for product_id, item in received.items()
