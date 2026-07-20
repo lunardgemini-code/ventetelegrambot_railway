@@ -8,6 +8,7 @@ from database import models
 from database.db import init_db
 from database.suppliers import sync_supplier_products, update_supplier_wallet_snapshot
 from services.supplier_ai import (
+    _gemini_analyze_batch,
     analyze_supplier_catalog,
     list_supplier_product_groups,
     search_supplier_catalog,
@@ -132,6 +133,55 @@ class SupplierAISearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["changed"], 5)
         self.assertEqual(result["reused"], 0)
         self.assertTrue(result["forced"])
+
+    async def test_gemini_analysis_falls_back_from_an_unavailable_model(self):
+        class FakeResponse:
+            def __init__(self, status_code, payload):
+                self.status_code = status_code
+                self._payload = payload
+
+            def raise_for_status(self):
+                if self.status_code >= 400:
+                    raise RuntimeError(f"HTTP {self.status_code}")
+
+            def json(self):
+                return self._payload
+
+        class FakeClient:
+            def __init__(self):
+                self.urls = []
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            async def post(self, url, **_kwargs):
+                self.urls.append(url)
+                if len(self.urls) == 1:
+                    return FakeResponse(404, {"error": {"message": "unavailable"}})
+                return FakeResponse(200, {
+                    "candidates": [{
+                        "content": {"parts": [{"text": '{"products":[{"id":1,"family":"grok","confidence":0.9}]}' }]}
+                    }]
+                })
+
+        client = FakeClient()
+        with patch.dict(os.environ, {
+            "GEMINI_API_KEY": "test-key",
+            "GEMINI_CATALOG_MODEL": "gemini-2.5-flash",
+        }, clear=False), patch(
+            "services.supplier_ai.httpx.AsyncClient", return_value=client
+        ):
+            result = await _gemini_analyze_batch([{
+                "id": 1,
+                "name": "Grok 1 month",
+                "description": "Private account",
+            }])
+        self.assertEqual(result[1]["family"], "grok")
+        self.assertIn("gemini-2.5-flash:generateContent", client.urls[0])
+        self.assertIn("gemini-3.1-flash-lite:generateContent", client.urls[1])
 
     async def test_similar_products_are_grouped_with_the_cheapest_offer_first(self):
         second_provider = {

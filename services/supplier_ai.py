@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -43,6 +44,7 @@ from services.supplier_sync import sync_supplier_catalog
 
 SUPPLIER_AI_JOB_TYPE = "supplier_ai_sync"
 SUPPLIER_AI_ANALYZE_JOB_TYPE = "supplier_ai_analyze"
+logger = logging.getLogger(__name__)
 _POLL_SECONDS = 2.0
 _DELIVERY_MODES = {"account", "activation", "unknown"}
 _ACCESS_MODES = {"private", "shared", "unknown"}
@@ -133,7 +135,12 @@ async def _gemini_analyze_batch(products: list[dict]) -> dict[int, dict]:
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key or not products:
         return {}
-    model = os.environ.get("GEMINI_CATALOG_MODEL", "gemini-2.5-flash").strip()
+    configured_model = os.environ.get("GEMINI_CATALOG_MODEL", "").strip()
+    models = list(dict.fromkeys(filter(None, (
+        configured_model,
+        "gemini-3.1-flash-lite",
+        "gemini-flash-lite-latest",
+    ))))
     safe_products = [
         {
             "id": int(product["id"]),
@@ -155,23 +162,30 @@ async def _gemini_analyze_batch(products: list[dict]) -> dict[int, dict]:
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.0, "responseMimeType": "application/json"},
     }
-    try:
-        async with httpx.AsyncClient(timeout=35) as client:
-            response = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-                json=payload,
-                headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
-            )
-            response.raise_for_status()
-            text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
-            data = json.loads(re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.I).strip())
-            return {
-                int(item["id"]): item
-                for item in data.get("products", [])
-                if isinstance(item, dict) and str(item.get("id", "")).isdigit()
-            }
-    except Exception:
-        return {}
+    async with httpx.AsyncClient(timeout=35) as client:
+        for index, model in enumerate(models):
+            try:
+                response = await client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                    json=payload,
+                    headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+                )
+                if response.status_code == 404 and index + 1 < len(models):
+                    logger.warning("Gemini catalog model %s is unavailable; trying fallback", model)
+                    continue
+                response.raise_for_status()
+                text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+                data = json.loads(re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.I).strip())
+                return {
+                    int(item["id"]): item
+                    for item in data.get("products", [])
+                    if isinstance(item, dict) and str(item.get("id", "")).isdigit()
+                }
+            except Exception as exc:
+                logger.warning("Gemini catalog analysis failed with model %s: %s", model, str(exc)[:180])
+                if index + 1 >= len(models):
+                    break
+    return {}
 
 
 def _merge_ai(analysis: dict, suggestion: dict | None) -> dict:
@@ -494,10 +508,7 @@ async def list_supplier_product_groups() -> dict:
         warranty_days = max(0, int(row.get("warranty_days") or 0))
         warranty_key, warranty_label = _warranty_group(warranty_days, months, days)
         variants = _group_variant_tokens(str(row.get("name") or ""), family)
-        comparable = bool(
-            family and (months or days)
-            and delivery != "unknown" and access != "unknown"
-        )
+        comparable = bool(family and (months or days))
         if comparable:
             group_key = (family, variants, months, days, warranty_key, delivery, access, region)
         else:
