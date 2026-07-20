@@ -1,7 +1,7 @@
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from database import db as db_module
 from database import models
@@ -212,6 +212,31 @@ class SupplierAISearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(set(reviewed_ids)), 5)
         self.assertEqual(result["ai_reviewed"], 5)
         self.assertEqual(result["ai_used"], 5)
+
+    async def test_catalog_index_writes_are_split_into_small_turso_batches(self):
+        products = [
+            {
+                "id": product_id,
+                "supplier_code": "canboso",
+                "name": f"Grok {product_id} month",
+                "description": "Private account",
+                "warranty_days": 0,
+                "indexed_source_hash": "",
+            }
+            for product_id in range(1, 96)
+        ]
+        writer = AsyncMock(side_effect=lambda rows: len(rows))
+        with patch(
+            "services.supplier_ai.list_supplier_products_for_analysis",
+            new=AsyncMock(return_value=products),
+        ), patch(
+            "services.supplier_ai.upsert_supplier_product_analysis",
+            new=writer,
+        ), patch("services.supplier_ai._configured_providers", return_value=[self.provider]):
+            result = await analyze_supplier_catalog(use_ai=False, force=True)
+
+        self.assertEqual(result["indexed"], 95)
+        self.assertEqual([len(call.args[0]) for call in writer.await_args_list], [40, 40, 15])
 
     def test_ai_classification_overrides_deterministic_fields(self):
         deterministic = {

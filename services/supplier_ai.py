@@ -280,7 +280,12 @@ async def analyze_supplier_catalog(
             ai_reviewed += len(batch)
             if heartbeat:
                 await heartbeat(ai_reviewed, len(changed))
-    saved = await upsert_supplier_product_analysis(list(analyses.values()))
+    analysis_rows = list(analyses.values())
+    saved = 0
+    for start in range(0, len(analysis_rows), 40):
+        saved += await upsert_supplier_product_analysis(analysis_rows[start:start + 40])
+        if heartbeat:
+            await heartbeat(ai_reviewed, len(changed))
     return {
         "total": len(products),
         "changed": len(changed),
