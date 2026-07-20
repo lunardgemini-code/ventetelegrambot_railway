@@ -75,7 +75,8 @@ def _load_dynamic_providers() -> None:
             adapter = str(account.get("adapter") or "canboso").strip().lower()
             base_url = str(account.get("base_url") or "").strip().rstrip("/")
             if not code or code in _PROVIDER_CONFIGS or adapter not in {
-                "canboso", "tunvn", "akunding", "pixverify", "safwan"
+                "canboso", "tunvn", "akunding", "pixverify", "safwan",
+                "roboticvn", "zoom", "cat_ai", "goldfish",
             } or not base_url.startswith("https://"):
                 continue
             source_currency = str(account.get("source_currency") or "USD").upper()
@@ -196,7 +197,12 @@ async def purchase_supplier_product(
         )
     from services.supplier_multi_api import purchase
 
-    return await purchase(provider, product_id, quantity)
+    return await purchase(
+        provider,
+        product_id,
+        quantity,
+        buyer_info=buyer_info,
+    )
 
 
 async def close_supplier_clients() -> None:

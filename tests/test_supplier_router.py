@@ -6,8 +6,15 @@ import httpx
 from services.supplier_multi_api import (
     _request,
     _normalize_akunding_products,
+    _normalize_cat_products,
+    _normalize_goldfish_products,
     _normalize_pixverify_products,
+    _normalize_robotic_product,
     _normalize_tunvn_products,
+    _normalize_zoom_products,
+    _delivery_values,
+    _purchase_idempotency_key,
+    purchase,
 )
 from services.supplier_api import SupplierAPIError
 from services.supplier_identity import extract_supplier_identity
@@ -68,6 +75,58 @@ class SupplierRouterUnitTests(unittest.TestCase):
         self.assertEqual(pix[0]["base_price"], 2)
         self.assertEqual(pix[0]["remote_stock"], 12)
 
+    def test_zoom_catalog_normalization(self):
+        rows = _normalize_zoom_products({"products": [{
+            "id": "002", "name": "Gemini", "price": 0.72,
+            "stock": 9, "currency": "USDT",
+        }]}, 1)
+        self.assertEqual(rows[0]["external_product_id"], "002")
+        self.assertEqual(rows[0]["base_price"], 0.72)
+        self.assertEqual(rows[0]["remote_stock"], 9)
+
+    def test_vnd_catalogs_are_converted_and_input_products_are_filtered(self):
+        cat = _normalize_cat_products({"data": [{
+            "id": 7, "name": "CapCut", "price": 25000, "stock": 4,
+        }]}, 25000)
+        goldfish = _normalize_goldfish_products([
+            {"id": "stock", "name": "Stock", "price": 50000, "quantity": 2},
+            {"id": "activation", "name": "Activation", "price": 50000,
+             "quantity": None, "requires_input": True},
+        ], 25000)
+        self.assertEqual(cat[0]["base_price"], 1.0)
+        self.assertEqual(goldfish[0]["base_price"], 2.0)
+        self.assertEqual([row["external_product_id"] for row in goldfish], ["stock"])
+
+    def test_robotic_variants_are_flattened_into_purchasable_products(self):
+        rows = _normalize_robotic_product({"data": {
+            "id": "parent", "title": "ChatGPT", "description": "Account",
+            "variants": [{
+                "id": "variant-1", "title": "Plus 30D",
+                "prices": {"usd": 0.77, "vnd": 20000},
+                "in_stock": True, "available_quantity": 5,
+            }],
+        }}, 25000)
+        self.assertEqual(rows[0]["external_product_id"], "variant-1")
+        self.assertEqual(rows[0]["name"], "ChatGPT - Plus 30D")
+        self.assertEqual(rows[0]["base_price"], 0.77)
+
+    def test_purchase_idempotency_is_stable_per_internal_order(self):
+        provider = {"code": "zoom"}
+        left = _purchase_idempotency_key(provider, "002", 1, "VenteBot order #42")
+        right = _purchase_idempotency_key(provider, "002", 1, "VenteBot order #42")
+        other = _purchase_idempotency_key(provider, "002", 1, "VenteBot order #43")
+        self.assertEqual(left, right)
+        self.assertNotEqual(left, other)
+
+    def test_delivery_normalizer_skips_empty_alias_before_populated_alias(self):
+        values = _delivery_values({
+            "data": {
+                "deliveredAccount": [],
+                "delivered_accounts": [{"account": "user", "password": "pass"}],
+            }
+        })
+        self.assertEqual(len(values), 1)
+
     def test_signature_never_contains_credentials(self):
         signature = extract_product_signature("Gemini 18 months", "private activation")
         self.assertEqual(signature["family"], "gemini")
@@ -109,6 +168,24 @@ class SupplierRouterHTTPTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(SupplierAPIError) as raised:
                 await _request(provider, "POST", "/api/order", json={"product_id": 1})
         self.assertTrue(raised.exception.outcome_unknown)
+
+    async def test_zoom_purchase_sends_idempotency_header_and_delivers_codes(self):
+        provider = {
+            "code": "zoom", "name": "Zoom", "adapter": "zoom",
+            "base_url": "https://supplier.example", "api_key": "secret",
+        }
+        request = AsyncMock(return_value={
+            "success": True, "order_id": "remote-1", "codes": ["a", "b"],
+        })
+        with patch("services.supplier_multi_api._request", request):
+            result = await purchase(
+                provider, "002", 2, buyer_info="VenteBot order #88"
+            )
+        self.assertEqual(
+            [item["account_data"] for item in result["items"]], ["a", "b"]
+        )
+        kwargs = request.await_args.kwargs
+        self.assertTrue(kwargs["headers"]["Idempotency-Key"].startswith("ventebot-"))
 
 
 if __name__ == "__main__":
