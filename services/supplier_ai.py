@@ -305,9 +305,9 @@ async def search_supplier_catalog(filters: dict) -> dict:
     ))
     if full_warranty:
         if requested_days is not None:
-            min_warranty = max(min_warranty, int(requested_days))
+            min_warranty = max(min_warranty, int(math.ceil(int(requested_days) * 0.80)))
         elif requested_months is not None:
-            min_warranty = max(min_warranty, int(requested_months) * 30)
+            min_warranty = max(min_warranty, int(math.ceil(int(requested_months) * 30 * 0.80)))
     delivery = str(filters.get("delivery_mode") or query_signature.get("delivery_mode") or "unknown").lower()
     access = str(filters.get("access_mode") or query_signature.get("access") or "unknown").lower()
     if delivery not in _DELIVERY_MODES or access not in _ACCESS_MODES:

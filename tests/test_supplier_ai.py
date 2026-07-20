@@ -32,7 +32,7 @@ class SupplierAISearchTests(unittest.IsolatedAsyncioTestCase):
                     "description": "Private ready account with email and password",
                     "base_price": 2.0,
                     "remote_stock": 5,
-                    "warranty_days": 30,
+                    "warranty_days": 25,
                 },
                 {
                     "external_product_id": "grok-month-no-warranty",
@@ -90,6 +90,7 @@ class SupplierAISearchTests(unittest.IsolatedAsyncioTestCase):
             "include_unfunded": False,
         })
         self.assertEqual(response["count"], 1)
+        self.assertEqual(response["intent"]["min_warranty_days"], 24)
         self.assertEqual(
             response["results"][0]["external_product_id"],
             "grok-month-warranty",
