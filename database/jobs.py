@@ -337,6 +337,31 @@ async def fail_background_job(job_id: str, error: str, *, retry_delay_seconds: i
         await db.close()
 
 
+async def defer_background_job(
+    job_id: str,
+    *,
+    delay_seconds: int,
+    reason: str,
+) -> bool:
+    """Return a running job to the queue without consuming a retry attempt."""
+    db = await get_db()
+    try:
+        modifier = f"+{max(1, int(delay_seconds))} seconds"
+        cursor = await db.execute(
+            """UPDATE background_jobs
+               SET status = 'queued', available_at = datetime('now', ?),
+                   claimed_at = NULL, attempts = CASE
+                       WHEN attempts > 0 THEN attempts - 1 ELSE 0 END,
+                   error = ?, updated_at = CURRENT_TIMESTAMP
+               WHERE id = ? AND status = 'running'""",
+            (modifier, str(reason or "Deferred")[:500], str(job_id)),
+        )
+        await db.commit()
+        return cursor.rowcount in (-1, 1)
+    finally:
+        await db.close()
+
+
 async def requeue_stale_background_jobs(stale_seconds: int = 180) -> int:
     db = await get_db()
     try:

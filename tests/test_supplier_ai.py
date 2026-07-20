@@ -12,9 +12,13 @@ from services.supplier_ai import (
     _gemini_analyze_batch,
     _gemini_batch_with_heartbeat,
     _merge_ai,
+    _run_supplier_ai_job,
     analyze_supplier_catalog,
     list_supplier_product_groups,
+    run_supplier_ai_auto_cycle_once,
     search_supplier_catalog,
+    supplier_ai_job_worker,
+    supplier_ai_pressure_reason,
 )
 from services.supplier_router import extract_product_signature
 
@@ -89,6 +93,112 @@ class SupplierAISearchTests(unittest.IsolatedAsyncioTestCase):
     async def _search(self, payload):
         with patch("services.supplier_ai._configured_providers", return_value=[self.provider]):
             return await search_supplier_catalog(payload)
+
+    def test_auto_cycle_detects_webhook_and_database_pressure(self):
+        self.assertEqual(
+            supplier_ai_pressure_reason({"queue": {"current": 2}}),
+            "webhook_queue",
+        )
+        self.assertEqual(
+            supplier_ai_pressure_reason({"database": {"p95_ms": 700}}),
+            "database",
+        )
+        self.assertEqual(
+            supplier_ai_pressure_reason({
+                "queue": {"current": 0, "p95_wait_ms": 20},
+                "workers": {"utilization_1m": 0.2},
+                "diagnosis": {"bottleneck": "healthy"},
+            }),
+            "",
+        )
+
+    async def test_auto_cycle_waits_while_clients_are_queued(self):
+        enqueue = AsyncMock()
+        with patch("services.supplier_ai.enqueue_supplier_ai_sync", enqueue):
+            result = await run_supplier_ai_auto_cycle_once(
+                lambda: {"queue": {"current": 1}}
+            )
+
+        self.assertEqual(result, {"status": "deferred", "reason": "webhook_queue"})
+        enqueue.assert_not_awaited()
+
+    async def test_auto_cycle_queues_sync_and_records_schedule(self):
+        enqueue = AsyncMock(return_value=({"job_id": "auto-sync-1"}, True))
+        setting = AsyncMock()
+        with patch("services.supplier_ai.enqueue_supplier_ai_sync", enqueue), patch(
+            "services.supplier_ai.set_setting", setting
+        ):
+            result = await run_supplier_ai_auto_cycle_once(
+                lambda: {
+                    "queue": {"current": 0},
+                    "workers": {"utilization_1m": 0.1},
+                    "diagnosis": {"bottleneck": "healthy"},
+                }
+            )
+
+        self.assertEqual(result["status"], "queued")
+        enqueue.assert_awaited_once_with(
+            use_ai=True,
+            automatic=True,
+            auto_analyze=True,
+        )
+        setting.assert_awaited_once()
+
+    async def test_auto_sync_chains_incremental_ai_analysis(self):
+        job = {
+            "id": "auto-sync-job",
+            "payload": {
+                "supplier_codes": ["canboso"],
+                "automatic": True,
+                "auto_analyze": True,
+                "use_ai": True,
+            },
+            "cursor_value": 0,
+            "progress_done": 0,
+            "progress_failed": 0,
+        }
+        with patch(
+            "services.supplier_ai.sync_supplier_catalog",
+            AsyncMock(return_value={"status": "synced", "synced": 5}),
+        ), patch(
+            "services.supplier_ai.update_background_job_progress", AsyncMock()
+        ), patch(
+            "services.supplier_ai.complete_background_job", AsyncMock()
+        ), patch(
+            "services.supplier_ai.set_setting", AsyncMock()
+        ), patch(
+            "services.supplier_ai.enqueue_supplier_ai_analysis",
+            AsyncMock(return_value=({"job_id": "analysis-1"}, True)),
+        ) as enqueue_analysis:
+            await _run_supplier_ai_job(job)
+
+        enqueue_analysis.assert_awaited_once_with(
+            use_ai=True,
+            force=False,
+            automatic=True,
+        )
+
+    async def test_automatic_job_is_requeued_if_pressure_appears(self):
+        job = {
+            "id": "auto-analysis-job",
+            "job_type": "supplier_ai_analyze",
+            "payload": {"automatic": True},
+        }
+        claim = AsyncMock(side_effect=[job, asyncio.CancelledError()])
+        defer = AsyncMock(return_value=True)
+        with patch("services.supplier_ai.claim_next_background_job", claim), patch(
+            "services.supplier_ai.defer_background_job", defer
+        ):
+            with self.assertRaises(asyncio.CancelledError):
+                await supplier_ai_job_worker(
+                    lambda: {"queue": {"current": 3}}
+                )
+
+        defer.assert_awaited_once_with(
+            "auto-analysis-job",
+            delay_seconds=300,
+            reason="Deferred while bot is under pressure: webhook_queue",
+        )
 
     async def test_strict_search_excludes_wrong_duration_family_and_missing_warranty(self):
         result = await self._analyze()

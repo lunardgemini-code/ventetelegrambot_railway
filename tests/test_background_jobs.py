@@ -13,6 +13,7 @@ from database.jobs import (
     complete_background_job,
     create_background_job,
     create_background_job_unless_active,
+    defer_background_job,
     get_background_job,
     get_performance_action_history,
     get_webhook_autoscale_settings,
@@ -147,6 +148,27 @@ class PersistentBackgroundJobTests(unittest.IsolatedAsyncioTestCase):
         )
         completed = await get_background_job("job-1")
         self.assertEqual(completed["status"], "completed")
+
+    async def test_pressure_deferral_does_not_consume_a_retry(self):
+        await create_background_job(
+            "auto-ai-job",
+            "supplier_ai_sync",
+            {"automatic": True},
+        )
+        claimed = await claim_next_background_job(job_types={"supplier_ai_sync"})
+        self.assertEqual(claimed["attempts"], 1)
+
+        deferred = await defer_background_job(
+            "auto-ai-job",
+            delay_seconds=300,
+            reason="Bot under pressure",
+        )
+        saved = await get_background_job("auto-ai-job")
+
+        self.assertTrue(deferred)
+        self.assertEqual(saved["status"], "queued")
+        self.assertEqual(saved["attempts"], 0)
+        self.assertEqual(saved["error"], "Bot under pressure")
 
     async def test_recent_job_heartbeat_prevents_duplicate_requeue(self):
         await create_background_job("job-heartbeat", "broadcast", {"text": "Hello"})

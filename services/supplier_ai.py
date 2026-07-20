@@ -11,7 +11,7 @@ import os
 import re
 import secrets
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 from typing import Awaitable, Callable
 
@@ -21,10 +21,12 @@ from database.jobs import (
     claim_next_background_job,
     complete_background_job,
     create_background_job_unless_active,
+    defer_background_job,
     fail_background_job,
     get_latest_background_job_by_type,
     update_background_job_progress,
 )
+from database.models import get_setting, set_setting
 from database.supplier_ai import (
     get_supplier_ai_index_status,
     get_supplier_wallet_snapshots,
@@ -45,8 +47,26 @@ from services.supplier_sync import sync_supplier_catalog
 SUPPLIER_AI_JOB_TYPE = "supplier_ai_sync"
 SUPPLIER_AI_ANALYZE_JOB_TYPE = "supplier_ai_analyze"
 logger = logging.getLogger(__name__)
+
+
+def _env_seconds(name: str, default: int, minimum: int) -> int:
+    try:
+        return max(minimum, int(os.environ.get(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
 _POLL_SECONDS = 2.0
 _AI_HEARTBEAT_SECONDS = 25.0
+_AUTO_SYNC_INTERVAL_SECONDS = _env_seconds(
+    "SUPPLIER_AI_AUTO_SYNC_SECONDS", 7200, 900
+)
+_AUTO_DEFER_SECONDS = _env_seconds("SUPPLIER_AI_AUTO_DEFER_SECONDS", 300, 30)
+_AUTO_STARTUP_GRACE_SECONDS = _env_seconds(
+    "SUPPLIER_AI_AUTO_STARTUP_GRACE_SECONDS", 120, 10
+)
+_AUTO_LAST_STARTED_KEY = "supplier_ai_auto_last_started_at"
+_AUTO_LAST_COMPLETED_KEY = "supplier_ai_auto_last_completed_at"
 _DELIVERY_MODES = {"account", "activation", "unknown"}
 _ACCESS_MODES = {"private", "shared", "unknown"}
 def _configured_providers() -> list[dict]:
@@ -335,6 +355,43 @@ def _parse_datetime(value) -> datetime | None:
         return parsed.astimezone(timezone.utc)
     except ValueError:
         return None
+
+
+def supplier_ai_pressure_reason(snapshot: dict | None) -> str:
+    metrics = snapshot or {}
+    queue = metrics.get("queue") or {}
+    workers = metrics.get("workers") or {}
+    database = metrics.get("database") or {}
+    writes = database.get("write_serialization") or {}
+    event_loop = metrics.get("event_loop") or {}
+    memory = metrics.get("memory") or {}
+    diagnosis = str((metrics.get("diagnosis") or {}).get("bottleneck") or "")
+
+    if int(queue.get("current") or 0) > 0:
+        return "webhook_queue"
+    if (
+        float(queue.get("p95_wait_ms") or 0) >= 250
+        or float(workers.get("utilization_1m") or 0) >= 0.80
+    ):
+        return "webhook_workers"
+    if (
+        int(database.get("connection_errors") or 0) > 0
+        or float(database.get("p95_ms") or 0) >= 600
+        or int(writes.get("waiters") or 0) > 0
+        or int(writes.get("timeouts") or 0) > 0
+        or float(writes.get("p95_wait_ms") or 0) >= 500
+    ):
+        return "database"
+    if (
+        float(event_loop.get("p95_lag_ms") or 0) >= 150
+        or float(event_loop.get("max_lag_ms") or 0) >= 750
+    ):
+        return "event_loop"
+    if float(memory.get("rss_mb") or 0) >= 450:
+        return "memory"
+    if diagnosis in {"external_api", "workers", "database", "event_loop", "memory"}:
+        return diagnosis
+    return ""
 
 
 async def _provider_metadata() -> tuple[list[dict], dict[str, dict]]:
@@ -683,7 +740,12 @@ def _public_job(job: dict | None) -> dict | None:
     }
 
 
-async def enqueue_supplier_ai_sync(*, use_ai: bool = True) -> tuple[dict, bool]:
+async def enqueue_supplier_ai_sync(
+    *,
+    use_ai: bool = True,
+    automatic: bool = False,
+    auto_analyze: bool = False,
+) -> tuple[dict, bool]:
     codes = [str(provider["code"]) for provider in _configured_providers()]
     if not codes:
         raise ValueError("NO_CONFIGURED_SUPPLIERS")
@@ -693,14 +755,24 @@ async def enqueue_supplier_ai_sync(*, use_ai: bool = True) -> tuple[dict, bool]:
     job, created = await create_background_job_unless_active(
         secrets.token_urlsafe(12),
         SUPPLIER_AI_JOB_TYPE,
-        {"supplier_codes": codes},
+        {
+            "supplier_codes": codes,
+            "automatic": bool(automatic),
+            "auto_analyze": bool(auto_analyze),
+            "use_ai": bool(use_ai),
+        },
         max_attempts=3,
         progress_total=len(codes),
     )
     return _public_job(job) or {}, created
 
 
-async def enqueue_supplier_ai_analysis(*, use_ai: bool = True) -> tuple[dict, bool]:
+async def enqueue_supplier_ai_analysis(
+    *,
+    use_ai: bool = True,
+    force: bool = True,
+    automatic: bool = False,
+) -> tuple[dict, bool]:
     if not _configured_providers():
         raise ValueError("NO_CONFIGURED_SUPPLIERS")
     sync_job = await get_latest_background_job_by_type(SUPPLIER_AI_JOB_TYPE)
@@ -709,7 +781,11 @@ async def enqueue_supplier_ai_analysis(*, use_ai: bool = True) -> tuple[dict, bo
     job, created = await create_background_job_unless_active(
         secrets.token_urlsafe(12),
         SUPPLIER_AI_ANALYZE_JOB_TYPE,
-        {"use_ai": bool(use_ai), "force": True},
+        {
+            "use_ai": bool(use_ai),
+            "force": bool(force),
+            "automatic": bool(automatic),
+        },
         max_attempts=3,
         progress_total=1,
     )
@@ -726,13 +802,103 @@ async def get_supplier_ai_status() -> dict:
     jobs = [job for job in (sync_job, analysis_job) if job]
     active_jobs = [job for job in jobs if job.get("status") in {"queued", "running"}]
     latest_job = max(active_jobs or jobs, key=lambda job: str(job.get("created_at") or ""), default=None)
+    auto_started = str(index.get("auto_last_started_at") or "")
+    auto_completed = str(index.get("auto_last_completed_at") or "")
+    last_started_at = _parse_datetime(auto_started)
+    next_run_at = (
+        last_started_at + timedelta(seconds=_AUTO_SYNC_INTERVAL_SECONDS)
+        if last_started_at else None
+    )
     return {
         **index,
         "configured_suppliers": len(providers),
         "job": _public_job(latest_job),
         "sync_job": _public_job(sync_job),
         "analysis_job": _public_job(analysis_job),
+        "automation": {
+            "enabled": True,
+            "interval_seconds": _AUTO_SYNC_INTERVAL_SECONDS,
+            "defer_seconds": _AUTO_DEFER_SECONDS,
+            "last_started_at": auto_started or "",
+            "last_completed_at": auto_completed or "",
+            "next_run_at": next_run_at.isoformat() if next_run_at else "",
+        },
     }
+
+
+async def run_supplier_ai_auto_cycle_once(
+    snapshot_provider: Callable[[], dict] | None = None,
+) -> dict:
+    snapshot = snapshot_provider() if snapshot_provider else {}
+    pressure = supplier_ai_pressure_reason(snapshot)
+    if pressure:
+        return {"status": "deferred", "reason": pressure}
+    try:
+        job, created = await enqueue_supplier_ai_sync(
+            use_ai=True,
+            automatic=True,
+            auto_analyze=True,
+        )
+    except ValueError as exc:
+        if str(exc) in {
+            "SUPPLIER_ANALYSIS_IN_PROGRESS",
+            "SUPPLIER_SYNC_IN_PROGRESS",
+        }:
+            return {"status": "deferred", "reason": str(exc).lower()}
+        raise
+    if not created:
+        return {
+            "status": "deferred",
+            "reason": "supplier_sync_in_progress",
+            "job": job,
+        }
+    started_at = datetime.now(timezone.utc).isoformat()
+    try:
+        await set_setting(_AUTO_LAST_STARTED_KEY, started_at)
+    except Exception as exc:
+        logger.warning(
+            "Automatic supplier AI schedule timestamp could not be saved: %s",
+            str(exc)[:180],
+        )
+    logger.info(
+        "Automatic supplier AI cycle queued: sync job=%s interval=%ss",
+        job.get("job_id"),
+        _AUTO_SYNC_INTERVAL_SECONDS,
+    )
+    return {"status": "queued", "job": job, "started_at": started_at}
+
+
+async def supplier_ai_auto_cycle_worker(
+    snapshot_provider: Callable[[], dict] | None = None,
+) -> None:
+    await asyncio.sleep(_AUTO_STARTUP_GRACE_SECONDS)
+    while True:
+        delay = _AUTO_DEFER_SECONDS
+        try:
+            last_started = _parse_datetime(await get_setting(_AUTO_LAST_STARTED_KEY))
+            now = datetime.now(timezone.utc)
+            if last_started:
+                due_at = last_started + timedelta(seconds=_AUTO_SYNC_INTERVAL_SECONDS)
+                remaining = (due_at - now).total_seconds()
+                if remaining > 0:
+                    await asyncio.sleep(min(300.0, max(1.0, remaining)))
+                    continue
+
+            result = await run_supplier_ai_auto_cycle_once(snapshot_provider)
+            if result.get("status") == "queued":
+                delay = min(300, _AUTO_SYNC_INTERVAL_SECONDS)
+            else:
+                logger.info(
+                    "Automatic supplier AI cycle deferred for %ss: %s",
+                    _AUTO_DEFER_SECONDS,
+                    result.get("reason") or "busy",
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("Automatic supplier AI scheduler failed: %s", str(exc)[:180])
+            delay = min(60, _AUTO_DEFER_SECONDS)
+        await asyncio.sleep(delay)
 
 
 async def _run_supplier_ai_job(job: dict) -> None:
@@ -775,6 +941,43 @@ async def _run_supplier_ai_job(job: dict) -> None:
         total=total,
         cursor_value=total,
     )
+    if payload.get("automatic"):
+        try:
+            completed_at = datetime.now(timezone.utc).isoformat()
+            await set_setting(
+                _AUTO_LAST_STARTED_KEY,
+                str(job.get("created_at") or completed_at),
+            )
+            await set_setting(_AUTO_LAST_COMPLETED_KEY, completed_at)
+        except Exception as exc:
+            logger.warning(
+                "Automatic supplier AI completion timestamp could not be saved: %s",
+                str(exc)[:180],
+            )
+    if payload.get("auto_analyze") and done > 0:
+        try:
+            analysis_job, created = await enqueue_supplier_ai_analysis(
+                use_ai=bool(payload.get("use_ai", True)),
+                force=False,
+                automatic=True,
+            )
+            logger.info(
+                "Automatic supplier analysis %s after sync job=%s analysis_job=%s",
+                "queued" if created else "already active",
+                job_id,
+                analysis_job.get("job_id"),
+            )
+        except Exception as exc:
+            logger.error(
+                "Could not queue automatic supplier analysis after sync job=%s: %s",
+                job_id,
+                str(exc)[:180],
+            )
+    elif payload.get("auto_analyze"):
+        logger.warning(
+            "Automatic supplier analysis skipped because every supplier sync failed: job=%s",
+            job_id,
+        )
 
 
 async def _run_supplier_ai_analysis_job(job: dict) -> None:
@@ -809,7 +1012,9 @@ async def _run_supplier_ai_analysis_job(job: dict) -> None:
     )
 
 
-async def supplier_ai_job_worker() -> None:
+async def supplier_ai_job_worker(
+    snapshot_provider: Callable[[], dict] | None = None,
+) -> None:
     while True:
         try:
             job = await claim_next_background_job(job_types={
@@ -819,6 +1024,29 @@ async def supplier_ai_job_worker() -> None:
             if not job:
                 await asyncio.sleep(_POLL_SECONDS)
                 continue
+            payload = job.get("payload") or {}
+            if payload.get("automatic") and snapshot_provider:
+                try:
+                    pressure = supplier_ai_pressure_reason(snapshot_provider())
+                except Exception as exc:
+                    logger.warning(
+                        "Could not inspect bot pressure for automatic supplier job: %s",
+                        str(exc)[:180],
+                    )
+                    pressure = ""
+                if pressure:
+                    await defer_background_job(
+                        str(job["id"]),
+                        delay_seconds=_AUTO_DEFER_SECONDS,
+                        reason=f"Deferred while bot is under pressure: {pressure}",
+                    )
+                    logger.info(
+                        "Automatic supplier AI job %s deferred for %ss: %s",
+                        job.get("id"),
+                        _AUTO_DEFER_SECONDS,
+                        pressure,
+                    )
+                    continue
             try:
                 if job.get("job_type") == SUPPLIER_AI_ANALYZE_JOB_TYPE:
                     await _run_supplier_ai_analysis_job(job)
@@ -853,6 +1081,9 @@ __all__ = [
     "enqueue_supplier_ai_sync",
     "get_supplier_ai_status",
     "list_supplier_product_groups",
+    "run_supplier_ai_auto_cycle_once",
     "search_supplier_catalog",
+    "supplier_ai_auto_cycle_worker",
     "supplier_ai_job_worker",
+    "supplier_ai_pressure_reason",
 ]

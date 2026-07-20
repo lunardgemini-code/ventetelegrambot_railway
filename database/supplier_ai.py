@@ -197,7 +197,11 @@ async def get_supplier_ai_index_status() -> dict:
         )
         row = dict(await cursor.fetchone())
         cursor = await db.execute(
-            "SELECT key, value FROM settings WHERE key IN ('supplier_ai_last_run', 'supplier_ai_last_result')"
+            """SELECT key, value FROM settings WHERE key IN (
+                   'supplier_ai_last_run', 'supplier_ai_last_result',
+                   'supplier_ai_auto_last_started_at',
+                   'supplier_ai_auto_last_completed_at'
+               )"""
         )
         values = {str(item["key"]): str(item["value"]) for item in await cursor.fetchall()}
         try:
@@ -209,6 +213,8 @@ async def get_supplier_ai_index_status() -> dict:
             "indexed_suppliers": int(row.get("indexed_suppliers") or 0),
             "last_analysis": row.get("last_analysis") or values.get("supplier_ai_last_run") or "",
             "last_result": summary if isinstance(summary, dict) else {},
+            "auto_last_started_at": values.get("supplier_ai_auto_last_started_at", ""),
+            "auto_last_completed_at": values.get("supplier_ai_auto_last_completed_at", ""),
         }
     finally:
         await db.close()

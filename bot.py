@@ -5323,9 +5323,20 @@ async def post_init(application: Application) -> None:
         from services.supplier_ai import supplier_ai_job_worker
 
         application.bot_data["supplier_ai_job_task"] = asyncio.create_task(
-            supplier_ai_job_worker(), name="supplier-ai-job-worker"
+            supplier_ai_job_worker(_webhook_performance_snapshot),
+            name="supplier-ai-job-worker",
         )
         logger.info("Persistent supplier AI job worker started")
+
+    task = application.bot_data.get("supplier_ai_auto_cycle_task")
+    if not task or task.done():
+        from services.supplier_ai import supplier_ai_auto_cycle_worker
+
+        application.bot_data["supplier_ai_auto_cycle_task"] = asyncio.create_task(
+            supplier_ai_auto_cycle_worker(_webhook_performance_snapshot),
+            name="supplier-ai-auto-cycle",
+        )
+        logger.info("Automatic supplier AI cycle scheduler started")
 
     from services.nowpayments import is_nowpayments_configured
     if is_nowpayments_configured():
@@ -5358,6 +5369,7 @@ async def post_shutdown(application: Application) -> None:
         application.bot_data.pop("game_sync_task", None),
         application.bot_data.pop("supplier_catalog_sync_task", None),
         application.bot_data.pop("supplier_ai_job_task", None),
+        application.bot_data.pop("supplier_ai_auto_cycle_task", None),
         application.bot_data.pop("runtime_health_task", None),
     ]
     for task in tasks:
