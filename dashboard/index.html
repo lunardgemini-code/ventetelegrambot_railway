@@ -13,8 +13,8 @@
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
-    <link rel="stylesheet" href="style.css?v=20260720-ai-responsive">
-    <link rel="stylesheet" href="revamp.css?v=20260717-user-purchases">
+    <link rel="stylesheet" href="style.css?v=20260720-reseller-prices">
+    <link rel="stylesheet" href="revamp.css?v=20260720-reseller-prices">
 </head>
 <body>
     <!-- Login Screen -->
@@ -1533,6 +1533,43 @@
     </div>
 </div>
 
+<div id="reseller-special-prices-modal" class="modal-overlay hidden">
+    <div class="modal-card modal-card-lg glass-panel animate-slide reseller-special-prices-modal">
+        <div class="modal-header">
+            <div><p class="eyebrow">Reseller API</p><h3><i class="fa-solid fa-tags"></i> <span data-i18n="reseller_special_prices">Prix spéciaux</span></h3><p id="reseller-special-prices-identity" class="modal-context"></p></div>
+            <button type="button" class="btn-close-modal" title="Close"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <form id="reseller-special-prices-form" class="reseller-special-prices-form">
+            <div class="form-group reseller-special-product-field">
+                <label for="reseller-special-product" data-i18n="reseller_special_product">Produit</label>
+                <select id="reseller-special-product" required></select>
+                <small id="reseller-special-standard-hint"></small>
+            </div>
+            <div class="form-group">
+                <label for="reseller-special-price" data-i18n="reseller_special_price">Prix revendeur ($)</label>
+                <input id="reseller-special-price" type="number" min="0.01" max="1000000" step="0.01" required>
+            </div>
+            <div class="form-group">
+                <label for="reseller-special-expiry" data-i18n="reseller_special_expiry">Expiration facultative</label>
+                <input id="reseller-special-expiry" type="datetime-local">
+            </div>
+            <label class="game-publish-control reseller-special-toggle">
+                <input id="reseller-special-active" type="checkbox" checked>
+                <span><strong data-i18n="reseller_special_active">Tarif actif</strong></span>
+            </label>
+            <label class="game-publish-control reseller-special-toggle">
+                <input id="reseller-special-cost-protection" type="checkbox" checked>
+                <span><strong data-i18n="reseller_cost_protection">Protection du coût fournisseur</strong><small data-i18n="reseller_cost_protection_hint">Bloque la vente si le coût fournisseur atteint ou dépasse ce tarif.</small></span>
+            </label>
+            <div class="reseller-special-submit">
+                <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> <span data-i18n="btn_save">Enregistrer</span></button>
+            </div>
+        </form>
+        <div id="reseller-special-prices-list" class="reseller-special-prices-list"></div>
+        <div class="modal-footer"><button type="button" class="btn-secondary btn-close-modal" data-i18n="btn_cancel">Fermer</button></div>
+    </div>
+</div>
+
 <div id="exportModal" class="modal-overlay hidden">
     <div class="modal-card glass-panel animate-slide">
         <div class="modal-header">
@@ -1566,7 +1603,7 @@
 </div>
 
 
-    <script defer src="app.js?v=20260720-ai-responsive"></script>
+    <script defer src="app.js?v=20260720-reseller-prices"></script>
     <script>
     /* ── Mobile Sidebar Toggle ── */
     (function() {

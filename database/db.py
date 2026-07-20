@@ -867,6 +867,20 @@ async def init_db() -> None:
                 last_used_at TIMESTAMP,
                 FOREIGN KEY (user_telegram_id) REFERENCES users(telegram_id)
             )""",
+            """CREATE TABLE IF NOT EXISTS reseller_product_prices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_telegram_id INTEGER NOT NULL,
+                product_id INTEGER NOT NULL,
+                price_usd REAL NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                enforce_cost_floor INTEGER NOT NULL DEFAULT 1,
+                expires_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_telegram_id, product_id),
+                FOREIGN KEY (user_telegram_id) REFERENCES users(telegram_id),
+                FOREIGN KEY (product_id) REFERENCES products(id)
+            )""",
             """CREATE TABLE IF NOT EXISTS reseller_order_links (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 order_id INTEGER UNIQUE NOT NULL,
@@ -1122,6 +1136,8 @@ async def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_orders_activation_status ON orders(activation_status, status)",
             "CREATE INDEX IF NOT EXISTS idx_reseller_keys_user ON reseller_api_keys(user_telegram_id)",
             "CREATE INDEX IF NOT EXISTS idx_reseller_keys_prefix ON reseller_api_keys(key_prefix)",
+            "CREATE INDEX IF NOT EXISTS idx_reseller_product_prices_user ON reseller_product_prices(user_telegram_id, is_active, expires_at)",
+            "CREATE INDEX IF NOT EXISTS idx_reseller_product_prices_product ON reseller_product_prices(product_id)",
             "CREATE INDEX IF NOT EXISTS idx_reseller_orders_user ON reseller_order_links(reseller_user_telegram_id, created_at)",
             "CREATE TABLE IF NOT EXISTS product_stock_alerts (id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL, user_telegram_id INTEGER NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, notified_at TIMESTAMP, UNIQUE(product_id, user_telegram_id, notified_at))",
             "CREATE TABLE IF NOT EXISTS product_views (id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL, user_telegram_id INTEGER NOT NULL, viewed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
@@ -1713,6 +1729,34 @@ async def init_db() -> None:
             )
             await db.commit()
             current_version = 13
+
+        if 13 <= current_version < 14:
+            version_fourteen_statements = [
+                """CREATE TABLE IF NOT EXISTS reseller_product_prices (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_telegram_id INTEGER NOT NULL,
+                    product_id INTEGER NOT NULL,
+                    price_usd REAL NOT NULL,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    enforce_cost_floor INTEGER NOT NULL DEFAULT 1,
+                    expires_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_telegram_id, product_id),
+                    FOREIGN KEY (user_telegram_id) REFERENCES users(telegram_id),
+                    FOREIGN KEY (product_id) REFERENCES products(id)
+                )""",
+                "CREATE INDEX IF NOT EXISTS idx_reseller_product_prices_user ON reseller_product_prices(user_telegram_id, is_active, expires_at)",
+                "CREATE INDEX IF NOT EXISTS idx_reseller_product_prices_product ON reseller_product_prices(product_id)",
+            ]
+            for sql in version_fourteen_statements:
+                await db.execute(sql)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (14, ?)",
+                ("reseller_special_product_prices",),
+            )
+            await db.commit()
+            current_version = 14
 
     finally:
         await db.close()

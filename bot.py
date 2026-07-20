@@ -495,6 +495,14 @@ class ResellerSecurityRequest(BaseModel):
     rotate_webhook_secret: bool = False
 
 
+class ResellerSpecialPriceRequest(BaseModel):
+    product_id: int = Field(..., gt=0)
+    price_usd: float = Field(..., gt=0, le=1_000_000)
+    is_active: bool = True
+    enforce_cost_floor: bool = True
+    expires_at: datetime | None = None
+
+
 def _public_reseller_security_config(config: dict) -> dict:
     return {
         "key_id": int(config["id"]),
@@ -905,6 +913,9 @@ def _reseller_openapi_schema() -> dict:
                         "emoji": {"type": "string", "nullable": True, "example": "bolt"},
                         "image_url": {"type": "string", "nullable": True, "example": "https://example.com/product.png"},
                         "price_usd": {"type": "number", "format": "float", "example": 5.0},
+                        "standard_price_usd": {"type": "number", "format": "float", "nullable": True, "example": 6.0},
+                        "pricing_type": {"type": "string", "enum": ["standard", "reseller_special"], "example": "reseller_special"},
+                        "special_price_expires_at": {"type": "string", "nullable": True, "example": "2026-08-01 12:00:00"},
                         "warranty_days": {"type": "integer", "example": 30},
                         "delivery_type": {"type": "string", "enum": ["stock", "activation", "supplier_api", "api_test"], "example": "activation"},
                         "stock": {"type": "integer", "nullable": True, "example": None},
@@ -930,6 +941,8 @@ def _reseller_openapi_schema() -> dict:
                                 "product_id": {"type": "integer", "example": 12},
                                 "quantity": {"type": "integer", "example": 1},
                                 "unit_price": {"type": "number", "format": "float", "example": 5.0},
+                                "standard_unit_price": {"type": "number", "format": "float", "example": 6.0},
+                                "pricing_type": {"type": "string", "enum": ["standard", "reseller_special"], "example": "reseller_special"},
                                 "total": {"type": "number", "format": "float", "example": 5.0},
                                 "delivery_type": {"type": "string", "example": "activation"},
                                 "stock": {
@@ -1113,6 +1126,13 @@ def _reseller_openapi_schema() -> dict:
                                             "unit_price": {
                                                 "type": "number", "format": "float", "nullable": True, "example": 5.0,
                                                 "description": "Unit price for a new purchase; null when replaying an existing idempotent order.",
+                                            },
+                                            "standard_unit_price": {
+                                                "type": "number", "format": "float", "nullable": True, "example": 6.0,
+                                                "description": "Standard price before the reseller-specific override.",
+                                            },
+                                            "pricing_type": {
+                                                "type": "string", "nullable": True, "enum": ["standard", "reseller_special"],
                                             },
                                             "total": {
                                                 "type": "number", "format": "float", "nullable": True, "example": 5.0,
@@ -1444,6 +1464,75 @@ async def api_admin_update_reseller_security(
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         logger.error("API error update reseller security: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get(
+    "/api/resellers/{user_telegram_id}/special-prices",
+    dependencies=[Depends(verify_api_key)],
+)
+async def api_admin_list_reseller_special_prices(user_telegram_id: int):
+    from database.models import get_user, list_reseller_special_prices
+
+    try:
+        if not await get_user(user_telegram_id):
+            raise HTTPException(status_code=404, detail="Reseller user not found")
+        return {
+            "prices": await list_reseller_special_prices(user_telegram_id)
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("API error list reseller special prices: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.put(
+    "/api/resellers/{user_telegram_id}/special-prices",
+    dependencies=[Depends(verify_api_key)],
+)
+async def api_admin_upsert_reseller_special_price(
+    user_telegram_id: int,
+    data: ResellerSpecialPriceRequest,
+):
+    from database.models import upsert_reseller_special_price
+
+    try:
+        price = await upsert_reseller_special_price(
+            user_telegram_id,
+            data.product_id,
+            data.price_usd,
+            is_active=data.is_active,
+            enforce_cost_floor=data.enforce_cost_floor,
+            expires_at=data.expires_at,
+        )
+        return {"status": "updated", "price": price}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("API error save reseller special price: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.delete(
+    "/api/resellers/{user_telegram_id}/special-prices/{product_id}",
+    dependencies=[Depends(verify_api_key)],
+)
+async def api_admin_delete_reseller_special_price(
+    user_telegram_id: int,
+    product_id: int,
+):
+    from database.models import delete_reseller_special_price
+
+    try:
+        deleted = await delete_reseller_special_price(user_telegram_id, product_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Special price not found")
+        return {"status": "deleted"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("API error delete reseller special price: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2266,6 +2355,43 @@ def _catalog_response(
     )
 
 
+async def _personalized_catalog_response(
+    request: Request,
+    reseller: dict,
+    base_payload: dict,
+    generation: int,
+    *,
+    stale: bool = False,
+) -> Response:
+    from database.models import apply_reseller_special_prices_to_catalog
+
+    payload = await apply_reseller_special_prices_to_catalog(
+        base_payload, int(reseller["user_telegram_id"])
+    )
+    encoded = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    etag = f'"{hashlib.sha256(encoded).hexdigest()[:24]}"'
+    rate_headers = dict(reseller.get("_rate_headers") or {})
+    if request.headers.get("if-none-match") == etag:
+        return Response(
+            status_code=304,
+            headers={
+                **rate_headers,
+                "ETag": etag,
+                "X-Catalog-Version": str(generation),
+                "X-Catalog-Stale": "true" if stale else "false",
+            },
+        )
+    return _catalog_response(
+        payload,
+        etag,
+        generation,
+        stale=stale,
+        rate_headers=rate_headers,
+    )
+
+
 @api.get("/api/reseller/products")
 async def api_reseller_products(
     request: Request,
@@ -2275,7 +2401,6 @@ async def api_reseller_products(
     from database.models import get_catalog_cache_generation
 
     lang = lang if lang in {"en", "fr", "ar", "zh", "vi", "ru"} else "en"
-    rate_headers = dict(reseller.get("_rate_headers") or {})
     generation = get_catalog_cache_generation()
     now = time.monotonic()
     cached = _reseller_catalog_cache.get(lang)
@@ -2284,18 +2409,8 @@ async def api_reseller_products(
         and cached["generation"] == generation
         and now - cached["created_at"] < RESELLER_CATALOG_CACHE_SECONDS
     ):
-        if request.headers.get("if-none-match") == cached["etag"]:
-            return Response(
-                status_code=304,
-                headers={
-                    **rate_headers,
-                    "ETag": cached["etag"],
-                    "X-Catalog-Version": str(generation),
-                    "X-Catalog-Stale": "false",
-                },
-            )
-        return _catalog_response(
-            cached["payload"], cached["etag"], generation, rate_headers=rate_headers
+        return await _personalized_catalog_response(
+            request, reseller, cached["payload"], generation
         )
 
     async with _get_reseller_catalog_lock():
@@ -2307,18 +2422,8 @@ async def api_reseller_products(
             and cached["generation"] == generation
             and now - cached["created_at"] < RESELLER_CATALOG_CACHE_SECONDS
         ):
-            if request.headers.get("if-none-match") == cached["etag"]:
-                return Response(
-                    status_code=304,
-                    headers={
-                        **rate_headers,
-                        "ETag": cached["etag"],
-                        "X-Catalog-Version": str(generation),
-                        "X-Catalog-Stale": "false",
-                    },
-                )
-            return _catalog_response(
-                cached["payload"], cached["etag"], generation, rate_headers=rate_headers
+            return await _personalized_catalog_response(
+                request, reseller, cached["payload"], generation
             )
         try:
             payload = await _build_reseller_catalog(lang)
@@ -2331,27 +2436,19 @@ async def api_reseller_products(
                 "created_at": time.monotonic(),
             }
             _reseller_catalog_cache[lang] = cached
-            if request.headers.get("if-none-match") == etag:
-                return Response(
-                    status_code=304,
-                    headers={
-                        **rate_headers,
-                        "ETag": etag,
-                        "X-Catalog-Version": str(generation),
-                        "X-Catalog-Stale": "false",
-                    },
-                )
-            return _catalog_response(payload, etag, generation, rate_headers=rate_headers)
+            return await _personalized_catalog_response(
+                request, reseller, payload, generation
+            )
         except Exception as exc:
             stale = _reseller_catalog_cache.get(lang)
             if stale:
                 logger.warning("Serving stale reseller catalog after refresh failure: %s", exc)
-                return _catalog_response(
+                return await _personalized_catalog_response(
+                    request,
+                    reseller,
                     stale["payload"],
-                    stale["etag"],
                     int(stale["generation"]),
                     stale=True,
-                    rate_headers=rate_headers,
                 )
             logger.error("API error reseller products: %s", exc, exc_info=True)
             raise HTTPException(status_code=503, detail="Catalog temporarily unavailable")
@@ -2361,7 +2458,11 @@ async def api_reseller_products(
 async def api_reseller_quote(data: ResellerQuoteRequest, reseller: dict = Depends(verify_reseller_key)):
     from database.models import quote_reseller_order
     try:
-        quote = await quote_reseller_order(data.product_id, data.quantity)
+        quote = await quote_reseller_order(
+            data.product_id,
+            data.quantity,
+            reseller_user_telegram_id=reseller["user_telegram_id"],
+        )
         return _reseller_success(quote=quote, wallet_balance=float(reseller.get("wallet_balance") or 0))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -2401,6 +2502,8 @@ async def api_reseller_create_order(data: ResellerCreateOrderRequest, reseller: 
             idempotent=bool(result.get("idempotent")),
             balance_after=result.get("balance_after"),
             unit_price=result.get("unit_price"),
+            standard_unit_price=result.get("standard_unit_price"),
+            pricing_type=result.get("pricing_type"),
             total=result.get("total"),
             order=_api_order_payload(order),
         )

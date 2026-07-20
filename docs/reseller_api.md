@@ -93,16 +93,19 @@ Response:
       "emoji": "box",
       "image_url": null,
       "price_usd": 5.0,
+      "standard_price_usd": 6.0,
+      "pricing_type": "reseller_special",
+      "special_price_expires_at": null,
       "warranty_days": 7,
       "delivery_type": "stock",
       "stock": 12,
-      "price_tiers": [
-        { "min_qty": 5, "max_qty": 10, "price_usd": 4.5 }
-      ]
+      "price_tiers": []
     }
   ]
 }
 ```
+
+The catalog is personalized for the authenticated reseller account. When an administrator assigns a special product price, `price_usd` is the effective fixed unit price, `pricing_type` is `reseller_special`, and `standard_price_usd` contains the price before the override. A reseller special price replaces quantity tiers. Always use the current catalog or quote response instead of copying a price from another API key.
 
 The catalog supports conditional HTTP caching. Save the `ETag` response header, then send it on the next request:
 
@@ -148,6 +151,8 @@ Response:
     "product_id": 10,
     "quantity": 2,
     "unit_price": 5.0,
+    "standard_unit_price": 6.0,
+    "pricing_type": "reseller_special",
     "total": 10.0,
     "delivery_type": "stock",
     "stock": 12
@@ -180,6 +185,8 @@ Response:
   "idempotent": false,
   "balance_after": 37.5,
   "unit_price": 5.0,
+  "standard_unit_price": 6.0,
+  "pricing_type": "reseller_special",
   "total": 5.0,
   "order": {
     "id": 123,

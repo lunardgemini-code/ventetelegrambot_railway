@@ -166,6 +166,12 @@ Object.assign(LANG.en, {nav_ai_bot:'AI Bot'});
 Object.assign(LANG.fr, {reseller_security:'Securite API', reseller_ip_allowlist:'Adresses IP autorisees', reseller_ip_hint:'Une IP ou un reseau CIDR par ligne. Vide = toutes les IP.', reseller_webhook_enable:'Activer les webhooks de depot', reseller_webhook_rotate:'Generer un nouveau secret', reseller_secret_once:'Copiez ce secret maintenant :'});
 Object.assign(LANG.en, {reseller_security:'API security', reseller_ip_allowlist:'Allowed IP addresses', reseller_ip_hint:'One IP or CIDR network per line. Empty = all IPs.', reseller_webhook_enable:'Enable deposit webhooks', reseller_webhook_rotate:'Generate a new signing secret', reseller_secret_once:'Copy this secret now:'});
 ['ar','zh','vi','ru'].forEach(lang => Object.assign(LANG[lang], {reseller_security:LANG.en.reseller_security, reseller_ip_allowlist:LANG.en.reseller_ip_allowlist, reseller_ip_hint:LANG.en.reseller_ip_hint, reseller_webhook_enable:LANG.en.reseller_webhook_enable, reseller_webhook_rotate:LANG.en.reseller_webhook_rotate, reseller_secret_once:LANG.en.reseller_secret_once}));
+Object.assign(LANG.fr, {reseller_special_prices:'Prix spéciaux', reseller_special_prices_for:'Tarifs de', reseller_special_product:'Produit', reseller_special_price:'Prix revendeur ($)', reseller_standard_price:'Prix standard', reseller_special_active:'Tarif actif', reseller_cost_protection:'Protection du coût fournisseur', reseller_cost_protection_hint:'Bloque la vente si le coût fournisseur atteint ou dépasse ce tarif.', reseller_special_expiry:'Expiration facultative', reseller_no_special_prices:'Aucun prix spécial pour ce revendeur.', reseller_special_saved:'Prix spécial enregistré.', reseller_special_delete_confirm:'Supprimer ce prix spécial ?', reseller_special_effective:'Appliqué', reseller_special_expired:'Expiré', reseller_special_blocked:'Bloqué par le coût', reseller_special_inactive:'Inactif', reseller_special_edit:'Modifier', reseller_special_count:'prix spéciaux'});
+Object.assign(LANG.en, {reseller_special_prices:'Special prices', reseller_special_prices_for:'Pricing for', reseller_special_product:'Product', reseller_special_price:'Reseller price ($)', reseller_standard_price:'Standard price', reseller_special_active:'Active price', reseller_cost_protection:'Supplier cost protection', reseller_cost_protection_hint:'Blocks sales when the supplier cost reaches or exceeds this price.', reseller_special_expiry:'Optional expiry', reseller_no_special_prices:'No special prices for this reseller.', reseller_special_saved:'Special price saved.', reseller_special_delete_confirm:'Delete this special price?', reseller_special_effective:'Applied', reseller_special_expired:'Expired', reseller_special_blocked:'Blocked by cost', reseller_special_inactive:'Inactive', reseller_special_edit:'Edit', reseller_special_count:'special prices'});
+Object.assign(LANG.zh, {reseller_special_prices:'专属价格', reseller_special_prices_for:'价格账户', reseller_special_product:'产品', reseller_special_price:'经销商价格 ($)', reseller_standard_price:'标准价格', reseller_special_active:'启用价格', reseller_cost_protection:'供应商成本保护', reseller_cost_protection_hint:'当供应商成本达到或超过此价格时阻止销售。', reseller_special_expiry:'可选到期时间', reseller_no_special_prices:'此经销商没有专属价格。', reseller_special_saved:'专属价格已保存。', reseller_special_delete_confirm:'删除此专属价格？', reseller_special_effective:'已应用', reseller_special_expired:'已过期', reseller_special_blocked:'因成本被阻止', reseller_special_inactive:'未启用', reseller_special_edit:'编辑', reseller_special_count:'个专属价格'});
+Object.assign(LANG.vi, {reseller_special_prices:'Giá đặc biệt', reseller_special_prices_for:'Bảng giá của', reseller_special_product:'Sản phẩm', reseller_special_price:'Giá đại lý ($)', reseller_standard_price:'Giá tiêu chuẩn', reseller_special_active:'Kích hoạt giá', reseller_cost_protection:'Bảo vệ chi phí nhà cung cấp', reseller_cost_protection_hint:'Chặn bán khi chi phí nhà cung cấp bằng hoặc cao hơn mức giá này.', reseller_special_expiry:'Hết hạn tùy chọn', reseller_no_special_prices:'Đại lý này chưa có giá đặc biệt.', reseller_special_saved:'Đã lưu giá đặc biệt.', reseller_special_delete_confirm:'Xóa giá đặc biệt này?', reseller_special_effective:'Đang áp dụng', reseller_special_expired:'Đã hết hạn', reseller_special_blocked:'Bị chặn bởi chi phí', reseller_special_inactive:'Không hoạt động', reseller_special_edit:'Chỉnh sửa', reseller_special_count:'giá đặc biệt'});
+Object.assign(LANG.ru, {reseller_special_prices:'Специальные цены', reseller_special_prices_for:'Цены для', reseller_special_product:'Товар', reseller_special_price:'Цена реселлера ($)', reseller_standard_price:'Обычная цена', reseller_special_active:'Цена активна', reseller_cost_protection:'Защита стоимости поставщика', reseller_cost_protection_hint:'Блокирует продажу, если стоимость поставщика достигает этой цены.', reseller_special_expiry:'Необязательный срок', reseller_no_special_prices:'Для этого реселлера нет специальных цен.', reseller_special_saved:'Специальная цена сохранена.', reseller_special_delete_confirm:'Удалить специальную цену?', reseller_special_effective:'Применяется', reseller_special_expired:'Истекла', reseller_special_blocked:'Заблокирована ценой', reseller_special_inactive:'Неактивна', reseller_special_edit:'Изменить', reseller_special_count:'специальных цен'});
+Object.assign(LANG.ar, {reseller_special_prices:'أسعار خاصة', reseller_special_prices_for:'أسعار', reseller_special_product:'المنتج', reseller_special_price:'سعر الموزع ($)', reseller_standard_price:'السعر القياسي', reseller_special_active:'السعر فعال', reseller_cost_protection:'حماية تكلفة المورد', reseller_cost_protection_hint:'يوقف البيع عندما تصل تكلفة المورد إلى هذا السعر أو تتجاوزه.', reseller_special_expiry:'انتهاء اختياري', reseller_no_special_prices:'لا توجد أسعار خاصة لهذا الموزع.', reseller_special_saved:'تم حفظ السعر الخاص.', reseller_special_delete_confirm:'حذف هذا السعر الخاص؟', reseller_special_effective:'مطبق', reseller_special_expired:'منتهي', reseller_special_blocked:'محظور بسبب التكلفة', reseller_special_inactive:'غير فعال', reseller_special_edit:'تعديل', reseller_special_count:'أسعار خاصة'});
 Object.assign(LANG.ar, {nav_supplier_bots:'إدارة API للبوت', supplier_title:'إدارة API للبوت', supplier_sync:'مزامنة الكتالوج'});
 Object.assign(LANG.zh, {nav_supplier_bots:'机器人 API 管理', supplier_title:'机器人 API 管理', supplier_sync:'同步目录'});
 Object.assign(LANG.vi, {nav_supplier_bots:'Quản lý API Bot', supplier_title:'Quản lý API Bot', supplier_sync:'Đồng bộ danh mục'});
@@ -311,7 +317,8 @@ const state = {
     productStats:[], productMomentum:null, productMomentumSelected:[], deadProductAlerts:[], supplierBot:null, supplierBots:[], activeSupplierCode:'canboso', supplierView:'catalog', supplierStats:null, supplierStatsDays:30, supplierStatsChart:null, supplierRoutes:[],
     aiSupplierStatus:null, aiSupplierResults:[], aiSupplierGroups:[], aiSupplierResultData:null, aiSupplierGroupData:null, aiSupplierJobId:null, aiSupplierSyncTimer:null,
     gameProvider:null, gameCatalog:[], gameMatches:[], gameCompetitions:[], gameView:'catalog', currentGameMatch:null,
-    autoscaleChart:null, autoscaleStatus:null
+    autoscaleChart:null, autoscaleStatus:null,
+    resellerSpecialPrices:[], resellerSpecialPriceUserId:null
 };
 
 function $(id) { return document.getElementById(id); }
@@ -375,6 +382,9 @@ const DOM = {
     resellerSecurityModal:$('reseller-security-modal'), resellerSecurityForm:$('reseller-security-form'), resellerSecurityKeyId:$('reseller-security-key-id'),
     resellerIpAllowlist:$('reseller-ip-allowlist'), resellerWebhookUrl:$('reseller-webhook-url'), resellerWebhookEnabled:$('reseller-webhook-enabled'),
     resellerWebhookRotate:$('reseller-webhook-rotate'), resellerWebhookSecretOutput:$('reseller-webhook-secret-output'), resellerWebhookSecret:$('reseller-webhook-secret'),
+    resellerSpecialPricesModal:$('reseller-special-prices-modal'), resellerSpecialPricesForm:$('reseller-special-prices-form'), resellerSpecialPricesIdentity:$('reseller-special-prices-identity'),
+    resellerSpecialProduct:$('reseller-special-product'), resellerSpecialPrice:$('reseller-special-price'), resellerSpecialActive:$('reseller-special-active'),
+    resellerSpecialCostProtection:$('reseller-special-cost-protection'), resellerSpecialExpiry:$('reseller-special-expiry'), resellerSpecialStandardHint:$('reseller-special-standard-hint'), resellerSpecialPricesList:$('reseller-special-prices-list'),
     supplierSettingsForm:$('supplier-settings-form'), supplierEnabled:$('supplier-enabled'), supplierDisplayName:$('supplier-display-name'), supplierMarginType:$('supplier-margin-type'), supplierMarginValue:$('supplier-margin-value'),
     supplierProviderSwitcher:$('supplier-provider-switcher'), supplierProviderName:$('supplier-provider-name'), supplierRateGroup:$('supplier-rate-group'), supplierRateLabel:$('supplier-rate-label'), supplierUnitsPerUsd:$('supplier-units-per-usd'), supplierCredentialEnv:$('supplier-credential-env'),
     btnSupplierSync:$('btn-supplier-sync'), supplierConnection:$('supplier-connection'), supplierWalletBalance:$('supplier-wallet-balance'), supplierLastSync:$('supplier-last-sync'), supplierSelectedCount:$('supplier-selected-count'), supplierReviewCount:$('supplier-review-count'),
@@ -569,6 +579,8 @@ function setupEvents() {
     $$('[data-worker-reset]').forEach(button => button.addEventListener('click', () => setManualWebhookWorkers(Number(button.dataset.workerReset || 8))));
     if (DOM.btnCreateResellerKey) DOM.btnCreateResellerKey.addEventListener('click', createResellerKey);
     if (DOM.resellerSecurityForm) DOM.resellerSecurityForm.addEventListener('submit', saveResellerSecurity);
+    if (DOM.resellerSpecialPricesForm) DOM.resellerSpecialPricesForm.addEventListener('submit', saveResellerSpecialPrice);
+    if (DOM.resellerSpecialProduct) DOM.resellerSpecialProduct.addEventListener('change', updateResellerSpecialStandardHint);
     if (DOM.btnSupplierSync) DOM.btnSupplierSync.addEventListener('click', syncSupplierBot);
     if (DOM.btnAiSupplierSync) DOM.btnAiSupplierSync.addEventListener('click', syncAllAiSuppliers);
     if (DOM.btnAiSupplierAnalyze) DOM.btnAiSupplierAnalyze.addEventListener('click', analyzeAllAiSuppliers);
@@ -685,7 +697,7 @@ function setupEvents() {
         showModal(DOM.promoModal);
     });
     $('btn-open-binance-modal').addEventListener('click', openBinanceModal);
-    $$('.btn-close-modal').forEach(b => b.addEventListener('click', () => { [DOM.prodModal,DOM.stockModal,DOM.promoModal,DOM.tiersModal,DOM.orderDetailModal,DOM.viewStockModal,DOM.editProdModal,DOM.revenueModal,DOM.binanceModal,DOM.gameMatchModal,DOM.supplierDescriptionModal,DOM.userPurchasesModal,DOM.resellerSecurityModal,$('banModal'),$('finance-withdraw-modal'),$('finance-adjust-modal'), $('exportModal')].forEach(m => { if (m) hideModal(m); }); }));
+    $$('.btn-close-modal').forEach(b => b.addEventListener('click', () => { [DOM.prodModal,DOM.stockModal,DOM.promoModal,DOM.tiersModal,DOM.orderDetailModal,DOM.viewStockModal,DOM.editProdModal,DOM.revenueModal,DOM.binanceModal,DOM.gameMatchModal,DOM.supplierDescriptionModal,DOM.userPurchasesModal,DOM.resellerSecurityModal,DOM.resellerSpecialPricesModal,$('banModal'),$('finance-withdraw-modal'),$('finance-adjust-modal'), $('exportModal')].forEach(m => { if (m) hideModal(m); }); }));
 
     
     if (DOM.prodDeliveryType) {
@@ -2529,9 +2541,11 @@ async function loadResellers() {
         const status = `${active ? `<span class="status-badge completed">${t('active')}</span>` : `<span class="status-badge cancelled">${t('inactive')}</span>`}${securityBadges}`;
         const created = k.created_at ? parseUTCDate(k.created_at).toLocaleDateString() : '';
         const securityAction = `<button class="btn-table-action" onclick="openResellerSecurity(${k.id})" title="${t('reseller_security')}"><i class="fa-solid fa-shield-halved"></i></button>`;
+        const specialCount = Number(k.special_price_count || 0);
+        const specialPriceAction = `<button class="btn-table-action reseller-price-action" onclick="openResellerSpecialPrices(${k.user_telegram_id})" title="${t('reseller_special_prices')}"><i class="fa-solid fa-tags"></i>${specialCount ? `<span>${specialCount}</span>` : ''}</button>`;
         const action = active
-            ? `${securityAction}<button class="btn-table-action delete" onclick="revokeResellerKey(${k.id})" title="${t('reseller_revoke')}"><i class="fa-solid fa-ban"></i></button>`
-            : securityAction;
+            ? `${specialPriceAction}${securityAction}<button class="btn-table-action delete" onclick="revokeResellerKey(${k.id})" title="${t('reseller_revoke')}"><i class="fa-solid fa-ban"></i></button>`
+            : `${specialPriceAction}${securityAction}`;
         return `<tr>
             <td><strong>#${k.id}</strong></td>
             <td>${client}<br><code>${k.user_telegram_id}</code></td>
@@ -2591,6 +2605,137 @@ async function saveResellerSecurity(event) {
         showLoading(false);
     }
 }
+
+function resellerSpecialPriceStatus(item) {
+    if (!item.is_active) return {label:t('reseller_special_inactive'), cls:'cancelled'};
+    if (item.is_expired) return {label:t('reseller_special_expired'), cls:'expired'};
+    if (!item.is_cost_safe && item.enforce_cost_floor) return {label:t('reseller_special_blocked'), cls:'cancelled'};
+    return {label:t('reseller_special_effective'), cls:'completed'};
+}
+
+function updateResellerSpecialStandardHint() {
+    if (!DOM.resellerSpecialStandardHint || !DOM.resellerSpecialProduct) return;
+    const product = (state.products || []).find(item => Number(item.id) === Number(DOM.resellerSpecialProduct.value));
+    DOM.resellerSpecialStandardHint.textContent = product
+        ? `${t('reseller_standard_price')}: $${Number(product.price_usd || 0).toFixed(2)}`
+        : '';
+}
+
+function populateResellerSpecialProductOptions() {
+    if (!DOM.resellerSpecialProduct) return;
+    DOM.resellerSpecialProduct.innerHTML = (state.products || [])
+        .filter(product => !Number(product.is_deleted || 0))
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+        .map(product => `<option value="${Number(product.id)}">${escapeHtml(product.name || `#${product.id}`)} - $${Number(product.price_usd || 0).toFixed(2)}</option>`)
+        .join('');
+    updateResellerSpecialStandardHint();
+}
+
+function renderResellerSpecialPrices() {
+    if (!DOM.resellerSpecialPricesList) return;
+    const prices = state.resellerSpecialPrices || [];
+    if (!prices.length) {
+        DOM.resellerSpecialPricesList.innerHTML = `<p class="empty-state">${t('reseller_no_special_prices')}</p>`;
+        return;
+    }
+    DOM.resellerSpecialPricesList.innerHTML = prices.map(item => {
+        const status = resellerSpecialPriceStatus(item);
+        const expiry = item.expires_at ? parseUTCDate(item.expires_at).toLocaleString() : t('unlimited');
+        const floor = item.cost_floor == null ? '' : `<span>${t('reseller_cost_protection')}: $${Number(item.cost_floor).toFixed(2)}</span>`;
+        return `<article class="reseller-price-row">
+            <div class="reseller-price-product"><strong>${escapeHtml(item.product_name || `#${item.product_id}`)}</strong><span>${t('reseller_standard_price')}: $${Number(item.standard_price_usd || 0).toFixed(2)}</span></div>
+            <div class="reseller-price-value"><strong>$${Number(item.price_usd || 0).toFixed(2)}</strong><span>${escapeHtml(expiry)}</span>${floor}</div>
+            <span class="status-badge ${status.cls}">${status.label}</span>
+            <div class="reseller-price-actions">
+                <button type="button" class="btn-table-action" onclick="editResellerSpecialPrice(${Number(item.product_id)})" title="${t('reseller_special_edit')}"><i class="fa-solid fa-pen"></i></button>
+                <button type="button" class="btn-table-action delete" onclick="deleteResellerSpecialPrice(${Number(item.product_id)})" title="${t('confirm_delete')}"><i class="fa-solid fa-trash"></i></button>
+            </div>
+        </article>`;
+    }).join('');
+}
+
+window.openResellerSpecialPrices = async function(userId) {
+    if (!DOM.resellerSpecialPricesModal) return;
+    state.resellerSpecialPriceUserId = Number(userId);
+    const reseller = (state.resellers || []).find(item => Number(item.user_telegram_id) === Number(userId));
+    DOM.resellerSpecialPricesIdentity.textContent = `${t('reseller_special_prices_for')} ${reseller && reseller.username ? `@${reseller.username}` : reseller && reseller.first_name ? reseller.first_name : userId} (${userId})`;
+    showLoading(true);
+    try {
+        if (!state.products || !state.products.length) await loadProducts();
+        populateResellerSpecialProductOptions();
+        const result = await apiCall(`/api/resellers/${Number(userId)}/special-prices`);
+        state.resellerSpecialPrices = result.prices || [];
+        DOM.resellerSpecialPricesForm.reset();
+        DOM.resellerSpecialActive.checked = true;
+        DOM.resellerSpecialCostProtection.checked = true;
+        populateResellerSpecialProductOptions();
+        renderResellerSpecialPrices();
+        showModal(DOM.resellerSpecialPricesModal);
+    } catch (error) {
+        alert(error.message);
+    } finally {
+        showLoading(false);
+    }
+};
+
+window.editResellerSpecialPrice = function(productId) {
+    const item = (state.resellerSpecialPrices || []).find(price => Number(price.product_id) === Number(productId));
+    if (!item) return;
+    DOM.resellerSpecialProduct.value = String(item.product_id);
+    DOM.resellerSpecialPrice.value = Number(item.price_usd || 0).toFixed(2);
+    DOM.resellerSpecialActive.checked = Boolean(item.is_active);
+    DOM.resellerSpecialCostProtection.checked = Boolean(item.enforce_cost_floor);
+    if (item.expires_at) {
+        const date = parseUTCDate(item.expires_at);
+        DOM.resellerSpecialExpiry.value = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    } else {
+        DOM.resellerSpecialExpiry.value = '';
+    }
+    updateResellerSpecialStandardHint();
+    DOM.resellerSpecialPrice.focus();
+};
+
+async function saveResellerSpecialPrice(event) {
+    event.preventDefault();
+    const userId = Number(state.resellerSpecialPriceUserId || 0);
+    if (!userId) return;
+    const expiryValue = DOM.resellerSpecialExpiry.value;
+    showLoading(true);
+    try {
+        await apiCall(`/api/resellers/${userId}/special-prices`, 'PUT', {
+            product_id: Number(DOM.resellerSpecialProduct.value),
+            price_usd: Number(DOM.resellerSpecialPrice.value),
+            is_active: DOM.resellerSpecialActive.checked,
+            enforce_cost_floor: DOM.resellerSpecialCostProtection.checked,
+            expires_at: expiryValue ? new Date(expiryValue).toISOString() : null
+        });
+        const result = await apiCall(`/api/resellers/${userId}/special-prices`);
+        state.resellerSpecialPrices = result.prices || [];
+        renderResellerSpecialPrices();
+        await loadResellers();
+        alert(t('reseller_special_saved'));
+    } catch (error) {
+        alert(error.message);
+    } finally {
+        showLoading(false);
+    }
+}
+
+window.deleteResellerSpecialPrice = async function(productId) {
+    if (!confirm(t('reseller_special_delete_confirm'))) return;
+    const userId = Number(state.resellerSpecialPriceUserId || 0);
+    showLoading(true);
+    try {
+        await apiCall(`/api/resellers/${userId}/special-prices/${Number(productId)}`, 'DELETE');
+        state.resellerSpecialPrices = state.resellerSpecialPrices.filter(item => Number(item.product_id) !== Number(productId));
+        renderResellerSpecialPrices();
+        await loadResellers();
+    } catch (error) {
+        alert(error.message);
+    } finally {
+        showLoading(false);
+    }
+};
 
 async function createResellerKey() {
     const userId = DOM.resellerUserId ? DOM.resellerUserId.value.trim() : '';

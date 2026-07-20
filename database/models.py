@@ -5233,6 +5233,278 @@ async def get_all_wallet_transactions(
 # â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
+def _normalize_reseller_price_expiry(value) -> str | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed.replace(microsecond=0).isoformat(sep=" ")
+
+
+def _reseller_price_is_expired(expires_at) -> bool:
+    if not expires_at:
+        return False
+    try:
+        parsed = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        return parsed <= _utcnow()
+    except (TypeError, ValueError):
+        return True
+
+
+async def _attach_reseller_price_safety(rows: list[dict]) -> list[dict]:
+    from database.suppliers import get_supplier_cost_floor
+
+    supplier_rows = {
+        int(row["product_id"]): row
+        for row in rows
+        if str(row.get("delivery_type") or "") == "supplier_api"
+        and bool(row.get("enforce_cost_floor"))
+    }
+    floors: dict[int, float | None] = {}
+    if supplier_rows:
+        values = await asyncio.gather(
+            *(get_supplier_cost_floor(product_id) for product_id in supplier_rows),
+            return_exceptions=True,
+        )
+        floors = {
+            product_id: (None if isinstance(value, Exception) else value)
+            for product_id, value in zip(supplier_rows, values)
+        }
+
+    result = []
+    for source in rows:
+        row = dict(source)
+        floor = floors.get(int(row["product_id"]))
+        safe = floor is None or float(row.get("price_usd") or 0) > float(floor)
+        expired = _reseller_price_is_expired(row.get("expires_at"))
+        row["cost_floor"] = round(float(floor), 4) if floor is not None else None
+        row["is_cost_safe"] = safe
+        row["is_expired"] = expired
+        row["is_effective"] = bool(row.get("is_active")) and not expired and (
+            safe or not bool(row.get("enforce_cost_floor"))
+        )
+        result.append(row)
+    return result
+
+
+async def list_reseller_special_prices(
+    user_telegram_id: int,
+    *,
+    active_only: bool = False,
+) -> list[dict]:
+    where = ["rpp.user_telegram_id = ?"]
+    params: list = [int(user_telegram_id)]
+    if active_only:
+        where.extend([
+            "rpp.is_active = 1",
+            "(rpp.expires_at IS NULL OR datetime(rpp.expires_at) > CURRENT_TIMESTAMP)",
+        ])
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT rpp.*, p.name AS product_name, p.price_usd AS standard_price_usd,
+                      p.delivery_type, p.is_active AS product_is_active,
+                      COALESCE(p.is_deleted, 0) AS product_is_deleted
+               FROM reseller_product_prices rpp
+               JOIN products p ON p.id = rpp.product_id
+               WHERE """ + " AND ".join(where) +
+            " ORDER BY p.name COLLATE NOCASE, rpp.product_id",
+            params,
+        )
+        rows = [dict(row) for row in await cursor.fetchall()]
+    finally:
+        await db.close()
+    return await _attach_reseller_price_safety(rows)
+
+
+async def upsert_reseller_special_price(
+    user_telegram_id: int,
+    product_id: int,
+    price_usd: float,
+    *,
+    is_active: bool = True,
+    enforce_cost_floor: bool = True,
+    expires_at=None,
+) -> dict:
+    user_telegram_id = int(user_telegram_id)
+    product_id = int(product_id)
+    price_usd = round(float(price_usd), 2)
+    if price_usd <= 0 or price_usd > 1_000_000:
+        raise ValueError("Special price must be greater than zero")
+    expiry = _normalize_reseller_price_expiry(expires_at)
+    if expiry and _reseller_price_is_expired(expiry):
+        raise ValueError("Expiration must be in the future")
+
+    product = await get_product(product_id)
+    if not product or product.get("is_deleted"):
+        raise ValueError("Product not found")
+    if enforce_cost_floor and product.get("delivery_type") == "supplier_api":
+        from database.suppliers import get_supplier_cost_floor
+
+        floor = await get_supplier_cost_floor(product_id)
+        if floor is not None and price_usd <= float(floor):
+            raise ValueError(
+                f"Special price must stay above the current supplier cost (${float(floor):.2f})"
+            )
+
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT 1 FROM users WHERE telegram_id = ? LIMIT 1",
+            (user_telegram_id,),
+        )
+        if not await cursor.fetchone():
+            raise ValueError("Reseller user not found")
+        await db.execute(
+            """INSERT INTO reseller_product_prices
+               (user_telegram_id, product_id, price_usd, is_active,
+                enforce_cost_floor, expires_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(user_telegram_id, product_id) DO UPDATE SET
+                   price_usd = excluded.price_usd,
+                   is_active = excluded.is_active,
+                   enforce_cost_floor = excluded.enforce_cost_floor,
+                   expires_at = excluded.expires_at,
+                   updated_at = CURRENT_TIMESTAMP""",
+            (
+                user_telegram_id,
+                product_id,
+                price_usd,
+                1 if is_active else 0,
+                1 if enforce_cost_floor else 0,
+                expiry,
+            ),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+    prices = await list_reseller_special_prices(user_telegram_id)
+    return next(row for row in prices if int(row["product_id"]) == product_id)
+
+
+async def delete_reseller_special_price(
+    user_telegram_id: int,
+    product_id: int,
+) -> bool:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "DELETE FROM reseller_product_prices WHERE user_telegram_id = ? AND product_id = ?",
+            (int(user_telegram_id), int(product_id)),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+    finally:
+        await db.close()
+
+
+async def _reseller_pricing_from_db(
+    db,
+    user_telegram_id: int,
+    product_id: int,
+    quantity: int,
+) -> dict:
+    cursor = await db.execute(
+        "SELECT * FROM products WHERE id = ? AND is_active = 1 AND COALESCE(is_deleted, 0) = 0",
+        (int(product_id),),
+    )
+    product_row = await cursor.fetchone()
+    if not product_row:
+        raise ValueError("Product unavailable")
+    product = dict(product_row)
+    cursor = await db.execute(
+        "SELECT * FROM price_tiers WHERE product_id = ? ORDER BY min_qty ASC",
+        (int(product_id),),
+    )
+    tiers = [dict(row) for row in await cursor.fetchall()]
+    standard_price = float(product["price_usd"])
+    for tier in tiers:
+        if int(tier["min_qty"]) <= int(quantity) <= int(tier["max_qty"]):
+            standard_price = dynamic_tier_price(product, float(tier["price_usd"]))
+            break
+
+    cursor = await db.execute(
+        """SELECT * FROM reseller_product_prices
+           WHERE user_telegram_id = ? AND product_id = ? AND is_active = 1
+             AND (expires_at IS NULL OR datetime(expires_at) > CURRENT_TIMESTAMP)
+           LIMIT 1""",
+        (int(user_telegram_id), int(product_id)),
+    )
+    special_row = await cursor.fetchone()
+    special = dict(special_row) if special_row else None
+    unit_price = round(
+        float(special["price_usd"]) if special else float(standard_price), 2
+    )
+    return {
+        "product": product,
+        "unit_price": unit_price,
+        "standard_unit_price": round(float(standard_price), 2),
+        "pricing_type": "reseller_special" if special else "standard",
+        "special_price_id": int(special["id"]) if special else None,
+        "special_price_updated_at": special.get("updated_at") if special else None,
+        "enforce_cost_floor": bool(special.get("enforce_cost_floor")) if special else False,
+    }
+
+
+async def get_reseller_order_pricing(
+    user_telegram_id: int,
+    product_id: int,
+    quantity: int,
+) -> dict:
+    db = await get_db()
+    try:
+        pricing = await _reseller_pricing_from_db(
+            db, int(user_telegram_id), int(product_id), max(1, int(quantity))
+        )
+    finally:
+        await db.close()
+    if (
+        pricing["pricing_type"] == "reseller_special"
+        and pricing["enforce_cost_floor"]
+        and pricing["product"].get("delivery_type") == "supplier_api"
+    ):
+        from database.suppliers import get_supplier_cost_floor
+
+        floor = await get_supplier_cost_floor(int(product_id))
+        pricing["cost_floor"] = floor
+        if floor is not None and float(pricing["unit_price"]) <= float(floor):
+            raise ValueError(
+                f"Special price unavailable because supplier cost is now ${float(floor):.2f}"
+            )
+    return pricing
+
+
+async def apply_reseller_special_prices_to_catalog(
+    payload: dict,
+    user_telegram_id: int,
+) -> dict:
+    prices = await list_reseller_special_prices(
+        int(user_telegram_id), active_only=True
+    )
+    by_product = {int(row["product_id"]): row for row in prices}
+    products = []
+    for source in payload.get("products", []):
+        product = dict(source)
+        special = by_product.get(int(product.get("id") or 0))
+        if special and not special.get("is_effective"):
+            continue
+        product["pricing_type"] = "standard"
+        if special:
+            product["standard_price_usd"] = float(product.get("price_usd") or 0)
+            product["price_usd"] = float(special["price_usd"])
+            product["price_tiers"] = []
+            product["pricing_type"] = "reseller_special"
+            product["special_price_expires_at"] = special.get("expires_at")
+        products.append(product)
+    return {**payload, "products": products}
+
+
 def _hash_reseller_key(raw_key: str) -> str:
     return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
 
@@ -5342,6 +5614,11 @@ async def list_reseller_api_keys() -> list[dict]:
                       rk.created_at, rk.last_used_at, rk.ip_allowlist,
                       rk.webhook_url, rk.webhook_enabled,
                       u.username, u.first_name, COALESCE(u.wallet_balance, 0) as wallet_balance,
+                      (SELECT COUNT(*) FROM reseller_product_prices rpp
+                       WHERE rpp.user_telegram_id = rk.user_telegram_id
+                         AND rpp.is_active = 1
+                         AND (rpp.expires_at IS NULL OR datetime(rpp.expires_at) > CURRENT_TIMESTAMP)
+                      ) as special_price_count,
                       COUNT(rol.order_id) as order_count,
                       COALESCE(SUM(o.amount_usd), 0) as total_spent
                FROM reseller_api_keys rk
@@ -5585,7 +5862,12 @@ async def get_reseller_wallet_transactions(user_telegram_id: int, limit: int = 5
         await db.close()
 
 
-async def quote_reseller_order(product_id: int, quantity: int) -> dict:
+async def quote_reseller_order(
+    product_id: int,
+    quantity: int,
+    *,
+    reseller_user_telegram_id: int | None = None,
+) -> dict:
     test_product = get_reseller_test_product()
     if test_product and int(product_id) == int(test_product["id"]):
         quantity = int(quantity)
@@ -5595,15 +5877,28 @@ async def quote_reseller_order(product_id: int, quantity: int) -> dict:
             "product_id": int(test_product["id"]),
             "quantity": 1,
             "unit_price": float(test_product["price_usd"]),
+            "standard_unit_price": float(test_product["price_usd"]),
+            "pricing_type": "standard",
             "total": float(test_product["price_usd"]),
             "delivery_type": "api_test",
             "stock": int(test_product["stock"]),
         }
-    product = await get_product(product_id)
-    if not product or not product.get("is_active", 1) or product.get("is_deleted", 0):
-        raise ValueError("Product unavailable")
     quantity = max(1, int(quantity))
-    unit_price = await get_effective_price(product_id, quantity)
+    if reseller_user_telegram_id is not None:
+        pricing = await get_reseller_order_pricing(
+            int(reseller_user_telegram_id), int(product_id), quantity
+        )
+        product = pricing["product"]
+        unit_price = float(pricing["unit_price"])
+        standard_unit_price = float(pricing["standard_unit_price"])
+        pricing_type = str(pricing["pricing_type"])
+    else:
+        product = await get_product(product_id)
+        if not product or not product.get("is_active", 1) or product.get("is_deleted", 0):
+            raise ValueError("Product unavailable")
+        unit_price = await get_effective_price(product_id, quantity)
+        standard_unit_price = float(unit_price)
+        pricing_type = "standard"
     total = round(float(unit_price) * quantity, 2)
     stock = None
     if product.get("delivery_type") != "activation":
@@ -5614,6 +5909,8 @@ async def quote_reseller_order(product_id: int, quantity: int) -> dict:
         "product_id": product_id,
         "quantity": quantity,
         "unit_price": unit_price,
+        "standard_unit_price": standard_unit_price,
+        "pricing_type": pricing_type,
         "total": total,
         "delivery_type": product.get("delivery_type") or "stock",
         "stock": stock,
@@ -6125,6 +6422,10 @@ async def create_reseller_order(
         if quantity > int(available or 0):
             raise ValueError("Insufficient stock")
 
+    preflight_pricing = await get_reseller_order_pricing(
+        reseller_user_telegram_id, product_id, quantity
+    )
+
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
@@ -6143,26 +6444,23 @@ async def create_reseller_order(
                 order = await get_reseller_order(reseller_user_telegram_id, existing["order_id"])
                 return {"idempotent": True, "order": order}
 
-        cursor = await db.execute(
-            "SELECT * FROM products WHERE id = ? AND is_active = 1 AND COALESCE(is_deleted, 0) = 0",
-            (product_id,),
+        pricing = await _reseller_pricing_from_db(
+            db, reseller_user_telegram_id, product_id, quantity
         )
-        product_row = await cursor.fetchone()
-        if not product_row:
+        pricing_changed = (
+            float(pricing["unit_price"]) != float(preflight_pricing["unit_price"])
+            or str(pricing["pricing_type"]) != str(preflight_pricing["pricing_type"])
+            or pricing.get("special_price_id") != preflight_pricing.get("special_price_id")
+            or bool(pricing.get("enforce_cost_floor"))
+            != bool(preflight_pricing.get("enforce_cost_floor"))
+            or str(pricing.get("special_price_updated_at") or "")
+            != str(preflight_pricing.get("special_price_updated_at") or "")
+        )
+        if pricing_changed:
             await db.rollback()
-            raise ValueError("Product unavailable")
-        product = dict(product_row)
-
-        cursor = await db.execute(
-            "SELECT * FROM price_tiers WHERE product_id = ? ORDER BY min_qty ASC",
-            (product_id,),
-        )
-        tiers = [dict(r) for r in await cursor.fetchall()]
-        unit_price = float(product["price_usd"])
-        for tier in tiers:
-            if int(tier["min_qty"]) <= quantity <= int(tier["max_qty"]):
-                unit_price = dynamic_tier_price(product, float(tier["price_usd"]))
-                break
+            raise ValueError("Price changed; request a new quote and retry")
+        product = pricing["product"]
+        unit_price = float(pricing["unit_price"])
         total = round(unit_price * quantity, 2)
 
         cursor = await db.execute(
@@ -6283,6 +6581,8 @@ async def create_reseller_order(
             "order": order,
             "balance_after": balance_after,
             "unit_price": unit_price,
+            "standard_unit_price": pricing["standard_unit_price"],
+            "pricing_type": pricing["pricing_type"],
             "total": total,
         }
     except Exception:

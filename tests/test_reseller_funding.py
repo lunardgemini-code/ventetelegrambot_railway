@@ -254,6 +254,136 @@ class ResellerFundingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status_response.status_code, 200)
         self.assertEqual(status_response.json()["deposit"]["deposit_id"], deposit_id)
 
+    async def test_special_price_is_tenant_scoped_and_used_for_quote_and_debit(self):
+        await models.get_or_create_user(7002, "other-reseller", "Other")
+        await models.topup_wallet(7001, 3.0, "Special price test credit")
+        await models.topup_wallet(7002, 3.0, "Standard price test credit")
+        other_key = await models.create_reseller_api_key(7002, "Other bot")
+        category_id = await models.add_category("Subscriptions")
+        product_id = await models.add_product(
+            category_id,
+            "Gemini 18 months",
+            "Test product",
+            0.75,
+        )
+        await models.set_price_tiers(product_id, [
+            {"min_qty": 2, "max_qty": 10, "price_usd": 0.60}
+        ])
+        await models.add_stock_items(product_id, ["item-1", "item-2", "item-3", "item-4"])
+        await models.upsert_reseller_special_price(7001, product_id, 0.55)
+        bot._reseller_catalog_cache.clear()
+
+        transport = httpx.ASGITransport(app=bot.api)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            special_catalog = await client.get(
+                "/api/reseller/products", headers={"X-Reseller-Key": self.key["api_key"]}
+            )
+            standard_catalog = await client.get(
+                "/api/reseller/products", headers={"X-Reseller-Key": other_key["api_key"]}
+            )
+            special_quote = await client.post(
+                "/api/reseller/quote",
+                headers={"X-Reseller-Key": self.key["api_key"]},
+                json={"product_id": product_id, "quantity": 2},
+            )
+            standard_quote = await client.post(
+                "/api/reseller/quote",
+                headers={"X-Reseller-Key": other_key["api_key"]},
+                json={"product_id": product_id, "quantity": 2},
+            )
+            order_response = await client.post(
+                "/api/reseller/orders",
+                headers={"X-Reseller-Key": self.key["api_key"]},
+                json={
+                    "product_id": product_id,
+                    "quantity": 2,
+                    "idempotency_key": "special-price-order-1",
+                },
+            )
+
+        special_product = next(
+            product for product in special_catalog.json()["products"]
+            if int(product["id"]) == product_id
+        )
+        standard_product = next(
+            product for product in standard_catalog.json()["products"]
+            if int(product["id"]) == product_id
+        )
+        self.assertEqual(special_product["price_usd"], 0.55)
+        self.assertEqual(special_product["standard_price_usd"], 0.75)
+        self.assertEqual(special_product["pricing_type"], "reseller_special")
+        self.assertEqual(special_product["price_tiers"], [])
+        self.assertEqual(standard_product["price_usd"], 0.75)
+        self.assertEqual(standard_product["pricing_type"], "standard")
+        self.assertNotEqual(special_catalog.headers["etag"], standard_catalog.headers["etag"])
+        self.assertEqual(special_quote.json()["quote"]["unit_price"], 0.55)
+        self.assertEqual(special_quote.json()["quote"]["total"], 1.10)
+        self.assertEqual(standard_quote.json()["quote"]["unit_price"], 0.60)
+        self.assertEqual(order_response.status_code, 200)
+        self.assertEqual(order_response.json()["pricing_type"], "reseller_special")
+        self.assertEqual(order_response.json()["unit_price"], 0.55)
+        self.assertEqual(order_response.json()["total"], 1.10)
+        self.assertAlmostEqual(await models.get_wallet_balance(7001), 2.90)
+
+        listed = await models.list_reseller_api_keys()
+        reseller_rows = [row for row in listed if int(row["user_telegram_id"]) == 7001]
+        self.assertTrue(reseller_rows)
+        self.assertEqual(int(reseller_rows[0]["special_price_count"]), 1)
+
+    async def test_supplier_cost_protection_rejects_unprofitable_special_price(self):
+        category_id = await models.add_category("Supplier")
+        product_id = await models.add_product(
+            category_id,
+            "Supplier Gemini",
+            "Supplier product",
+            0.90,
+            delivery_type="supplier_api",
+        )
+        with patch(
+            "database.suppliers.get_supplier_cost_floor",
+            AsyncMock(return_value=0.60),
+        ):
+            with self.assertRaisesRegex(ValueError, "supplier cost"):
+                await models.upsert_reseller_special_price(
+                    7001, product_id, 0.55, enforce_cost_floor=True
+                )
+            saved = await models.upsert_reseller_special_price(
+                7001, product_id, 0.55, enforce_cost_floor=False
+            )
+        self.assertFalse(saved["enforce_cost_floor"])
+
+    async def test_admin_can_create_list_and_delete_special_price(self):
+        category_id = await models.add_category("Admin pricing")
+        product_id = await models.add_product(
+            category_id, "Gemini admin price", "Test", 0.75
+        )
+        transport = httpx.ASGITransport(app=bot.api)
+        headers = {"X-API-Key": bot.ADMIN_API_KEY}
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            saved = await client.put(
+                "/api/resellers/7001/special-prices",
+                headers=headers,
+                json={
+                    "product_id": product_id,
+                    "price_usd": 0.55,
+                    "is_active": True,
+                    "enforce_cost_floor": True,
+                },
+            )
+            listed = await client.get(
+                "/api/resellers/7001/special-prices", headers=headers
+            )
+            deleted = await client.delete(
+                f"/api/resellers/7001/special-prices/{product_id}", headers=headers
+            )
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.json()["price"]["price_usd"], 0.55)
+        self.assertEqual(len(listed.json()["prices"]), 1)
+        self.assertEqual(deleted.status_code, 200)
+        self.assertEqual(
+            await models.list_reseller_special_prices(7001), []
+        )
+
 
 class ResellerSecurityHelperTests(unittest.TestCase):
     def test_ip_rules_and_webhook_signature(self):

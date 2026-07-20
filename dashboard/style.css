@@ -517,6 +517,79 @@ h1, h2, h3, h4, h5, h6 { font-family: var(--font-heading); font-weight: 600; }
     .ticket-header { flex-direction: column; gap: 0.5rem; }
 }
 
+.reseller-price-action {
+    position:relative;
+}
+.reseller-price-action span {
+    position:absolute;
+    top:-5px;
+    right:-5px;
+    min-width:16px;
+    height:16px;
+    padding:0 4px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:8px;
+    background:var(--primary-color);
+    color:#fff;
+    font-size:.62rem;
+    font-weight:700;
+}
+.reseller-special-prices-modal { max-width:780px; }
+.modal-context { margin-top:.3rem; color:var(--color-text-muted); font-size:.82rem; }
+.reseller-special-prices-form {
+    display:grid;
+    grid-template-columns:minmax(0,1.6fr) minmax(130px,.65fr) minmax(180px,.85fr);
+    gap:.9rem 1rem;
+    align-items:end;
+}
+.reseller-special-prices-form .form-group { margin:0; }
+.reseller-special-prices-form select,
+.reseller-special-prices-form input { width:100%; }
+.reseller-special-product-field small { display:block; min-height:1.1rem; margin-top:.3rem; color:var(--color-text-muted); }
+.reseller-special-toggle { margin:.15rem 0; align-self:center; }
+.reseller-special-submit { display:flex; justify-content:flex-end; align-items:center; }
+.reseller-special-prices-list {
+    display:flex;
+    flex-direction:column;
+    gap:.55rem;
+    margin-top:1.25rem;
+    padding-top:1rem;
+    border-top:1px solid var(--border-color);
+}
+.reseller-price-row {
+    display:grid;
+    grid-template-columns:minmax(0,1.5fr) minmax(130px,.8fr) auto auto;
+    gap:.8rem;
+    align-items:center;
+    padding:.8rem;
+    border:1px solid var(--border-color);
+    border-radius:8px;
+    background:var(--input-bg);
+}
+.reseller-price-product strong,
+.reseller-price-product span,
+.reseller-price-value strong,
+.reseller-price-value span { display:block; overflow-wrap:anywhere; }
+.reseller-price-product span,
+.reseller-price-value span { margin-top:.18rem; color:var(--color-text-muted); font-size:.76rem; }
+.reseller-price-value strong { font-size:1.05rem; color:var(--color-success); }
+.reseller-price-actions { display:flex; gap:.35rem; }
+
+@media (max-width: 720px) {
+    .reseller-special-prices-form { grid-template-columns:1fr; align-items:stretch; }
+    .reseller-special-submit button { width:100%; }
+    .reseller-price-row {
+        grid-template-columns:minmax(0,1fr) auto;
+        grid-template-areas:"product status" "value actions";
+    }
+    .reseller-price-product { grid-area:product; }
+    .reseller-price-value { grid-area:value; }
+    .reseller-price-row > .status-badge { grid-area:status; justify-self:end; }
+    .reseller-price-actions { grid-area:actions; justify-self:end; }
+}
+
 /* RTL responsive overrides */
 @media (max-width: 768px) {
     [dir="rtl"] .sidebar {

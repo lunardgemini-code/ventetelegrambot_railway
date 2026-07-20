@@ -1350,6 +1350,18 @@ async def get_supplier_route_candidates(local_product_id: int) -> list[dict]:
         await db.close()
 
 
+async def get_supplier_cost_floor(local_product_id: int) -> float | None:
+    """Return the cheapest currently enabled supplier route cost in USD."""
+    candidates = await get_supplier_route_candidates(int(local_product_id))
+    costs = [
+        float(row.get("base_price") or 0)
+        for row in candidates
+        if (row.get("provider_enabled") or row.get("route_kind") == "primary")
+        and float(row.get("base_price") or 0) > 0
+    ]
+    return min(costs) if costs else None
+
+
 async def get_ranked_supplier_route_candidates(
     local_product_id: int, quantity: int, unit_revenue: float
 ) -> list[dict]:

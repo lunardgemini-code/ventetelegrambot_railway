@@ -47,7 +47,12 @@ class ResellerApiContractTests(unittest.TestCase):
 
         quote = self.schema["components"]["schemas"]["QuoteResponse"]["properties"]["quote"]
         self.assertIn("stock", quote["properties"])
+        self.assertIn("pricing_type", quote["properties"])
+        self.assertIn("standard_unit_price", quote["properties"])
         self.assertTrue(quote["properties"]["stock"]["nullable"])
+        product = self.schema["components"]["schemas"]["Product"]
+        self.assertIn("pricing_type", product["properties"])
+        self.assertIn("standard_price_usd", product["properties"])
         self.assertIn("304", product_operation["responses"])
         self.assertIn("ETag", product_operation["responses"]["200"]["headers"])
 
@@ -121,6 +126,10 @@ class ResellerCatalogCacheTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("bot._build_reseller_catalog", builder),
             patch("database.models.get_catalog_cache_generation", return_value=7),
+            patch(
+                "database.models.apply_reseller_special_prices_to_catalog",
+                AsyncMock(side_effect=lambda payload, _user_id: payload),
+            ),
         ):
             first = await bot.api_reseller_products(
                 self.request(), lang="en", reseller=reseller
@@ -149,6 +158,10 @@ class ResellerCatalogCacheTests(unittest.IsolatedAsyncioTestCase):
             patch("bot.time.monotonic", return_value=100.0),
             patch("database.models.get_catalog_cache_generation", return_value=1),
             patch("bot._build_reseller_catalog", AsyncMock(side_effect=RuntimeError("offline"))),
+            patch(
+                "database.models.apply_reseller_special_prices_to_catalog",
+                AsyncMock(side_effect=lambda payload, _user_id: payload),
+            ),
         ):
             response = await bot.api_reseller_products(
                 self.request(), lang="en", reseller={"user_telegram_id": 42}
