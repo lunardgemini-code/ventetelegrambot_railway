@@ -100,7 +100,7 @@ class SupplierAISearchTests(unittest.IsolatedAsyncioTestCase):
             "webhook_queue",
         )
         self.assertEqual(
-            supplier_ai_pressure_reason({"database": {"p95_ms": 700}}),
+            supplier_ai_pressure_reason({"database": {"p95_ms": 800}}),
             "database",
         )
         self.assertEqual(

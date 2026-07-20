@@ -376,15 +376,15 @@ def supplier_ai_pressure_reason(snapshot: dict | None) -> str:
         return "webhook_workers"
     if (
         int(database.get("connection_errors") or 0) > 0
-        or float(database.get("p95_ms") or 0) >= 600
+        or float(database.get("p95_ms") or 0) >= 750
         or int(writes.get("waiters") or 0) > 0
         or int(writes.get("timeouts") or 0) > 0
-        or float(writes.get("p95_wait_ms") or 0) >= 500
+        or float(writes.get("p95_wait_ms") or 0) >= 750
     ):
         return "database"
     if (
-        float(event_loop.get("p95_lag_ms") or 0) >= 150
-        or float(event_loop.get("max_lag_ms") or 0) >= 750
+        float(event_loop.get("p95_lag_ms") or 0) >= 250
+        or float(event_loop.get("max_lag_ms") or 0) >= 1000
     ):
         return "event_loop"
     if float(memory.get("rss_mb") or 0) >= 450:
