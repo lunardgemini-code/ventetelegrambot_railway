@@ -104,6 +104,8 @@ class SupplierAISearchTests(unittest.IsolatedAsyncioTestCase):
             "grok-month-warranty",
         )
         self.assertEqual(response["results"][0]["affordable_stock"], 2)
+        self.assertIn("fiabilité", response["results"][0]["reason"])
+        self.assertIn("unités achetables", response["results"][0]["reason"])
 
     async def test_wallet_filter_hides_unaffordable_products_but_can_be_overridden(self):
         await self._analyze()
@@ -314,7 +316,8 @@ class SupplierAISearchTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(group["offer_count"], 4)
         self.assertEqual(group["warranty_kind"], "mixed")
-        self.assertEqual(group["warranty_label"], "Garanties variees")
+        self.assertEqual(group["warranty_label"], "Garanties variées")
+        self.assertIn("1 mois · Garanties variées", group["signature"])
         self.assertEqual(
             [offer["external_product_id"] for offer in group["offers"]],
             [

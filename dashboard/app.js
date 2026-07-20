@@ -3214,6 +3214,23 @@ window.reviewSupplierRoute = async function(routeId, status) {
     }
 };
 
+function aiSupplierErrorMessage(error, fallback = 'Une erreur est survenue dans IA Bot.') {
+    const message = String(error?.message || '').trim();
+    const translations = {
+        SEARCH_QUERY_REQUIRED: 'Saisissez un produit à rechercher.',
+        INVALID_DURATION: "La durée indiquée n'est pas valide.",
+        INVALID_SEARCH_FILTER: "L'un des filtres de recherche n'est pas valide.",
+        NO_CONFIGURED_SUPPLIERS: 'Aucun bot fournisseur actif et configuré.',
+        SUPPLIER_ANALYSIS_IN_PROGRESS: 'Une analyse IA est déjà en cours.',
+        SUPPLIER_SYNC_IN_PROGRESS: 'Une synchronisation est déjà en cours.',
+        'Supplier AI job not found': "Cette tâche IA n'existe plus.",
+        'Sync job not found': "Cette tâche de synchronisation n'existe plus.",
+        'Internal server error': 'Le serveur IA Bot a rencontré une erreur temporaire.',
+    };
+    const match = Object.entries(translations).find(([technicalMessage]) => message.includes(technicalMessage));
+    return match ? match[1] : (message || fallback);
+}
+
 function renderAiSupplierJob(job) {
     if (!DOM.aiSyncProgressPanel) return;
     const active = job && ['queued', 'running'].includes(String(job.status || ''));
@@ -3221,7 +3238,7 @@ function renderAiSupplierJob(job) {
     if (DOM.btnAiSupplierSync) DOM.btnAiSupplierSync.disabled = Boolean(active);
     if (DOM.btnAiSupplierAnalyze) DOM.btnAiSupplierAnalyze.disabled = Boolean(active);
     if (!job) {
-        DOM.aiSyncState.textContent = 'Pret';
+        DOM.aiSyncState.textContent = 'Prêt';
         return;
     }
     const isAnalysis = job.kind === 'analysis';
@@ -3231,13 +3248,15 @@ function renderAiSupplierJob(job) {
     const processed = Math.min(total, done + failed);
     const percent = total ? Math.round(processed / total * 100) : 0;
     DOM.aiSyncState.textContent = job.status === 'completed'
-        ? 'Termine'
+        ? 'Terminé'
         : job.status === 'failed'
-            ? 'Echec'
+            ? 'Échec'
             : job.status === 'running'
                 ? (isAnalysis ? 'Analyse IA en cours' : 'Synchronisation en cours')
                 : 'En attente';
-    DOM.aiSyncProgressLabel.textContent = `${isAnalysis ? 'Analyse IA' : 'Synchronisation'} : ${processed}/${total} etape(s)${failed ? ` · ${failed} echec(s)` : ''}`;
+    const stepLabel = total === 1 ? 'étape' : 'étapes';
+    const failureLabel = failed === 1 ? 'échec' : 'échecs';
+    DOM.aiSyncProgressLabel.textContent = `${isAnalysis ? 'Analyse IA' : 'Synchronisation'} : ${processed}/${total} ${stepLabel}${failed ? ` · ${failed} ${failureLabel}` : ''}`;
     DOM.aiSyncProgressValue.textContent = `${percent}%`;
     DOM.aiSyncProgressBar.style.width = `${percent}%`;
 }
@@ -3275,11 +3294,11 @@ function pollAiSupplierJob(jobId) {
                 await loadAiSupplierStatus();
                 if (job.status === 'completed' && job.kind === 'analysis') {
                     await loadAiSupplierGroups();
-                    showToast('Analyse IA terminee. Les produits similaires sont regroupes.', 'success');
+                    showToast('Analyse IA terminée. Les produits similaires sont regroupés.', 'success');
                 } else if (job.status === 'completed') {
-                    showToast('Catalogues synchronises. Vous pouvez lancer Analyse IA.', 'success');
+                    showToast("Catalogues synchronisés. Vous pouvez lancer l'analyse IA.", 'success');
                 } else {
-                    showToast(job.kind === 'analysis' ? 'Analyse IA terminee avec une erreur.' : 'Synchronisation terminee avec une erreur.', 'error');
+                    showToast(job.kind === 'analysis' ? 'Analyse IA terminée avec une erreur.' : 'Synchronisation terminée avec une erreur.', 'error');
                 }
             }
         } catch (error) {
@@ -3296,9 +3315,9 @@ async function syncAllAiSuppliers() {
         const job = response.job || {};
         renderAiSupplierJob(job);
         pollAiSupplierJob(job.job_id);
-        showToast(response.created ? 'Synchronisation globale lancee.' : 'Une synchronisation est deja en cours.', 'info');
+        showToast(response.created ? 'Synchronisation globale lancée.' : 'Une synchronisation est déjà en cours.', 'info');
     } catch (error) {
-        showToast(error.message || 'Impossible de lancer la synchronisation.', 'error');
+        showToast(aiSupplierErrorMessage(error, 'Impossible de lancer la synchronisation.'), 'error');
     }
 }
 
@@ -3308,9 +3327,9 @@ async function analyzeAllAiSuppliers() {
         const job = response.job || {};
         renderAiSupplierJob(job);
         pollAiSupplierJob(job.job_id);
-        showToast(response.created ? 'Indexation IA complete lancee sur tout le catalogue.' : 'Une analyse IA est deja en cours.', 'info');
+        showToast(response.created ? 'Indexation IA complète lancée sur tout le catalogue.' : 'Une analyse IA est déjà en cours.', 'info');
     } catch (error) {
-        showToast(error.message || 'Impossible de lancer l\'analyse IA.', 'error');
+        showToast(aiSupplierErrorMessage(error, "Impossible de lancer l'analyse IA."), 'error');
     }
 }
 
@@ -3318,11 +3337,13 @@ function renderAiSupplierGroups(data) {
     const groups = data.groups || [];
     state.aiSupplierGroups = groups;
     if (!groups.length) {
-        DOM.aiGroupsSummary.textContent = 'Aucun groupe disponible. Synchronisez les bots, puis lancez Analyse IA.';
-        DOM.aiGroupsBody.innerHTML = '<tr><td colspan="6" class="empty-state">Aucun produit analyse.</td></tr>';
+        DOM.aiGroupsSummary.textContent = "Aucun groupe disponible. Synchronisez les bots, puis lancez l'analyse IA.";
+        DOM.aiGroupsBody.innerHTML = '<tr><td colspan="6" class="empty-state">Aucun produit analysé.</td></tr>';
         return;
     }
-    DOM.aiGroupsSummary.textContent = `${Number(data.available_products || 0)} produit(s) disponible(s) dans ${groups.length} groupe(s), dont ${Number(data.comparison_groups || 0)} avec plusieurs offres.`;
+    const availableCount = Number(data.available_products || 0);
+    const comparisonCount = Number(data.comparison_groups || 0);
+    DOM.aiGroupsSummary.textContent = `${availableCount} produit${availableCount === 1 ? '' : 's'} disponible${availableCount === 1 ? '' : 's'} dans ${groups.length} groupe${groups.length === 1 ? '' : 's'}, dont ${comparisonCount} avec plusieurs offres.`;
     DOM.aiGroupsBody.innerHTML = groups.map((group, index) => {
         const offers = group.offers || [];
         const best = offers[0] || {};
@@ -3332,21 +3353,21 @@ function renderAiSupplierGroups(data) {
             const warranty = Number(offer.warranty_days || 0) ? `${Number(offer.warranty_days)} j de garantie` : 'Sans garantie';
             const attributes = [
                 warranty,
-                offer.delivery_mode === 'activation' ? 'Activation' : offer.delivery_mode === 'account' ? 'Compte fourni' : '',
-                offer.access_mode === 'private' ? 'Prive' : offer.access_mode === 'shared' ? 'Partage' : '',
+                aiDeliveryLabel(offer.delivery_mode),
+                aiAccessLabel(offer.access_mode),
                 offer.region || '',
             ].filter(Boolean).join(' · ');
             return `<div class="ai-group-offer">
                 <span class="ai-group-offer-rank">${offerIndex === 0 ? '<i class="fa-solid fa-crown" title="Moins cher"></i>' : `#${offerIndex + 1}`}</span>
                 <span class="ai-group-offer-product"><strong>${escapeHtml(offer.name || '?')}</strong><small>${escapeHtml(attributes)}</small></span>
-                <span class="ai-group-offer-supplier"><strong>${escapeHtml(offer.supplier_name || offer.supplier_code || '?')}</strong><small>Wallet $${Number(offer.wallet_balance || 0).toFixed(2)}</small></span>
+                <span class="ai-group-offer-supplier"><strong>${escapeHtml(offer.supplier_name || offer.supplier_code || '?')}</strong><small>Solde fournisseur : $${Number(offer.wallet_balance || 0).toFixed(2)}</small></span>
                 <strong class="ai-group-offer-price">$${Number(offer.price || 0).toFixed(2)}</strong>
-                <span class="ai-group-offer-stock ${affordable > 0 ? '' : 'is-unfunded'}"><strong>${affordable}/${Number(offer.remote_stock || 0)}</strong><small>achetable / API</small></span>
+                <span class="ai-group-offer-stock ${affordable > 0 ? '' : 'is-unfunded'}"><strong>${affordable}/${Number(offer.remote_stock || 0)}</strong><small>achetable / disponible</small></span>
                 <button class="btn-table-action" type="button" onclick="openAiSupplier('${escapeHtml(offer.supplier_code || '')}')" title="Ouvrir ce fournisseur"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>
             </div>`;
         }).join('');
         return `<tr>
-            <td class="ai-group-title"><strong>${escapeHtml(group.label || 'Produit')}</strong><small>${group.comparable ? `${Number(group.offer_count || offers.length)} offre(s) comparable(s)` : 'Classification incomplete'}</small></td>
+            <td class="ai-group-title"><strong>${escapeHtml(group.label || 'Produit')}</strong><small>${group.comparable ? `${Number(group.offer_count || offers.length)} offre${Number(group.offer_count || offers.length) === 1 ? '' : 's'} comparable${Number(group.offer_count || offers.length) === 1 ? '' : 's'}` : 'Classification incomplète'}</small></td>
             <td>${escapeHtml(group.signature || '')}</td>
             <td class="ai-group-best"><strong class="ai-group-best-price">$${Number(group.best_price || 0).toFixed(2)}</strong><small>${escapeHtml(best.supplier_name || best.supplier_code || '?')}</small></td>
             <td><strong>${alternatives}</strong></td>
@@ -3365,7 +3386,7 @@ async function loadAiSupplierGroups() {
     try {
         renderAiSupplierGroups(await apiCall('/api/ai-supplier/groups'));
     } catch (error) {
-        DOM.aiGroupsBody.innerHTML = `<tr><td colspan="6" class="empty-state">${escapeHtml(error.message || 'Groupes indisponibles.')}</td></tr>`;
+        DOM.aiGroupsBody.innerHTML = `<tr><td colspan="6" class="empty-state">${escapeHtml(aiSupplierErrorMessage(error, 'Groupes indisponibles.'))}</td></tr>`;
         console.error('AI supplier groups failed:', error);
     }
 }
@@ -3384,7 +3405,27 @@ window.toggleAiSupplierGroup = function(index) {
 function aiDurationLabel(result) {
     if (result.duration_months) return `${Number(result.duration_months)} mois`;
     if (result.duration_days) return `${Number(result.duration_days)} jours`;
-    return 'Duree non precisee';
+    return 'Durée non précisée';
+}
+
+function aiDeliveryLabel(mode) {
+    const labels = {
+        account: 'Compte fourni',
+        activation: 'Activation client',
+        mixed: 'Modes de livraison variés',
+        unknown: 'Livraison non précisée',
+    };
+    return labels[String(mode || 'unknown')] || labels.unknown;
+}
+
+function aiAccessLabel(mode) {
+    const labels = {
+        private: 'Privé',
+        shared: 'Partagé',
+        mixed: 'Accès variés',
+        unknown: 'Accès non précisé',
+    };
+    return labels[String(mode || 'unknown')] || labels.unknown;
 }
 
 function renderAiSupplierResults(data) {
@@ -3392,14 +3433,14 @@ function renderAiSupplierResults(data) {
     const hiddenUnfunded = Number(data.hidden_unfunded_count || 0);
     state.aiSupplierResults = results;
     DOM.aiResultsSummary.textContent = results.length
-        ? `${results.length} offre(s) strictement conforme(s), classees par cout et fiabilite.`
+        ? `${results.length} offre${results.length === 1 ? '' : 's'} strictement conforme${results.length === 1 ? '' : 's'}, classée${results.length === 1 ? '' : 's'} par coût et fiabilité.`
         : hiddenUnfunded > 0
-            ? `${hiddenUnfunded} offre(s) conforme(s) masquee(s), car leur wallet fournisseur est insuffisant.`
-            : 'Aucune offre ne respecte tous les criteres. Verifiez la duree, la garantie et les autres filtres.';
+            ? `${hiddenUnfunded} offre${hiddenUnfunded === 1 ? '' : 's'} conforme${hiddenUnfunded === 1 ? '' : 's'} masquée${hiddenUnfunded === 1 ? '' : 's'}, car le solde fournisseur est insuffisant.`
+            : 'Aucune offre ne respecte tous les critères. Vérifiez la durée, la garantie et les autres filtres.';
     if (!results.length) {
         const message = hiddenUnfunded > 0
-            ? 'Des offres existent. Activez "Afficher aussi les wallets insuffisants" pour les comparer.'
-            : 'Aucun resultat conforme.';
+            ? 'Des offres existent. Activez « Afficher aussi les offres sans solde suffisant » pour les comparer.'
+            : 'Aucun résultat conforme.';
         DOM.aiResultsBody.innerHTML = `<tr><td colspan="9" class="empty-state">${escapeHtml(message)}</td></tr>`;
         return;
     }
@@ -3407,14 +3448,15 @@ function renderAiSupplierResults(data) {
         const affordable = Number(result.affordable_stock || 0);
         const stockClass = affordable > 0 ? '' : 'ai-result-warning';
         const freshness = Number(result.freshness_hours || 0);
-        const freshnessLabel = freshness >= 9999 ? 'sync inconnue' : freshness < 1 ? 'sync recente' : `sync il y a ${Math.round(freshness)} h`;
+        const freshnessLabel = freshness >= 9999 ? 'Synchronisation inconnue' : freshness < 1 ? 'Synchronisé récemment' : `Synchronisé il y a ${Math.round(freshness)} h`;
+        const warrantyDays = Number(result.warranty_days || 0);
         return `<tr>
             <td class="${index === 0 ? 'ai-result-best' : ''}">${index === 0 ? '<i class="fa-solid fa-crown"></i> 1' : index + 1}</td>
-            <td class="ai-result-product"><strong>${escapeHtml(result.name || '?')}</strong><small>${escapeHtml(aiDurationLabel(result))} · ${escapeHtml(result.delivery_mode || 'unknown')} · ${escapeHtml(result.access_mode || 'unknown')}</small></td>
-            <td class="ai-result-supplier"><strong>${escapeHtml(result.supplier_name || result.supplier_code)}</strong><small>${escapeHtml(result.supplier_code || '')}${result.supplier_enabled ? '' : ' · connexion desactivee'}</small></td>
-            <td><strong>$${Number(result.price || 0).toFixed(2)}</strong><span class="table-secondary">wallet $${Number(result.wallet_balance || 0).toFixed(2)}</span></td>
-            <td><strong>${Number(result.warranty_days || 0) || '—'}</strong><span class="table-secondary">jour(s)</span></td>
-            <td class="${stockClass}"><strong>${affordable}/${Number(result.remote_stock || 0)}</strong><span class="table-secondary">achetable / API</span></td>
+            <td class="ai-result-product"><strong>${escapeHtml(result.name || '?')}</strong><small>${escapeHtml(aiDurationLabel(result))} · ${escapeHtml(aiDeliveryLabel(result.delivery_mode))} · ${escapeHtml(aiAccessLabel(result.access_mode))}</small></td>
+            <td class="ai-result-supplier"><strong>${escapeHtml(result.supplier_name || result.supplier_code)}</strong><small>${escapeHtml(result.supplier_code || '')}${result.supplier_enabled ? '' : ' · connexion désactivée'}</small></td>
+            <td><strong>$${Number(result.price || 0).toFixed(2)}</strong><span class="table-secondary">solde : $${Number(result.wallet_balance || 0).toFixed(2)}</span></td>
+            <td><strong>${warrantyDays ? `${warrantyDays} ${warrantyDays === 1 ? 'jour' : 'jours'}` : 'Sans garantie'}</strong></td>
+            <td class="${stockClass}"><strong>${affordable}/${Number(result.remote_stock || 0)}</strong><span class="table-secondary">achetable / disponible</span></td>
             <td><strong>${Math.round(Number(result.reliability || 0) * 100)}%</strong><span class="table-secondary">${escapeHtml(freshnessLabel)}</span></td>
             <td class="ai-result-analysis"><strong>${Math.round(Number(result.confidence || 0) * 100)}%</strong><small>${escapeHtml(result.reason || '')}</small></td>
             <td><button class="btn-table-action" type="button" onclick="openAiSupplier('${escapeHtml(result.supplier_code || '')}')" title="Ouvrir ce fournisseur"><i class="fa-solid fa-arrow-up-right-from-square"></i></button></td>
@@ -3440,8 +3482,9 @@ async function searchAiSuppliers(event) {
         const data = await apiCall('/api/ai-supplier/search', 'POST', payload);
         renderAiSupplierResults(data);
     } catch (error) {
-        DOM.aiResultsBody.innerHTML = `<tr><td colspan="9" class="empty-state">${escapeHtml(error.message || 'Recherche indisponible.')}</td></tr>`;
-        showToast(error.message || 'Recherche indisponible.', 'error');
+        const message = aiSupplierErrorMessage(error, 'Recherche indisponible.');
+        DOM.aiResultsBody.innerHTML = `<tr><td colspan="9" class="empty-state">${escapeHtml(message)}</td></tr>`;
+        showToast(message, 'error');
     }
 }
 

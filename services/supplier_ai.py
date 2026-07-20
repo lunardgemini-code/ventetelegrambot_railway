@@ -451,11 +451,12 @@ async def search_supplier_catalog(filters: dict) -> dict:
         age_hours = max(0.0, (now - synced_at).total_seconds() / 3600) if synced_at else 9999.0
         stale_penalty = min(0.20, age_hours / 720.0)
         route_score = price * (1.0 + (1.0 - reliability) * 0.10 + stale_penalty)
-        reasons = [f"conforme aux filtres", f"fiabilite {round(reliability * 100)}%"]
+        reasons = ["Conforme aux filtres", f"fiabilité {round(reliability * 100)} %"]
         if affordable > 0:
-            reasons.append(f"{affordable} achetable(s)")
+            suffix = "s" if affordable != 1 else ""
+            reasons.append(f"{affordable} unité{suffix} achetable{suffix}")
         elif include_unfunded:
-            reasons.append("wallet insuffisant")
+            reasons.append("solde fournisseur insuffisant")
         results.append({
             "supplier_product_id": int(row["id"]),
             "supplier_code": code,
@@ -512,8 +513,8 @@ def _warranty_group(warranty_days: int, duration_months, duration_days) -> tuple
     elif duration_months:
         total_days = max(0, int(duration_months) * 30)
     if total_days and warranty_days >= math.ceil(total_days * 0.80):
-        return "full", "Garantie complete"
-    return f"limited:{warranty_days}", f"Garantie {warranty_days} j"
+        return "full", "Garantie complète"
+    return f"limited:{warranty_days}", f"Garantie : {warranty_days} j"
 
 
 def _group_duration_label(duration_months, duration_days) -> str:
@@ -521,7 +522,7 @@ def _group_duration_label(duration_months, duration_days) -> str:
         return f"{int(duration_months)} mois"
     if duration_days:
         return f"{int(duration_days)} jours"
-    return "Duree inconnue"
+    return "Durée inconnue"
 
 
 async def list_supplier_product_groups() -> dict:
@@ -553,7 +554,7 @@ async def list_supplier_product_groups() -> dict:
         else:
             group_key = ("unclassified", int(row["id"]))
         if group_key not in grouped:
-            family_label = family.replace("_", " ").replace("-", " ").title() if family else str(row.get("name") or "Produit non classe")
+            family_label = family.replace("_", " ").replace("-", " ").title() if family else str(row.get("name") or "Produit non classé")
             grouped[group_key] = {
                 "family": family,
                 "variants": [],
@@ -614,7 +615,7 @@ async def list_supplier_product_groups() -> dict:
         if len(warranties) == 1:
             warranty_kind, warranty_label = next(iter(warranties))
         else:
-            warranty_kind, warranty_label = "mixed", "Garanties variees"
+            warranty_kind, warranty_label = "mixed", "Garanties variées"
         delivery_modes = {str(offer.get("delivery_mode") or "unknown") for offer in offers}
         access_modes = {str(offer.get("access_mode") or "unknown") for offer in offers}
         regions = {str(offer.get("region") or "") for offer in offers}
@@ -626,20 +627,20 @@ async def list_supplier_product_groups() -> dict:
             warranty_label,
         ]
         if group_delivery == "mixed":
-            qualifiers.append("Livraisons variees")
+            qualifiers.append("Modes de livraison variés")
         elif group_delivery != "unknown":
-            qualifiers.append("Activation" if group_delivery == "activation" else "Compte fourni")
+            qualifiers.append("Activation client" if group_delivery == "activation" else "Compte fourni")
         if group_access == "mixed":
-            qualifiers.append("Acces varies")
+            qualifiers.append("Accès variés")
         elif group_access != "unknown":
-            qualifiers.append("Prive" if group_access == "private" else "Partage")
+            qualifiers.append("Privé" if group_access == "private" else "Partagé")
         if group_region == "MIXED":
-            qualifiers.append("Regions variees")
+            qualifiers.append("Régions variées")
         elif group_region:
             qualifiers.append(group_region)
         groups.append({
             **group,
-            "signature": " - ".join(qualifiers),
+            "signature": " · ".join(qualifiers),
             "warranty_kind": warranty_kind,
             "warranty_label": warranty_label,
             "delivery_mode": group_delivery,
