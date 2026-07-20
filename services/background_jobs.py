@@ -239,7 +239,7 @@ async def background_job_worker(bot) -> None:
                 last_maintenance = now
 
             job = await claim_next_background_job(
-                excluded_job_types={"supplier_ai_sync"}
+                excluded_job_types={"supplier_ai_sync", "supplier_ai_analyze"}
             )
             if not job:
                 await asyncio.sleep(_JOB_POLL_SECONDS)

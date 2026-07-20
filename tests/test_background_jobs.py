@@ -153,17 +153,28 @@ class PersistentBackgroundJobTests(unittest.IsolatedAsyncioTestCase):
             progress_total=2,
         )
         await create_background_job("broadcast-job", "broadcast", {"text": "Hello"})
+        await create_background_job(
+            "ai-analysis-job", "supplier_ai_analyze", {"use_ai": True}
+        )
 
         regular = await claim_next_background_job(
-            excluded_job_types={"supplier_ai_sync"}
+            excluded_job_types={"supplier_ai_sync", "supplier_ai_analyze"}
         )
-        ai_job = await claim_next_background_job(job_types={"supplier_ai_sync"})
+        ai_job = await claim_next_background_job(
+            job_types={"supplier_ai_sync", "supplier_ai_analyze"}
+        )
+        analysis_job = await claim_next_background_job(
+            job_types={"supplier_ai_sync", "supplier_ai_analyze"}
+        )
 
         self.assertTrue(created)
         self.assertFalse(duplicate_created)
         self.assertEqual(first["id"], duplicate["id"])
         self.assertEqual(regular["id"], "broadcast-job")
-        self.assertEqual(ai_job["id"], "ai-job-1")
+        self.assertEqual(
+            {ai_job["id"], analysis_job["id"]},
+            {"ai-job-1", "ai-analysis-job"},
+        )
 
     async def test_broadcast_worker_forwards_saved_progress(self):
         checkpoint_update = AsyncMock()
