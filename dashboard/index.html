@@ -751,16 +751,6 @@
                     <div class="ai-progress-track"><span id="ai-sync-progress-bar"></span></div>
                     <small>La tache continue sur Railway meme si vous fermez le dashboard.</small>
                 </div>
-                <div class="ai-groups-heading">
-                    <div><h3>Produits similaires</h3><p id="ai-groups-summary">Synchronisez les bots, puis lancez Analyse IA.</p></div>
-                    <button id="btn-ai-groups-refresh" class="btn-icon" type="button" title="Actualiser les groupes"><i class="fa-solid fa-rotate"></i></button>
-                </div>
-                <div class="glass-panel overflow-hidden ai-groups-panel">
-                    <table class="data-table ai-groups-table">
-                        <thead><tr><th>Groupe</th><th>Caracteristiques</th><th>Meilleure offre</th><th>Alternatives</th><th>Ecart max</th><th>Action</th></tr></thead>
-                        <tbody id="ai-groups-body"><tr><td colspan="6" class="empty-state">Aucune analyse lancee.</td></tr></tbody>
-                    </table>
-                </div>
                 <form id="ai-supplier-search-form" class="ai-supplier-search glass-panel">
                     <div class="form-group ai-query-field">
                         <label for="ai-supplier-query">Produit recherche</label>
@@ -782,6 +772,16 @@
                     <table class="data-table ai-results-table">
                         <thead><tr><th>#</th><th>Produit</th><th>Fournisseur</th><th>Prix</th><th>Garantie</th><th>Stock</th><th>Fiabilite</th><th>Analyse</th><th>Action</th></tr></thead>
                         <tbody id="ai-results-body"><tr><td colspan="9" class="empty-state">Aucune recherche lancee.</td></tr></tbody>
+                    </table>
+                </div>
+                <div class="ai-groups-heading">
+                    <div><h3>Produits similaires</h3><p id="ai-groups-summary">Synchronisez les bots, puis lancez Analyse IA.</p></div>
+                    <button id="btn-ai-groups-refresh" class="btn-icon" type="button" title="Actualiser les groupes"><i class="fa-solid fa-rotate"></i></button>
+                </div>
+                <div class="glass-panel overflow-hidden ai-groups-panel">
+                    <table class="data-table ai-groups-table">
+                        <thead><tr><th>Groupe</th><th>Caracteristiques</th><th>Meilleure offre</th><th>Alternatives</th><th>Ecart max</th><th>Action</th></tr></thead>
+                        <tbody id="ai-groups-body"><tr><td colspan="6" class="empty-state">Aucune analyse lancee.</td></tr></tbody>
                     </table>
                 </div>
             </section>
