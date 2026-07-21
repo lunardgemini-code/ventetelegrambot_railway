@@ -39,18 +39,22 @@ def _broadcast_batch_size() -> int:
     )
 
 
+def _broadcast_pool_size() -> int:
+    return _bounded_env_int(
+        "BROADCAST_CONNECTION_POOL_SIZE",
+        _DEFAULT_POOL_SIZE,
+        minimum=2,
+        maximum=12,
+    )
+
+
 def _build_isolated_broadcast_bot(main_bot) -> Bot | None:
     """Create a Bot whose HTTP pool is never shared with interactive traffic."""
     token = str(getattr(main_bot, "token", "") or "").strip()
     if not token:
         # Lightweight test doubles do not expose a token.
         return None
-    pool_size = _bounded_env_int(
-        "BROADCAST_CONNECTION_POOL_SIZE",
-        _DEFAULT_POOL_SIZE,
-        minimum=2,
-        maximum=12,
-    )
+    pool_size = _broadcast_pool_size()
     request = HTTPXRequest(
         connection_pool_size=pool_size,
         connect_timeout=10.0,
@@ -68,11 +72,30 @@ async def _isolated_broadcast_transport(main_bot):
     if dedicated_bot is None:
         yield main_bot
         return
-    await dedicated_bot.initialize()
     try:
+        try:
+            await dedicated_bot.initialize()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "Dedicated broadcast transport initialization failed: %s",
+                type(exc).__name__,
+            )
+            raise RuntimeError(
+                "Dedicated broadcast transport initialization failed"
+            ) from None
         yield dedicated_bot
     finally:
-        await dedicated_bot.shutdown()
+        try:
+            await dedicated_bot.shutdown()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "Dedicated broadcast transport shutdown failed: %s",
+                type(exc).__name__,
+            )
 
 
 def validate_broadcast_content(text: str, photo: str | None = None) -> None:
@@ -170,14 +193,24 @@ async def execute_broadcast(
     start_offset = min(total, max(0, int(start_offset)))
     sent = max(0, int(initial_sent))
     failed = max(0, int(initial_failed))
+    if start_offset >= total:
+        logger.info(
+            "Broadcast has no remaining recipients: sent=%d failed=%d total=%d",
+            sent,
+            failed,
+            total,
+        )
+        return sent, failed, total
 
-    batch_size = _broadcast_batch_size()
+    pool_size = _broadcast_pool_size()
+    batch_size = min(_broadcast_batch_size(), pool_size)
     async with _BROADCAST_LOCK:
         async with _isolated_broadcast_transport(bot) as broadcast_bot:
             logger.info(
-                "Broadcast transport started: recipients=%d batch_size=%d isolated=%s",
+                "Broadcast transport started: recipients=%d batch_size=%d pool_size=%d isolated=%s",
                 total - start_offset,
                 batch_size,
+                pool_size,
                 broadcast_bot is not bot,
             )
             for offset in range(start_offset, total, batch_size):
