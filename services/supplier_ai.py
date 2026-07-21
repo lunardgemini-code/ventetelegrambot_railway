@@ -389,7 +389,10 @@ def supplier_ai_pressure_reason(
         return "database"
     if (
         float(event_loop.get("p95_lag_ms") or 0) >= 250
-        or float(event_loop.get("max_lag_ms") or 0) >= 1000
+        or (
+            include_historical
+            and float(event_loop.get("max_lag_ms") or 0) >= 1000
+        )
     ):
         return "event_loop"
     if float(memory.get("rss_mb") or 0) >= 450:
@@ -397,7 +400,9 @@ def supplier_ai_pressure_reason(
     historical_diagnoses = {
         "external_api", "workers", "database", "event_loop", "memory"
     }
-    active_diagnoses = {"workers", "event_loop", "memory"}
+    # A queued maintenance job should not be postponed forever by one old
+    # event-loop spike. The live p95 check above still blocks sustained lag.
+    active_diagnoses = {"workers", "memory"}
     if diagnosis in (
         historical_diagnoses if include_historical else active_diagnoses
     ):

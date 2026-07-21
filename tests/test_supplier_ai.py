@@ -110,6 +110,28 @@ class SupplierAISearchTests(unittest.IsolatedAsyncioTestCase):
             ),
             "",
         )
+        isolated_loop_spike = {
+            "event_loop": {"p95_lag_ms": 120, "max_lag_ms": 1500},
+            "diagnosis": {"bottleneck": "event_loop"},
+        }
+        self.assertEqual(
+            supplier_ai_pressure_reason(isolated_loop_spike),
+            "event_loop",
+        )
+        self.assertEqual(
+            supplier_ai_pressure_reason(
+                isolated_loop_spike,
+                include_historical=False,
+            ),
+            "",
+        )
+        self.assertEqual(
+            supplier_ai_pressure_reason(
+                {"event_loop": {"p95_lag_ms": 300}},
+                include_historical=False,
+            ),
+            "event_loop",
+        )
         self.assertEqual(
             supplier_ai_pressure_reason({
                 "queue": {"current": 0, "p95_wait_ms": 20},
