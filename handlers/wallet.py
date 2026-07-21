@@ -17,6 +17,7 @@ from telegram.ext import (
 
 from config import BINANCE_PAY_ID, PAYMENT_TIMEOUT_SECONDS
 from database.models import (
+    credit_wallet_from_binance_transaction,
     get_user_lang,
     get_wallet_balance,
     get_wallet_transactions,
@@ -800,13 +801,19 @@ async def wallet_verify_payment(update: Update, context: ContextTypes.DEFAULT_TY
         result = await verify_payment(client_order_id, amount, api_key=api_key_to_use, api_secret=api_secret_to_use, lang=lang)
 
         if result.get("verified"):
-            # Anti-replay: check if this transaction was already used
             tx = result.get("transaction", {})
             amount = float(tx.get("amount", amount))
             tx_id = str(tx.get("transactionId", "")) or str(tx.get("orderId", "")) or client_order_id
-            from database.models import record_used_transaction
             telegram_id = update.effective_user.id
-            if not await record_used_transaction(tx_id, order_id=None, user_telegram_id=telegram_id, amount=amount):
+            binance_order_id_val = tx.get("orderId", "")
+            desc_id = binance_order_id_val or tx_id or client_order_id
+            credit = await credit_wallet_from_binance_transaction(
+                tx_id,
+                telegram_id,
+                amount,
+                f"Binance Pay: {desc_id}",
+            )
+            if not credit.get("credited"):
                 logger.warning("WALLET REPLAY BLOCKED: User %s tried to reuse transaction %s",
                              telegram_id, tx_id)
                 await update.message.reply_text(
@@ -816,9 +823,7 @@ async def wallet_verify_payment(update: Update, context: ContextTypes.DEFAULT_TY
                 context.user_data.pop("wallet_topup_amount", None)
                 return ConversationHandler.END
 
-            binance_order_id_val = tx.get("orderId", "")
-            desc_id = binance_order_id_val or tx_id or client_order_id
-            new_balance = await topup_wallet(telegram_id, amount, f"Binance Pay: {desc_id}", tx_hash=tx_id)
+            new_balance = float(credit["balance_after"])
 
             text = t("wallet_credited", lang) \
                 .replace("${amount}", format_price(amount)) \

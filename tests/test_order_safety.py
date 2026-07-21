@@ -275,13 +275,119 @@ class OrderSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(second["items"]), 1)
         self.assertNotEqual(first["items"][0]["id"], second["items"][0]["id"])
 
-    async def test_crypto_transaction_retry_is_only_idempotent_for_same_order(self):
+    async def test_binance_transaction_claim_rejects_every_duplicate(self):
         first = await models.create_order(1001, self.product_id, 5, quantity=1)
         self.assertTrue(await models.record_used_transaction("tx-1", first["id"], 1001, 5))
-        self.assertTrue(await models.record_used_transaction("tx-1", first["id"], 1001, 5))
+        self.assertFalse(await models.record_used_transaction("tx-1", first["id"], 1001, 5))
 
         second = await models.create_order(1001, self.product_id, 5, quantity=1)
         self.assertFalse(await models.record_used_transaction("tx-1", second["id"], 1001, 5))
+
+    async def test_concurrent_binance_order_claim_has_one_winner(self):
+        order = await models.create_order(1001, self.product_id, 5, quantity=1)
+
+        results = await asyncio.gather(*(
+            models.claim_binance_order_payment(
+                "binance-order-race",
+                order["id"],
+                1001,
+                5,
+                "442882137117253632",
+            )
+            for _ in range(3)
+        ))
+
+        self.assertEqual(sum(bool(result["claimed"]) for result in results), 1)
+        self.assertEqual(
+            sum(result["reason"] == "already_claimed" for result in results),
+            2,
+        )
+        stored = await models.get_order(order["id"])
+        self.assertEqual(stored["status"], "PAID_PENDING_DELIVERY")
+        self.assertEqual(stored["payment_method"], "binance")
+        self.assertEqual(stored["binance_order_id"], "442882137117253632")
+
+        db = await get_db()
+        try:
+            row = await (await db.execute(
+                "SELECT COUNT(*) AS cnt FROM used_binance_transactions WHERE transaction_id = ?",
+                ("binance-order-race",),
+            )).fetchone()
+        finally:
+            await db.close()
+        self.assertEqual(int(row["cnt"]), 1)
+
+    async def test_concurrent_binance_wallet_credit_happens_once(self):
+        results = await asyncio.gather(*(
+            models.credit_wallet_from_binance_transaction(
+                "binance-wallet-race",
+                1001,
+                5,
+                "Binance Pay: test-order",
+            )
+            for _ in range(3)
+        ))
+
+        self.assertEqual(sum(bool(result["credited"]) for result in results), 1)
+        self.assertEqual(await models.get_wallet_balance(1001), 25.0)
+
+        db = await get_db()
+        try:
+            used = await (await db.execute(
+                "SELECT COUNT(*) AS cnt FROM used_binance_transactions WHERE transaction_id = ?",
+                ("binance-wallet-race",),
+            )).fetchone()
+            credits = await (await db.execute(
+                "SELECT COUNT(*) AS cnt FROM wallet_transactions WHERE tx_hash = ?",
+                ("binance-wallet-race",),
+            )).fetchone()
+        finally:
+            await db.close()
+        self.assertEqual(int(used["cnt"]), 1)
+        self.assertEqual(int(credits["cnt"]), 1)
+
+    async def test_failed_binance_order_claim_does_not_consume_transaction(self):
+        result = await models.claim_binance_order_payment(
+            "binance-missing-order",
+            999999,
+            1001,
+            5,
+            "missing-order",
+        )
+
+        self.assertFalse(result["claimed"])
+        self.assertEqual(result["reason"], "order_not_found")
+        self.assertFalse(await models.is_transaction_used("binance-missing-order"))
+
+    async def test_binance_activation_claim_is_immediately_recoverable(self):
+        await models.update_product(self.product_id, delivery_type="activation")
+        order = await models.create_order(1001, self.product_id, 5, quantity=1)
+
+        result = await models.claim_binance_order_payment(
+            "binance-activation",
+            order["id"],
+            1001,
+            5,
+            "activation-payment",
+        )
+
+        self.assertTrue(result["claimed"])
+        self.assertEqual(result["order_status"], "AWAITING_ACTIVATION_INFO")
+        self.assertEqual(
+            (await models.get_order(order["id"]))["status"],
+            "AWAITING_ACTIVATION_INFO",
+        )
+
+    async def test_failed_binance_wallet_credit_rolls_back_transaction_claim(self):
+        with self.assertRaisesRegex(ValueError, "WALLET_USER_NOT_FOUND"):
+            await models.credit_wallet_from_binance_transaction(
+                "binance-missing-wallet",
+                999999,
+                5,
+                "Binance Pay: missing-user",
+            )
+
+        self.assertFalse(await models.is_transaction_used("binance-missing-wallet"))
 
     async def test_timeout_cannot_cancel_a_completed_order(self):
         order = await models.create_order(1001, self.product_id, 5, quantity=1)

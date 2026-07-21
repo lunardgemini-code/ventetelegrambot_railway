@@ -21,6 +21,7 @@ from telegram.ext import (
 
 from config import ADMIN_IDS, BINANCE_PAY_ID, PAYMENT_TIMEOUT_SECONDS
 from database.models import (
+    claim_binance_order_payment,
     create_order,
     get_pending_activation_order_for_user,
     get_order,
@@ -33,7 +34,6 @@ from database.models import (
     record_product_buy_click,
     submit_activation_identifier,
     update_order_status,
-    record_used_transaction,
 )
 from services.binance_verify import verify_payment
 from services.delivery import check_low_stock, deliver_order
@@ -166,7 +166,12 @@ async def _prompt_activation_identifier(update: Update, context: ContextTypes.DE
     await update_order_status(
         order_id,
         "AWAITING_ACTIVATION_INFO",
-        expected_statuses=("PENDING", "AWAITING_PAYMENT", "AWAITING_ACTIVATION_INFO"),
+        expected_statuses=(
+            "PENDING",
+            "AWAITING_PAYMENT",
+            "PAID_PENDING_DELIVERY",
+            "AWAITING_ACTIVATION_INFO",
+        ),
         **kwargs,
     )
     context.user_data["activation_order_id"] = order_id
@@ -1069,9 +1074,6 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("paying_product_id", None)
         return ConversationHandler.END
 
-    # Track if order was cancelled by timeout (we still verify on-chain)
-    order_was_cancelled = db_order.get("status") == "CANCELLED"
-
     try:
         await update.message.reply_text(t("verifying", lang))
 
@@ -1108,10 +1110,30 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         if result.get("verified"):
-            # Anti-replay: check if transaction was already used
             tx = result.get("transaction", {})
             tx_id = str(tx.get("transactionId", "")) or str(tx.get("orderId", "")) or client_order_id
-            if not await record_used_transaction(tx_id, order_id, update.effective_user.id, expected_amount):
+            binance_tx_id = tx.get("transactionId", "")
+            binance_order_id_val = tx.get("orderId", "")
+            display_id = binance_order_id_val or binance_tx_id or client_order_id
+            payment_claim = await claim_binance_order_payment(
+                tx_id,
+                order_id,
+                update.effective_user.id,
+                expected_amount,
+                display_id,
+            )
+            if not payment_claim.get("claimed"):
+                if payment_claim.get("reason") in ("already_claimed", "order_not_payable"):
+                    logger.info(
+                        "Duplicate Binance verification ignored for order %d transaction %s",
+                        order_id,
+                        tx_id,
+                    )
+                    await update.message.reply_text(
+                        t("payment_processing", lang),
+                        reply_markup=main_menu_keyboard(lang),
+                    )
+                    return ConversationHandler.END
                 logger.warning("REPLAY ATTACK BLOCKED: User %s tried to reuse transaction %s for order %d",
                              update.effective_user.id, tx_id, order_id)
                 await update.message.reply_text(
@@ -1125,18 +1147,8 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if task and not task.done():
                 task.cancel()
                 
-            # Reactivate order if it was cancelled by timeout but payment is confirmed
-            if order_was_cancelled:
-                await update_order_status(
-                    order_id,
-                    "PENDING",
-                    expected_statuses=("CANCELLED",),
-                    payment_method="binance",
-                )
+            if payment_claim.get("previous_status") == "CANCELLED":
                 logger.info("Order #%d reactivated: Binance payment confirmed after timeout", order_id)
-            binance_tx_id = tx.get("transactionId", "")
-            binance_order_id_val = tx.get("orderId", "")
-            display_id = binance_order_id_val or binance_tx_id or client_order_id
 
             product = await get_product(product_id)
             if _is_activation_product(product):
