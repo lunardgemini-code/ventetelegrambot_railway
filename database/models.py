@@ -15,6 +15,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from config import PAYMENT_TIMEOUT_SECONDS
+from services.singleflight import AsyncSingleFlight
 from .db import get_db, is_transient_db_connection_error
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,11 @@ _USER_BANNED_CACHE: dict[int, bool] = {}
 _CATEGORIES_CACHE: list[dict] | None = None
 _PRODUCTS_CACHE: list[dict] | None = None
 _PRODUCT_BY_ID_CACHE: dict[int, dict | None] = {}
+_PRODUCT_DETAILS_CACHE: dict[int, tuple[float, int, tuple[dict | None, int, list[dict], int]]] = {}
+_PRODUCT_DETAILS_CACHE_TTL = max(
+    2.0,
+    float(os.environ.get("PRODUCT_DETAILS_CACHE_SECONDS", "10")),
+)
 _TIERS_CACHE: dict[int, list[dict]] = {}
 _STOCK_COUNTS_CACHE: tuple[float, dict[int, int]] | None = None
 _STOCK_COUNTS_CACHE_TTL = max(2.0, float(os.environ.get("STOCK_COUNTS_CACHE_SECONDS", "10")))
@@ -87,6 +93,7 @@ _TELEGRAM_SPECIAL_PRICE_USERS_CACHE_LOCK_LOOP = None
 _GET_STATS_CACHE = {}
 _GET_STATS_CACHE_TTL = 30
 _CATALOG_CACHE_GENERATION = 0
+_PRODUCT_READ_SINGLEFLIGHT: AsyncSingleFlight[tuple, object] = AsyncSingleFlight()
 RESELLER_TEST_PRODUCT_ID = max(
     1,
     int(os.environ.get("RESELLER_TEST_PRODUCT_ID", "2147483000")),
@@ -157,6 +164,7 @@ def get_catalog_cache_generation() -> int:
 def _clear_stock_cache() -> None:
     global _STOCK_COUNTS_CACHE
     _STOCK_COUNTS_CACHE = None
+    _PRODUCT_DETAILS_CACHE.clear()
     _bump_catalog_cache_generation()
 
 
@@ -495,6 +503,7 @@ def clear_products_cache():
     global _PRODUCTS_CACHE, _PRODUCT_BY_ID_CACHE
     _PRODUCTS_CACHE = None
     _PRODUCT_BY_ID_CACHE.clear()
+    _PRODUCT_DETAILS_CACHE.clear()
     _bump_catalog_cache_generation()
     invalidate_stats_cache()
 
@@ -1059,40 +1068,76 @@ async def mark_stock_alerts_notified(product_id: int, user_ids: list[int]) -> No
 
 async def get_product(product_id: int) -> dict | None:
     """Récupère un produit par son identifiant."""
-    if product_id in _PRODUCT_BY_ID_CACHE:
-        return _PRODUCT_BY_ID_CACHE[product_id]
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            "SELECT * FROM products WHERE id = ?", (product_id,)
+    product_id = int(product_id)
+    while True:
+        if product_id in _PRODUCT_BY_ID_CACHE:
+            cached = _PRODUCT_BY_ID_CACHE[product_id]
+            return dict(cached) if cached is not None else None
+
+        generation = get_catalog_cache_generation()
+
+        async def load_product() -> dict | None:
+            db = await get_db()
+            try:
+                cursor = await db.execute(
+                    "SELECT * FROM products WHERE id = ?", (product_id,)
+                )
+                row = await cursor.fetchone()
+                result = dict(row) if row else None
+                if generation == get_catalog_cache_generation():
+                    _PRODUCT_BY_ID_CACHE[product_id] = result
+                return result
+            finally:
+                await db.close()
+
+        result = await _PRODUCT_READ_SINGLEFLIGHT.run(
+            ("product", product_id, generation),
+            load_product,
         )
-        row = await cursor.fetchone()
-        res = dict(row) if row else None
-        if res is not None:
-            _PRODUCT_BY_ID_CACHE[product_id] = res
-        return res
-    finally:
-        await db.close()
+        if generation == get_catalog_cache_generation():
+            return dict(result) if result is not None else None
 
 
 async def get_all_products() -> list[dict]:
     """Retourne la liste de tous les produits (actifs et inactifs, non supprimés)."""
     global _PRODUCTS_CACHE
-    if _PRODUCTS_CACHE is not None:
-        return _PRODUCTS_CACHE
-    db = await get_db()
-    try:
-        try:
-            cursor = await db.execute("SELECT * FROM products WHERE is_deleted = 0 ORDER BY category_id, sort_order ASC, id ASC")
-            rows = await cursor.fetchall()
-        except Exception:
-            # Fallback if is_deleted column does not exist yet
-            cursor = await db.execute("SELECT * FROM products ORDER BY category_id, id")
-            rows = await cursor.fetchall()
-        _PRODUCTS_CACHE = [dict(r) for r in rows]
-        return _PRODUCTS_CACHE
-    finally:
-        await db.close()
+    while True:
+        if _PRODUCTS_CACHE is not None:
+            return [dict(product) for product in _PRODUCTS_CACHE]
+
+        generation = get_catalog_cache_generation()
+
+        async def load_products() -> list[dict]:
+            global _PRODUCTS_CACHE
+            db = await get_db()
+            try:
+                try:
+                    cursor = await db.execute(
+                        "SELECT * FROM products WHERE is_deleted = 0 "
+                        "ORDER BY category_id, sort_order ASC, id ASC"
+                    )
+                    rows = await cursor.fetchall()
+                except Exception:
+                    cursor = await db.execute(
+                        "SELECT * FROM products ORDER BY category_id, id"
+                    )
+                    rows = await cursor.fetchall()
+                products = [dict(row) for row in rows]
+                if generation == get_catalog_cache_generation():
+                    _PRODUCTS_CACHE = products
+                    _PRODUCT_BY_ID_CACHE.update({
+                        int(product["id"]): product for product in products
+                    })
+                return products
+            finally:
+                await db.close()
+
+        products = await _PRODUCT_READ_SINGLEFLIGHT.run(
+            ("products", generation),
+            load_products,
+        )
+        if generation == get_catalog_cache_generation():
+            return [dict(product) for product in products]
 
 
 async def add_product(
@@ -1125,10 +1170,6 @@ async def add_product(
     delivery_type: str = "stock",
 ) -> int:
     """Ajoute un nouveau produit et retourne son identifiant."""
-    global _PRODUCTS_CACHE
-    _PRODUCTS_CACHE = None
-    _PRODUCT_BY_ID_CACHE.clear()
-    invalidate_stats_cache()
     delivery_type = delivery_type if delivery_type in ("activation", "supplier_api") else "stock"
     db = await get_db()
     try:
@@ -1139,6 +1180,7 @@ async def add_product(
             (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id, description_fr, description_ar, description_zh, description_vi, description_ru, activation_message, activation_message_fr, activation_message_ar, activation_message_zh, activation_message_vi, activation_message_ru, confirmation_message, confirmation_message_fr, confirmation_message_ar, confirmation_message_zh, confirmation_message_vi, confirmation_message_ru, delivery_type),
         )
         await db.commit()
+        clear_products_cache()
         return cursor.lastrowid  # type: ignore[return-value]
     finally:
         await db.close()
@@ -1149,10 +1191,6 @@ ALLOWED_PRODUCT_COLUMNS = {"category_id", "name", "description", "description_fr
 
 async def update_product(product_id: int, **kwargs) -> None:
     """Met Ã  jour un produit avec les champs fournis en kwargs."""
-    global _PRODUCTS_CACHE
-    _PRODUCTS_CACHE = None
-    _PRODUCT_BY_ID_CACHE.clear()
-    invalidate_stats_cache()
     safe_kwargs = {k: v for k, v in kwargs.items() if k in ALLOWED_PRODUCT_COLUMNS}
     if not safe_kwargs:
         return
@@ -1176,6 +1214,7 @@ async def update_product(product_id: int, **kwargs) -> None:
             f"UPDATE products SET {columns} WHERE id = ?", values
         )
         await db.commit()
+        clear_products_cache()
     finally:
         await db.close()
 
@@ -1274,16 +1313,13 @@ async def delete_binance_account(account_id: int) -> None:
         await db.execute("DELETE FROM binance_accounts WHERE id = ?", (account_id,))
         await db.execute("UPDATE products SET binance_account_id = NULL WHERE binance_account_id = ?", (account_id,))
         await db.commit()
+        clear_products_cache()
     finally:
         await db.close()
 
 
 async def toggle_product(product_id: int) -> None:
     """Inverse l'Ã©tat actif/inactif d'un produit."""
-    global _PRODUCTS_CACHE
-    _PRODUCTS_CACHE = None
-    _PRODUCT_BY_ID_CACHE.clear()
-    invalidate_stats_cache()
     db = await get_db()
     try:
         await db.execute(
@@ -1296,11 +1332,6 @@ async def toggle_product(product_id: int) -> None:
 
 
 async def toggle_product_active(product_id: int) -> dict:
-    _clear_stock_cache()
-    global _PRODUCTS_CACHE
-    _PRODUCTS_CACHE = None
-    _PRODUCT_BY_ID_CACHE.clear()
-    
     db = await get_db()
     try:
         cursor = await db.execute("SELECT is_active FROM products WHERE id = ?", (product_id,))
@@ -1311,16 +1342,14 @@ async def toggle_product_active(product_id: int) -> dict:
         new_status = 1 if row[0] == 0 else 0
         await db.execute("UPDATE products SET is_active = ? WHERE id = ?", (new_status, product_id))
         await db.commit()
+        _clear_stock_cache()
+        clear_products_cache()
         return {"status": "success", "is_active": new_status}
     finally:
         await db.close()
 
 async def delete_product(product_id: int) -> None:
-    _clear_stock_cache()
     """Marque un produit comme supprimÃ© et supprime uniquement son stock non vendu."""
-    global _PRODUCTS_CACHE
-    _PRODUCTS_CACHE = None
-    _PRODUCT_BY_ID_CACHE.clear()
     db = await get_db()
     try:
         # Ne pas toucher aux commandes.
@@ -1329,6 +1358,8 @@ async def delete_product(product_id: int) -> None:
         # Soft delete le produit (is_deleted = 1, is_active = 0)
         await db.execute("UPDATE products SET is_deleted = 1, is_active = 0 WHERE id = ?", (product_id,))
         await db.commit()
+        _clear_stock_cache()
+        clear_products_cache()
     finally:
         await db.close()
 
@@ -1411,6 +1442,8 @@ async def set_price_tiers(product_id: int, tiers: list[dict]) -> None:
                 (product_id, int(tier["min_qty"]), int(tier["max_qty"]), float(tier["price_usd"])),
             )
         await db.commit()
+        _PRODUCT_DETAILS_CACHE.pop(int(product_id), None)
+        _bump_catalog_cache_generation()
     finally:
         await db.close()
 
@@ -1817,9 +1850,7 @@ async def cache_product_telegram_file_id(
         )
         if cursor.rowcount != 0:
             await db.commit()
-            global _PRODUCTS_CACHE
-            _PRODUCTS_CACHE = None
-            _PRODUCT_BY_ID_CACHE.pop(int(product_id), None)
+            clear_products_cache()
     finally:
         await db.close()
 
@@ -2017,52 +2048,68 @@ async def get_all_stock_counts() -> dict[int, int]:
         Dictionnaire {product_id: count}
     """
     global _STOCK_COUNTS_CACHE
-    now = time.monotonic()
-    stale_counts: dict[int, int] | None = None
-    if _STOCK_COUNTS_CACHE is not None:
-        cached_at, cached_counts = _STOCK_COUNTS_CACHE
-        stale_counts = dict(cached_counts)
-        if now - cached_at < _STOCK_COUNTS_CACHE_TTL:
-            return stale_counts
+    while True:
+        now = time.monotonic()
+        stale_counts: dict[int, int] | None = None
+        if _STOCK_COUNTS_CACHE is not None:
+            cached_at, cached_counts = _STOCK_COUNTS_CACHE
+            stale_counts = dict(cached_counts)
+            if now - cached_at < _STOCK_COUNTS_CACHE_TTL:
+                return stale_counts
 
-    db = None
-    try:
-        db = await get_db()
-        # 1. Obtenir le stock total non vendu pour chaque produit
-        cursor = await db.execute(
-            "SELECT product_id, COUNT(*) as cnt FROM stock_items WHERE is_sold = 0 GROUP BY product_id"
+        generation = get_catalog_cache_generation()
+
+        async def load_stock_counts() -> dict[int, int]:
+            global _STOCK_COUNTS_CACHE
+            db = None
+            try:
+                db = await get_db()
+                cursor = await db.execute(
+                    "SELECT product_id, COUNT(*) as cnt FROM stock_items "
+                    "WHERE is_sold = 0 GROUP BY product_id"
+                )
+                rows = await cursor.fetchall()
+                stocks = {int(row["product_id"]): int(row["cnt"]) for row in rows}
+
+                cursor = await db.execute(
+                    """SELECT product_id, COALESCE(SUM(quantity), 0) as reserved
+                       FROM orders
+                       WHERE status IN ('PENDING', 'AWAITING_PAYMENT', 'PROCESSING')
+                         AND created_at >= datetime('now', '-300 seconds')
+                       GROUP BY product_id"""
+                )
+                reservations = {
+                    int(row["product_id"]): int(row["reserved"])
+                    for row in await cursor.fetchall()
+                }
+                result = {
+                    product_id: max(0, total - reservations.get(product_id, 0))
+                    for product_id, total in stocks.items()
+                }
+                from database.suppliers import supplier_stock_counts
+
+                result.update(await supplier_stock_counts())
+                if generation == get_catalog_cache_generation():
+                    _STOCK_COUNTS_CACHE = (time.monotonic(), dict(result))
+                return result
+            except Exception as exc:
+                if stale_counts is not None:
+                    logger.warning(
+                        "Serving stale stock snapshot after refresh failure: %s",
+                        exc,
+                    )
+                    return stale_counts
+                raise
+            finally:
+                if db is not None:
+                    await db.close()
+
+        result = await _PRODUCT_READ_SINGLEFLIGHT.run(
+            ("stock", generation),
+            load_stock_counts,
         )
-        rows = await cursor.fetchall()
-        stocks = {r["product_id"]: r["cnt"] for r in rows}
-
-        # 2. Obtenir les rÃ©servations actives (crÃ©Ã©es dans les derniÃ¨res 300 secondes / 5 minutes)
-        cursor = await db.execute(
-            """SELECT product_id, COALESCE(SUM(quantity), 0) as reserved 
-               FROM orders 
-               WHERE status IN ('PENDING', 'AWAITING_PAYMENT', 'PROCESSING') 
-                 AND created_at >= datetime('now', '-300 seconds')
-               GROUP BY product_id"""
-        )
-        rows_res = await cursor.fetchall()
-        reservations = {r["product_id"]: r["reserved"] for r in rows_res}
-
-        # 3. Calculer le stock net disponible
-        result = {}
-        for p_id, total in stocks.items():
-            reserved = reservations.get(p_id, 0)
-            result[p_id] = max(0, total - reserved)
-        from database.suppliers import supplier_stock_counts
-        result.update(await supplier_stock_counts())
-        _STOCK_COUNTS_CACHE = (now, dict(result))
-        return result
-    except Exception as exc:
-        if stale_counts is not None:
-            logger.warning("Serving stale stock snapshot after refresh failure: %s", exc)
-            return stale_counts
-        raise
-    finally:
-        if db is not None:
-            await db.close()
+        if generation == get_catalog_cache_generation():
+            return dict(result)
 
 def _row_int(row, *keys, default: int = 0) -> int:
     """Safely extract an int from a DB row (dict / sqlite3.Row / tuple)."""
@@ -2082,7 +2129,7 @@ def _row_int(row, *keys, default: int = 0) -> int:
         return default
 
 
-async def get_product_full_details(product_id: int) -> tuple[dict | None, int, list[dict], int]:
+async def _get_product_full_details_uncached(product_id: int) -> tuple[dict | None, int, list[dict], int]:
     """Retourne (product, stock_count, tiers, sold_count) avec une seule connexion pour optimiser la latence."""
     db = await get_db()
     try:
@@ -2152,6 +2199,52 @@ async def get_product_full_details(product_id: int) -> tuple[dict | None, int, l
         return product, stock_count, tiers, sold_count
     finally:
         await db.close()
+
+
+def _copy_product_details(
+    details: tuple[dict | None, int, list[dict], int],
+) -> tuple[dict | None, int, list[dict], int]:
+    product, stock_count, tiers, sold_count = details
+    return (
+        dict(product) if product is not None else None,
+        int(stock_count),
+        [dict(tier) for tier in tiers],
+        int(sold_count),
+    )
+
+
+async def get_product_full_details(
+    product_id: int,
+) -> tuple[dict | None, int, list[dict], int]:
+    """Return one short-lived, coalesced product snapshot for Telegram views."""
+    product_id = int(product_id)
+    while True:
+        generation = get_catalog_cache_generation()
+        cached = _PRODUCT_DETAILS_CACHE.get(product_id)
+        if (
+            cached is not None
+            and cached[1] == generation
+            and time.monotonic() - cached[0] < _PRODUCT_DETAILS_CACHE_TTL
+        ):
+            return _copy_product_details(cached[2])
+
+        async def load_details() -> tuple[dict | None, int, list[dict], int]:
+            details = await _get_product_full_details_uncached(product_id)
+            if generation == get_catalog_cache_generation():
+                _PRODUCT_DETAILS_CACHE[product_id] = (
+                    time.monotonic(),
+                    generation,
+                    _copy_product_details(details),
+                )
+            return details
+
+        details = await _PRODUCT_READ_SINGLEFLIGHT.run(
+            ("details", product_id, generation),
+            load_details,
+        )
+        if generation == get_catalog_cache_generation():
+            return _copy_product_details(details)
+
 
 async def get_sold_count(product_id: int) -> int:
     """Retourne le nombre d'articles vendus pour un produit."""
@@ -2596,6 +2689,7 @@ async def cleanup_product_views(retention_days: int = 90) -> int:
             (f"-{retention_days} days",),
         )
         await db.commit()
+        clear_products_cache()
         return max(0, int(cursor.rowcount)) if cursor.rowcount != -1 else 0
     finally:
         await db.close()

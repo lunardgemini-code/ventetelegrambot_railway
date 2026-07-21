@@ -13,6 +13,7 @@ from telegram.ext import ContextTypes
 from database.models import (
     apply_telegram_special_prices_to_products,
     get_all_products,
+    get_catalog_cache_generation,
     get_product,
     get_stock_count,
     get_user_lang,
@@ -25,10 +26,66 @@ from utils.keyboards import (
     product_detail_keyboard,
     products_keyboard,
 )
-from utils.locales import t
+from utils.locales import LANGUAGES, t
 from utils.telegram import safe_edit_message_text
 
 logger = logging.getLogger(__name__)
+
+_PRODUCT_VIEW_CACHE_GENERATION = -1
+_PRODUCT_LIST_VIEW_CACHE: dict[tuple, tuple[str, InlineKeyboardMarkup]] = {}
+_PRODUCT_DETAIL_VIEW_CACHE: dict[tuple, tuple[str, InlineKeyboardMarkup]] = {}
+
+
+def _ensure_product_view_generation(generation: int) -> None:
+    global _PRODUCT_VIEW_CACHE_GENERATION
+    if generation == _PRODUCT_VIEW_CACHE_GENERATION:
+        return
+    _PRODUCT_LIST_VIEW_CACHE.clear()
+    _PRODUCT_DETAIL_VIEW_CACHE.clear()
+    _PRODUCT_VIEW_CACHE_GENERATION = generation
+
+
+def _product_list_signature(
+    products: list[dict],
+    stock_counts: dict[int, int],
+) -> tuple:
+    return tuple(
+        (
+            int(product["id"]),
+            str(product.get("name") or ""),
+            str(product.get("emoji") or ""),
+            str(product.get("custom_emoji_id") or ""),
+            round(float(product.get("price_usd") or 0), 4),
+            str(product.get("delivery_type") or "stock"),
+            int(stock_counts.get(int(product["id"]), 0)),
+        )
+        for product in products
+    )
+
+
+def _precomputed_product_list_view(
+    products: list[dict],
+    stock_counts: dict[int, int],
+    lang: str,
+    category_id: int | None,
+) -> tuple[str, InlineKeyboardMarkup]:
+    generation = get_catalog_cache_generation()
+    _ensure_product_view_generation(generation)
+    signature = _product_list_signature(products, stock_counts)
+    for language in LANGUAGES:
+        key = (category_id, language, signature)
+        if key not in _PRODUCT_LIST_VIEW_CACHE:
+            _PRODUCT_LIST_VIEW_CACHE[key] = (
+                t("categories_title", language),
+                products_keyboard(products, stock_counts, language),
+            )
+    key = (category_id, lang, signature)
+    if key not in _PRODUCT_LIST_VIEW_CACHE:
+        _PRODUCT_LIST_VIEW_CACHE[key] = (
+            t("categories_title", lang),
+            products_keyboard(products, stock_counts, lang),
+        )
+    return _PRODUCT_LIST_VIEW_CACHE[key]
 
 
 def _log_background_task(task: asyncio.Task) -> None:
@@ -130,6 +187,69 @@ def _build_product_detail_text(product: dict, stock: int, tiers: list, sold_coun
             text += f"\n\n{tiers_label}\n" + "\n".join(tier_lines)
 
     return text
+
+
+def _precomputed_product_detail_view(
+    product: dict,
+    stock: int,
+    tiers: list[dict],
+    sold_count: int,
+    lang: str,
+) -> tuple[str, InlineKeyboardMarkup]:
+    generation = get_catalog_cache_generation()
+    _ensure_product_view_generation(generation)
+    tier_signature = tuple(
+        (
+            int(tier.get("min_qty") or 0),
+            int(tier.get("max_qty") or 0),
+            round(float(tier.get("price_usd") or 0), 4),
+        )
+        for tier in tiers
+    )
+    can_buy = product.get("delivery_type") == "activation" or int(stock or 0) > 0
+    base_key = (
+        int(product["id"]),
+        int(stock or 0),
+        int(sold_count or 0),
+        tier_signature,
+        can_buy,
+    )
+    for language in LANGUAGES:
+        key = (*base_key, language)
+        if key not in _PRODUCT_DETAIL_VIEW_CACHE:
+            _PRODUCT_DETAIL_VIEW_CACHE[key] = (
+                _build_product_detail_text(
+                    product,
+                    stock,
+                    tiers,
+                    sold_count,
+                    language,
+                    use_custom_emoji=True,
+                ),
+                product_detail_keyboard(
+                    int(product["id"]),
+                    language,
+                    can_buy=can_buy,
+                ),
+            )
+    key = (*base_key, lang)
+    if key not in _PRODUCT_DETAIL_VIEW_CACHE:
+        _PRODUCT_DETAIL_VIEW_CACHE[key] = (
+            _build_product_detail_text(
+                product,
+                stock,
+                tiers,
+                sold_count,
+                lang,
+                use_custom_emoji=True,
+            ),
+            product_detail_keyboard(
+                int(product["id"]),
+                lang,
+                can_buy=can_buy,
+            ),
+        )
+    return _PRODUCT_DETAIL_VIEW_CACHE[key]
 
 
 def _normalize_image_url(image_url: str | None) -> str | None:
@@ -255,13 +375,15 @@ async def show_products_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
             pass
 
     try:
-        if category_id is not None:
-            from database.models import get_products_by_category
-            products = await get_products_by_category(category_id)
-        else:
-            products = await get_all_products()
-            # Only show active products
-            products = [p for p in products if p.get("is_active", 1)]
+        products = await get_all_products()
+        products = [
+            product for product in products
+            if product.get("is_active", 1)
+            and (
+                category_id is None
+                or int(product.get("category_id") or 0) == category_id
+            )
+        ]
 
         all_stocks = await get_all_stock_counts()
         stock_counts = {p["id"]: all_stocks.get(p["id"], 0) for p in products}
@@ -269,8 +391,9 @@ async def show_products_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
             product for product in products
             if product.get("delivery_type") != "supplier_api" or stock_counts.get(product["id"], 0) > 0
         ]
+        standard_products = products
         products = await apply_telegram_special_prices_to_products(
-            products, update.effective_user.id
+            standard_products, update.effective_user.id
         )
 
         if not products:
@@ -287,8 +410,16 @@ async def show_products_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await update.message.reply_text(text, reply_markup=back_keyboard("back_main", lang))
             return
 
-        text = t("categories_title", lang)  # reuse "choose" title
-        markup = products_keyboard(products, stock_counts, lang)
+        if products is standard_products:
+            text, markup = _precomputed_product_list_view(
+                products,
+                stock_counts,
+                lang,
+                category_id,
+            )
+        else:
+            text = t("categories_title", lang)
+            markup = products_keyboard(products, stock_counts, lang)
 
         if update.callback_query:
             try:
@@ -365,8 +496,9 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             return
 
+        standard_products = [product]
         priced_products = await apply_telegram_special_prices_to_products(
-            [product], update.effective_user.id
+            standard_products, update.effective_user.id
         )
         if not priced_products:
             await safe_edit_message_text(
@@ -384,12 +516,27 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
         view_task.add_done_callback(_log_background_task)
 
         can_buy = product.get("delivery_type") == "activation" or (stock or 0) > 0
-        markup = product_detail_keyboard(product_id, lang, can_buy=can_buy)
         chat_id = query.message.chat_id
         image_url = product.get("image_url")
 
-        # Prefer plain emoji first if custom emoji often fails; try with custom, then without
-        text = _build_product_detail_text(product, stock, tiers, sold_count, lang, use_custom_emoji=True)
+        if priced_products is standard_products:
+            text, markup = _precomputed_product_detail_view(
+                product,
+                stock,
+                tiers,
+                sold_count,
+                lang,
+            )
+        else:
+            markup = product_detail_keyboard(product_id, lang, can_buy=can_buy)
+            text = _build_product_detail_text(
+                product,
+                stock,
+                tiers,
+                sold_count,
+                lang,
+                use_custom_emoji=True,
+            )
         try:
             await _send_product_detail_message(
                 context,
