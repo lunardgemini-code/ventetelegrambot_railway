@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">VenteBot</title>
+  <desc id="desc">Two server panels crossed by a green lightning bolt.</desc>
+  <rect width="1024" height="1024" fill="#151820"/>
+  <rect x="176" y="192" width="672" height="230" rx="64" fill="#f4f7fb"/>
+  <rect x="176" y="602" width="672" height="230" rx="64" fill="#f4f7fb"/>
+  <rect x="236" y="264" width="300" height="34" rx="17" fill="#394150"/>
+  <rect x="236" y="322" width="218" height="28" rx="14" fill="#8b96a8"/>
+  <rect x="236" y="674" width="300" height="34" rx="17" fill="#394150"/>
+  <rect x="236" y="732" width="218" height="28" rx="14" fill="#8b96a8"/>
+  <circle cx="760" cy="307" r="30" fill="#20c997"/>
+  <circle cx="760" cy="717" r="30" fill="#20c997"/>
+  <path d="M568 94 390 520h142l-78 410 212-502H516z" fill="#20c997" stroke="#151820" stroke-linejoin="round" stroke-width="28"/>
+</svg>

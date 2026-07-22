@@ -283,6 +283,14 @@ textarea,
     border-radius: var(--ds-radius-md);
 }
 
+#btn-install-app.pwa-installed,
+#btn-install-app.pwa-installed:disabled {
+    color: var(--ds-success);
+    border-color: color-mix(in srgb, var(--ds-success) 48%, var(--ds-border));
+    opacity: 1;
+    cursor: default;
+}
+
 .lang-selector {
     min-height: var(--ds-control);
     align-items: center;
@@ -793,7 +801,7 @@ textarea.form-control,
 
     .topbar-actions {
         display: grid;
-        grid-template-columns: repeat(6, minmax(0, 1fr));
+        grid-template-columns: repeat(7, minmax(0, 1fr));
         width: 100%;
         gap: 6px;
     }
@@ -1118,6 +1126,23 @@ textarea.form-control,
         white-space: normal !important;
         -webkit-box-orient: vertical;
         -webkit-line-clamp: 2;
+    }
+}
+
+@media (display-mode: standalone) {
+    body {
+        min-height: 100dvh;
+        padding-bottom: env(safe-area-inset-bottom, 0);
+    }
+
+    .topbar {
+        padding-top: max(12px, env(safe-area-inset-top, 0px));
+        padding-right: max(12px, env(safe-area-inset-right, 0px));
+        padding-left: max(12px, env(safe-area-inset-left, 0px));
+    }
+
+    .sidebar {
+        padding-bottom: env(safe-area-inset-bottom, 0);
     }
 }
 

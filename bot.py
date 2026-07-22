@@ -209,10 +209,19 @@ async def configure_dashboard_cache(request: Request, call_next):
     """Revalidate the shell while caching versioned dashboard assets briefly."""
     response = await call_next(request)
     path = request.url.path
-    if path in {"/dashboard", "/dashboard/", "/dashboard/index.html"}:
+    revalidated_files = {
+        "/dashboard",
+        "/dashboard/",
+        "/dashboard/index.html",
+        "/dashboard/manifest.webmanifest",
+        "/dashboard/service-worker.js",
+    }
+    if path in revalidated_files:
         response.headers["Cache-Control"] = "no-cache, must-revalidate"
     elif path.startswith("/dashboard/"):
         response.headers["Cache-Control"] = "public, max-age=3600, stale-while-revalidate=86400"
+    if path == "/dashboard/service-worker.js":
+        response.headers["Service-Worker-Allowed"] = "/dashboard/"
     return response
 
 

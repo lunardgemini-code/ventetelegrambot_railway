@@ -2,8 +2,17 @@
 <html lang="fr" dir="ltr" data-theme="dark">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#151820" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#f4f6f8" media="(prefers-color-scheme: light)">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="VenteBot">
     <title>VenteBot Admin Console</title>
+    <link rel="manifest" href="manifest.webmanifest?v=20260723-pwa-v1">
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/ventebot-icon-192.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="icons/ventebot-apple-touch-180.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous">
     <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
@@ -12,7 +21,7 @@
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js" integrity="sha384-eeLEhtwdMwD3X9y+8P3Cn7Idl/M+w8H4uZqkgD/2eJVkWIN1yKzEj6XegJ9dL3q0" crossorigin="anonymous"></script>
     <link rel="stylesheet" href="style.css?v=20260720-reseller-telegram-prices">
     <link rel="stylesheet" href="revamp.css?v=20260720-reseller-prices">
-    <link rel="stylesheet" href="system.css?v=20260722-dashboard-v7">
+    <link rel="stylesheet" href="system.css?v=20260723-pwa-v8">
 </head>
 <body>
     <a class="skip-link" href="#dashboard-workspace" data-i18n="skip_to_content">Aller au contenu</a>
@@ -115,6 +124,7 @@
                     <div id="api-status-badge" class="api-status">
                         <span class="status-indicator online"></span><p>API</p>
                     </div>
+                    <button id="btn-install-app" class="btn-icon" title="Installer l'application" aria-label="Installer l'application" data-i18n-title="install_app" data-i18n-aria-label="install_app"><i class="fa-solid fa-mobile-screen-button"></i></button>
                     <button id="btn-export" class="btn-icon" title="Exporter" aria-label="Exporter" data-i18n-title="export_action" data-i18n-aria-label="export_action"><i class="fa-solid fa-file-export"></i></button>
                     <button id="btn-refresh" class="btn-icon" title="Actualiser" aria-label="Actualiser" data-i18n-title="refresh_action" data-i18n-aria-label="refresh_action"><i class="fa-solid fa-rotate"></i></button>
                 </div>
@@ -1635,7 +1645,7 @@
 </div>
 
 
-    <script defer src="app.js?v=20260722-dashboard-v7"></script>
+    <script defer src="app.js?v=20260723-pwa-v8"></script>
     <!-- Mass Translation Progress Overlay -->
     <div id="mass-translate-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; flex-direction:column; justify-content:center; align-items:center; color:white;">
         <h2 style="margin-bottom:20px;"><i class="fa-solid fa-language"></i> Traduction de masse en cours...</h2>
