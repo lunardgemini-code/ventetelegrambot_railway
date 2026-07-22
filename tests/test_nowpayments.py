@@ -146,7 +146,8 @@ class NowPaymentsTests(unittest.IsolatedAsyncioTestCase):
         start = source.index("async function handlePaymentReviewAction")
         end = source.index("\nfunction renderStatsTable", start)
         handler = source[start:end]
-        self.assertIn("if (!confirm(`Confirmer l'acceptation", handler)
+        self.assertIn("if (!confirm(tf('review_accept_confirm', {paymentId})))", handler)
+        self.assertEqual(source.count('review_accept_confirm:'), 6)
         self.assertIn("confirmation = expected;", handler)
         self.assertNotIn("Saisissez exactement", handler)
         self.assertNotIn("Note d audit facultative", handler)

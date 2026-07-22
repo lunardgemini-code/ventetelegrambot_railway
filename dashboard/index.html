@@ -12,8 +12,10 @@
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js" integrity="sha384-eeLEhtwdMwD3X9y+8P3Cn7Idl/M+w8H4uZqkgD/2eJVkWIN1yKzEj6XegJ9dL3q0" crossorigin="anonymous"></script>
     <link rel="stylesheet" href="style.css?v=20260720-reseller-telegram-prices">
     <link rel="stylesheet" href="revamp.css?v=20260720-reseller-prices">
+    <link rel="stylesheet" href="system.css?v=20260722-dashboard-v7">
 </head>
 <body>
+    <a class="skip-link" href="#dashboard-workspace" data-i18n="skip_to_content">Aller au contenu</a>
     <!-- Login Screen -->
     <div id="login-screen" class="glass-container">
         <div class="login-card glass-panel">
@@ -42,32 +44,35 @@
 
     <!-- Main App -->
     <div id="app-container" class="hidden">
-        <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
-        <aside class="sidebar glass-panel">
+        <div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
+        <aside id="dashboard-sidebar" class="sidebar glass-panel" aria-label="Navigation principale" data-i18n-aria-label="primary_navigation">
             <div class="sidebar-brand">
                 <i class="fa-solid fa-bolt brand-icon"></i>
-                <div><h2>VenteBot</h2><span>Operations</span></div>
+                <div><h2>VenteBot</h2><span data-i18n="sidebar_operations">Operations</span></div>
             </div>
-            <nav class="sidebar-menu" aria-label="Navigation principale">
-                <p class="nav-section-label">Pilotage</p>
+            <nav class="sidebar-menu" aria-label="Navigation principale" data-i18n-aria-label="primary_navigation">
+                <p class="nav-section-label" data-i18n="nav_group_overview">Vue générale</p>
                 <a href="#" class="menu-item active" data-tab="dashboard-tab"><i class="fa-solid fa-chart-simple"></i> <span data-i18n="nav_dashboard">Dashboard</span></a>
-                <a href="#" class="menu-item" data-tab="stats-tab"><i class="fa-solid fa-chart-pie"></i> <span data-i18n="nav_stats">Statistiques</span></a>
-                <a href="#" class="menu-item" data-tab="finance-tab"><i class="fa-solid fa-sack-dollar"></i> <span data-i18n="nav_finance">Finance</span></a>
-                <p class="nav-section-label">Ventes</p>
+                <p class="nav-section-label" data-i18n="nav_group_sales">Ventes et paiements</p>
                 <a href="#" class="menu-item" data-tab="orders-tab"><i class="fa-solid fa-receipt"></i> <span data-i18n="nav_orders">Commandes</span><span id="badge-orders" class="badge hidden">0</span></a>
                 <a href="#" class="menu-item" data-tab="payment-review-tab"><i class="fa-solid fa-shield-halved"></i> <span data-i18n="nav_payment_review">Centre paiements</span><span id="badge-payment-review" class="badge hidden">0</span></a>
                 <a href="#" class="menu-item" data-tab="activations-tab"><i class="fa-solid fa-bolt"></i> <span data-i18n="nav_activations">Activations</span><span id="badge-activations" class="badge hidden">0</span></a>
-                <a href="#" class="menu-item" data-tab="inventory-tab"><i class="fa-solid fa-box-open"></i> <span data-i18n="nav_inventory">Catalogue & Stock</span></a>
-                <p class="nav-section-label">Relations</p>
-                <a href="#" class="menu-item" data-tab="users-tab"><i class="fa-solid fa-users"></i> <span data-i18n="nav_users">Utilisateurs</span></a>
+                <a href="#" class="menu-item" data-tab="finance-tab"><i class="fa-solid fa-sack-dollar"></i> <span data-i18n="nav_finance">Finance</span></a>
                 <a href="#" class="menu-item" data-tab="wallet-history-tab"><i class="fa-solid fa-wallet"></i> <span data-i18n="nav_wallet_history">Wallet History</span></a>
+                <p class="nav-section-label" data-i18n="nav_group_catalog">Catalogue et stock</p>
+                <a href="#" class="menu-item" data-tab="inventory-tab"><i class="fa-solid fa-box-open"></i> <span data-i18n="nav_inventory">Catalogue & Stock</span></a>
+                <p class="nav-section-label" data-i18n="nav_group_clients">Clients et support</p>
+                <a href="#" class="menu-item" data-tab="users-tab"><i class="fa-solid fa-users"></i> <span data-i18n="nav_users">Utilisateurs</span></a>
                 <a href="#" class="menu-item" data-tab="tickets-tab"><i class="fa-solid fa-ticket"></i> <span data-i18n="nav_tickets">Tickets</span><span id="badge-tickets" class="badge hidden">0</span></a>
+                <p class="nav-section-label" data-i18n="nav_group_resellers">Revendeurs et fournisseurs API</p>
                 <a href="#" class="menu-item" data-tab="resellers-tab"><i class="fa-solid fa-handshake"></i> <span data-i18n="nav_resellers">Revendeurs</span></a>
                 <a href="#" class="menu-item" data-tab="supplier-bots-tab"><i class="fa-solid fa-plug-circle-bolt"></i> <span data-i18n="nav_supplier_bots">API Bot Gestion</span></a>
                 <a href="#" class="menu-item" data-tab="ai-bot-tab"><i class="fa-solid fa-magnifying-glass-chart"></i> <span data-i18n="nav_ai_bot">IA Bot</span></a>
-                <a href="#" class="menu-item" data-tab="game-tab"><i class="fa-solid fa-trophy"></i> <span data-i18n="nav_game">Jeu & Matchs</span><span id="badge-game-results" class="badge hidden">0</span></a>
                 <a href="#" class="menu-item" data-external="api-docs"><i class="fa-solid fa-book-open"></i> <span data-i18n="nav_api_docs">Documentation API</span></a>
-                <p class="nav-section-label">Outils</p>
+                <p class="nav-section-label" data-i18n="nav_group_analytics">Analyses</p>
+                <a href="#" class="menu-item" data-tab="stats-tab"><i class="fa-solid fa-chart-pie"></i> <span data-i18n="nav_stats">Statistiques</span></a>
+                <a href="#" class="menu-item" data-tab="game-tab"><i class="fa-solid fa-trophy"></i> <span data-i18n="nav_game">Jeu & Matchs</span><span id="badge-game-results" class="badge hidden">0</span></a>
+                <p class="nav-section-label" data-i18n="nav_group_tools">Outils et configuration</p>
                 <a href="#" class="menu-item" data-tab="binance-tab"><i class="fa-brands fa-btc"></i> <span data-i18n="nav_binance">Comptes Binance</span></a>
                 <a href="#" class="menu-item" data-tab="broadcast-tab"><i class="fa-solid fa-bullhorn"></i> <span data-i18n="nav_broadcast">Broadcast</span></a>
                 <a href="#" class="menu-item" data-tab="settings-tab"><i class="fa-solid fa-sliders"></i> <span data-i18n="nav_settings">Paramètres</span></a>
@@ -84,14 +89,14 @@
             </div>
         </aside>
 
-        <main class="main-content">
+        <main id="dashboard-workspace" class="main-content" tabindex="-1">
             <header class="topbar glass-panel">
                 <div class="topbar-title-group">
-                    <button id="mobile-menu-btn" class="mobile-menu-toggle" aria-label="Menu"><i class="fa-solid fa-bars"></i></button>
-                    <div class="page-title"><h1 id="current-tab-title" data-i18n="tab_dashboard">Tableau de Bord</h1><p id="page-context">Vue opérationnelle</p></div>
+                    <button id="mobile-menu-btn" class="mobile-menu-toggle" aria-label="Menu" data-i18n-aria-label="mobile_menu" aria-controls="dashboard-sidebar" aria-expanded="false"><i class="fa-solid fa-bars"></i></button>
+                    <div class="page-title"><h1 id="current-tab-title" data-i18n="tab_dashboard">Tableau de Bord</h1><p id="page-context" data-i18n="context_dashboard">Vue opérationnelle</p></div>
                 </div>
                 <div class="topbar-actions">
-                    <div class="lang-selector" aria-label="Langue">
+                    <div class="lang-selector" aria-label="Langue" data-i18n-aria-label="language_label">
                         <button class="lang-btn" data-lang="fr" title="Français">🇫🇷</button>
                         <button class="lang-btn" data-lang="en" title="English">🇬🇧</button>
                         <button class="lang-btn" data-lang="ar" title="العربية">عر</button>
@@ -99,87 +104,88 @@
                         <button class="lang-btn" data-lang="vi" title="Tiếng Việt">VI</button>
                         <button class="lang-btn" data-lang="ru" title="Русский">RU</button>
                     </div>
-                    <select id="mobile-language-select" class="mobile-language-select" aria-label="Langue">
+                    <select id="mobile-language-select" class="mobile-language-select" aria-label="Langue" data-i18n-aria-label="language_label">
                         <option value="fr">FR</option><option value="en">EN</option><option value="ar">AR</option>
                         <option value="zh">中文</option><option value="vi">VI</option><option value="ru">RU</option>
                     </select>
-                    <button id="btn-theme" class="btn-icon" title="Changer le thème" aria-label="Changer le thème"><i class="fa-solid fa-moon"></i></button>
+                    <button id="btn-theme" class="btn-icon" title="Changer le thème" aria-label="Changer le thème" data-i18n-title="change_theme" data-i18n-aria-label="change_theme"><i class="fa-solid fa-moon"></i></button>
                     <div class="auto-refresh-toggle">
-                        <button id="btn-auto-refresh" class="btn-icon" title="Actualisation automatique" aria-label="Actualisation automatique"><i class="fa-solid fa-arrows-rotate"></i></button>
+                        <button id="btn-auto-refresh" class="btn-icon" title="Actualisation automatique" aria-label="Actualisation automatique" data-i18n-title="auto_refresh" data-i18n-aria-label="auto_refresh"><i class="fa-solid fa-arrows-rotate"></i></button>
                     </div>
                     <div id="api-status-badge" class="api-status">
                         <span class="status-indicator online"></span><p>API</p>
                     </div>
-                    <button id="btn-export" class="btn-icon" title="Exporter" aria-label="Exporter"><i class="fa-solid fa-file-export"></i></button>
-                    <button id="btn-refresh" class="btn-icon" title="Actualiser" aria-label="Actualiser"><i class="fa-solid fa-rotate"></i></button>
+                    <button id="btn-export" class="btn-icon" title="Exporter" aria-label="Exporter" data-i18n-title="export_action" data-i18n-aria-label="export_action"><i class="fa-solid fa-file-export"></i></button>
+                    <button id="btn-refresh" class="btn-icon" title="Actualiser" aria-label="Actualiser" data-i18n-title="refresh_action" data-i18n-aria-label="refresh_action"><i class="fa-solid fa-rotate"></i></button>
                 </div>
             </header>
 
-            <div id="loading-overlay" class="hidden"><div class="spinner"></div></div>
+            <div id="page-status-region" class="page-status-region hidden" role="status" aria-live="polite"></div>
+            <div id="loading-overlay" class="hidden" role="status" aria-live="polite" aria-label="Chargement" data-i18n-aria-label="loading"><div class="spinner"></div></div>
 
             <!-- Dashboard Tab -->
             <section id="dashboard-tab" class="tab-content active">
                 <div class="overview-heading">
                     <div><p class="eyebrow" data-i18n="overview_kicker">Aujourd'hui</p><h2 data-i18n="overview_title">Le magasin en un coup d'œil</h2></div>
-                    <div class="segmented-control" id="dashboard-range" aria-label="Période des graphiques">
+                    <div class="segmented-control" id="dashboard-range" aria-label="Période des graphiques" data-i18n-aria-label="chart_period">
                         <button data-days="7">7J</button><button data-days="30" class="active">30J</button><button data-days="90">90J</button>
                     </div>
                 </div>
                 <div class="today-strip">
-                    <div class="today-signal"><span data-i18n="today_revenue">Revenus du jour</span><strong id="today-revenue">$0.00</strong><small id="today-revenue-delta">vs hier</small></div>
-                    <div class="today-signal"><span data-i18n="today_orders">Ventes du jour</span><strong id="today-orders">0</strong><small id="today-orders-delta">vs hier</small></div>
+                    <div class="today-signal"><span data-i18n="today_revenue">Revenus du jour</span><strong id="today-revenue">$0.00</strong><small id="today-revenue-delta" data-i18n="versus_yesterday">vs hier</small></div>
+                    <div class="today-signal"><span data-i18n="today_orders">Ventes du jour</span><strong id="today-orders">0</strong><small id="today-orders-delta" data-i18n="versus_yesterday">vs hier</small></div>
                 </div>
                 <div class="metrics-grid">
-                    <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label"><span data-i18n="metric_revenue">Revenus (30J)</span> <button type="button" class="icon-button-inline" data-action="show-revenue-details" title="Détails des revenus" aria-label="Détails des revenus"><i class="fa-solid fa-circle-info"></i></button></p><h3 id="stat-revenue">$0.00</h3></div><div class="metric-icon color-green"><i class="fa-solid fa-dollar-sign"></i></div></div>
+                    <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label"><span data-i18n="metric_revenue">Revenus (30J)</span> <button type="button" class="icon-button-inline" data-action="show-revenue-details" data-i18n-title="revenue_details" data-i18n-aria-label="revenue_details" title="Détails des revenus (30J)" aria-label="Détails des revenus (30J)"><i class="fa-solid fa-circle-info"></i></button></p><h3 id="stat-revenue">$0.00</h3></div><div class="metric-icon color-green"><i class="fa-solid fa-dollar-sign"></i></div></div>
                     <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label" data-i18n="metric_sales">Ventes (30J)</p><h3 id="stat-orders">0</h3></div><div class="metric-icon color-blue"><i class="fa-solid fa-cart-shopping"></i></div></div>
                     <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label" data-i18n="metric_clients">Clients</p><h3 id="stat-users">0</h3></div><div class="metric-icon color-purple"><i class="fa-solid fa-users"></i></div></div>
                     <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label" data-i18n="pending_metric">Commandes en attente</p><h3 id="stat-pending">0</h3></div><div class="metric-icon color-amber"><i class="fa-solid fa-hourglass-half"></i></div></div>
-                    <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label">Nouveaux (30J)</p><h3 id="stat-new-users">0</h3></div><div class="metric-icon color-blue"><i class="fa-solid fa-user-plus"></i></div></div>
-                    <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label">Récurrents</p><h3 id="stat-returning-users">0</h3></div><div class="metric-icon color-purple"><i class="fa-solid fa-user-check"></i></div></div>
+                    <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label" data-i18n="metric_new_users">Nouveaux (30J)</p><h3 id="stat-new-users">0</h3></div><div class="metric-icon color-blue"><i class="fa-solid fa-user-plus"></i></div></div>
+                    <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label" data-i18n="metric_returning_users">Récurrents</p><h3 id="stat-returning-users">0</h3></div><div class="metric-icon color-purple"><i class="fa-solid fa-user-check"></i></div></div>
                 </div>
                 <section class="bot-performance glass-panel" aria-labelledby="bot-performance-title">
                     <div class="panel-header">
-                        <div><p class="eyebrow">Temps reel - 5 minutes</p><h3 id="bot-performance-title"><i class="fa-solid fa-gauge-high"></i> Performance du bot</h3></div>
+                        <div><p class="eyebrow" data-i18n="performance_realtime">Temps réel - 5 minutes</p><h3 id="bot-performance-title"><i class="fa-solid fa-gauge-high"></i> <span data-i18n="performance_title">Performance du bot</span></h3></div>
                         <div class="performance-actions">
-                            <span id="perf-status" class="status-badge neutral">Collecte...</span>
-                            <button id="btn-export-performance" type="button" class="btn-secondary btn-sm" title="Exporter le diagnostic en JSON">
-                                <i class="fa-solid fa-download"></i><span>Exporter JSON</span>
+                            <span id="perf-status" class="status-badge neutral" data-i18n="collecting">Collecte...</span>
+                            <button id="btn-export-performance" type="button" class="btn-secondary btn-sm" title="Exporter le diagnostic en JSON" data-i18n-title="export_diagnostic">
+                                <i class="fa-solid fa-download"></i><span data-i18n="export_json">Exporter JSON</span>
                             </button>
                         </div>
                     </div>
                     <div class="performance-signals">
-                        <div><span>Workers</span><strong id="perf-workers">-</strong><small id="perf-workers-rec">Recommande : -</small></div>
-                        <div><span>File d'attente</span><strong id="perf-queue">-</strong><small id="perf-queue-wait">p95 : -</small></div>
-                        <div><span>Traitement</span><strong id="perf-processing">-</strong><small id="perf-throughput">- / min</small></div>
-                        <div><span>Turso</span><strong id="perf-database">-</strong><small id="perf-db-errors">- erreur</small></div>
+                        <div><span data-i18n="workers">Workers</span><strong id="perf-workers">-</strong><small id="perf-workers-rec" data-i18n="recommended_placeholder">Recommandé : -</small></div>
+                        <div><span data-i18n="queue">File d'attente</span><strong id="perf-queue">-</strong><small id="perf-queue-wait">p95 : -</small></div>
+                        <div><span data-i18n="processing">Traitement</span><strong id="perf-processing">-</strong><small id="perf-throughput">- / min</small></div>
+                        <div><span>Turso</span><strong id="perf-database">-</strong><small id="perf-db-errors" data-i18n="error_placeholder">- erreur</small></div>
                     </div>
                     <p id="perf-slowest-action" class="performance-diagnosis">Action la plus lente : collecte...</p>
                     <p id="perf-diagnosis" class="performance-diagnosis">Collecte des premieres mesures...</p>
                     <div class="autoscale-console" aria-labelledby="autoscale-title">
                         <div class="autoscale-heading">
-                            <div><p class="eyebrow">Capacite webhook</p><h4 id="autoscale-title">Autoscaling</h4></div>
-                            <span id="autoscale-state" class="status-badge neutral">Observation</span>
+                            <div><p class="eyebrow" data-i18n="webhook_capacity">Capacité webhook</p><h4 id="autoscale-title">Autoscaling</h4></div>
+                            <span id="autoscale-state" class="status-badge neutral" data-i18n="observation">Observation</span>
                         </div>
                         <div class="autoscale-toolbar">
                             <div class="segmented-control" id="autoscale-mode" aria-label="Mode autoscaling">
                                 <button type="button" data-autoscale-mode="auto" class="active">Auto</button>
-                                <button type="button" data-autoscale-mode="manual">Manuel</button>
-                                <button type="button" data-autoscale-mode="off">Arret</button>
+                                <button type="button" data-autoscale-mode="manual" data-i18n="manual">Manuel</button>
+                                <button type="button" data-autoscale-mode="off" data-i18n="off">Arrêt</button>
                             </div>
-                            <label class="autoscale-toggle"><input id="autoscale-observe" type="checkbox" checked><span>Observation uniquement</span></label>
+                            <label class="autoscale-toggle"><input id="autoscale-observe" type="checkbox" checked><span data-i18n="observe_only">Observation uniquement</span></label>
                             <label>Min <input id="autoscale-min" type="number" min="1" max="64" value="6"></label>
                             <label>Max <input id="autoscale-max" type="number" min="1" max="64" value="20"></label>
-                            <button id="autoscale-save" type="button" class="btn-secondary btn-sm"><i class="fa-solid fa-floppy-disk"></i><span>Enregistrer</span></button>
+                            <button id="autoscale-save" type="button" class="btn-secondary btn-sm"><i class="fa-solid fa-floppy-disk"></i><span data-i18n="btn_save">Enregistrer</span></button>
                         </div>
-                        <div class="autoscale-manual-actions" aria-label="Reglage manuel des workers">
-                            <button type="button" class="btn-secondary btn-sm" data-worker-adjust="-1" title="Retirer un worker inactif"><i class="fa-solid fa-minus"></i></button>
-                            <button type="button" class="btn-secondary btn-sm" data-worker-reset="8"><i class="fa-solid fa-rotate-left"></i><span>Retour a 8</span></button>
-                            <button type="button" class="btn-secondary btn-sm" data-worker-adjust="1" title="Ajouter un worker"><i class="fa-solid fa-plus"></i></button>
-                            <button id="autoscale-stop" type="button" class="btn-danger btn-sm"><i class="fa-solid fa-stop"></i><span>Arret autoscaling</span></button>
-                            <small id="autoscale-next">Prochaine analyse : -</small>
+                        <div class="autoscale-manual-actions" data-i18n-aria-label="worker_manual_controls" aria-label="Réglage manuel des workers">
+                            <button type="button" class="btn-secondary btn-sm" data-worker-adjust="-1" data-i18n-title="worker_remove" title="Retirer un worker inactif"><i class="fa-solid fa-minus"></i></button>
+                            <button type="button" class="btn-secondary btn-sm" data-worker-reset="8"><i class="fa-solid fa-rotate-left"></i><span data-i18n="reset_workers">Retour à 8</span></button>
+                            <button type="button" class="btn-secondary btn-sm" data-worker-adjust="1" data-i18n-title="worker_add" title="Ajouter un worker"><i class="fa-solid fa-plus"></i></button>
+                            <button id="autoscale-stop" type="button" class="btn-danger btn-sm"><i class="fa-solid fa-stop"></i><span data-i18n="stop_autoscaling">Arrêt autoscaling</span></button>
+                            <small id="autoscale-next" data-i18n="next_analysis_placeholder">Prochaine analyse : -</small>
                         </div>
                         <div class="autoscale-chart-wrap"><canvas id="autoscale-chart"></canvas></div>
-                        <div id="autoscale-history" class="autoscale-history"><p class="empty-state">Aucune decision enregistree.</p></div>
+                        <div id="autoscale-history" class="autoscale-history"><p class="empty-state" data-i18n="no_autoscale_decisions">Aucune décision enregistrée.</p></div>
                     </div>
                 </section>
                 <div class="operations-grid">
@@ -522,7 +528,7 @@
                         <h2><i class="fa-solid fa-shield-halved" style="color:var(--primary-color)"></i> <span data-i18n="payment_review_title">Centre de contrôle des paiements</span></h2>
                         <p class="panel-description">Sous-paiements, confirmations, expirations et paiements reçus après annulation.</p>
                     </div>
-                    <button id="btn-payment-review-refresh" class="btn-secondary" type="button" title="Actualiser"><i class="fa-solid fa-rotate"></i> Actualiser</button>
+                    <button id="btn-payment-review-refresh" class="btn-secondary" type="button" title="Actualiser" data-i18n-title="refresh_action"><i class="fa-solid fa-rotate"></i> <span data-i18n="refresh_action">Actualiser</span></button>
                 </div>
                 <div class="metrics-grid mb-4 payment-review-metrics">
                     <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label">À traiter</p><h3 id="payment-review-total">0</h3></div><div class="metric-icon color-red"><i class="fa-solid fa-triangle-exclamation"></i></div></div>
@@ -619,7 +625,7 @@
                             <tr>
                                 <th>Label</th>
                                 <th>UID Binance</th>
-                                <th>Par défaut</th>
+                                <th data-i18n="common_default">Par défaut</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -687,9 +693,9 @@
                         <div class="form-group"><label for="supplier-margin-type">Marge globale</label><select id="supplier-margin-type"><option value="fixed">Montant fixe ($)</option><option value="percent">Pourcentage (%)</option></select></div>
                         <div class="form-group"><label for="supplier-margin-value">Valeur</label><input id="supplier-margin-value" type="number" min="0" step="0.01" value="1"></div>
                         <div class="form-group hidden" id="supplier-rate-group"><label for="supplier-units-per-usd" id="supplier-rate-label">Unités pour 1 USD</label><input id="supplier-units-per-usd" type="number" min="1" step="1" value="25000"></div>
-                        <div class="supplier-settings-action"><button class="btn-primary btn-sm" type="submit"><i class="fa-solid fa-floppy-disk"></i> Enregistrer</button></div>
+                        <div class="supplier-settings-action"><button class="btn-primary btn-sm" type="submit"><i class="fa-solid fa-floppy-disk"></i> <span data-i18n="btn_save">Enregistrer</span></button></div>
                     </form>
-                    <p class="supplier-security-note"><i class="fa-solid fa-shield-halved"></i> La clé est lue depuis <code id="supplier-credential-env">SUPPLIER_API_KEY</code> sur Railway et n'est jamais envoyée au navigateur.</p>
+                    <p class="supplier-security-note"><i class="fa-solid fa-shield-halved"></i> <span data-i18n="supplier_key_prefix">La clé est lue depuis</span> <code id="supplier-credential-env">SUPPLIER_API_KEY</code> <span data-i18n="supplier_key_suffix">sur Railway et n'est jamais envoyée au navigateur.</span></p>
                 </div>
                 <div class="supplier-table-toolbar"><div><h3>Catalogue fournisseur</h3><p>Le stock achetable est automatiquement limité par votre solde fournisseur. Un produit à 0 n'apparaît pas sur le bot.</p></div><input id="supplier-product-search" type="search" placeholder="Rechercher un produit..." aria-label="Rechercher un produit"></div>
                 <div class="glass-panel overflow-hidden">
@@ -805,7 +811,7 @@
             <!-- Virtual match prediction game -->
             <section id="game-tab" class="tab-content">
                 <div class="flex-justify mb-4 game-heading">
-                    <div><p class="eyebrow">Match Arena</p><h2><i class="fa-solid fa-trophy"></i> Jeu & Matchs</h2><p>Choisissez les matchs du fournisseur qui seront visibles dans le bot.</p></div>
+                    <div><p class="eyebrow">Match Arena</p><h2><i class="fa-solid fa-trophy"></i> <span data-i18n="tab_game">Jeu & Matchs</span></h2><p>Choisissez les matchs du fournisseur qui seront visibles dans le bot.</p></div>
                     <button id="btn-game-refresh" class="btn-primary btn-sm" type="button"><i class="fa-solid fa-arrows-rotate"></i> Actualiser le catalogue</button>
                 </div>
 
@@ -819,7 +825,7 @@
 
                 <div id="game-provider-warning" class="glass-panel game-provider-warning hidden">
                     <i class="fa-solid fa-circle-info"></i>
-                    <div><strong>API sportive non configurée</strong><p>Ajoutez <code>FOOTBALL_DATA_API_KEY</code> dans les variables Railway. Aucun appel externe n'est effectué sans cette clé.</p></div>
+                    <div><strong>API sportive non configurée</strong><p><span data-i18n="game_api_key_prefix">Ajoutez</span> <code>FOOTBALL_DATA_API_KEY</code> <span data-i18n="game_api_key_suffix">dans les variables Railway. Aucun appel externe n'est effectué sans cette clé.</span></p></div>
                 </div>
 
                 <div class="game-view-tabs" role="tablist">
@@ -834,7 +840,7 @@
                         <div class="form-group"><label for="game-date-from">Du</label><input id="game-date-from" type="date" required></div>
                         <div class="form-group"><label for="game-date-to">Au</label><input id="game-date-to" type="date" required></div>
                         <div class="form-group"><label for="game-competition-filter">Compétition</label><select id="game-competition-filter"><option value="">Toutes</option></select></div>
-                        <div class="form-group"><label for="game-status-filter">Statut</label><select id="game-status-filter"><option value="">Tous</option><option value="SCHEDULED">Programmé</option><option value="TIMED">Planifié</option><option value="IN_PLAY">En cours</option><option value="FINISHED">Terminé</option></select></div>
+                        <div class="form-group"><label for="game-status-filter" data-i18n="th_status">Statut</label><select id="game-status-filter"><option value="" data-i18n="game_all">Tous</option><option value="SCHEDULED" data-i18n="status_scheduled">Programmé</option><option value="TIMED" data-i18n="status_timed">Planifié</option><option value="IN_PLAY" data-i18n="status_in_play">En cours</option><option value="FINISHED" data-i18n="status_finished">Terminé</option></select></div>
                         <div class="form-group game-search-field"><label for="game-search">Recherche</label><input id="game-search" type="search" placeholder="Équipe, compétition, phase..."></div>
                         <button class="btn-primary btn-sm" type="submit"><i class="fa-solid fa-filter"></i> Filtrer</button>
                     </form>
@@ -968,8 +974,8 @@
 
                 <div class="glass-panel max-w-xl mx-auto" style="padding: 2rem; margin-top: 2rem;">
                     <div class="panel-header mb-4">
-                        <h2><i class="fa-solid fa-wallet"></i> <span>Adresses Crypto de Réception</span></h2>
-                        <p>Configurez vos adresses de réception USDT. Laissez un champ vide pour désactiver le mode de paiement correspondant dans le bot Telegram.</p>
+                        <h2><i class="fa-solid fa-wallet"></i> <span data-i18n="settings_crypto_addresses">Adresses Crypto de Réception</span></h2>
+                        <p data-i18n="settings_crypto_help">Configurez vos adresses de réception USDT. Laissez un champ vide pour désactiver le mode de paiement correspondant dans le bot Telegram.</p>
                     </div>
                     <form id="crypto-settings-form">
                         <div class="form-group">
@@ -1346,24 +1352,24 @@
     <div id="revenue-modal" class="modal-overlay hidden">
         <div class="modal glass-panel">
             <div class="modal-header">
-                <h3><i class="fa-solid fa-dollar-sign"></i> Détails des revenus (30J)</h3>
+                <h3><i class="fa-solid fa-dollar-sign"></i> <span data-i18n="revenue_details">Détails des revenus (30J)</span></h3>
                 <button class="btn-close btn-close-modal"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="modal-body" style="padding-top:1rem;">
                 <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
-                    <span>Ventes (Boutique) :</span>
+                    <span data-i18n="revenue_store">Ventes (boutique)</span>
                     <strong id="rev-det-orders">$0.00</strong>
                 </div>
                 <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
-                    <span>Recharges (Wallet) :</span>
+                    <span data-i18n="revenue_topups">Recharges (wallet)</span>
                     <strong id="rev-det-topups" style="color:var(--color-success);">$0.00</strong>
                 </div>
                 <div style="display:flex; justify-content:space-between; margin-bottom:1rem; padding-bottom:1rem; border-bottom:1px solid var(--border-color);">
-                    <span>Déductions (Remboursements) :</span>
+                    <span data-i18n="revenue_deductions">Déductions (remboursements)</span>
                     <strong id="rev-det-admin" style="color:var(--color-error);">-$0.00</strong>
                 </div>
                 <div style="display:flex; justify-content:space-between; font-size:1.1rem;">
-                    <strong>Total Net :</strong>
+                    <strong data-i18n="revenue_net">Total net</strong>
                     <strong id="rev-det-total" style="color:var(--primary-color);">$0.00</strong>
                 </div>
             </div>
@@ -1629,7 +1635,7 @@
 </div>
 
 
-    <script defer src="app.js?v=20260720-reseller-telegram-prices"></script>
+    <script defer src="app.js?v=20260722-dashboard-v7"></script>
     <!-- Mass Translation Progress Overlay -->
     <div id="mass-translate-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; flex-direction:column; justify-content:center; align-items:center; color:white;">
         <h2 style="margin-bottom:20px;"><i class="fa-solid fa-language"></i> Traduction de masse en cours...</h2>
