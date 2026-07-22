@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 
 from services.runtime_metrics import DependencyCircuitOpen, dependency_call
+from utils.money import usd_float
 
 from config import (
     NOWPAYMENTS_API_KEY,
@@ -207,6 +208,7 @@ async def create_payment(
     is_fixed_rate: bool | None = None,
     is_fee_paid_by_user: bool | None = None,
 ) -> dict:
+    price_amount = usd_float(price_amount, places=2, allow_zero=False)
     configured_fee_mode = (
         NOWPAYMENTS_FEE_PAID_BY_USER
         if is_fee_paid_by_user is None
@@ -218,7 +220,7 @@ async def create_payment(
     # NOWPayments requires fee-paid-by-user payments to use a fixed rate.
     effective_fixed_rate = bool(configured_fixed_rate or configured_fee_mode)
     payload = {
-        "price_amount": round(float(price_amount), 2),
+        "price_amount": price_amount,
         "price_currency": "usd",
         "pay_currency": pay_currency.lower(),
         "order_id": str(order_id),

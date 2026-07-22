@@ -105,6 +105,29 @@ class OrderSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(float(promo["discount_value"]), 0.47)
         self.assertEqual(promo["applicable_product_ids"], str(self.product_id))
 
+    async def test_price_tiers_reject_non_finite_and_overlapping_ranges(self):
+        initial = [{"min_qty": 2, "max_qty": 10, "price_usd": 4.0}]
+        await models.set_price_tiers(self.product_id, initial)
+        with self.assertRaises(ValueError):
+            await models.set_price_tiers(
+                self.product_id,
+                [{"min_qty": 1, "max_qty": 3, "price_usd": "NaN"}],
+            )
+        with self.assertRaises(ValueError):
+            await models.set_price_tiers(
+                self.product_id,
+                [
+                    {"min_qty": 1, "max_qty": 3, "price_usd": 4},
+                    {"min_qty": 3, "max_qty": 5, "price_usd": 3.5},
+                ],
+            )
+
+        tiers = await models.get_price_tiers(self.product_id)
+        self.assertEqual(
+            [(tier["min_qty"], tier["max_qty"], tier["price_usd"]) for tier in tiers],
+            [(2, 10, 4.0)],
+        )
+
     async def test_wallet_double_click_debits_and_delivers_once(self):
         order = await models.create_order(1001, self.product_id, 5, quantity=1)
         results = await asyncio.gather(
@@ -389,6 +412,54 @@ class OrderSafetyTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(await models.is_transaction_used("binance-missing-wallet"))
 
+    async def test_concurrent_chain_order_claim_has_one_winner_per_network(self):
+        cases = (
+            ("bep20", models.claim_bep20_order_payment),
+            ("trc20", models.claim_trc20_order_payment),
+        )
+        for network, claim in cases:
+            order = await models.create_order(1001, self.product_id, 5, quantity=1)
+            tx_hash = f"{network}-order-race"
+            results = await asyncio.gather(*(
+                claim(tx_hash, order["id"], 1001, 5)
+                for _ in range(3)
+            ))
+
+            self.assertEqual(sum(bool(result["claimed"]) for result in results), 1)
+            self.assertEqual(
+                sum(result["reason"] == "already_claimed" for result in results),
+                2,
+            )
+            stored = await models.get_order(order["id"])
+            self.assertEqual(stored["status"], "PAID_PENDING_DELIVERY")
+            self.assertEqual(stored["payment_method"], network)
+
+    async def test_concurrent_chain_wallet_credit_happens_once_per_network(self):
+        cases = (
+            ("bep20-wallet-race", models.credit_wallet_from_bep20_transaction),
+            ("trc20-wallet-race", models.credit_wallet_from_trc20_transaction),
+        )
+        starting_balance = await models.get_wallet_balance(1001)
+        for tx_hash, credit in cases:
+            results = await asyncio.gather(*(
+                credit(tx_hash, 1001, 5, f"Topup via {tx_hash[:5].upper()}")
+                for _ in range(3)
+            ))
+            self.assertEqual(sum(bool(result["credited"]) for result in results), 1)
+
+        self.assertEqual(await models.get_wallet_balance(1001), starting_balance + 10)
+
+    async def test_failed_chain_wallet_credit_rolls_back_claim(self):
+        with self.assertRaisesRegex(ValueError, "WALLET_USER_NOT_FOUND"):
+            await models.credit_wallet_from_bep20_transaction(
+                "bep20-missing-wallet",
+                999999,
+                5,
+                "Topup via BEP20",
+            )
+
+        self.assertFalse(await models.is_bep20_transaction_used("bep20-missing-wallet"))
+
     async def test_timeout_cannot_cancel_a_completed_order(self):
         order = await models.create_order(1001, self.product_id, 5, quantity=1)
         completed = await models.update_order_status(
@@ -490,6 +561,15 @@ class OrderSafetyTests(unittest.IsolatedAsyncioTestCase):
         await models.record_product_view(self.product_id, 1001)
         await models.record_product_buy_click(self.product_id, 1001)
         await models.record_product_buy_click(self.product_id, 1001)
+        db = await get_db()
+        try:
+            await db.execute(
+                "UPDATE product_views SET viewed_at = datetime('now', '-1 second') WHERE product_id = ?",
+                (self.product_id,),
+            )
+            await db.commit()
+        finally:
+            await db.close()
         order = await models.create_order(1001, self.product_id, 5, quantity=1)
         db = await get_db()
         try:

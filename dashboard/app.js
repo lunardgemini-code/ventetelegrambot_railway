@@ -302,6 +302,52 @@ ru: {
 };
 Object.entries(AI_TRANSLATIONS).forEach(([language, strings]) => Object.assign(LANG[language], strings));
 
+const OPERATIONS_TRANSLATIONS = {
+fr: {
+    ops_reconcile_title:"Contrôle financier", ops_reconcile_desc:"Vérification quotidienne, en lecture seule, des soldes, paiements et livraisons.", ops_reconcile_run:"Vérifier maintenant", ops_reconcile_running:"Vérification...", ops_reconcile_empty:"Aucun contrôle disponible.", ops_reconcile_updated:"Dernière vérification : {date}", ops_reconcile_summary:"{critical} critique(s) · {warnings} avertissement(s)", ops_reconcile_read_only:"Ce contrôle ne modifie aucune commande, aucun solde et aucun stock.", ops_reconcile_done:"Contrôle financier terminé.", ops_reconcile_failed:"Le contrôle financier est momentanément indisponible.",
+    ops_status_healthy:"Sain", ops_status_warning:"À surveiller", ops_status_critical:"Critique",
+    ops_check_negative_wallets:"Soldes wallet négatifs", ops_check_stuck_paid_orders:"Commandes payées bloquées depuis plus de 15 minutes", ops_check_unknown_supplier_outcomes:"Achats fournisseur au résultat inconnu", ops_check_unprofitable_supplier_orders:"Achats fournisseur terminés sans marge", ops_check_completed_without_delivery:"Commandes terminées sans livraison enregistrée", ops_check_finished_provider_payments_unresolved:"Paiements fournisseur terminés non reflétés dans la commande",
+    order_timeline_title:"Chronologie", order_timeline_loading:"Chargement de la chronologie...", order_timeline_empty:"Aucun événement enregistré.", order_timeline_unavailable:"Chronologie momentanément indisponible.",
+    order_event_created:"Commande créée", order_event_payment_confirmed:"Paiement confirmé", order_event_activation_requested:"Identifiant d'activation reçu", order_event_activation_completed:"Activation terminée", order_event_provider_created:"Paiement fournisseur créé", order_event_provider_status:"Statut du paiement fournisseur mis à jour", order_event_provider_processed:"Paiement fournisseur traité", order_event_supplier_started:"Livraison fournisseur démarrée", order_event_supplier_status:"Statut fournisseur mis à jour", order_event_supplier_completed:"Livraison fournisseur terminée", order_event_stock_reserved:"Stock réservé pour la livraison", order_event_review_action:"Action de contrôle manuel"
+},
+en: {
+    ops_reconcile_title:"Financial control", ops_reconcile_desc:"Daily read-only verification of balances, payments, and deliveries.", ops_reconcile_run:"Check now", ops_reconcile_running:"Checking...", ops_reconcile_empty:"No control report is available.", ops_reconcile_updated:"Last check: {date}", ops_reconcile_summary:"{critical} critical · {warnings} warning(s)", ops_reconcile_read_only:"This check never changes orders, balances, or stock.", ops_reconcile_done:"Financial control completed.", ops_reconcile_failed:"Financial control is temporarily unavailable.",
+    ops_status_healthy:"Healthy", ops_status_warning:"Needs attention", ops_status_critical:"Critical",
+    ops_check_negative_wallets:"Negative wallet balances", ops_check_stuck_paid_orders:"Paid orders stuck for over 15 minutes", ops_check_unknown_supplier_outcomes:"Supplier purchases with an unknown outcome", ops_check_unprofitable_supplier_orders:"Completed supplier purchases without profit", ops_check_completed_without_delivery:"Completed orders without a persisted delivery", ops_check_finished_provider_payments_unresolved:"Finished provider payments not reflected in the order",
+    order_timeline_title:"Timeline", order_timeline_loading:"Loading timeline...", order_timeline_empty:"No event has been recorded.", order_timeline_unavailable:"Timeline is temporarily unavailable.",
+    order_event_created:"Order created", order_event_payment_confirmed:"Payment confirmed", order_event_activation_requested:"Activation identifier received", order_event_activation_completed:"Activation completed", order_event_provider_created:"Provider payment created", order_event_provider_status:"Provider payment status updated", order_event_provider_processed:"Provider payment processed", order_event_supplier_started:"Supplier fulfillment started", order_event_supplier_status:"Supplier status updated", order_event_supplier_completed:"Supplier fulfillment completed", order_event_stock_reserved:"Stock reserved for delivery", order_event_review_action:"Manual review action"
+},
+ar: {
+    ops_reconcile_title:"التحقق المالي", ops_reconcile_desc:"فحص يومي للقراءة فقط للأرصدة والمدفوعات وعمليات التسليم.", ops_reconcile_run:"تحقق الآن", ops_reconcile_running:"جارٍ التحقق...", ops_reconcile_empty:"لا يوجد تقرير تحقق متاح.", ops_reconcile_updated:"آخر تحقق: {date}", ops_reconcile_summary:"{critical} حرجة · {warnings} تحذير", ops_reconcile_read_only:"هذا الفحص لا يغير الطلبات أو الأرصدة أو المخزون.", ops_reconcile_done:"اكتمل التحقق المالي.", ops_reconcile_failed:"التحقق المالي غير متاح مؤقتًا.",
+    ops_status_healthy:"سليم", ops_status_warning:"يحتاج متابعة", ops_status_critical:"حرج",
+    ops_check_negative_wallets:"أرصدة محفظة سالبة", ops_check_stuck_paid_orders:"طلبات مدفوعة عالقة لأكثر من 15 دقيقة", ops_check_unknown_supplier_outcomes:"مشتريات مورد بنتيجة غير معروفة", ops_check_unprofitable_supplier_orders:"مشتريات مورد مكتملة دون ربح", ops_check_completed_without_delivery:"طلبات مكتملة دون تسليم محفوظ", ops_check_finished_provider_payments_unresolved:"مدفوعات مورد مكتملة غير منعكسة في الطلب",
+    order_timeline_title:"التسلسل الزمني", order_timeline_loading:"جارٍ تحميل التسلسل الزمني...", order_timeline_empty:"لم يتم تسجيل أي حدث.", order_timeline_unavailable:"التسلسل الزمني غير متاح مؤقتًا.",
+    order_event_created:"تم إنشاء الطلب", order_event_payment_confirmed:"تم تأكيد الدفع", order_event_activation_requested:"تم استلام معرّف التفعيل", order_event_activation_completed:"اكتمل التفعيل", order_event_provider_created:"تم إنشاء دفعة المورد", order_event_provider_status:"تم تحديث حالة دفعة المورد", order_event_provider_processed:"تمت معالجة دفعة المورد", order_event_supplier_started:"بدأ تنفيذ المورد", order_event_supplier_status:"تم تحديث حالة المورد", order_event_supplier_completed:"اكتمل تنفيذ المورد", order_event_stock_reserved:"تم حجز المخزون للتسليم", order_event_review_action:"إجراء مراجعة يدوي"
+},
+zh: {
+    ops_reconcile_title:"财务核对", ops_reconcile_desc:"每日只读检查余额、付款和交付记录。", ops_reconcile_run:"立即检查", ops_reconcile_running:"检查中...", ops_reconcile_empty:"暂无核对报告。", ops_reconcile_updated:"上次检查：{date}", ops_reconcile_summary:"严重 {critical} 项 · 警告 {warnings} 项", ops_reconcile_read_only:"此检查不会修改订单、余额或库存。", ops_reconcile_done:"财务核对已完成。", ops_reconcile_failed:"财务核对暂时不可用。",
+    ops_status_healthy:"正常", ops_status_warning:"需要关注", ops_status_critical:"严重",
+    ops_check_negative_wallets:"钱包余额为负", ops_check_stuck_paid_orders:"已付款订单卡住超过 15 分钟", ops_check_unknown_supplier_outcomes:"供应商采购结果未知", ops_check_unprofitable_supplier_orders:"已完成但无利润的供应商采购", ops_check_completed_without_delivery:"已完成但未保存交付记录的订单", ops_check_finished_provider_payments_unresolved:"供应商付款完成但订单未更新",
+    order_timeline_title:"时间线", order_timeline_loading:"正在加载时间线...", order_timeline_empty:"暂无事件记录。", order_timeline_unavailable:"时间线暂时不可用。",
+    order_event_created:"订单已创建", order_event_payment_confirmed:"付款已确认", order_event_activation_requested:"已收到激活标识", order_event_activation_completed:"激活已完成", order_event_provider_created:"供应商付款已创建", order_event_provider_status:"供应商付款状态已更新", order_event_provider_processed:"供应商付款已处理", order_event_supplier_started:"供应商交付已开始", order_event_supplier_status:"供应商状态已更新", order_event_supplier_completed:"供应商交付已完成", order_event_stock_reserved:"库存已为交付保留", order_event_review_action:"人工审核操作"
+},
+vi: {
+    ops_reconcile_title:"Đối soát tài chính", ops_reconcile_desc:"Kiểm tra chỉ đọc hằng ngày đối với số dư, thanh toán và giao hàng.", ops_reconcile_run:"Kiểm tra ngay", ops_reconcile_running:"Đang kiểm tra...", ops_reconcile_empty:"Chưa có báo cáo đối soát.", ops_reconcile_updated:"Lần kiểm tra gần nhất: {date}", ops_reconcile_summary:"{critical} nghiêm trọng · {warnings} cảnh báo", ops_reconcile_read_only:"Kiểm tra này không thay đổi đơn hàng, số dư hoặc kho.", ops_reconcile_done:"Đã hoàn tất đối soát tài chính.", ops_reconcile_failed:"Đối soát tài chính tạm thời không khả dụng.",
+    ops_status_healthy:"Ổn định", ops_status_warning:"Cần chú ý", ops_status_critical:"Nghiêm trọng",
+    ops_check_negative_wallets:"Số dư ví âm", ops_check_stuck_paid_orders:"Đơn đã thanh toán bị treo hơn 15 phút", ops_check_unknown_supplier_outcomes:"Giao dịch nhà cung cấp chưa rõ kết quả", ops_check_unprofitable_supplier_orders:"Giao dịch nhà cung cấp hoàn tất nhưng không có lợi nhuận", ops_check_completed_without_delivery:"Đơn hoàn tất nhưng chưa lưu giao hàng", ops_check_finished_provider_payments_unresolved:"Thanh toán nhà cung cấp hoàn tất nhưng đơn chưa cập nhật",
+    order_timeline_title:"Dòng thời gian", order_timeline_loading:"Đang tải dòng thời gian...", order_timeline_empty:"Chưa ghi nhận sự kiện nào.", order_timeline_unavailable:"Dòng thời gian tạm thời không khả dụng.",
+    order_event_created:"Đã tạo đơn hàng", order_event_payment_confirmed:"Đã xác nhận thanh toán", order_event_activation_requested:"Đã nhận mã kích hoạt", order_event_activation_completed:"Đã kích hoạt", order_event_provider_created:"Đã tạo thanh toán nhà cung cấp", order_event_provider_status:"Đã cập nhật trạng thái thanh toán nhà cung cấp", order_event_provider_processed:"Đã xử lý thanh toán nhà cung cấp", order_event_supplier_started:"Nhà cung cấp bắt đầu giao hàng", order_event_supplier_status:"Đã cập nhật trạng thái nhà cung cấp", order_event_supplier_completed:"Nhà cung cấp đã hoàn tất giao hàng", order_event_stock_reserved:"Đã giữ kho để giao hàng", order_event_review_action:"Thao tác kiểm tra thủ công"
+},
+ru: {
+    ops_reconcile_title:"Финансовая сверка", ops_reconcile_desc:"Ежедневная проверка балансов, платежей и доставок в режиме только чтения.", ops_reconcile_run:"Проверить сейчас", ops_reconcile_running:"Проверка...", ops_reconcile_empty:"Отчёт о сверке пока недоступен.", ops_reconcile_updated:"Последняя проверка: {date}", ops_reconcile_summary:"Критических: {critical} · предупреждений: {warnings}", ops_reconcile_read_only:"Проверка не изменяет заказы, балансы или склад.", ops_reconcile_done:"Финансовая сверка завершена.", ops_reconcile_failed:"Финансовая сверка временно недоступна.",
+    ops_status_healthy:"Норма", ops_status_warning:"Требует внимания", ops_status_critical:"Критично",
+    ops_check_negative_wallets:"Отрицательные балансы кошельков", ops_check_stuck_paid_orders:"Оплаченные заказы зависли более чем на 15 минут", ops_check_unknown_supplier_outcomes:"Неизвестный результат покупки у поставщика", ops_check_unprofitable_supplier_orders:"Завершённые покупки у поставщика без прибыли", ops_check_completed_without_delivery:"Завершённые заказы без сохранённой доставки", ops_check_finished_provider_payments_unresolved:"Завершённые платежи поставщика не отражены в заказе",
+    order_timeline_title:"Хронология", order_timeline_loading:"Загрузка хронологии...", order_timeline_empty:"События не зарегистрированы.", order_timeline_unavailable:"Хронология временно недоступна.",
+    order_event_created:"Заказ создан", order_event_payment_confirmed:"Платёж подтверждён", order_event_activation_requested:"Получен идентификатор активации", order_event_activation_completed:"Активация завершена", order_event_provider_created:"Платёж поставщика создан", order_event_provider_status:"Статус платежа поставщика обновлён", order_event_provider_processed:"Платёж поставщика обработан", order_event_supplier_started:"Выполнение поставщиком начато", order_event_supplier_status:"Статус поставщика обновлён", order_event_supplier_completed:"Выполнение поставщиком завершено", order_event_stock_reserved:"Товар зарезервирован для доставки", order_event_review_action:"Ручная проверка"
+}
+};
+Object.entries(OPERATIONS_TRANSLATIONS).forEach(([language, strings]) => Object.assign(LANG[language], strings));
+
 const state = {
     botUrl:'', apiKey:'', currentLang:'fr', currentTab:'dashboard-tab',
     categories:[], products:[], orders:[], activations:[], resellers:[], users:[], promos:[], tickets:[], walletHistory:[], binanceAccounts:[],
@@ -318,7 +364,8 @@ const state = {
     aiSupplierStatus:null, aiSupplierResults:[], aiSupplierGroups:[], aiSupplierResultData:null, aiSupplierGroupData:null, aiSupplierJobId:null, aiSupplierSyncTimer:null,
     gameProvider:null, gameCatalog:[], gameMatches:[], gameCompetitions:[], gameView:'catalog', currentGameMatch:null,
     autoscaleChart:null, autoscaleStatus:null,
-    resellerSpecialPrices:[], resellerSpecialPriceUserId:null
+    resellerSpecialPrices:[], resellerSpecialPriceUserId:null,
+    orderDetailItems:[], orderDetailTimeline:[], orderDetailId:null
 };
 
 function $(id) { return document.getElementById(id); }
@@ -434,6 +481,8 @@ const DOM = {
     binanceId:$('binanceId'), binanceLabel:$('binanceLabel'), binanceUid:$('binanceUid'),
     binanceApiKey:$('binanceApiKey'), binanceApiSecret:$('binanceApiSecret'), binanceIsDefault:$('binanceIsDefault'),
     prodBinanceAccount:$('prod-binance-account'),
+    financeReconcileStatus:$('finance-reconcile-status'), financeReconcileSummary:$('finance-reconcile-summary'), financeReconcileUpdated:$('finance-reconcile-updated'), financeReconcileChecks:$('finance-reconcile-checks'), financeReconcileRun:$('btn-finance-reconcile'), financeReconcileRunLabel:$('finance-reconcile-run-label'),
+    orderTimelineList:$('order-timeline-list'),
 };
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -528,13 +577,18 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.classList.remove('turbo-mode');
 
     const savedUrl = localStorage.getItem('ventebot_url') || '';
-    const savedKey = localStorage.getItem('ventebot_key');
-    if (savedKey) {
-        state.botUrl = resolveBotUrl(savedUrl);
-        state.apiKey = savedKey;
-        DOM.settingsBotUrl.value = state.botUrl || '';
-        if (DOM.botUrlInput) DOM.botUrlInput.value = state.botUrl || '';
-        DOM.settingsApiKey.value = savedKey;
+    const legacyKey = localStorage.getItem('ventebot_key') || '';
+    if (legacyKey) {
+        sessionStorage.setItem('ventebot_key', legacyKey);
+        localStorage.removeItem('ventebot_key');
+    }
+    const savedKey = sessionStorage.getItem('ventebot_key') || '';
+    state.botUrl = resolveBotUrl(savedUrl);
+    state.apiKey = savedKey;
+    DOM.settingsBotUrl.value = state.botUrl || '';
+    if (DOM.botUrlInput) DOM.botUrlInput.value = state.botUrl || '';
+    DOM.settingsApiKey.value = savedKey;
+    if (savedKey || isSameOriginApi(state.botUrl)) {
         testConnectionAndStart();
     } else {
         const origin = window.location.origin || '';
@@ -550,7 +604,126 @@ document.addEventListener('DOMContentLoaded', () => {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  EVENT LISTENERS
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+function dashboardActionId(element, key='id') {
+    const value = Number(element.dataset[key]);
+    return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function handleDelegatedDashboardClick(event) {
+    const element = event.target.closest('[data-action]');
+    if (!element) return;
+    const action = element.dataset.action;
+    const id = dashboardActionId(element);
+    if (element.dataset.stopPropagation === 'true') event.stopPropagation();
+    if (element.tagName === 'A' || element.tagName === 'BUTTON') event.preventDefault();
+
+    switch (action) {
+        case 'show-revenue-details': return showRevenueDetails();
+        case 'sort-users': return sortUsers(element.dataset.field || 'joined');
+        case 'close-binance': return closeBinanceModal();
+        case 'save-binance': return void saveBinanceAccount();
+        case 'close-ban': return closeBanModal();
+        case 'confirm-ban': return void confirmBanUser();
+        case 'edit-binance': if (id) return editBinanceAccount(id); break;
+        case 'delete-binance': if (id) return void deleteBinanceAccount(id); break;
+        case 'toggle-momentum': if (id) return toggleMomentumProduct(id); break;
+        case 'switch-tab': return switchTab(element.dataset.tabTarget || 'dashboard-tab');
+        case 'view-product-stock': if (id) return void viewProductStock(id); break;
+        case 'open-stock': if (id) return void openStockModal(id); break;
+        case 'toggle-product': if (id) return void toggleProductVisibility(id); break;
+        case 'edit-product': if (id) return void openEditProduct(id); break;
+        case 'open-tiers': if (id) return void openTiersModal(id); break;
+        case 'delete-product': if (id) return void deleteProduct(id); break;
+        case 'confirm-order': if (id) return void confirmOrderPayment(id); break;
+        case 'cancel-order': if (id) return void cancelOrder(id); break;
+        case 'complete-activation': if (id) return void completeActivation(id); break;
+        case 'order-detail': if (id) return void openOrderDetail(id); break;
+        case 'reseller-security': if (id) return void openResellerSecurity(id); break;
+        case 'reseller-special': if (id) return void openResellerSpecialPrices(id); break;
+        case 'reseller-revoke': if (id) return void revokeResellerKey(id); break;
+        case 'reseller-special-edit': if (id) return void editResellerSpecialPrice(id); break;
+        case 'reseller-special-delete': if (id) return void deleteResellerSpecialPrice(id); break;
+        case 'supplier-select': return void selectSupplierBot(element.dataset.code || '');
+        case 'supplier-description': if (id) return void openSupplierDescriptionEditor(id); break;
+        case 'supplier-save': if (id) return void saveSupplierProduct(id); break;
+        case 'supplier-route': if (id) return void reviewSupplierRoute(id, element.dataset.status || ''); break;
+        case 'ai-open-supplier': return openAiSupplier(element.dataset.code || '');
+        case 'ai-toggle-group': {
+            const index = Number(element.dataset.index);
+            if (Number.isSafeInteger(index) && index >= 0) return toggleAiSupplierGroup(index);
+            break;
+        }
+        case 'user-referrals': if (id) return void viewUserReferrals(id); break;
+        case 'user-purchases': if (id) return void openUserPurchases(id); break;
+        case 'user-credit': if (id) return void creditWallet(id); break;
+        case 'user-debit': if (id) return void debitWallet(id); break;
+        case 'user-unban': if (id) return void unbanUser(id); break;
+        case 'user-ban': if (id) return void banUser(id); break;
+        case 'user-purchase-order': if (id) return void openUserPurchaseOrderDetail(id); break;
+        case 'delete-promo': if (id) return void deletePromo(id); break;
+        case 'download-order-txt': return downloadCurrentOrderTxt();
+        case 'run-financial-reconciliation': return void runFinancialReconciliation();
+        case 'delete-tier': return element.closest('.tier-row')?.remove();
+        case 'expand-stock': return element.closest('.stock-item-row')?.querySelector('.stock-item-data')?.classList.toggle('expanded');
+        case 'delete-stock': if (id) return void deleteStockItem(id); break;
+        case 'load-more-stock': {
+            const productId = dashboardActionId(element, 'productId');
+            const target = element.dataset.target === 'manage' ? 'manage' : 'view';
+            if (productId) return void loadMoreProductStock(productId, target);
+            break;
+        }
+        default: return;
+    }
+}
+
+function handleDelegatedDashboardChange(event) {
+    const element = event.target.closest('[data-change-action]');
+    if (!element) return;
+    if (element.dataset.changeAction === 'supplier-margin') {
+        const id = dashboardActionId(element);
+        if (id) toggleSupplierMarginInput(id);
+    }
+}
+
+function handleDelegatedDashboardSubmit(event) {
+    const form = event.target.closest('form[data-submit-action]');
+    if (!form) return;
+    if (form.dataset.submitAction === 'ticket-reply') {
+        const id = dashboardActionId(form);
+        if (id) void submitTicketReply(event, id);
+    }
+}
+
+function setupMobileSidebar() {
+    const menuBtn = $('mobile-menu-btn');
+    const sidebar = document.querySelector('.sidebar');
+    const backdrop = $('sidebar-backdrop');
+    if (!menuBtn || !sidebar || !backdrop) return;
+    const close = () => {
+        sidebar.classList.remove('open');
+        backdrop.classList.remove('active');
+        const icon = menuBtn.querySelector('i');
+        if (icon) icon.className = 'fa-solid fa-bars';
+    };
+    menuBtn.addEventListener('click', () => {
+        const opening = !sidebar.classList.contains('open');
+        sidebar.classList.toggle('open', opening);
+        backdrop.classList.toggle('active', opening);
+        const icon = menuBtn.querySelector('i');
+        if (icon) icon.className = opening ? 'fa-solid fa-xmark' : 'fa-solid fa-bars';
+    });
+    backdrop.addEventListener('click', close);
+    sidebar.querySelectorAll('.menu-item').forEach(item => item.addEventListener('click', () => {
+        if (window.innerWidth <= 768) close();
+    }));
+    window.addEventListener('resize', () => { if (window.innerWidth > 768) close(); });
+}
+
 function setupEvents() {
+    document.addEventListener('click', handleDelegatedDashboardClick);
+    document.addEventListener('change', handleDelegatedDashboardChange);
+    document.addEventListener('submit', handleDelegatedDashboardSubmit);
+    setupMobileSidebar();
     DOM.loginForm.addEventListener('submit', e => {
         e.preventDefault();
         state.apiKey = DOM.apiKeyInput.value.trim();
@@ -664,6 +837,12 @@ function setupEvents() {
     });
     const btnMassTranslate = $('btn-mass-translate');
     if (btnMassTranslate) btnMassTranslate.addEventListener('click', massTranslate);
+    const btnMassTranslateCancel = $('btn-mass-translate-cancel');
+    if (btnMassTranslateCancel) btnMassTranslateCancel.addEventListener('click', () => {
+        massTranslateCancel = true;
+        btnMassTranslateCancel.textContent = 'Annulation en cours...';
+        btnMassTranslateCancel.disabled = true;
+    });
     const promoType = $('promo-type');
     if (promoType) promoType.addEventListener('change', syncPromoTypeUI);
     $('btn-open-promo-modal').addEventListener('click', async () => {
@@ -1154,6 +1333,15 @@ function resolveBotUrl(raw) {
     return u.replace(/\/$/, '');
 }
 
+function isSameOriginApi(baseUrl=state.botUrl) {
+    try {
+        return window.location.protocol !== 'file:'
+            && new URL(resolveBotUrl(baseUrl)).origin === window.location.origin;
+    } catch(e) {
+        return false;
+    }
+}
+
 async function apiCall(endpoint, method='GET', body=null) {
     if (method && typeof method === 'object') {
         const options = method;
@@ -1162,10 +1350,17 @@ async function apiCall(endpoint, method='GET', body=null) {
     }
     const base = resolveBotUrl(state.botUrl);
     const url = `${base}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
-    const headers = { 'X-API-Key': state.apiKey };
+    const headers = {};
+    if (state.apiKey) headers['X-API-Key'] = state.apiKey;
     if (body) headers['Content-Type'] = 'application/json';
     const ctrl = new AbortController(); const tid = setTimeout(() => ctrl.abort(), 60000);
-    const cfg = { method, headers, mode:'cors', signal:ctrl.signal };
+    const cfg = {
+        method,
+        headers,
+        mode:'cors',
+        credentials:isSameOriginApi(base) ? 'same-origin' : 'omit',
+        signal:ctrl.signal,
+    };
     if (body) cfg.body = typeof body === 'string' ? body : JSON.stringify(body);
     try {
         const res = await fetch(url, cfg); clearTimeout(tid);
@@ -1274,11 +1469,6 @@ async function massTranslate() {
     overlay.style.display = 'flex';
     progressBar.style.width = '0%';
     
-    btnCancel.onclick = () => {
-        massTranslateCancel = true;
-        btnCancel.textContent = "Annulation en cours...";
-        btnCancel.disabled = true;
-    };
     btnCancel.textContent = "Annuler";
     btnCancel.disabled = false;
     
@@ -1347,14 +1537,25 @@ async function testConnectionAndStart() {
     showLoading(true); DOM.loginError.classList.add('hidden');
     try {
         state.botUrl = resolveBotUrl(state.botUrl);
-        if (!state.apiKey) throw new Error('MISSING_KEY');
+        const sameOrigin = isSameOriginApi(state.botUrl);
+        if (state.apiKey && sameOrigin) {
+            await apiCall('/api/admin/session', 'POST');
+            state.apiKey = '';
+            sessionStorage.removeItem('ventebot_key');
+        } else if (!state.apiKey && sameOrigin) {
+            await apiCall('/api/admin/session');
+        } else if (!state.apiKey) {
+            throw new Error('MISSING_KEY');
+        }
 
         // /api/stats validates connectivity, database readiness and the admin key
         // in one request. A separate /health request made login less reliable.
         state.initialStats = await apiCall('/api/stats');
 
         localStorage.setItem('ventebot_url', state.botUrl);
-        localStorage.setItem('ventebot_key', state.apiKey);
+        localStorage.removeItem('ventebot_key');
+        if (state.apiKey) sessionStorage.setItem('ventebot_key', state.apiKey);
+        else sessionStorage.removeItem('ventebot_key');
         DOM.settingsBotUrl.value = state.botUrl;
         DOM.settingsApiKey.value = state.apiKey;
         showScreen('app');
@@ -1456,8 +1657,8 @@ async function loadBinanceAccounts() {
                     <td><code>${escapeHtml(a.uid)}</code></td>
                     <td>${a.is_default ? '<span class="status-badge status-completed">Oui</span>' : '-'}</td>
                     <td>
-                        <button class="btn-secondary btn-sm" onclick="editBinanceAccount(${a.id})" title="Modifier"><i class="fa-solid fa-pen"></i></button>
-                        <button class="btn-secondary btn-sm" onclick="deleteBinanceAccount(${a.id})" title="Supprimer" style="color:#ef4444"><i class="fa-solid fa-trash"></i></button>
+                        <button class="btn-secondary btn-sm" data-action="edit-binance" data-id="${Number(a.id)}" title="Modifier"><i class="fa-solid fa-pen"></i></button>
+                        <button class="btn-secondary btn-sm" data-action="delete-binance" data-id="${Number(a.id)}" title="Supprimer" style="color:#ef4444"><i class="fa-solid fa-trash"></i></button>
                     </td>
                 </tr>
             `).join('');
@@ -2013,7 +2214,7 @@ function renderProductMomentumControls() {
             ? 'background:rgba(99,102,241,0.18); border-color:var(--primary-color); color:var(--color-text-main);'
             : 'opacity:0.68;';
         return `
-            <button type="button" class="btn-secondary btn-sm" style="${activeStyle}" onclick="toggleMomentumProduct(${p.id})" title="Afficher / masquer ${escapeHtml(p.name)}">
+            <button type="button" class="btn-secondary btn-sm" style="${activeStyle}" data-action="toggle-momentum" data-id="${Number(p.id)}" title="Afficher / masquer ${escapeHtml(p.name)}">
                 ${escapeHtml(p.emoji || '📦')} ${escapeHtml(p.name)}
                 <small style="display:block; color:var(--color-text-muted); margin-top:2px;">Hier: ${p.yesterday_sold || 0} · 30j: ${p.total_sold || 0}</small>
             </button>
@@ -2356,15 +2557,15 @@ async function loadProducts() {
         DOM.productsTableBody.innerHTML = prods.map(p => {
             const supplierProduct = p.delivery_type === 'supplier_api';
             const stockActions = supplierProduct
-                ? `<button class="btn-table-action" onclick="switchTab('supplier-bots-tab')" title="Gérer dans API Bot Gestion" style="color:#a78bfa"><i class="fa-solid fa-plug"></i></button>`
-                : `<button class="btn-table-action" onclick="viewProductStock(${Number(p.id)})" title="Voir stock" style="color:#f59e0b;"><i class="fa-solid fa-box-open"></i></button><button class="btn-table-action stock" onclick="openStockModal(${Number(p.id)})" title="${t('stock_manage')}"><i class="fa-solid fa-warehouse"></i></button>`;
+                ? `<button class="btn-table-action" data-action="switch-tab" data-tab-target="supplier-bots-tab" title="Gérer dans API Bot Gestion" style="color:#a78bfa"><i class="fa-solid fa-plug"></i></button>`
+                : `<button class="btn-table-action" data-action="view-product-stock" data-id="${Number(p.id)}" title="Voir stock" style="color:#f59e0b;"><i class="fa-solid fa-box-open"></i></button><button class="btn-table-action stock" data-action="open-stock" data-id="${Number(p.id)}" title="${escapeHtml(t('stock_manage'))}"><i class="fa-solid fa-warehouse"></i></button>`;
             return `<tr data-id="${p.id}">
             <td class="drag-handle" style="cursor: grab; text-align: center;"><i class="fas fa-bars" style="color:var(--color-primary);"></i></td>
             <td><div class="prod-badge"><span class="prod-emoji">${escapeHtml(p.emoji||'📦')}</span><strong>${escapeHtml(p.name)}</strong>${supplierProduct ? '<span class="status-badge info">API</span>' : ''}</div></td>
             <td><strong>$${parseFloat(p.price_usd).toFixed(2)}</strong>${p.dynamic_pricing_enabled ? `<span class="dynamic-price-badge" title="${p.dynamic_pricing_mode === 'suggestion' ? 'Mode suggestion' : 'Mode automatique'}"><i class="fa-solid fa-wave-square"></i> Dynamic</span>` : ''}</td><td>${p.warranty_days||0} ${t('days')}</td>
             <td>${p.delivery_type === 'activation' ? '<span class="stock-count-badge ok">Activation</span>' : `<span class="stock-count-badge ${p.stock===0?'empty':p.stock<3?'low':'ok'}">${p.stock}${supplierProduct ? ' API' : ''}</span>`}</td>
             <td><span class="status-dot ${p.is_active?'online':''}"></span> ${p.is_active?t('active'):t('inactive')}</td>
-            <td><button class="btn-table-action" onclick="toggleProductVisibility(${Number(p.id)})" title="${p.is_active ? 'Désactiver' : 'Activer'}" style="color:${p.is_active ? '#ef4444' : '#22c55e'};"><i class="fa-solid ${p.is_active ? 'fa-xmark' : 'fa-check'}"></i></button><button class="btn-table-action" onclick="openEditProduct(${Number(p.id)})" title="Modifier" style="color:#3b82f6;"><i class="fa-solid fa-pen"></i></button>${stockActions}<button class="btn-table-action" onclick="openTiersModal(${Number(p.id)})" title="Tarifs" style="color:#a78bfa;"><i class="fa-solid fa-tags"></i></button><button class="btn-table-action delete" onclick="deleteProduct(${Number(p.id)})" title="Supprimer"><i class="fa-solid fa-trash-can"></i></button></td>
+            <td><button class="btn-table-action" data-action="toggle-product" data-id="${Number(p.id)}" title="${p.is_active ? 'Désactiver' : 'Activer'}" style="color:${p.is_active ? '#ef4444' : '#22c55e'};"><i class="fa-solid ${p.is_active ? 'fa-xmark' : 'fa-check'}"></i></button><button class="btn-table-action" data-action="edit-product" data-id="${Number(p.id)}" title="Modifier" style="color:#3b82f6;"><i class="fa-solid fa-pen"></i></button>${stockActions}<button class="btn-table-action" data-action="open-tiers" data-id="${Number(p.id)}" title="Tarifs" style="color:#a78bfa;"><i class="fa-solid fa-tags"></i></button><button class="btn-table-action delete" data-action="delete-product" data-id="${Number(p.id)}" title="Supprimer"><i class="fa-solid fa-trash-can"></i></button></td>
         </tr>`;
         }).join('');
         if (DOM.broadcastBtnProductId) {
@@ -2431,15 +2632,15 @@ async function loadAllOrders() {
             if (isTopup) {
                 actions = `<span style="font-size:0.78rem;color:var(--color-text-muted);">Balance: $${parseFloat(o.balance_after||0).toFixed(2)}</span>`;
             } else if (o.status === 'PENDING' || o.status === 'AWAITING_PAYMENT') {
-                actions = `<button class="btn-table-action" onclick="confirmOrderPayment(${o.id})" title="Confirmer" style="color:#22c55e;"><i class="fa-solid fa-check"></i></button> <button class="btn-table-action" onclick="cancelOrder(${o.id})" title="Annuler" style="color:#ef4444;"><i class="fa-solid fa-xmark"></i></button>`;
+                actions = `<button class="btn-table-action" data-action="confirm-order" data-id="${Number(o.id)}" title="Confirmer" style="color:#22c55e;"><i class="fa-solid fa-check"></i></button> <button class="btn-table-action" data-action="cancel-order" data-id="${Number(o.id)}" title="Annuler" style="color:#ef4444;"><i class="fa-solid fa-xmark"></i></button>`;
             } else if (o.status === 'PAID_PENDING_DELIVERY') {
-                actions = `<button class="btn-table-action" onclick="confirmOrderPayment(${o.id})" title="Relancer la livraison" style="color:#22c55e;"><i class="fa-solid fa-rotate-right"></i></button>`;
+                actions = `<button class="btn-table-action" data-action="confirm-order" data-id="${Number(o.id)}" title="Relancer la livraison" style="color:#22c55e;"><i class="fa-solid fa-rotate-right"></i></button>`;
             } else if (o.status === 'AWAITING_ACTIVATION') {
-                actions = `<button class="btn-table-action" onclick="completeActivation(${o.id})" title="${t('activation_mark_done')}" style="color:#22c55e;"><i class="fa-solid fa-bolt"></i></button>`;
+                actions = `<button class="btn-table-action" data-action="complete-activation" data-id="${Number(o.id)}" title="${escapeHtml(t('activation_mark_done'))}" style="color:#22c55e;"><i class="fa-solid fa-bolt"></i></button>`;
             } else if (o.status === 'AWAITING_ACTIVATION_INFO') {
                 actions = '—';
             } else if (o.status === 'COMPLETED') {
-                actions = `<button class="btn-table-action" onclick="openOrderDetail(${o.id})" title="Voir les articles livrés" style="color:#22c55e;"><i class="fa-solid fa-eye"></i></button>`;
+                actions = `<button class="btn-table-action" data-action="order-detail" data-id="${Number(o.id)}" title="Voir les articles livrés" style="color:#22c55e;"><i class="fa-solid fa-eye"></i></button>`;
             } else {
                 actions = '—';
             }
@@ -2502,24 +2703,24 @@ async function loadActivations() {
 
     DOM.activationsTableBody.innerHTML = state.activations.map(o => {
         const prod = state.products.find(p => p.id === o.product_id);
-        let pn = prod ? `${prod.emoji || '📦'} ${escapeHtml(prod.name)}` : `#${o.product_id}`;
-        if (!prod && o.product_name) pn = `${o.product_emoji || '📦'} ${escapeHtml(o.product_name)}`;
+        let pn = prod ? escapeHtml(`${prod.emoji || '📦'} ${prod.name || ''}`) : `#${Number(o.product_id)}`;
+        if (!prod && o.product_name) pn = escapeHtml(`${o.product_emoji || '📦'} ${o.product_name}`);
         const uname = o.username ? `@${escapeHtml(o.username)}` : escapeHtml(o.user_first_name || o.user_telegram_id);
-        const identifier = o.activation_identifier ? `<code>${escapeHtml(o.activation_identifier)}</code>` : `<span style="color:var(--color-text-muted);">${t('activation_waiting_client')}</span>`;
+        const identifier = o.activation_identifier ? `<code>${escapeHtml(o.activation_identifier)}</code>` : `<span style="color:var(--color-text-muted);">${escapeHtml(t('activation_waiting_client'))}</span>`;
         const d = parseUTCDate(o.created_at).toLocaleDateString();
         const statusLabel = o.status === 'AWAITING_ACTIVATION' ? t('activation_ready') : t('activation_waiting_id');
         const actions = o.status === 'AWAITING_ACTIVATION'
-            ? `<button class="btn-table-action" onclick="completeActivation(${o.id})" title="${t('activation_mark_done')}" style="color:#22c55e;"><i class="fa-solid fa-bolt"></i></button> <button class="btn-table-action" onclick="cancelOrder(${o.id})" title="Annuler" style="color:#ef4444;"><i class="fa-solid fa-xmark"></i></button>`
-            : `<button class="btn-table-action" onclick="cancelOrder(${o.id})" title="Annuler" style="color:#ef4444;"><i class="fa-solid fa-xmark"></i></button>`;
+            ? `<button class="btn-table-action" data-action="complete-activation" data-id="${Number(o.id)}" title="${escapeHtml(t('activation_mark_done'))}" style="color:#22c55e;"><i class="fa-solid fa-bolt"></i></button> <button class="btn-table-action" data-action="cancel-order" data-id="${Number(o.id)}" title="Annuler" style="color:#ef4444;"><i class="fa-solid fa-xmark"></i></button>`
+            : `<button class="btn-table-action" data-action="cancel-order" data-id="${Number(o.id)}" title="Annuler" style="color:#ef4444;"><i class="fa-solid fa-xmark"></i></button>`;
 
         return `<tr>
-            <td><strong>#${o.id}</strong></td>
+            <td><strong>#${Number(o.id)}</strong></td>
             <td>${uname}</td>
             <td><code>${escapeHtml(o.user_telegram_id)}</code></td>
             <td>${pn}</td>
             <td>${identifier}</td>
             <td>$${parseFloat(o.amount_usd || 0).toFixed(2)}</td>
-            <td><div class="status-badge ${o.status.toLowerCase()}">${statusLabel}</div></td>
+            <td><div class="status-badge ${escapeHtml(String(o.status || '').toLowerCase())}">${escapeHtml(statusLabel)}</div></td>
             <td>${d}</td>
             <td>${actions}</td>
         </tr>`;
@@ -2540,19 +2741,19 @@ async function loadResellers() {
         const securityBadges = `${Array.isArray(k.ip_allowlist) && k.ip_allowlist.length ? '<span class="status-badge pending">IP</span>' : ''}${Number(k.webhook_enabled) === 1 ? '<span class="status-badge completed">Webhook</span>' : ''}`;
         const status = `${active ? `<span class="status-badge completed">${t('active')}</span>` : `<span class="status-badge cancelled">${t('inactive')}</span>`}${securityBadges}`;
         const created = k.created_at ? parseUTCDate(k.created_at).toLocaleDateString() : '';
-        const securityAction = `<button class="btn-table-action" onclick="openResellerSecurity(${k.id})" title="${t('reseller_security')}"><i class="fa-solid fa-shield-halved"></i></button>`;
+        const securityAction = `<button class="btn-table-action" data-action="reseller-security" data-id="${Number(k.id)}" title="${escapeHtml(t('reseller_security'))}"><i class="fa-solid fa-shield-halved"></i></button>`;
         const specialCount = Number(k.special_price_count || 0);
-        const specialPriceAction = `<button class="btn-table-action reseller-price-action" onclick="openResellerSpecialPrices(${k.user_telegram_id})" title="${t('reseller_special_prices')}"><i class="fa-solid fa-tags"></i>${specialCount ? `<span>${specialCount}</span>` : ''}</button>`;
+        const specialPriceAction = `<button class="btn-table-action reseller-price-action" data-action="reseller-special" data-id="${Number(k.user_telegram_id)}" title="${escapeHtml(t('reseller_special_prices'))}"><i class="fa-solid fa-tags"></i>${specialCount ? `<span>${specialCount}</span>` : ''}</button>`;
         const action = active
-            ? `${specialPriceAction}${securityAction}<button class="btn-table-action delete" onclick="revokeResellerKey(${k.id})" title="${t('reseller_revoke')}"><i class="fa-solid fa-ban"></i></button>`
+            ? `${specialPriceAction}${securityAction}<button class="btn-table-action delete" data-action="reseller-revoke" data-id="${Number(k.id)}" title="${escapeHtml(t('reseller_revoke'))}"><i class="fa-solid fa-ban"></i></button>`
             : `${specialPriceAction}${securityAction}`;
         return `<tr>
-            <td><strong>#${k.id}</strong></td>
-            <td>${client}<br><code>${k.user_telegram_id}</code></td>
+            <td><strong>#${Number(k.id)}</strong></td>
+            <td>${client}<br><code>${escapeHtml(k.user_telegram_id)}</code></td>
             <td>${escapeHtml(k.name || '')}</td>
             <td><code>${escapeHtml(k.key_prefix || '')}</code></td>
             <td>$${parseFloat(k.wallet_balance || 0).toFixed(2)}</td>
-            <td>${k.order_count || 0}</td>
+            <td>${Number(k.order_count || 0)}</td>
             <td>$${parseFloat(k.total_spent || 0).toFixed(2)}</td>
             <td>${status}</td>
             <td>${created}</td>
@@ -2647,8 +2848,8 @@ function renderResellerSpecialPrices() {
             <div class="reseller-price-value"><strong>$${Number(item.price_usd || 0).toFixed(2)}</strong><span>${Number(item.apply_to_telegram) === 1 ? t('reseller_scope_both') : t('reseller_scope_api')}</span><span>${escapeHtml(expiry)}</span>${floor}</div>
             <span class="status-badge ${status.cls}">${status.label}</span>
             <div class="reseller-price-actions">
-                <button type="button" class="btn-table-action" onclick="editResellerSpecialPrice(${Number(item.product_id)})" title="${t('reseller_special_edit')}"><i class="fa-solid fa-pen"></i></button>
-                <button type="button" class="btn-table-action delete" onclick="deleteResellerSpecialPrice(${Number(item.product_id)})" title="${t('confirm_delete')}"><i class="fa-solid fa-trash"></i></button>
+                <button type="button" class="btn-table-action" data-action="reseller-special-edit" data-id="${Number(item.product_id)}" title="${escapeHtml(t('reseller_special_edit'))}"><i class="fa-solid fa-pen"></i></button>
+                <button type="button" class="btn-table-action delete" data-action="reseller-special-delete" data-id="${Number(item.product_id)}" title="${escapeHtml(t('confirm_delete'))}"><i class="fa-solid fa-trash"></i></button>
             </div>
         </article>`;
     }).join('');
@@ -3234,7 +3435,7 @@ function renderSupplierProviderSwitcher() {
     DOM.supplierProviderSwitcher.innerHTML = (state.supplierBots || []).map(provider => {
         const active = provider.code === state.activeSupplierCode;
         const status = !provider.configured ? 'Clé absente' : provider.enabled ? `${Number(provider.selected_count || 0)} affiché(s)` : 'Désactivé';
-        return `<button type="button" role="tab" class="${active ? 'active' : ''}" aria-selected="${active}" onclick="selectSupplierBot('${escapeHtml(provider.code)}')"><i class="fa-solid fa-server"></i><span><strong>${escapeHtml(provider.name || provider.code)}</strong><small>${escapeHtml(status)}</small></span></button>`;
+        return `<button type="button" role="tab" class="${active ? 'active' : ''}" aria-selected="${active}" data-action="supplier-select" data-code="${escapeHtml(provider.code)}"><i class="fa-solid fa-server"></i><span><strong>${escapeHtml(provider.name || provider.code)}</strong><small>${escapeHtml(status)}</small></span></button>`;
     }).join('');
 }
 
@@ -3276,9 +3477,9 @@ function renderSupplierProducts() {
             <td>${sourcePriceHtml}</td>
             <td><span class="stock-count-badge ${stockClass}">${Number(product.remote_stock || 0)}</span></td>
             <td><span class="stock-count-badge ${affordableClass}" title="Limité par votre solde fournisseur">${affordableStock}</span></td>
-            <td><div class="supplier-margin-controls"><select id="supplier-margin-type-${id}" onchange="toggleSupplierMarginInput(${id})"><option value="inherit" ${marginType === 'inherit' ? 'selected' : ''}>Marge globale</option><option value="fixed" ${marginType === 'fixed' ? 'selected' : ''}>+$ fixe</option><option value="percent" ${marginType === 'percent' ? 'selected' : ''}>+%</option><option value="sale_price" ${marginType === 'sale_price' ? 'selected' : ''}>Prix de vente fixe</option></select><input id="supplier-margin-value-${id}" type="number" min="0" step="0.01" value="${marginValue}" ${marginType === 'inherit' ? 'disabled' : ''}></div></td>
+            <td><div class="supplier-margin-controls"><select id="supplier-margin-type-${id}" data-change-action="supplier-margin" data-id="${id}"><option value="inherit" ${marginType === 'inherit' ? 'selected' : ''}>Marge globale</option><option value="fixed" ${marginType === 'fixed' ? 'selected' : ''}>+$ fixe</option><option value="percent" ${marginType === 'percent' ? 'selected' : ''}>+%</option><option value="sale_price" ${marginType === 'sale_price' ? 'selected' : ''}>Prix de vente fixe</option></select><input id="supplier-margin-value-${id}" type="number" min="0" step="0.01" value="${marginValue}" ${marginType === 'inherit' ? 'disabled' : ''}></div></td>
             <td><strong>$${Number(product.final_price || 0).toFixed(2)}</strong><small style="display:block;color:${product.price_safe === false ? 'var(--color-error)' : 'var(--color-text-muted)'}">${product.price_safe === false ? 'Masqué : coût ≥ prix fixe' : product.effective_margin_type === 'sale_price' ? 'Prix fixe sécurisé' : product.effective_margin_type === 'percent' ? '+' + Number(product.effective_margin_value || 0).toFixed(2) + '%' : '+$' + Number(product.effective_margin_value || 0).toFixed(2)}</small></td>
-            <td><div class="table-actions"><button type="button" class="btn-table-action" onclick="openSupplierDescriptionEditor(${id})" title="Nom, emoji et traductions"><i class="fa-solid fa-wand-magic-sparkles"></i></button><button type="button" class="btn-table-action" onclick="saveSupplierProduct(${id})" title="Enregistrer le prix et l'affichage" style="color:var(--color-success)"><i class="fa-solid fa-floppy-disk"></i></button></div></td>
+            <td><div class="table-actions"><button type="button" class="btn-table-action" data-action="supplier-description" data-id="${id}" title="Nom, emoji et traductions"><i class="fa-solid fa-wand-magic-sparkles"></i></button><button type="button" class="btn-table-action" data-action="supplier-save" data-id="${id}" title="Enregistrer le prix et l'affichage" style="color:var(--color-success)"><i class="fa-solid fa-floppy-disk"></i></button></div></td>
         </tr>`;
     }).join('');
 }
@@ -3440,9 +3641,9 @@ function renderSupplierRoutes() {
         const status = String(route.status || 'proposed');
         const statusLabel = status === 'confirmed' ? 'Active' : status === 'rejected' ? 'Refusee' : 'A verifier';
         const actions = status === 'proposed'
-            ? `<div class="table-actions"><button class="btn-table-action router-accept" type="button" onclick="reviewSupplierRoute(${Number(route.id)},'confirmed')" title="Confirmer"><i class="fa-solid fa-check"></i></button><button class="btn-table-action router-reject" type="button" onclick="reviewSupplierRoute(${Number(route.id)},'rejected')" title="Refuser"><i class="fa-solid fa-xmark"></i></button></div>`
+            ? `<div class="table-actions"><button class="btn-table-action router-accept" type="button" data-action="supplier-route" data-id="${Number(route.id)}" data-status="confirmed" title="Confirmer"><i class="fa-solid fa-check"></i></button><button class="btn-table-action router-reject" type="button" data-action="supplier-route" data-id="${Number(route.id)}" data-status="rejected" title="Refuser"><i class="fa-solid fa-xmark"></i></button></div>`
             : status === 'confirmed'
-                ? `<button class="btn-table-action router-reject" type="button" onclick="reviewSupplierRoute(${Number(route.id)},'rejected')" title="Desactiver"><i class="fa-solid fa-ban"></i></button>`
+                ? `<button class="btn-table-action router-reject" type="button" data-action="supplier-route" data-id="${Number(route.id)}" data-status="rejected" title="Desactiver"><i class="fa-solid fa-ban"></i></button>`
                 : '-';
         return `<tr>
             <td><strong>${escapeHtml(route.local_product_name || '?')}</strong><small>${escapeHtml(route.anchor_supplier_code || '')}</small></td>
@@ -3717,7 +3918,7 @@ function renderAiSupplierGroups(data) {
                 <span class="ai-group-offer-supplier"><strong>${escapeHtml(offer.supplier_name || offer.supplier_code || '?')}</strong><small>${escapeHtml(tf('ai_supplier_balance', {balance: Number(offer.wallet_balance || 0).toFixed(2)}))}</small></span>
                 <strong class="ai-group-offer-price">$${Number(offer.price || 0).toFixed(2)}</strong>
                 <span class="ai-group-offer-stock ${affordable > 0 ? '' : 'is-unfunded'}"><strong>${affordable}/${Number(offer.remote_stock || 0)}</strong><small>${escapeHtml(t('ai_stock_ratio'))}</small></span>
-                <button class="btn-table-action ai-group-offer-action" type="button" onclick="openAiSupplier('${escapeHtml(offer.supplier_code || '')}')" title="${escapeHtml(t('ai_open_supplier'))}"><i class="fa-solid fa-arrow-up-right-from-square"></i><span class="ai-mobile-action-label">${escapeHtml(t('ai_open_supplier'))}</span></button>
+                <button class="btn-table-action ai-group-offer-action" type="button" data-action="ai-open-supplier" data-code="${escapeHtml(offer.supplier_code || '')}" title="${escapeHtml(t('ai_open_supplier'))}"><i class="fa-solid fa-arrow-up-right-from-square"></i><span class="ai-mobile-action-label">${escapeHtml(t('ai_open_supplier'))}</span></button>
             </div>`;
         }).join('');
         const classification = group.comparable
@@ -3729,7 +3930,7 @@ function renderAiSupplierGroups(data) {
             <td class="ai-group-best" data-label="${escapeHtml(t('ai_col_best_offer'))}"><strong class="ai-group-best-price">$${Number(group.best_price || 0).toFixed(2)}</strong><small>${escapeHtml(best.supplier_name || best.supplier_code || '?')}</small></td>
             <td class="ai-group-alternatives" data-label="${escapeHtml(t('ai_col_alternatives'))}"><strong>${alternatives}</strong></td>
             <td class="ai-group-saving" data-label="${escapeHtml(t('ai_col_max_difference'))}"><strong>$${Number(group.max_saving || 0).toFixed(2)}</strong></td>
-            <td class="ai-group-action"><button id="ai-group-toggle-${index}" class="btn-table-action" type="button" onclick="toggleAiSupplierGroup(${index})" title="${escapeHtml(t('ai_show_all_offers'))}"><i class="fa-solid fa-chevron-down"></i><span class="ai-mobile-action-label">${escapeHtml(t('ai_show_all_offers'))}</span></button></td>
+            <td class="ai-group-action"><button id="ai-group-toggle-${index}" class="btn-table-action" type="button" data-action="ai-toggle-group" data-index="${index}" title="${escapeHtml(t('ai_show_all_offers'))}"><i class="fa-solid fa-chevron-down"></i><span class="ai-mobile-action-label">${escapeHtml(t('ai_show_all_offers'))}</span></button></td>
         </tr>
         <tr id="ai-group-details-${index}" class="ai-group-details hidden"><td colspan="6"><div class="ai-group-offers">${details}</div></td></tr>`;
     }).join('');
@@ -3810,7 +4011,7 @@ function renderAiSupplierResults(data) {
             <td class="ai-result-stock ${stockClass}" data-label="${escapeHtml(t('ai_col_stock'))}"><strong>${affordable}/${Number(result.remote_stock || 0)}</strong><span class="table-secondary">${escapeHtml(t('ai_stock_ratio'))}</span></td>
             <td class="ai-result-reliability" data-label="${escapeHtml(t('ai_col_reliability'))}"><strong>${Math.round(Number(result.reliability || 0) * 100)}%</strong><span class="table-secondary">${escapeHtml(freshnessLabel)}</span></td>
             <td class="ai-result-analysis" data-label="${escapeHtml(t('ai_col_analysis'))}"><strong>${Math.round(Number(result.confidence || 0) * 100)}%</strong><small>${escapeHtml(aiResultReason(result))}</small></td>
-            <td class="ai-result-action"><button class="btn-table-action" type="button" onclick="openAiSupplier('${escapeHtml(result.supplier_code || '')}')" title="${escapeHtml(t('ai_open_supplier'))}"><i class="fa-solid fa-arrow-up-right-from-square"></i><span class="ai-mobile-action-label">${escapeHtml(t('ai_open_supplier'))}</span></button></td>
+            <td class="ai-result-action"><button class="btn-table-action" type="button" data-action="ai-open-supplier" data-code="${escapeHtml(result.supplier_code || '')}" title="${escapeHtml(t('ai_open_supplier'))}"><i class="fa-solid fa-arrow-up-right-from-square"></i><span class="ai-mobile-action-label">${escapeHtml(t('ai_open_supplier'))}</span></button></td>
         </tr>`;
     }).join('');
 }
@@ -3905,7 +4106,7 @@ async function loadTickets() {
     const tks = await apiCall('/api/tickets'); state.tickets = tks;
     if (tks.length > 0) {
         DOM.badgeTickets.textContent = tks.length; DOM.badgeTickets.classList.remove('hidden');
-        DOM.openTicketsContainer.innerHTML = tks.map(tk => `<div class="ticket-card glass-panel"><div class="ticket-header"><h3>Ticket #${Number(tk.id)}</h3><p><i class="fa-solid fa-user"></i> <code>${escapeHtml(tk.user_telegram_id)}</code></p></div><div class="ticket-message"><p>${escapeHtml(tk.message)}</p></div><form class="ticket-reply-form" onsubmit="submitTicketReply(event,${Number(tk.id)})"><div class="form-group"><input type="text" placeholder="${escapeHtml(t('reply_placeholder'))}" required></div><button type="submit" class="btn-primary btn-send-reply" title="Répondre"><i class="fa-solid fa-paper-plane"></i></button></form></div>`).join('');
+        DOM.openTicketsContainer.innerHTML = tks.map(tk => `<div class="ticket-card glass-panel"><div class="ticket-header"><h3>Ticket #${Number(tk.id)}</h3><p><i class="fa-solid fa-user"></i> <code>${escapeHtml(tk.user_telegram_id)}</code></p></div><div class="ticket-message"><p>${escapeHtml(tk.message)}</p></div><form class="ticket-reply-form" data-submit-action="ticket-reply" data-id="${Number(tk.id)}"><div class="form-group"><input type="text" placeholder="${escapeHtml(t('reply_placeholder'))}" required></div><button type="submit" class="btn-primary btn-send-reply" title="Répondre"><i class="fa-solid fa-paper-plane"></i></button></form></div>`).join('');
     } else { DOM.badgeTickets.classList.add('hidden'); DOM.openTicketsContainer.innerHTML = `<p class="empty-state">${t('no_tickets')}</p>`; }
 }
 
@@ -3926,9 +4127,9 @@ async function loadUsers() {
                 const d = u.created_at ? parseUTCDate(u.created_at).toLocaleDateString() : '—';
                 const wb = parseFloat(u.wallet_balance||0).toFixed(2);
                 const refBy = u.referred_by ? `<code>${escapeHtml(u.referred_by)}</code>` : '—';
-                const refCount = u.referrals_count > 0 ? `${Number(u.referrals_count)} <button class="btn-table-action" onclick="event.stopPropagation();viewUserReferrals(${Number(u.telegram_id)})" title="Voir les filleuls" style="margin-left:5px;color:#3b82f6;"><i class="fa-solid fa-users"></i></button>` : 0;
+                const refCount = u.referrals_count > 0 ? `${Number(u.referrals_count)} <button class="btn-table-action" data-action="user-referrals" data-id="${Number(u.telegram_id)}" data-stop-propagation="true" title="Voir les filleuls" style="margin-left:5px;color:#3b82f6;"><i class="fa-solid fa-users"></i></button>` : 0;
                 const refEarnings = parseFloat(u.referral_earnings||0).toFixed(2);
-                return `<tr class="user-row" onclick="openUserPurchases(${Number(u.telegram_id)})" title="Voir les achats"><td><code>${escapeHtml(u.telegram_id)}</code></td><td>${escapeHtml(u.username||'—')}</td><td>${escapeHtml(u.first_name||'—')}</td><td>${escapeHtml(u.language||'fr')}</td><td>${Number(u.total_orders||0)}</td><td>$${parseFloat(u.total_spent||0).toFixed(2)}</td><td>$${wb}</td><td>${refBy}</td><td>${refCount}</td><td>$${refEarnings}</td><td>${escapeHtml(d)}</td><td><button class="btn-table-action" onclick="event.stopPropagation();openUserPurchases(${Number(u.telegram_id)})" title="Voir les achats" style="color:#60a5fa;"><i class="fa-solid fa-bag-shopping"></i></button> <button class="btn-table-action" onclick="event.stopPropagation();creditWallet(${Number(u.telegram_id)})" title="Créditer" style="color:#22c55e;"><i class="fa-solid fa-circle-plus"></i></button> <button class="btn-table-action" onclick="event.stopPropagation();debitWallet(${Number(u.telegram_id)})" title="Retirer" style="color:#ef4444;"><i class="fa-solid fa-circle-minus"></i></button> ${banned?`<span class="status-badge banned">${t('banned')}</span> <button class="btn-table-action unban" onclick="event.stopPropagation();unbanUser(${Number(u.telegram_id)})"><i class="fa-solid fa-lock-open"></i></button>`:`<button class="btn-table-action ban" onclick="event.stopPropagation();banUser(${Number(u.telegram_id)})"><i class="fa-solid fa-ban"></i></button>`}</td></tr>`;
+                return `<tr class="user-row" data-action="user-purchases" data-id="${Number(u.telegram_id)}" title="Voir les achats"><td><code>${escapeHtml(u.telegram_id)}</code></td><td>${escapeHtml(u.username||'—')}</td><td>${escapeHtml(u.first_name||'—')}</td><td>${escapeHtml(u.language||'fr')}</td><td>${Number(u.total_orders||0)}</td><td>$${parseFloat(u.total_spent||0).toFixed(2)}</td><td>$${wb}</td><td>${refBy}</td><td>${refCount}</td><td>$${refEarnings}</td><td>${escapeHtml(d)}</td><td><button class="btn-table-action" data-action="user-purchases" data-id="${Number(u.telegram_id)}" data-stop-propagation="true" title="Voir les achats" style="color:#60a5fa;"><i class="fa-solid fa-bag-shopping"></i></button> <button class="btn-table-action" data-action="user-credit" data-id="${Number(u.telegram_id)}" data-stop-propagation="true" title="Créditer" style="color:#22c55e;"><i class="fa-solid fa-circle-plus"></i></button> <button class="btn-table-action" data-action="user-debit" data-id="${Number(u.telegram_id)}" data-stop-propagation="true" title="Retirer" style="color:#ef4444;"><i class="fa-solid fa-circle-minus"></i></button> ${banned?`<span class="status-badge banned">${escapeHtml(t('banned'))}</span> <button class="btn-table-action unban" data-action="user-unban" data-id="${Number(u.telegram_id)}" data-stop-propagation="true"><i class="fa-solid fa-lock-open"></i></button>`:`<button class="btn-table-action ban" data-action="user-ban" data-id="${Number(u.telegram_id)}" data-stop-propagation="true"><i class="fa-solid fa-ban"></i></button>`}</td></tr>`;
             }).join('');
         } else {
             DOM.usersTableBody.innerHTML = `<tr><td colspan="12" class="empty-state">${t('no_users')}</td></tr>`;
@@ -3995,7 +4196,7 @@ async function loadUserPurchases() {
             const date = order.created_at ? parseUTCDate(order.created_at).toLocaleString([], {dateStyle:'short', timeStyle:'short'}) : '—';
             const status = escapeHtml(String(order.status || ''));
             const detail = order.status === 'COMPLETED'
-                ? `<button type="button" class="btn-table-action" onclick="openUserPurchaseOrderDetail(${Number(order.id)})" title="Voir les articles livrés"><i class="fa-solid fa-eye"></i></button>`
+                ? `<button type="button" class="btn-table-action" data-action="user-purchase-order" data-id="${Number(order.id)}" title="Voir les articles livrés"><i class="fa-solid fa-eye"></i></button>`
                 : '—';
             return `<tr>
                 <td><strong>#${Number(order.id)}</strong><br><small><code>${orderNo}</code></small></td>
@@ -4083,7 +4284,7 @@ async function loadPromos() {
                 if (p.max_qty_per_order > 0) usesLabel += ` <br><small>(Max ${p.max_qty_per_order}/cmd)</small>`;
                 if (p.applicable_product_ids) usesLabel += ` <br><small>(Produits limités)</small>`;
                 const active = p.is_active ? 'active-promo' : 'expired';
-                return `<tr><td><strong>${escapeHtml(p.code)}</strong></td><td>${typeText}</td><td>${valueText}</td><td>${usesLabel}</td><td><span class="status-badge ${active}">${p.is_active?t('active'):t('inactive')}</span></td><td><button class="btn-table-action delete" onclick="deletePromo(${Number(p.id)})"><i class="fa-solid fa-trash-can"></i></button></td></tr>`;
+                return `<tr><td><strong>${escapeHtml(p.code)}</strong></td><td>${escapeHtml(typeText)}</td><td>${escapeHtml(valueText)}</td><td>${escapeHtml(usesLabel)}</td><td><span class="status-badge ${active}">${escapeHtml(p.is_active?t('active'):t('inactive'))}</span></td><td><button class="btn-table-action delete" data-action="delete-promo" data-id="${Number(p.id)}"><i class="fa-solid fa-trash-can"></i></button></td></tr>`;
             }).join('');
         } else DOM.promosTableBody.innerHTML = `<tr><td colspan="6" class="empty-state">${t('no_promos')}</td></tr>`;
     } catch(e) { console.warn('loadPromos:', e); }
@@ -4217,7 +4418,7 @@ function _addTierRow(container, min, max, price) {
             <div class="form-group" style="flex:1;margin-bottom:0;"><label style="font-size:0.75rem;">Min Qté</label><input type="number" class="tier-min" value="${min}" min="1"></div>
             <div class="form-group" style="flex:1;margin-bottom:0;"><label style="font-size:0.75rem;">Max Qté</label><input type="number" class="tier-max" value="${max}" min="1"></div>
             <div class="form-group" style="flex:1;margin-bottom:0;"><label style="font-size:0.75rem;">Prix/u ($)</label><input type="number" step="0.01" class="tier-price" value="${parseFloat(price).toFixed(2)}"></div>
-            <button type="button" class="btn-table-action delete" onclick="this.closest('.tier-row').remove()" style="margin-bottom:0.3rem;"><i class="fa-solid fa-trash-can"></i></button>
+            <button type="button" class="btn-table-action delete" data-action="delete-tier" style="margin-bottom:0.3rem;"><i class="fa-solid fa-trash-can"></i></button>
         </div>`;
     container.appendChild(row);
 }
@@ -4254,53 +4455,92 @@ $('btn-save-tiers').addEventListener('click', async () => {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  ORDER DETAIL MODAL (delivered items)
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+const ORDER_TIMELINE_KEYS = {
+    'order.created':'order_event_created',
+    'payment.confirmed':'order_event_payment_confirmed',
+    'activation.requested':'order_event_activation_requested',
+    'activation.completed':'order_event_activation_completed',
+    'provider_payment.created':'order_event_provider_created',
+    'provider_payment.status':'order_event_provider_status',
+    'provider_payment.processed':'order_event_provider_processed',
+    'supplier.started':'order_event_supplier_started',
+    'supplier.status':'order_event_supplier_status',
+    'supplier.completed':'order_event_supplier_completed',
+    'stock.reserved':'order_event_stock_reserved',
+    'payment_review.action':'order_event_review_action',
+};
+
+function renderOrderTimeline(payload) {
+    if (!DOM.orderTimelineList) return;
+    const events = Array.isArray(payload?.events) ? payload.events : [];
+    state.orderDetailTimeline = events;
+    if (!events.length) {
+        DOM.orderTimelineList.innerHTML = `<p class="empty-state">${escapeHtml(t('order_timeline_empty'))}</p>`;
+        return;
+    }
+    DOM.orderTimelineList.innerHTML = events.map(event => {
+        const key = ORDER_TIMELINE_KEYS[event.type];
+        const label = key ? t(key) : (event.label || event.type || '—');
+        const details = event.details || {};
+        const detail = details.provider_status || details.status || details.action
+            || (details.item_count ? `${details.item_count} item(s)` : '');
+        const when = event.occurred_at
+            ? parseUTCDate(event.occurred_at).toLocaleString(currentLocale())
+            : '—';
+        return `<div class="order-timeline-event">
+            <div><strong>${escapeHtml(label)}</strong>${detail ? `<div class="order-timeline-detail">${escapeHtml(String(detail))}</div>` : ''}</div>
+            <time>${escapeHtml(when)}</time>
+        </div>`;
+    }).join('');
+}
+
 window.openOrderDetail = async function(orderId) {
+    state.orderDetailId = Number(orderId);
+    state.orderDetailItems = [];
+    state.orderDetailTimeline = [];
     $('order-detail-title').textContent = `Commande #${orderId}`;
     $('order-detail-info').innerHTML = '<p style="color:var(--color-text-muted);font-size:0.85rem;">Chargement...</p>';
     $('order-items-list').innerHTML = '';
     $('order-items-count').textContent = '...';
     $('btn-download-order-txt').style.display = 'none';
+    if (DOM.orderTimelineList) {
+        DOM.orderTimelineList.innerHTML = `<p class="empty-state">${escapeHtml(t('order_timeline_loading'))}</p>`;
+    }
     showModal(DOM.orderDetailModal);
 
     try {
-        const data = await apiCall(`/api/orders/${orderId}/items`);
+        const [data, timeline] = await Promise.all([
+            apiCall(`/api/orders/${orderId}/items`),
+            apiCall(`/api/orders/${orderId}/timeline`).catch(() => null),
+        ]);
         const order = state.orders.find(o => o.id === orderId);
         const prod = order ? state.products.find(p => p.id === order.product_id) : null;
-        let pn = prod ? `${prod.emoji} ${prod.name}` : (order ? `#${order.product_id}` : '?');
+        let pn = prod ? `${prod.emoji || ''} ${prod.name || ''}` : (order ? `#${Number(order.product_id)}` : '?');
         if (order && !prod && order.product_name) {
             pn = `${order.product_emoji || '📦'} ${order.product_name}${order.product_is_deleted ? ' (Supprimé)' : ''}`;
         }
         const uname = order ? (order.username ? `@${order.username}` : (order.user_first_name || order.user_telegram_id)) : '?';
+        const orderDate = order ? parseUTCDate(order.created_at).toLocaleString() : '?';
         
         $('order-detail-info').innerHTML = `
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;font-size:0.88rem;">
-                <div>👤 <strong>Client :</strong> ${uname}</div>
-                <div>📦 <strong>Produit :</strong> ${pn}</div>
+                <div>👤 <strong>Client :</strong> ${escapeHtml(uname)}</div>
+                <div>📦 <strong>Produit :</strong> ${escapeHtml(pn)}</div>
                 <div>💵 <strong>Montant :</strong> $${order ? parseFloat(order.amount_usd).toFixed(2) : '?'}</div>
                 <div>📊 <strong>Quantité :</strong> ${order ? (order.quantity || 1) : '?'}</div>
-                <div>📅 <strong>Date :</strong> ${order ? parseUTCDate(order.created_at).toLocaleString() : '?'}</div>
-                <div>✅ <strong>Statut :</strong> <span class="status-badge completed">${data.status}</span></div>
+                <div>📅 <strong>Date :</strong> ${escapeHtml(orderDate)}</div>
+                <div>✅ <strong>Statut :</strong> <span class="status-badge completed">${escapeHtml(data.status || '')}</span></div>
             </div>`;
 
         const items = data.items || [];
+        state.orderDetailItems = items;
         $('order-items-count').textContent = items.length;
 
         if (items.length > 0) {
             const btnDownload = $('btn-download-order-txt');
             btnDownload.style.display = 'inline-block';
-            btnDownload.onclick = () => {
-                const textContent = items.map((it, idx) => `Produit ${idx + 1} :\n${it.account_data}`).join('\n\n');
-                const blob = new Blob([textContent], { type: 'text/plain' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `Commande_${orderId}_Articles.txt`;
-                a.click();
-                URL.revokeObjectURL(url);
-            };
-
             $('order-items-list').innerHTML = items.map((it, i) => {
-                const safeData = it.account_data ? it.account_data.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
+                const safeData = escapeHtml(it.account_data || '');
                 return `
                 <div class="stock-item-row">
                     <span class="stock-item-data">🔑 ${safeData}</span>
@@ -4311,8 +4551,11 @@ window.openOrderDetail = async function(orderId) {
             $('btn-download-order-txt').style.display = 'none';
             $('order-items-list').innerHTML = '<p class="empty-state">Aucun article livré trouvé.</p>';
         }
+        if (timeline) renderOrderTimeline(timeline);
+        else if (DOM.orderTimelineList) DOM.orderTimelineList.innerHTML = `<p class="empty-state">${escapeHtml(t('order_timeline_unavailable'))}</p>`;
     } catch(e) {
         $('order-detail-info').innerHTML = `<p style="color:var(--color-error);">Erreur: ${escapeHtml(e.message)}</p>`;
+        if (DOM.orderTimelineList) DOM.orderTimelineList.innerHTML = `<p class="empty-state">${escapeHtml(t('order_timeline_unavailable'))}</p>`;
     }
 };
 
@@ -4333,9 +4576,9 @@ function stockRowsMarkup(items, manageable) {
         return `<div class="stock-item-row">
             <span class="stock-item-data">${it.is_sold ? '🔴' : '🟢'} ${safeData}</span>
             <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
-                <button class="btn-table-action" onclick="this.parentElement.previousElementSibling.classList.toggle('expanded')" title="Voir tout" style="color:#a78bfa;"><i class="fa-solid fa-eye"></i></button>
+                <button class="btn-table-action" data-action="expand-stock" title="Voir tout" style="color:#a78bfa;"><i class="fa-solid fa-eye"></i></button>
                 <span class="stock-item-status ${it.is_sold ? 'sold' : 'available'}">${it.is_sold ? t('sold') : t('available')}</span>
-                ${manageable && !it.is_sold ? `<button class="btn-table-action delete" onclick="deleteStockItem(${it.id})" title="Supprimer"><i class="fa-solid fa-trash-can"></i></button>` : ''}
+                ${manageable && !it.is_sold ? `<button class="btn-table-action delete" data-action="delete-stock" data-id="${Number(it.id)}" title="Supprimer"><i class="fa-solid fa-trash-can"></i></button>` : ''}
             </div>
         </div>`;
     }).join('');
@@ -4355,7 +4598,7 @@ function renderStockPage(productId, target) {
     }
     const remaining = Math.max(0, Number(page.total || page.all_total || 0) - page.items.length);
     container.innerHTML = stockRowsMarkup(page.items, manageable) + (remaining > 0 ? `
-        <button class="btn-secondary" style="width:100%;margin-top:12px;" onclick="loadMoreProductStock(${productId}, '${target}')">
+        <button class="btn-secondary" style="width:100%;margin-top:12px;" data-action="load-more-stock" data-product-id="${Number(productId)}" data-target="${target === 'manage' ? 'manage' : 'view'}">
             <i class="fa-solid fa-chevron-down"></i> Afficher plus (${remaining})
         </button>` : '');
 }
@@ -4373,6 +4616,19 @@ window.loadMoreProductStock = async function(productId, target) {
         showToast(error.message, 'error');
     }
 };
+
+function downloadCurrentOrderTxt() {
+    const items = Array.isArray(state.orderDetailItems) ? state.orderDetailItems : [];
+    if (!items.length || !state.orderDetailId) return;
+    const textContent = items.map(item => String(item.account_data || '')).join('\n\n');
+    const blob = new Blob([textContent], {type:'text/plain'});
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `Commande_${state.orderDetailId}_Articles.txt`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+}
 
 window.viewProductStock = async function(productId) {
     const product = state.products.find(item => Number(item.id) === Number(productId));
@@ -4529,7 +4785,7 @@ window.recalculateStats = async function() {
     if (!confirm('Voulez-vous recalculer les statistiques de tous les utilisateurs (Commandes et Dépenses) ? Cela peut prendre quelques secondes.')) return;
     showLoading(true);
     try {
-        const res = await apiCall('/api/recalculate-stats');
+        const res = await apiCall('/api/recalculate-stats', 'POST');
         alert(res.message || 'Statistiques recalculées avec succès.');
         if (state.currentTab === 'tab_users') {
             await loadUsers();
@@ -4634,7 +4890,7 @@ async function handleAddStock() {
 function handleFileImport(e) {
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
-    reader.onload = function(ev) { DOM.stockTextarea.value = ev.target.result; const n=ev.target.result.split('\n').filter(l=>l.trim()).length; DOM.stockLineCount.textContent=`${n} ${t('accounts_detected')}`; };
+    reader.addEventListener('load', ev => { DOM.stockTextarea.value = ev.target.result; const n=ev.target.result.split('\n').filter(l=>l.trim()).length; DOM.stockLineCount.textContent=`${n} ${t('accounts_detected')}`; });
     reader.readAsText(file);
     e.target.value = '';
 }
@@ -4795,9 +5051,13 @@ function showToast(message, type='info') {
     DOM.toastRegion.appendChild(toast);
     setTimeout(() => toast.remove(), 5000);
 }
-function logout() {
+async function logout() {
+    try {
+        if (isSameOriginApi(state.botUrl)) await apiCall('/api/admin/session', 'DELETE');
+    } catch(e) {}
     state.botUrl=''; state.apiKey='';
     localStorage.removeItem('ventebot_url'); localStorage.removeItem('ventebot_key');
+    sessionStorage.removeItem('ventebot_key');
     DOM.loginForm.reset(); showScreen('login'); stopAutoRefresh();
 }
 
@@ -5051,6 +5311,77 @@ async function handleAddProduct(e) {
 
 let currentFinanceBalance = 0;
 
+const RECONCILIATION_CHECK_KEYS = {
+    negative_wallets:'ops_check_negative_wallets',
+    stuck_paid_orders:'ops_check_stuck_paid_orders',
+    unknown_supplier_outcomes:'ops_check_unknown_supplier_outcomes',
+    unprofitable_supplier_orders:'ops_check_unprofitable_supplier_orders',
+    completed_without_delivery:'ops_check_completed_without_delivery',
+    finished_provider_payments_unresolved:'ops_check_finished_provider_payments_unresolved',
+};
+
+function renderFinancialReconciliation(report) {
+    if (!DOM.financeReconcileStatus || !DOM.financeReconcileChecks) return;
+    if (!report || !Array.isArray(report.checks)) {
+        DOM.financeReconcileStatus.className = 'status-badge pending';
+        DOM.financeReconcileStatus.textContent = '—';
+        DOM.financeReconcileSummary.textContent = t('ops_reconcile_empty');
+        DOM.financeReconcileUpdated.textContent = '';
+        DOM.financeReconcileChecks.innerHTML = '';
+        return;
+    }
+    const status = ['healthy', 'warning', 'critical'].includes(report.status) ? report.status : 'warning';
+    const statusClass = status === 'healthy' ? 'completed' : status === 'critical' ? 'cancelled' : 'pending';
+    DOM.financeReconcileStatus.className = `status-badge ${statusClass}`;
+    DOM.financeReconcileStatus.textContent = t(`ops_status_${status}`);
+    DOM.financeReconcileSummary.textContent = tf('ops_reconcile_summary', {
+        critical:Number(report.critical_count || 0),
+        warnings:Number(report.warning_count || 0),
+    });
+    const generatedAt = report.generated_at
+        ? parseUTCDate(report.generated_at).toLocaleString(currentLocale())
+        : '—';
+    DOM.financeReconcileUpdated.textContent = tf('ops_reconcile_updated', {date:generatedAt});
+    DOM.financeReconcileChecks.innerHTML = report.checks.map(check => {
+        const severity = check.ok ? 'ok' : (check.severity === 'critical' ? 'critical' : 'warning');
+        const icon = check.ok ? 'fa-circle-check' : (severity === 'critical' ? 'fa-circle-xmark' : 'fa-triangle-exclamation');
+        const title = t(RECONCILIATION_CHECK_KEYS[check.key]) || check.title || check.key;
+        return `<div class="ops-check-row ${severity}">
+            <i class="fa-solid ${icon}"></i>
+            <span>${escapeHtml(title)}</span>
+            <strong>${Number(check.count || 0)}</strong>
+        </div>`;
+    }).join('');
+}
+
+async function loadFinancialReconciliation() {
+    try {
+        const data = await apiCall('/api/finance/reconciliation');
+        renderFinancialReconciliation(data.available ? data.report : null);
+    } catch(error) {
+        console.error('Error loading financial reconciliation', error);
+        renderFinancialReconciliation(null);
+    }
+}
+
+async function runFinancialReconciliation() {
+    const button = DOM.financeReconcileRun;
+    if (button?.disabled) return;
+    if (button) button.disabled = true;
+    if (DOM.financeReconcileRunLabel) DOM.financeReconcileRunLabel.textContent = t('ops_reconcile_running');
+    try {
+        const report = await apiCall('/api/finance/reconciliation/run', 'POST');
+        renderFinancialReconciliation(report);
+        showToast(t('ops_reconcile_done'), 'success');
+    } catch(error) {
+        console.error('Financial reconciliation failed', error);
+        showToast(t('ops_reconcile_failed'), 'error');
+    } finally {
+        if (button) button.disabled = false;
+        if (DOM.financeReconcileRunLabel) DOM.financeReconcileRunLabel.textContent = t('ops_reconcile_run');
+    }
+}
+
 async function loadFinance() {
     try {
         let url = '/api/finance';
@@ -5078,6 +5409,7 @@ async function loadFinance() {
     } catch(err) {
         console.error('Error loading finance stats', err);
     }
+    await loadFinancialReconciliation();
 }
 
 document.addEventListener('DOMContentLoaded', () => {

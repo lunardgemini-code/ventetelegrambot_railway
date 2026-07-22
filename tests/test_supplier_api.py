@@ -38,11 +38,13 @@ from services.supplier_sync import (
     reset_supplier_sync_state,
     sync_supplier_catalog,
 )
+from services.supplier_guard import reset_supplier_guard_state
 
 
 class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         reset_supplier_sync_state()
+        reset_supplier_guard_state()
         self.temp_dir = tempfile.TemporaryDirectory()
         os.environ["DB_PATH"] = os.path.join(self.temp_dir.name, "supplier.db")
         db_module.TURSO_URL = ""
@@ -72,9 +74,16 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
             margin_value=1,
         )
         self.local_product_id = int(mapping["local_product_id"])
+        self.live_offer_patch = patch(
+            "services.delivery.verify_supplier_candidate",
+            AsyncMock(side_effect=lambda candidate, **_: dict(candidate)),
+        )
+        self.live_offer_patch.start()
 
     async def asyncTearDown(self):
+        self.live_offer_patch.stop()
         reset_supplier_sync_state()
+        reset_supplier_guard_state()
         self.temp_dir.cleanup()
 
     async def test_live_catalog_sync_deduplicates_concurrent_clients(self):
@@ -481,6 +490,20 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(products[0]["name"], "Account")
         self.assertEqual(products[0]["base_price"], 1.25)
         self.assertEqual(products[0]["remote_stock"], 4)
+
+    def test_catalog_normalization_rejects_invalid_prices(self):
+        products = normalize_products(
+            {
+                "products": [
+                    {"id": 1, "name": "NaN", "price": "NaN", "stock": 1},
+                    {"id": 2, "name": "Infinite", "price": "Infinity", "stock": 1},
+                    {"id": 3, "name": "Negative", "price": -1, "stock": 1},
+                    {"id": 4, "name": "Valid", "price": "0.25", "stock": 1},
+                ]
+            }
+        )
+
+        self.assertEqual([product["external_product_id"] for product in products], ["4"])
 
     def test_catalog_normalization_matches_canboso_live_contract(self):
         products = normalize_products({
@@ -975,7 +998,7 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(mapping["description_en"], "Edited English")
             self.assertEqual(mapping["description_fr"], "Français existant")
             self.assertEqual(mapping["description_ar"], "عربي موجود")
-            self.assertEqual(int(version["version"]), 16)
+            self.assertEqual(int(version["version"]), 17)
         finally:
             os.environ["DB_PATH"] = current_path
             db_module._sqlite_wal_configured = False
@@ -1032,7 +1055,7 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
                 mapping["custom_image_url"],
                 "https://example.com/existing-custom.png",
             )
-            self.assertEqual(int(version["version"]), 16)
+            self.assertEqual(int(version["version"]), 17)
         finally:
             os.environ["DB_PATH"] = current_path
             db_module._sqlite_wal_configured = False
@@ -1096,7 +1119,7 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(float(row["cost_usd"]), 3.0)
             self.assertEqual(float(row["revenue_usd"]), 4.5)
             self.assertEqual(int(row["cost_estimated"]), 1)
-            self.assertEqual(int(version["version"]), 16)
+            self.assertEqual(int(version["version"]), 17)
         finally:
             os.environ["DB_PATH"] = current_path
             db_module._sqlite_wal_configured = False
@@ -1262,10 +1285,15 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
         })
         with patch("services.supplier_api.purchase_canboso_product", purchase):
             first = await deliver_order(order["id"], self.local_product_id)
+        with patch(
+            "services.delivery.verify_supplier_candidate",
+            AsyncMock(side_effect=SupplierAPIError("supplier offline")),
+        ) as live_check:
             second = await deliver_order(order["id"], self.local_product_id)
         self.assertEqual(first, second)
         self.assertEqual(first[0]["account_data"], "user@example.com:password")
         purchase.assert_awaited_once()
+        live_check.assert_not_awaited()
 
     async def test_unknown_purchase_outcome_is_not_retried_automatically(self):
         order = await models.create_order(3001, self.local_product_id, 3.5, quantity=1)

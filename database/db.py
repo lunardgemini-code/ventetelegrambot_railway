@@ -2,7 +2,6 @@
 # Supporte Turso (libSQL cloud) et SQLite local (fallback)
 
 import os
-import sqlite3
 import asyncio
 import logging
 import time
@@ -293,6 +292,9 @@ _TURSO_POOL_MAX_IDLE_SECONDS = _env_float(
 _TURSO_POOL_MAX_LIFETIME_SECONDS = _env_float(
     "TURSO_POOL_MAX_LIFETIME_SECONDS", 30.0, 5.0
 )
+_TURSO_POOL_VALIDATE_AFTER_IDLE_SECONDS = _env_float(
+    "TURSO_POOL_VALIDATE_AFTER_IDLE_SECONDS", 1.0, 0.1
+)
 _TURSO_CONNECT_CONCURRENCY = _env_int(
     "TURSO_CONNECT_CONCURRENCY", 4, 1, 10
 )
@@ -527,6 +529,7 @@ async def _take_pooled_turso_connection():
     expired_connections = []
     selected_connection = None
     selected_created_at = None
+    selected_returned_at = None
     now = time.monotonic()
     async with get_pool_lock():
         while _libsql_pool:
@@ -543,12 +546,14 @@ async def _take_pooled_turso_connection():
                 ):
                     selected_connection = candidate
                     selected_created_at = created_at
+                    selected_returned_at = returned_at
                     break
                 expired_connections.append(candidate)
             else:
                 # Compatibility with connections pooled before a hot reload.
                 selected_connection = pooled_entry
                 selected_created_at = now
+                selected_returned_at = now
                 break
 
     for expired in expired_connections:
@@ -559,18 +564,24 @@ async def _take_pooled_turso_connection():
             )
         except Exception:
             pass
-    return selected_connection, selected_created_at
+    return selected_connection, selected_created_at, selected_returned_at
 
 
 async def _validated_pooled_turso_wrapper():
-    conn, created_at = await _take_pooled_turso_connection()
+    conn, created_at, returned_at = await _take_pooled_turso_connection()
     if conn is None:
         return None
     _DB_CONNECTION_STATS["pooled"] += 1
     _record_connection_event("pooled")
     candidate = _PooledAsyncDB(conn, created_at=created_at)
+    if (
+        returned_at is not None
+        and time.monotonic() - returned_at < _TURSO_POOL_VALIDATE_AFTER_IDLE_SECONDS
+    ):
+        return candidate
     try:
-        # Hrana streams expire server-side while a pooled connection is idle.
+        # Only ping connections that were actually idle. Hot connections are
+        # exercised by their real query, avoiding one extra Turso round trip.
         await asyncio.wait_for(candidate.execute("SELECT 1"), timeout=3)
         return candidate
     except Exception as exc:
@@ -1785,6 +1796,33 @@ async def init_db() -> None:
             )
             await db.commit()
             current_version = 16
+
+        if 16 <= current_version < 17:
+            version_seventeen_statements = [
+                """CREATE TABLE IF NOT EXISTS admin_audit_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_uid TEXT NOT NULL UNIQUE,
+                    method TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    status_code INTEGER NOT NULL,
+                    duration_ms REAL NOT NULL DEFAULT 0,
+                    auth_kind TEXT NOT NULL DEFAULT 'unknown',
+                    source_hash TEXT NOT NULL DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )""",
+                "CREATE INDEX IF NOT EXISTS idx_admin_audit_created "
+                "ON admin_audit_events(created_at DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_admin_audit_path_created "
+                "ON admin_audit_events(path, created_at DESC)",
+            ]
+            for sql in version_seventeen_statements:
+                await db.execute(sql)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (17, ?)",
+                ("admin_mutation_audit",),
+            )
+            await db.commit()
+            current_version = 17
 
     finally:
         await db.close()

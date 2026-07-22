@@ -9,7 +9,8 @@ import ipaddress
 import json
 import os
 import socket
-from urllib.parse import urlparse
+from dataclasses import dataclass
+from urllib.parse import quote, urlparse
 
 
 def normalize_ip_allowlist(values: list[str] | str | None) -> list[str]:
@@ -63,11 +64,7 @@ def ip_is_allowed(client_ip: str, allowlist: list[str] | str | None) -> bool:
 
 
 def _webhook_master_secret() -> str:
-    secret = (
-        os.environ.get("RESELLER_WEBHOOK_MASTER_SECRET", "").strip()
-        or os.environ.get("ADMIN_API_KEY", "").strip()
-        or os.environ.get("BOT_TOKEN", "").strip()
-    )
+    secret = os.environ.get("RESELLER_WEBHOOK_MASTER_SECRET", "").strip()
     if not secret:
         raise RuntimeError("Reseller webhook signing is not configured")
     return secret
@@ -107,13 +104,31 @@ def _public_address(address: str) -> bool:
 
 
 async def validate_webhook_url(webhook_url: str) -> str:
+    target = await resolve_webhook_target(webhook_url)
+    return target.url if target else ""
+
+
+@dataclass(frozen=True)
+class ResolvedWebhookTarget:
+    url: str
+    hostname: str
+    authority: str
+    port: int
+    request_target: str
+    addresses: tuple[str, ...]
+
+
+async def resolve_webhook_target(webhook_url: str) -> ResolvedWebhookTarget | None:
+    """Resolve and freeze a public HTTPS webhook destination for one delivery."""
     value = str(webhook_url or "").strip()
     if not value:
-        return ""
+        return None
+    if any(ord(character) < 32 for character in value):
+        raise ValueError("Webhook URL contains invalid control characters")
     parsed = urlparse(value)
     if parsed.scheme.lower() != "https" or not parsed.hostname:
         raise ValueError("Webhook URL must use HTTPS")
-    if parsed.username or parsed.password:
+    if parsed.username is not None or parsed.password is not None:
         raise ValueError("Webhook URL cannot contain credentials")
     try:
         port = parsed.port
@@ -121,11 +136,18 @@ async def validate_webhook_url(webhook_url: str) -> str:
         raise ValueError("Webhook URL contains an invalid port") from exc
     if port not in (None, 443):
         raise ValueError("Webhook URL must use HTTPS port 443")
+    if parsed.fragment:
+        raise ValueError("Webhook URL cannot contain a fragment")
+
+    try:
+        hostname = parsed.hostname.encode("idna").decode("ascii").lower()
+    except UnicodeError as exc:
+        raise ValueError("Webhook hostname is invalid") from exc
 
     try:
         infos = await asyncio.to_thread(
             socket.getaddrinfo,
-            parsed.hostname,
+            hostname,
             port or 443,
             type=socket.SOCK_STREAM,
         )
@@ -134,4 +156,23 @@ async def validate_webhook_url(webhook_url: str) -> str:
     addresses = {str(info[4][0]) for info in infos if info and info[4]}
     if not addresses or any(not _public_address(address) for address in addresses):
         raise ValueError("Webhook URL must resolve only to public IP addresses")
-    return value
+    request_target = quote(
+        parsed.path or "/",
+        safe="/%:@!$&'()*+,;=-._~",
+    )
+    if parsed.params:
+        request_target += ";" + quote(parsed.params, safe="!$&'()*+,;=:@-._~")
+    if parsed.query:
+        request_target += "?" + quote(
+            parsed.query,
+            safe="=&?/:;+,%@[]-._~!$'()*",
+        )
+    authority = f"[{hostname}]" if ":" in hostname else hostname
+    return ResolvedWebhookTarget(
+        url=value,
+        hostname=hostname,
+        authority=authority,
+        port=443,
+        request_target=request_target,
+        addresses=tuple(sorted(addresses)),
+    )

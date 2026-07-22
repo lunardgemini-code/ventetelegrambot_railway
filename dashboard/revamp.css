@@ -867,3 +867,124 @@ body { background:var(--bg-primary); line-height:1.5; font-size:16px; }
         grid-column: auto;
     }
 }
+.icon-button-inline {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--primary-color);
+    cursor: pointer;
+    padding: 2px 4px;
+    margin-left: 4px;
+}
+
+.sortable-header {
+    cursor: pointer;
+    white-space: nowrap;
+}
+.ops-reconciliation-panel {
+    margin-top: 1rem;
+    padding: 1.25rem;
+}
+
+.ops-panel-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.ops-panel-heading h3 {
+    margin: 0 0 0.35rem;
+}
+
+.ops-panel-heading p,
+.ops-reconciliation-summary,
+.ops-read-only-note {
+    color: var(--color-text-muted);
+}
+
+.ops-reconciliation-summary {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin: 1rem 0;
+}
+
+.ops-check-list {
+    border-top: 1px solid var(--border-color);
+}
+
+.ops-check-row {
+    display: grid;
+    grid-template-columns: 1.25rem minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 2.75rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.ops-check-row.ok i { color: var(--color-success); }
+.ops-check-row.warning i { color: var(--color-warning); }
+.ops-check-row.critical i { color: var(--color-error); }
+
+.ops-read-only-note {
+    margin: 0.9rem 0 0;
+    font-size: 0.85rem;
+}
+
+.order-timeline-section {
+    margin: 0 0 1rem;
+}
+
+.order-timeline-section h4 {
+    margin-bottom: 0.65rem;
+}
+
+.order-timeline-list {
+    border-left: 2px solid var(--border-color);
+    margin-left: 0.45rem;
+    padding-left: 1rem;
+}
+
+.order-timeline-event {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.75rem;
+    padding: 0.45rem 0;
+}
+
+.order-timeline-event::before {
+    position: absolute;
+    left: calc(-1rem - 5px);
+    top: 0.85rem;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-primary);
+    content: '';
+}
+
+.order-timeline-event time,
+.order-timeline-detail {
+    color: var(--color-text-muted);
+    font-size: 0.78rem;
+}
+
+@media (max-width: 640px) {
+    .ops-panel-heading,
+    .ops-reconciliation-summary {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .ops-panel-heading button {
+        width: 100%;
+    }
+
+    .order-timeline-event {
+        grid-template-columns: 1fr;
+        gap: 0.15rem;
+    }
+}

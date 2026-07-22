@@ -4,15 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VenteBot Admin Console</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
-    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous">
+    <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js" integrity="sha384-vuyrTV5nkscLp1knFvt+FIHfKKzmROBq5reruhMRslauj54mW+l2B8b6szMN6lCL" crossorigin="anonymous"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js" integrity="sha384-eeLEhtwdMwD3X9y+8P3Cn7Idl/M+w8H4uZqkgD/2eJVkWIN1yKzEj6XegJ9dL3q0" crossorigin="anonymous"></script>
     <link rel="stylesheet" href="style.css?v=20260720-reseller-telegram-prices">
     <link rel="stylesheet" href="revamp.css?v=20260720-reseller-prices">
 </head>
@@ -133,7 +130,7 @@
                     <div class="today-signal"><span data-i18n="today_orders">Ventes du jour</span><strong id="today-orders">0</strong><small id="today-orders-delta">vs hier</small></div>
                 </div>
                 <div class="metrics-grid">
-                    <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label"><span data-i18n="metric_revenue">Revenus (30J)</span> <i class="fa-solid fa-circle-info" style="cursor:pointer; color:var(--primary-color); margin-left:4px;" onclick="showRevenueDetails()"></i></p><h3 id="stat-revenue">$0.00</h3></div><div class="metric-icon color-green"><i class="fa-solid fa-dollar-sign"></i></div></div>
+                    <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label"><span data-i18n="metric_revenue">Revenus (30J)</span> <button type="button" class="icon-button-inline" data-action="show-revenue-details" title="Détails des revenus" aria-label="Détails des revenus"><i class="fa-solid fa-circle-info"></i></button></p><h3 id="stat-revenue">$0.00</h3></div><div class="metric-icon color-green"><i class="fa-solid fa-dollar-sign"></i></div></div>
                     <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label" data-i18n="metric_sales">Ventes (30J)</p><h3 id="stat-orders">0</h3></div><div class="metric-icon color-blue"><i class="fa-solid fa-cart-shopping"></i></div></div>
                     <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label" data-i18n="metric_clients">Clients</p><h3 id="stat-users">0</h3></div><div class="metric-icon color-purple"><i class="fa-solid fa-users"></i></div></div>
                     <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label" data-i18n="pending_metric">Commandes en attente</p><h3 id="stat-pending">0</h3></div><div class="metric-icon color-amber"><i class="fa-solid fa-hourglass-half"></i></div></div>
@@ -440,6 +437,25 @@
                             </div>
                         </div>
                     </div>
+                </div>
+
+                <div class="glass-panel ops-reconciliation-panel">
+                    <div class="ops-panel-heading">
+                        <div>
+                            <h3><i class="fa-solid fa-shield-halved"></i> <span data-i18n="ops_reconcile_title">Contrôle financier</span></h3>
+                            <p data-i18n="ops_reconcile_desc">Vérification quotidienne, en lecture seule, des soldes, paiements et livraisons.</p>
+                        </div>
+                        <button id="btn-finance-reconcile" class="btn-secondary" data-action="run-financial-reconciliation">
+                            <i class="fa-solid fa-rotate"></i> <span id="finance-reconcile-run-label" data-i18n="ops_reconcile_run">Vérifier maintenant</span>
+                        </button>
+                    </div>
+                    <div class="ops-reconciliation-summary">
+                        <span id="finance-reconcile-status" class="status-badge pending">—</span>
+                        <strong id="finance-reconcile-summary" data-i18n="ops_reconcile_empty">Aucun contrôle disponible.</strong>
+                        <span id="finance-reconcile-updated"></span>
+                    </div>
+                    <div id="finance-reconcile-checks" class="ops-check-list"></div>
+                    <p class="ops-read-only-note"><i class="fa-solid fa-lock"></i> <span data-i18n="ops_reconcile_read_only">Ce contrôle ne modifie aucune commande, aucun solde et aucun stock.</span></p>
                 </div>
             </section>
 
@@ -863,17 +879,17 @@
                 </div>
                 <div class="glass-panel overflow-hidden">
                     <table class="data-table"><thead><tr>
-                        <th onclick="sortUsers('telegram_id')" style="cursor:pointer; white-space: nowrap;">Telegram ID <span class="sort-icon" id="sort-telegram_id"></span></th>
-                        <th onclick="sortUsers('username')" style="cursor:pointer; white-space: nowrap;">Username <span class="sort-icon" id="sort-username"></span></th>
+                        <th data-action="sort-users" data-field="telegram_id" class="sortable-header">Telegram ID <span class="sort-icon" id="sort-telegram_id"></span></th>
+                        <th data-action="sort-users" data-field="username" class="sortable-header">Username <span class="sort-icon" id="sort-username"></span></th>
                         <th data-i18n="th_firstname">Prénom</th>
                         <th data-i18n="th_lang">Langue</th>
-                        <th onclick="sortUsers('orders')" style="cursor:pointer; white-space: nowrap;"><span data-i18n="th_orders_count">Commandes</span> <span class="sort-icon" id="sort-orders"></span></th>
-                        <th onclick="sortUsers('spent')" style="cursor:pointer; white-space: nowrap;"><span data-i18n="th_spent">Dépenses</span> <span class="sort-icon" id="sort-spent"></span></th>
-                        <th onclick="sortUsers('wallet')" style="cursor:pointer; white-space: nowrap;">💳 Wallet <span class="sort-icon" id="sort-wallet"></span></th>
+                        <th data-action="sort-users" data-field="orders" class="sortable-header"><span data-i18n="th_orders_count">Commandes</span> <span class="sort-icon" id="sort-orders"></span></th>
+                        <th data-action="sort-users" data-field="spent" class="sortable-header"><span data-i18n="th_spent">Dépenses</span> <span class="sort-icon" id="sort-spent"></span></th>
+                        <th data-action="sort-users" data-field="wallet" class="sortable-header">💳 Wallet <span class="sort-icon" id="sort-wallet"></span></th>
                         <th data-i18n="th_referrer">Parrain</th>
-                        <th onclick="sortUsers('referrals')" style="cursor:pointer; white-space: nowrap;"><span data-i18n="th_referrals">Filleuls</span> <span class="sort-icon" id="sort-referrals"></span></th>
-                        <th onclick="sortUsers('referral_earnings')" style="cursor:pointer; white-space: nowrap;"><span data-i18n="th_referral_earnings">Gains Parrainage</span> <span class="sort-icon" id="sort-referral_earnings"></span></th>
-                        <th onclick="sortUsers('joined')" style="cursor:pointer; white-space: nowrap;"><span data-i18n="th_joined">Inscrit</span> <span class="sort-icon" id="sort-joined"></span></th>
+                        <th data-action="sort-users" data-field="referrals" class="sortable-header"><span data-i18n="th_referrals">Filleuls</span> <span class="sort-icon" id="sort-referrals"></span></th>
+                        <th data-action="sort-users" data-field="referral_earnings" class="sortable-header"><span data-i18n="th_referral_earnings">Gains Parrainage</span> <span class="sort-icon" id="sort-referral_earnings"></span></th>
+                        <th data-action="sort-users" data-field="joined" class="sortable-header"><span data-i18n="th_joined">Inscrit</span> <span class="sort-icon" id="sort-joined"></span></th>
                         <th>Action</th>
                     </tr></thead><tbody id="users-table-body"><tr><td colspan="12" class="empty-state" data-i18n="no_users">Aucun utilisateur.</td></tr></tbody></table>
                 </div>
@@ -1198,10 +1214,16 @@
         <div class="modal-card modal-card-lg glass-panel animate-slide">
             <div class="modal-header"><h3><i class="fa-solid fa-receipt"></i> <span id="order-detail-title">Détail Commande</span></h3><button class="btn-close-modal"><i class="fa-solid fa-xmark"></i></button></div>
             <div id="order-detail-info" style="margin-bottom:1rem;"></div>
+            <div class="order-timeline-section">
+                <h4><i class="fa-solid fa-clock-rotate-left"></i> <span data-i18n="order_timeline_title">Chronologie</span></h4>
+                <div id="order-timeline-list" class="order-timeline-list">
+                    <p class="empty-state" data-i18n="order_timeline_loading">Chargement de la chronologie...</p>
+                </div>
+            </div>
             <div class="stock-existing-section">
                 <h4 style="display:flex; justify-content:space-between; align-items:center;">
                     <span><i class="fa-solid fa-key"></i> Articles livrés — <span id="order-items-count">0</span></span>
-                    <button id="btn-download-order-txt" class="btn-primary" style="padding: 4px 10px; font-size: 0.8rem; display:none;"><i class="fa-solid fa-download"></i> .txt</button>
+                    <button id="btn-download-order-txt" class="btn-primary" data-action="download-order-txt" style="padding: 4px 10px; font-size: 0.8rem; display:none;"><i class="fa-solid fa-download"></i> .txt</button>
                 </h4>
                 <div class="stock-items-scroll" id="order-items-list" style="max-height:300px;">
                     <p class="empty-state">Aucun article.</p>
@@ -1407,7 +1429,7 @@
         <div class="modal-card glass-panel animate-slide">
             <div class="modal-header">
                 <h3 id="binanceModalTitle">Ajouter un compte Binance</h3>
-                <button type="button" class="btn-close-modal" onclick="closeBinanceModal()"><i class="fa-solid fa-xmark"></i></button>
+                <button type="button" class="btn-close-modal" data-action="close-binance"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="modal-body">
                 <form id="binanceForm">
@@ -1435,8 +1457,8 @@
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn-secondary" onclick="closeBinanceModal()">Annuler</button>
-                <button type="button" class="btn-primary" onclick="saveBinanceAccount()">Enregistrer</button>
+                <button type="button" class="btn-secondary" data-action="close-binance">Annuler</button>
+                <button type="button" class="btn-primary" data-action="save-binance">Enregistrer</button>
             </div>
         </div>
     </div>
@@ -1477,7 +1499,7 @@
         <div class="modal-card glass-panel animate-slide">
             <div class="modal-header">
                 <h3><i class="fa-solid fa-ban" style="color:var(--color-error);"></i> <span data-i18n="ban_modal_title">Bannir l'utilisateur</span></h3>
-                <button type="button" class="btn-close-modal" onclick="closeBanModal()"><i class="fa-solid fa-xmark"></i></button>
+                <button type="button" class="btn-close-modal" data-action="close-ban"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="modal-body" style="padding-top: 1rem;">
                 <p data-i18n="ban_modal_desc">Voulez-vous vraiment bannir cet utilisateur ?</p>
@@ -1488,8 +1510,8 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn-secondary" onclick="closeBanModal()" data-i18n="btn_cancel">Annuler</button>
-                <button type="button" class="btn-primary" onclick="confirmBanUser()" style="background:var(--color-error); border-color:var(--color-error); color:white;" data-i18n="ban">Bannir</button>
+                <button type="button" class="btn-secondary" data-action="close-ban" data-i18n="btn_cancel">Annuler</button>
+                <button type="button" class="btn-primary" data-action="confirm-ban" style="background:var(--color-error); border-color:var(--color-error); color:white;" data-i18n="ban">Bannir</button>
             </div>
         </div>
     </div>
@@ -1608,46 +1630,6 @@
 
 
     <script defer src="app.js?v=20260720-reseller-telegram-prices"></script>
-    <script>
-    /* ── Mobile Sidebar Toggle ── */
-    (function() {
-        const menuBtn = document.getElementById('mobile-menu-btn');
-        const sidebar = document.querySelector('.sidebar');
-        const backdrop = document.getElementById('sidebar-backdrop');
-        if (!menuBtn || !sidebar || !backdrop) return;
-
-        function openSidebar() {
-            sidebar.classList.add('open');
-            backdrop.classList.add('active');
-            menuBtn.querySelector('i').className = 'fa-solid fa-xmark';
-        }
-        function closeSidebar() {
-            sidebar.classList.remove('open');
-            backdrop.classList.remove('active');
-            menuBtn.querySelector('i').className = 'fa-solid fa-bars';
-        }
-
-        menuBtn.addEventListener('click', function() {
-            sidebar.classList.contains('open') ? closeSidebar() : openSidebar();
-        });
-        backdrop.addEventListener('click', closeSidebar);
-
-        // Close sidebar when a menu item is clicked (on mobile)
-        sidebar.querySelectorAll('.menu-item').forEach(function(item) {
-            item.addEventListener('click', function() {
-                if (window.innerWidth <= 768) closeSidebar();
-            });
-        });
-
-        // Close sidebar on window resize to desktop
-        window.addEventListener('resize', function() {
-            if (window.innerWidth > 768) closeSidebar();
-        });
-    })();
-    </script>
-
-
-
     <!-- Mass Translation Progress Overlay -->
     <div id="mass-translate-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; flex-direction:column; justify-content:center; align-items:center; color:white;">
         <h2 style="margin-bottom:20px;"><i class="fa-solid fa-language"></i> Traduction de masse en cours...</h2>

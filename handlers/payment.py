@@ -21,7 +21,9 @@ from telegram.ext import (
 
 from config import ADMIN_IDS, BINANCE_PAY_ID, PAYMENT_TIMEOUT_SECONDS
 from database.models import (
+    claim_bep20_order_payment,
     claim_binance_order_payment,
+    claim_trc20_order_payment,
     create_order,
     get_pending_activation_order_for_user,
     get_order,
@@ -368,7 +370,11 @@ async def initiate_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
-                text=f"{product['emoji']} <b>{product['name']}</b>\n\n" + t("out_of_stock", lang),
+                text=(
+                    f"{escape_html(product['emoji'])} "
+                    f"<b>{escape_html(product['name'])}</b>\n\n"
+                    + t("out_of_stock", lang)
+                ),
                 parse_mode="HTML",
                 reply_markup=back_keyboard(f"back_prods:{product['category_id']}", lang),
             )
@@ -570,10 +576,6 @@ async def _process_quantity(
     context.user_data["pending_order_id"] = order["id"]
     context.user_data["pending_product_id"] = product_id
 
-    # Get wallet balance for payment options
-    from database.models import get_wallet_balance
-    wallet_balance = await get_wallet_balance(telegram_id)
-
     return await show_payment_method_screen(update, context, order["id"], lang, is_callback=is_callback)
 
 
@@ -637,7 +639,8 @@ async def show_payment_method_screen(
 
     summary = (
         f"{t('new_order', lang)}\n\n"
-        f"{t('product_lbl', lang)} {product['emoji']} {product['name']}\n"
+        f"{t('product_lbl', lang)} {escape_html(product['emoji'])} "
+        f"{escape_html(product['name'])}\n"
         f"{t('quantity_lbl', lang).format(qty=order['quantity'])}\n"
         f"{unit_price_line}"
         f"{promo_line}"
@@ -2052,9 +2055,6 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text(t("bep20_invalid_tx_hash", lang))
         return WAITING_BEP20_TX_HASH
 
-    # Track if order was cancelled by timeout (we still verify on-chain)
-    order_was_cancelled = db_order.get("status") == "CANCELLED"
-
     try:
         await update.message.reply_text(t("verifying", lang))
 
@@ -2069,7 +2069,7 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return ConversationHandler.END
 
-        from database.models import record_used_bep20_transaction, get_setting
+        from database.models import get_setting
 
         bep20_address = await get_setting("bep20_address")
         if not bep20_address:
@@ -2100,8 +2100,24 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
             result = await verify_internal_transfer(tx_hash, expected_amount, api_key=api_key, api_secret=api_secret, lang=lang)
 
         if result.get("verified"):
-            # Record hash to prevent double spending
-            if not await record_used_bep20_transaction(tx_hash, order_id, update.effective_user.id, expected_amount):
+            payment_claim = await claim_bep20_order_payment(
+                tx_hash,
+                order_id,
+                update.effective_user.id,
+                expected_amount,
+            )
+            if not payment_claim.get("claimed"):
+                if payment_claim.get("reason") in ("already_claimed", "order_not_payable"):
+                    logger.info(
+                        "Duplicate BEP20 verification ignored for order %d transaction %s",
+                        order_id,
+                        tx_hash,
+                    )
+                    await update.message.reply_text(
+                        t("payment_processing", lang),
+                        reply_markup=main_menu_keyboard(lang),
+                    )
+                    return ConversationHandler.END
                 logger.warning("REPLAY ATTACK BLOCKED (BEP20 DB constraint): User %s tried to reuse tx %s for order %d",
                                update.effective_user.id, tx_hash, order_id)
                 await update.message.reply_text(
@@ -2115,14 +2131,7 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
             if task and not task.done():
                 task.cancel()
 
-            # Reactivate order if it was cancelled by timeout but payment is confirmed on-chain
-            if order_was_cancelled:
-                await update_order_status(
-                    order_id,
-                    "PENDING",
-                    expected_statuses=("CANCELLED",),
-                    payment_method="bep20",
-                )
+            if payment_claim.get("previous_status") == "CANCELLED":
                 logger.info("Order #%d reactivated: BEP20 payment confirmed on-chain after timeout", order_id)
 
             product = await get_product(product_id)
@@ -2347,9 +2356,6 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
             
     is_on_chain = not is_off_chain
 
-    # Track if order was cancelled by timeout (we still verify on-chain)
-    order_was_cancelled = db_order.get("status") == "CANCELLED"
-
     try:
         await update.message.reply_text(t("verifying", lang))
 
@@ -2364,7 +2370,7 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return ConversationHandler.END
 
-        from database.models import record_used_trc20_transaction, get_setting
+        from database.models import get_setting
 
         trc20_address = await get_setting("trc20_address")
         if not trc20_address:
@@ -2395,7 +2401,24 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
             result = await verify_internal_transfer(tx_hash_clean, expected_amount, api_key=api_key, api_secret=api_secret, lang=lang)
 
         if result.get("verified"):
-            if not await record_used_trc20_transaction(tx_hash_clean, order_id, update.effective_user.id, expected_amount):
+            payment_claim = await claim_trc20_order_payment(
+                tx_hash_clean,
+                order_id,
+                update.effective_user.id,
+                expected_amount,
+            )
+            if not payment_claim.get("claimed"):
+                if payment_claim.get("reason") in ("already_claimed", "order_not_payable"):
+                    logger.info(
+                        "Duplicate TRC20 verification ignored for order %d transaction %s",
+                        order_id,
+                        tx_hash_clean,
+                    )
+                    await update.message.reply_text(
+                        t("payment_processing", lang),
+                        reply_markup=main_menu_keyboard(lang),
+                    )
+                    return ConversationHandler.END
                 logger.warning("REPLAY ATTACK BLOCKED (TRC20 DB): User %s reuse tx %s order %d",
                                update.effective_user.id, tx_hash_clean, order_id)
                 await update.message.reply_text(t("tx_already_used", lang), reply_markup=main_menu_keyboard(lang))
@@ -2405,13 +2428,7 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
             if task and not task.done():
                 task.cancel()
 
-            if order_was_cancelled:
-                await update_order_status(
-                    order_id,
-                    "PENDING",
-                    expected_statuses=("CANCELLED",),
-                    payment_method="trc20",
-                )
+            if payment_claim.get("previous_status") == "CANCELLED":
                 logger.info("Order #%d reactivated: TRC20 payment confirmed on-chain after timeout", order_id)
 
             product = await get_product(product_id)
@@ -2456,7 +2473,7 @@ async def receive_trc20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
             try:
                 from bot import notify_admins
                 product = await get_product(product_id)
-                pname = product["name"] if product else "?"
+                pname = escape_html(product["name"] if product else "?")
                 await notify_admins(
                     f"💸 <b>TRC20 Sale!</b>\n"
                     f"👤 {escape_html(update.effective_user.first_name)}\n"

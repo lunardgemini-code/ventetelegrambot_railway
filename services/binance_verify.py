@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -31,6 +32,36 @@ PAY_MIN_SPLIT_WINDOW_MS = 5 * 60 * 1000
 PAY_API_LIMIT = 100
 PAY_MAX_API_REQUESTS = 24
 _HTTP_CLIENT: httpx.AsyncClient | None = None
+_VERIFY_MISS_TTL_SECONDS = 5.0
+_VERIFY_HIT_TTL_SECONDS = 300.0
+_VERIFY_CACHE_MAX = 512
+_VERIFY_CACHE: dict[str, tuple[float, dict]] = {}
+_VERIFY_TASKS: dict[str, tuple[object, asyncio.Task]] = {}
+
+
+def _verification_key(
+    client_order_id: str,
+    expected_amount: float,
+    api_key: str,
+) -> str:
+    account = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16]
+    return f"{account}:{str(client_order_id).strip().upper()}:{float(expected_amount):.8f}"
+
+
+def _prune_verification_cache(now: float) -> None:
+    expired = [key for key, (expires_at, _) in _VERIFY_CACHE.items() if expires_at <= now]
+    for key in expired:
+        _VERIFY_CACHE.pop(key, None)
+    if len(_VERIFY_CACHE) > _VERIFY_CACHE_MAX:
+        for key, _ in sorted(_VERIFY_CACHE.items(), key=lambda item: item[1][0])[
+            : len(_VERIFY_CACHE) - _VERIFY_CACHE_MAX
+        ]:
+            _VERIFY_CACHE.pop(key, None)
+
+
+def reset_binance_verification_cache() -> None:
+    _VERIFY_CACHE.clear()
+    _VERIFY_TASKS.clear()
 
 
 async def _get_http_client() -> httpx.AsyncClient:
@@ -132,7 +163,7 @@ async def _fetch_pay_transactions(
     return list(data.get("data") or []), None
 
 
-async def verify_payment(
+async def _verify_payment_uncached(
     client_order_id: str,
     expected_amount: float,
     api_key: str | None = None,
@@ -205,7 +236,9 @@ async def verify_payment(
             request_count,
             transaction_count,
         )
+        result["_cacheable_miss"] = True
         return result
+
 
     except (httpx.TimeoutException, TimeoutError):
         result["error"] = {"en": "Timeout connecting to Binance API.", "ar": "انتهت مهلة الاتصال بـ Binance API."}.get(lang, "Délai d'attente dépassé lors de la connexion à l'API Binance.")
@@ -219,6 +252,68 @@ async def verify_payment(
         result["error"] = f"Erreur inattendue lors de la vérification : {exc}"
         logger.exception(result["error"])
         return result
+
+async def verify_payment(
+    client_order_id: str,
+    expected_amount: float,
+    api_key: str | None = None,
+    api_secret: str | None = None,
+    lang: str = "fr",
+) -> dict:
+    """Share identical checks and briefly cache definitive Binance misses."""
+    key_to_use = api_key if api_key else BINANCE_API_KEY
+    secret_to_use = api_secret if api_secret else BINANCE_API_SECRET
+    if not key_to_use or not secret_to_use:
+        return await _verify_payment_uncached(
+            client_order_id,
+            expected_amount,
+            api_key=api_key,
+            api_secret=api_secret,
+            lang=lang,
+        )
+
+    cache_key = _verification_key(client_order_id, expected_amount, key_to_use)
+    now = time.monotonic()
+    _prune_verification_cache(now)
+    cached = _VERIFY_CACHE.get(cache_key)
+    if cached and cached[0] > now:
+        return dict(cached[1])
+
+    loop = asyncio.get_running_loop()
+    current = _VERIFY_TASKS.get(cache_key)
+    if current is None or current[0] is not loop or current[1].done():
+        task = asyncio.create_task(
+            _verify_payment_uncached(
+                client_order_id,
+                expected_amount,
+                api_key=api_key,
+                api_secret=api_secret,
+                lang=lang,
+            )
+        )
+        _VERIFY_TASKS[cache_key] = (loop, task)
+    else:
+        task = current[1]
+
+    try:
+        raw_result = await asyncio.shield(task)
+    finally:
+        registered = _VERIFY_TASKS.get(cache_key)
+        if registered and registered[1] is task and task.done():
+            _VERIFY_TASKS.pop(cache_key, None)
+
+    result = dict(raw_result)
+    cacheable_miss = bool(result.pop("_cacheable_miss", False))
+    if result.get("verified"):
+        ttl = _VERIFY_HIT_TTL_SECONDS
+    elif cacheable_miss:
+        ttl = _VERIFY_MISS_TTL_SECONDS
+    else:
+        ttl = 0
+    if ttl:
+        _VERIFY_CACHE[cache_key] = (time.monotonic() + ttl, dict(result))
+    return result
+
 
 async def verify_internal_transfer(
     client_tx_id: str,

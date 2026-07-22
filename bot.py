@@ -11,6 +11,7 @@ warnings.filterwarnings("ignore", category=PTBUserWarning)
 
 import hmac
 import hashlib
+import base64
 import asyncio
 import json
 import logging
@@ -34,7 +35,6 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 import uvicorn
-import httpx
 import time
 
 # `python bot.py` loads this module as `__main__`. Keep internal imports such as
@@ -74,7 +74,6 @@ from handlers.game import (
 )
 from handlers.payment import (
     get_payment_conversation_handler,
-    initiate_purchase,
     download_txt_delivery,
     receive_activation_identifier,
     restore_nowpayments_timeout_tasks,
@@ -216,10 +215,69 @@ async def configure_dashboard_cache(request: Request, call_next):
         response.headers["Cache-Control"] = "public, max-age=3600, stale-while-revalidate=86400"
     return response
 
+
+_DASHBOARD_CONTENT_SECURITY_POLICY = "; ".join((
+    "default-src 'self'",
+    "script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com",
+    "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
+    "font-src 'self' data: https://cdnjs.cloudflare.com",
+    "img-src 'self' data: blob: https:",
+    "connect-src 'self' https:",
+    "worker-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+))
+
+
+@api.middleware("http")
+async def add_browser_security_headers(request: Request, call_next):
+    """Harden browser responses without changing cross-origin API policy."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = (
+        "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    )
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    if request.url.path.startswith("/dashboard"):
+        response.headers["Content-Security-Policy"] = _DASHBOARD_CONTENT_SECURITY_POLICY
+    return response
+
 ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "")
 if not ADMIN_API_KEY:
     ADMIN_API_KEY = secrets.token_urlsafe(32)
     logger.critical("⚠️ ADMIN_API_KEY not set! Generated temporary key. Set ADMIN_API_KEY env var in production! (Key starts with %s)", ADMIN_API_KEY[:4])
+
+ADMIN_SESSION_COOKIE = "__Host-ventebot_admin_session"
+ADMIN_SESSION_SECRET = (
+    os.environ.get("ADMIN_SESSION_SECRET", "").strip() or ADMIN_API_KEY
+)
+
+
+def _new_admin_session_token() -> str:
+    payload = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii").rstrip("=")
+    signature = hmac.new(
+        ADMIN_SESSION_SECRET.encode("utf-8"),
+        payload.encode("ascii"),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"{payload}.{signature}"
+
+
+def _valid_admin_session_token(token: str) -> bool:
+    try:
+        payload, supplied_signature = str(token or "").rsplit(".", 1)
+    except ValueError:
+        return False
+    expected_signature = hmac.new(
+        ADMIN_SESSION_SECRET.encode("utf-8"),
+        payload.encode("ascii"),
+        hashlib.sha256,
+    ).hexdigest()
+    return bool(payload) and hmac.compare_digest(supplied_signature, expected_signature)
 
 
 def _clear_api_stats_cache() -> None:
@@ -240,6 +298,7 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+ADMIN_SESSION_MAX_AGE = _env_int("ADMIN_SESSION_MAX_AGE", 10 * 365 * 24 * 60 * 60)
 RESELLER_API_RATE_LIMIT = _env_int("RESELLER_API_RATE_LIMIT", 60)
 RESELLER_API_RATE_WINDOW = _env_int("RESELLER_API_RATE_WINDOW", 60)
 RESELLER_CATALOG_CACHE_SECONDS = _env_int("RESELLER_CATALOG_CACHE_SECONDS", 15)
@@ -252,6 +311,9 @@ _reseller_catalog_lock: asyncio.Lock | None = None
 _reseller_catalog_lock_loop = None
 _reseller_deposit_refresh_at: dict[str, float] = {}
 _reseller_deposit_refresh_locks: dict[str, asyncio.Lock] = {}
+_reseller_deposit_refresh_last_cleanup = 0.0
+_RESELLER_DEPOSIT_REFRESH_TTL_SECONDS = 15 * 60
+_RESELLER_DEPOSIT_REFRESH_MAX_ENTRIES = 2048
 
 
 def _get_reseller_catalog_lock() -> asyncio.Lock:
@@ -264,12 +326,43 @@ def _get_reseller_catalog_lock() -> asyncio.Lock:
 
 
 def _get_reseller_deposit_refresh_lock(deposit_id: str) -> asyncio.Lock:
+    _cleanup_reseller_deposit_refresh_state()
     key = str(deposit_id)
     lock = _reseller_deposit_refresh_locks.get(key)
     if lock is None:
         lock = asyncio.Lock()
         _reseller_deposit_refresh_locks[key] = lock
     return lock
+
+
+def _cleanup_reseller_deposit_refresh_state(*, force: bool = False) -> None:
+    global _reseller_deposit_refresh_last_cleanup
+    now = time.monotonic()
+    if not force and now - _reseller_deposit_refresh_last_cleanup < 60:
+        return
+    _reseller_deposit_refresh_last_cleanup = now
+    expired = []
+    for key, refreshed_at in _reseller_deposit_refresh_at.items():
+        lock = _reseller_deposit_refresh_locks.get(key)
+        if (
+            now - refreshed_at >= _RESELLER_DEPOSIT_REFRESH_TTL_SECONDS
+            and (lock is None or not lock.locked())
+        ):
+            expired.append(key)
+    for key in expired:
+        _reseller_deposit_refresh_at.pop(key, None)
+        _reseller_deposit_refresh_locks.pop(key, None)
+    if len(_reseller_deposit_refresh_at) > _RESELLER_DEPOSIT_REFRESH_MAX_ENTRIES:
+        overflow = len(_reseller_deposit_refresh_at) - _RESELLER_DEPOSIT_REFRESH_MAX_ENTRIES
+        oldest = sorted(
+            _reseller_deposit_refresh_at,
+            key=_reseller_deposit_refresh_at.get,
+        )[:overflow]
+        for key in oldest:
+            lock = _reseller_deposit_refresh_locks.get(key)
+            if lock is None or not lock.locked():
+                _reseller_deposit_refresh_at.pop(key, None)
+                _reseller_deposit_refresh_locks.pop(key, None)
 
 
 def _is_reseller_api_path(path: str) -> bool:
@@ -387,14 +480,116 @@ async def api_validation_exception_handler(request: Request, exc: RequestValidat
     return await request_validation_exception_handler(request, exc)
 
 
-async def verify_api_key(x_api_key: str = Header(None)):
-    """Check the admin X-API-Key header using constant-time comparison."""
-    if not x_api_key or not hmac.compare_digest(x_api_key, ADMIN_API_KEY):
+async def verify_api_key(request: Request, x_api_key: str = Header(None)):
+    """Authenticate dashboard/API calls with a header or signed HttpOnly session."""
+    header_valid = bool(x_api_key) and hmac.compare_digest(x_api_key, ADMIN_API_KEY)
+    session_valid = _valid_admin_session_token(
+        request.cookies.get(ADMIN_SESSION_COOKIE, "")
+    )
+    if not header_valid and not session_valid:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API Key"
         )
-    return x_api_key
+    return "api_key" if header_valid else "session"
+
+
+@api.post("/api/admin/session")
+async def create_admin_session(
+    request: Request,
+    response: Response,
+    x_api_key: str = Header(None),
+):
+    """Exchange the admin key for a same-origin, script-inaccessible session."""
+    if not x_api_key or not hmac.compare_digest(x_api_key, ADMIN_API_KEY):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API Key",
+        )
+    response.set_cookie(
+        key=ADMIN_SESSION_COOKIE,
+        value=_new_admin_session_token(),
+        max_age=ADMIN_SESSION_MAX_AGE,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return {"ok": True, "auth": "session"}
+
+
+@api.get("/api/admin/session", dependencies=[Depends(verify_api_key)])
+async def get_admin_session(response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    return {"ok": True, "authenticated": True}
+
+
+@api.delete("/api/admin/session")
+async def delete_admin_session(response: Response):
+    response.delete_cookie(
+        key=ADMIN_SESSION_COOKIE,
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="lax",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return {"ok": True}
+
+
+def _should_audit_admin_request(request: Request) -> bool:
+    path = request.url.path
+    return (
+        request.method.upper() in {"POST", "PUT", "PATCH", "DELETE"}
+        and path.startswith("/api/")
+        and not path.startswith("/api/reseller/")
+        and path != "/api/admin/session"
+    )
+
+
+@api.middleware("http")
+async def queue_admin_mutation_audit(request: Request, call_next):
+    if not _should_audit_admin_request(request):
+        return await call_next(request)
+
+    started_at = time.monotonic()
+    response_status = 500
+    try:
+        response = await call_next(request)
+        response_status = int(response.status_code)
+        return response
+    finally:
+        try:
+            header = request.headers.get("X-API-Key", "")
+            cookie = request.cookies.get(ADMIN_SESSION_COOKIE, "")
+            auth_kind = (
+                "api_key"
+                if header and hmac.compare_digest(header, ADMIN_API_KEY)
+                else "session"
+                if _valid_admin_session_token(cookie)
+                else "unauthenticated"
+            )
+            source = request.headers.get("x-forwarded-for", "")
+            if not source and request.client:
+                source = request.client.host or ""
+            source_hash = hashlib.sha256(
+                f"{ADMIN_SESSION_SECRET}:{source}".encode("utf-8")
+            ).hexdigest()[:24]
+            from services.admin_audit import enqueue_admin_audit_event
+
+            enqueue_admin_audit_event(
+                {
+                    "method": request.method.upper(),
+                    "path": request.url.path,
+                    "status_code": response_status,
+                    "duration_ms": (time.monotonic() - started_at) * 1000,
+                    "auth_kind": auth_kind,
+                    "source_hash": source_hash,
+                }
+            )
+        except Exception as exc:
+            logger.warning("Could not queue admin audit event: %s", exc)
 
 
 async def verify_reseller_key(
@@ -482,7 +677,7 @@ class ResellerActivationIdentifierRequest(BaseModel):
 
 
 class ResellerDepositRequest(BaseModel):
-    amount_usd: float = Field(..., ge=0.01, le=10000)
+    amount_usd: float = Field(..., ge=0.01, le=10000, allow_inf_nan=False)
     network: str = Field("BEP20", min_length=3, max_length=20)
     idempotency_key: str = Field(..., min_length=1, max_length=120)
     reference: str = Field("", max_length=120)
@@ -497,7 +692,7 @@ class ResellerSecurityRequest(BaseModel):
 
 class ResellerSpecialPriceRequest(BaseModel):
     product_id: int = Field(..., gt=0)
-    price_usd: float = Field(..., gt=0, le=1_000_000)
+    price_usd: float = Field(..., gt=0, le=1_000_000, allow_inf_nan=False)
     is_active: bool = True
     enforce_cost_floor: bool = True
     apply_to_telegram: bool = True
@@ -579,7 +774,7 @@ async def _apply_reseller_security_update(
 
 
 class FinanceAdjustRequest(BaseModel):
-    amount: float
+    amount: float = Field(..., allow_inf_nan=False)
     method: str = Field(..., min_length=1, max_length=40)
 
 
@@ -2566,8 +2761,12 @@ async def api_reseller_submit_activation(order_id: int, data: ResellerActivation
                 f"Produit: {escape_html(order.get('product_name') or str(order.get('product_id')))} x{order.get('quantity', 1)}\n"
                 f"Identifiant: <code>{escape_html(identifier)}</code>"
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Could not notify admins about reseller activation order %s: %s",
+                order_id,
+                exc,
+            )
         updated = await get_reseller_order(reseller["user_telegram_id"], order_id)
         return _reseller_success(status="ok", order=_api_order_payload(updated))
     except HTTPException:
@@ -2662,6 +2861,10 @@ async def _refresh_reseller_deposit(deposit: dict) -> tuple[dict, bool]:
 
     public = public_reseller_deposit(deposit) or {}
     if not payment_id or public.get("status") in terminal:
+        _reseller_deposit_refresh_at.pop(public_id, None)
+        lock = _reseller_deposit_refresh_locks.get(public_id)
+        if lock is None or not lock.locked():
+            _reseller_deposit_refresh_locks.pop(public_id, None)
         return deposit, False
     now = time.monotonic()
     if now - _reseller_deposit_refresh_at.get(public_id, 0.0) < 10:
@@ -2902,14 +3105,14 @@ async def api_get_finance(method: str = None):
         if method and method != "all":
             # Get balance for specific method
             balance_str = await get_setting(f"finance_bot_balance_{method}")
-            balance = float(balance_str) if balance_str else 0.0
+            balance = _finite_float(balance_str, "stored balance") if balance_str else 0.0
         else:
             # Sum all balances
             methods = ["binance", "bep20", "trc20", "wallet"]
             for m in methods:
                 b_str = await get_setting(f"finance_bot_balance_{m}")
                 if b_str:
-                    balance += float(b_str)
+                    balance += _finite_float(b_str, "stored balance")
         
         return {
             "daily_revenue": stats_1.get("total_revenue", 0),
@@ -2931,7 +3134,7 @@ async def api_get_finance(method: str = None):
 async def api_adjust_finance(data: FinanceAdjustRequest):
     from database.models import get_setting, set_setting
     try:
-        amount = float(data.amount)
+        amount = _finite_float(data.amount, "amount")
         method = data.method.strip().lower()
         
         if not method or method == "all":
@@ -2939,9 +3142,9 @@ async def api_adjust_finance(data: FinanceAdjustRequest):
             
         setting_key = f"finance_bot_balance_{method}"
         balance_str = await get_setting(setting_key)
-        balance = float(balance_str) if balance_str else 0.0
+        balance = _finite_float(balance_str, "stored balance") if balance_str else 0.0
         
-        new_balance = balance + amount
+        new_balance = round(balance + amount, 4)
         if new_balance < 0:
             new_balance = 0.0
             
@@ -2953,6 +3156,40 @@ async def api_adjust_finance(data: FinanceAdjustRequest):
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/api/finance/reconciliation", dependencies=[Depends(verify_api_key)])
+async def api_get_financial_reconciliation():
+    from services.reconciliation import get_latest_financial_reconciliation
+
+    try:
+        report = await get_latest_financial_reconciliation()
+        return {"available": report is not None, "report": report}
+    except Exception as exc:
+        logger.error("API reconciliation read error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Could not load reconciliation report")
+
+
+@api.post("/api/finance/reconciliation/run", dependencies=[Depends(verify_api_key)])
+async def api_run_financial_reconciliation():
+    from services.reconciliation import run_financial_reconciliation
+
+    try:
+        return await run_financial_reconciliation()
+    except Exception as exc:
+        logger.error("API reconciliation run error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Financial reconciliation failed")
+
+
+@api.get("/api/audit", dependencies=[Depends(verify_api_key)])
+async def api_get_admin_audit(limit: int = 100, offset: int = 0):
+    from database.audit import list_admin_audit_events
+
+    try:
+        return await list_admin_audit_events(limit=limit, offset=offset)
+    except Exception as exc:
+        logger.error("API admin audit read error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Could not load admin audit")
 
 
 @api.get("/api/stats", dependencies=[Depends(verify_api_key)])
@@ -3057,6 +3294,22 @@ def _as_bool(value) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _finite_float(value, field_name: str) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{field_name} must be a valid number",
+        ) from exc
+    if not math.isfinite(parsed):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{field_name} must be a finite number",
+        )
+    return parsed
+
+
 def _validated_dynamic_pricing_updates(data: dict, current_price: float, existing: dict | None = None) -> dict:
     if not any(field in data for field in _DYNAMIC_PRICING_FIELDS):
         return {}
@@ -3065,15 +3318,16 @@ def _validated_dynamic_pricing_updates(data: dict, current_price: float, existin
     if not enabled:
         return {"dynamic_pricing_enabled": 0}
 
+    current_price = _finite_float(current_price, "Current price")
     try:
-        min_price = float(data.get("dynamic_min_price", existing.get("dynamic_min_price") or current_price * 0.8))
-        max_price = float(data.get("dynamic_max_price", existing.get("dynamic_max_price") or current_price * 1.2))
-        target = float(data.get("dynamic_target_daily_sales", existing.get("dynamic_target_daily_sales") or 1.0))
-        max_change = float(data.get("dynamic_max_change_pct", existing.get("dynamic_max_change_pct") or 5.0))
+        min_price = _finite_float(data.get("dynamic_min_price", existing.get("dynamic_min_price") or current_price * 0.8), "Dynamic minimum price")
+        max_price = _finite_float(data.get("dynamic_max_price", existing.get("dynamic_max_price") or current_price * 1.2), "Dynamic maximum price")
+        target = _finite_float(data.get("dynamic_target_daily_sales", existing.get("dynamic_target_daily_sales") or 1.0), "Target daily sales")
+        max_change = _finite_float(data.get("dynamic_max_change_pct", existing.get("dynamic_max_change_pct") or 5.0), "Maximum dynamic variation")
         cooldown = int(data.get("dynamic_cooldown_hours", existing.get("dynamic_cooldown_hours") or 6))
-        daily_cap = float(data.get("dynamic_daily_cap_pct", existing.get("dynamic_daily_cap_pct") or 10.0))
-        weekly_cap = float(data.get("dynamic_weekly_cap_pct", existing.get("dynamic_weekly_cap_pct") or 25.0))
-        min_confidence = float(data.get("dynamic_min_confidence", existing.get("dynamic_min_confidence") or 0.30))
+        daily_cap = _finite_float(data.get("dynamic_daily_cap_pct", existing.get("dynamic_daily_cap_pct") or 10.0), "Daily dynamic cap")
+        weekly_cap = _finite_float(data.get("dynamic_weekly_cap_pct", existing.get("dynamic_weekly_cap_pct") or 25.0), "Weekly dynamic cap")
+        min_confidence = _finite_float(data.get("dynamic_min_confidence", existing.get("dynamic_min_confidence") or 0.30), "Minimum confidence")
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Dynamic pricing values must be valid numbers")
 
@@ -3100,7 +3354,10 @@ def _validated_dynamic_pricing_updates(data: dict, current_price: float, existin
     if sensitivity not in {"cautious", "normal", "aggressive"}:
         raise HTTPException(status_code=400, detail="Invalid dynamic pricing sensitivity")
 
-    base_price = float(existing.get("dynamic_base_price") or current_price)
+    base_price = _finite_float(
+        existing.get("dynamic_base_price") or current_price,
+        "Dynamic base price",
+    )
     return {
         "dynamic_pricing_enabled": 1,
         "dynamic_pricing_mode": mode,
@@ -3130,7 +3387,7 @@ async def api_create_product(data: dict):
         else:
             cat_id = cats[0]["id"]
 
-        price = float(data["price_usd"])
+        price = _finite_float(data["price_usd"], "Price")
         if price <= 0:
             raise HTTPException(status_code=400, detail="Price must be positive")
         warranty = int(data.get("warranty_days", 0))
@@ -3199,6 +3456,8 @@ async def api_set_product_tiers(product_id: int, data: dict):
         await set_price_tiers(product_id, tiers)
         _clear_api_stats_cache()
         return {"status": "updated", "count": len(tiers)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -3249,7 +3508,10 @@ async def api_update_product(product_id: int, data: dict):
 
             supplier_mapping = await get_supplier_mapping_by_local_product(product_id)
             updates["delivery_type"] = "supplier_api"
-        updated_price = float(updates.get("price_usd", product["price_usd"]))
+        updated_price = _finite_float(
+            updates.get("price_usd", product["price_usd"]),
+            "Price",
+        )
         if updated_price <= 0:
             raise HTTPException(status_code=400, detail="Price must be positive")
         dynamic_updates = _validated_dynamic_pricing_updates(data, updated_price, existing=product)
@@ -3429,8 +3691,6 @@ async def api_toggle_product_active(product_id: int):
 
 @api.post("/api/translate", dependencies=[Depends(verify_api_key)])
 async def api_translate(data: dict):
-    import os
-    import json
     import httpx
     
     text = data.get("text")
@@ -3441,7 +3701,6 @@ async def api_translate(data: dict):
     if not api_key:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY non configurée")
         
-    models_to_try = ["gemini-3.5-flash", "gemini-3.1-flash"]
     prompt = (
         "Detect the source language and translate the following product description into English, French, Arabic, Chinese, Vietnamese, and Russian. "
         "Return a valid JSON object with the exact keys: 'en', 'fr', 'ar', 'zh', 'vi', 'ru'. "
@@ -3457,7 +3716,7 @@ async def api_translate(data: dict):
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent",
+                "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent",
                 json=payload,
                 headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
             )
@@ -3518,7 +3777,7 @@ async def api_translate(data: dict):
         raise HTTPException(status_code=500, detail="Erreur de traduction")
 
 
-@api.get("/api/fix-db", dependencies=[Depends(verify_api_key)])
+@api.post("/api/fix-db", dependencies=[Depends(verify_api_key)])
 async def api_fix_db():
     from database.db import get_db
     db = await get_db()
@@ -3529,20 +3788,24 @@ async def api_fix_db():
         "activation_message_vi", "activation_message_ru", "confirmation_message", "confirmation_message_fr",
         "confirmation_message_ar", "confirmation_message_zh", "confirmation_message_vi", "confirmation_message_ru",
     ]
-    for col in cols:
-        try:
-            await db.execute(f"ALTER TABLE products ADD COLUMN {col} TEXT DEFAULT ''")
-            await db.commit()
-            results.append(f"Added {col}")
-        except Exception as e:
-            results.append(f"Skipped {col}: already exists")
     try:
+        existing_rows = await (await db.execute("PRAGMA table_info(products)")).fetchall()
+        existing = {str(row["name"]) for row in existing_rows}
+        for col in cols:
+            if col in existing:
+                results.append(f"Skipped {col}: already exists")
+                continue
+            await db.execute(f"ALTER TABLE products ADD COLUMN {col} TEXT DEFAULT ''")
+            results.append(f"Added {col}")
+        await db.commit()
+        return {"status": "done", "results": results}
+    except Exception as exc:
+        logger.error("Database repair failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Database repair failed")
+    finally:
         await db.close()
-    except Exception:
-        pass
-    return {"status": "done", "results": results}
 
-@api.get("/api/recalculate-stats", dependencies=[Depends(verify_api_key)])
+@api.post("/api/recalculate-stats", dependencies=[Depends(verify_api_key)])
 async def api_recalculate_stats():
     from database.db import get_db
     db = await get_db()
@@ -3565,8 +3828,12 @@ async def api_recalculate_stats():
         """)
         await db.commit()
         return {"status": "success", "message": "Statistiques recalculées avec succès"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    except Exception as exc:
+        logger.exception("User statistics recalculation failed: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail="Statistics recalculation failed",
+        ) from exc
     finally:
         await db.close()
 
@@ -3815,7 +4082,6 @@ async def api_reply_ticket(ticket_id: int, data: TicketReplyRequest):
         try:
             from utils.locales import t
             user_lang = await get_user_lang(ticket["user_telegram_id"])
-            global tg_app
             if tg_app:
                 await tg_app.bot.send_message(
                     chat_id=ticket["user_telegram_id"],
@@ -4077,6 +4343,22 @@ async def api_cleanup_stale_orders():
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get("/api/orders/{order_id}/timeline", dependencies=[Depends(verify_api_key)])
+async def api_get_order_timeline(order_id: int):
+    from database.audit import get_order_timeline
+
+    try:
+        timeline = await get_order_timeline(order_id)
+        if not timeline:
+            raise HTTPException(status_code=404, detail="Order not found")
+        return timeline
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("API order timeline error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Could not load order timeline")
 
 
 @api.get("/api/stats/daily", dependencies=[Depends(verify_api_key)])
@@ -4555,7 +4837,6 @@ async def api_ban_user(telegram_id: int, notify: bool = False):
             }
             text = ban_msg.get(lang, ban_msg["fr"])
             
-            global tg_app
             if tg_app and tg_app.bot:
                 try:
                     await tg_app.bot.send_message(chat_id=telegram_id, text=text, parse_mode="HTML")
@@ -4583,7 +4864,7 @@ async def api_unban_user(telegram_id: int):
 async def api_wallet_topup(telegram_id: int, data: dict):
     from database.models import topup_wallet
     try:
-        amount = float(data.get("amount", 0))
+        amount = _finite_float(data.get("amount", 0), "Amount")
         if amount <= 0:
             raise HTTPException(status_code=400, detail="Amount must be > 0")
         new_balance = await topup_wallet(telegram_id, amount, "Admin credit")
@@ -4600,7 +4881,7 @@ async def api_wallet_topup(telegram_id: int, data: dict):
 async def api_wallet_deduct(telegram_id: int, data: dict):
     from database.models import deduct_wallet
     try:
-        amount = float(data.get("amount", 0))
+        amount = _finite_float(data.get("amount", 0), "Amount")
         if amount <= 0:
             raise HTTPException(status_code=400, detail="Amount must be > 0")
         new_balance = await deduct_wallet(telegram_id, amount, "Admin debit")
@@ -4699,6 +4980,9 @@ _webhook_active_keys: set[str] = set()
 _webhook_active_dedupe_signatures: set[tuple[str, str]] = set()
 _webhook_dedupe_by_update: dict[int, tuple[str, str]] = {}
 _webhook_recent_start_signatures: dict[tuple[str, str], float] = {}
+_webhook_active_update_ids: set[int] = set()
+_webhook_recent_update_ids: dict[int, float] = {}
+_webhook_update_id_by_object: dict[int, int] = {}
 _WEBHOOK_START_DEBOUNCE_SECONDS = 2.0
 _webhook_action_samples = deque(maxlen=10000)
 _webhook_active_workers = 0
@@ -4835,6 +5119,11 @@ def _release_webhook_dedupe(update: Update, *, completed: bool = True) -> None:
         _webhook_active_dedupe_signatures.discard(signature)
         if completed and signature[1].lower().startswith("/start"):
             _webhook_recent_start_signatures[signature] = time.monotonic()
+    update_id = _webhook_update_id_by_object.pop(id(update), None)
+    if update_id is not None:
+        _webhook_active_update_ids.discard(update_id)
+        if completed:
+            _webhook_recent_update_ids[update_id] = time.monotonic()
 
 
 def _current_webhook_backlog() -> int:
@@ -5280,6 +5569,26 @@ async def post_init(application: Application) -> None:
         )
         logger.info("Persistent background job worker started")
 
+    task = application.bot_data.get("admin_audit_task")
+    if not task or task.done():
+        from services.admin_audit import admin_audit_worker
+
+        application.bot_data["admin_audit_task"] = asyncio.create_task(
+            admin_audit_worker(),
+            name="admin-audit-worker",
+        )
+        logger.info("Bounded admin audit worker started")
+
+    task = application.bot_data.get("financial_reconciliation_task")
+    if not task or task.done():
+        from services.reconciliation import financial_reconciliation_worker
+
+        application.bot_data["financial_reconciliation_task"] = asyncio.create_task(
+            financial_reconciliation_worker(_webhook_performance_snapshot),
+            name="financial-reconciliation",
+        )
+        logger.info("Adaptive daily financial reconciliation worker started")
+
     task = application.bot_data.get("performance_history_task")
     if not task or task.done():
         try:
@@ -5365,6 +5674,8 @@ async def post_shutdown(application: Application) -> None:
         application.bot_data.pop("nowpayments_task", None),
         application.bot_data.pop("stale_order_task", None),
         application.bot_data.pop("background_job_task", None),
+        application.bot_data.pop("admin_audit_task", None),
+        application.bot_data.pop("financial_reconciliation_task", None),
         application.bot_data.pop("performance_history_task", None),
         application.bot_data.pop("game_sync_task", None),
         application.bot_data.pop("supplier_catalog_sync_task", None),
@@ -5396,19 +5707,52 @@ async def post_shutdown(application: Application) -> None:
 
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
 DROP_PENDING_UPDATES = _env_bool("DROP_PENDING_UPDATES", False)
+WEBHOOK_MAX_BODY_BYTES = _env_int("WEBHOOK_MAX_BODY_BYTES", 256 * 1024, minimum=1024)
+WEBHOOK_UPDATE_DEDUPE_SECONDS = _env_int(
+    "WEBHOOK_UPDATE_DEDUPE_SECONDS", 10 * 60, minimum=60
+)
+
+
+def _is_production_webhook(webhook_url: str) -> bool:
+    environment = (
+        os.environ.get("RAILWAY_ENVIRONMENT_NAME", "")
+        or os.environ.get("ENV", "")
+    ).strip().lower()
+    return bool(webhook_url) and environment not in {"dev", "development", "local", "test"}
+
+
+def _validate_runtime_security(webhook_url: str) -> None:
+    if not _is_production_webhook(webhook_url):
+        return
+    if len(WEBHOOK_SECRET) < 32:
+        raise RuntimeError(
+            "WEBHOOK_SECRET must be configured with at least 32 characters in production"
+        )
+    if not os.environ.get("ADMIN_API_KEY", "").strip():
+        raise RuntimeError("ADMIN_API_KEY must be configured in production")
+    if len(os.environ.get("ADMIN_SESSION_SECRET", "").strip()) < 32:
+        raise RuntimeError(
+            "ADMIN_SESSION_SECRET must be configured with at least 32 characters in production"
+        )
+    if len(os.environ.get("RESELLER_WEBHOOK_MASTER_SECRET", "").strip()) < 32:
+        raise RuntimeError(
+            "RESELLER_WEBHOOK_MASTER_SECRET must be configured with at least 32 characters in production"
+        )
+    from utils.secret_store import validate_secret_store_configuration
+    validate_secret_store_configuration()
 
 from starlette.requests import Request as StarletteRequest
 
 @api.post("/webhook")
 async def telegram_webhook(request: StarletteRequest):
     """Receive Telegram updates via webhook — zero polling, zero wasted CPU."""
+    update = None
+    update_enqueued = False
     try:
-        # Verify webhook secret if configured
-        if WEBHOOK_SECRET:
-            token = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-            if not hmac.compare_digest(token, WEBHOOK_SECRET):
-                logger.warning("⚠️ Webhook secret mismatch — rejecting update")
-                raise HTTPException(status_code=403, detail="Forbidden")
+        token = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if not WEBHOOK_SECRET or not hmac.compare_digest(token, WEBHOOK_SECRET):
+            logger.warning("Webhook secret mismatch; rejecting Telegram update")
+            raise HTTPException(status_code=403, detail="Forbidden")
 
         # The previous webhook remains active while Railway restarts a
         # container. Ask Telegram to retry until Application.initialize(),
@@ -5421,12 +5765,46 @@ async def telegram_webhook(request: StarletteRequest):
                 headers={"Retry-After": "2"},
             )
 
-        data = await request.json()
+        content_length = request.headers.get("content-length", "").strip()
+        if content_length:
+            try:
+                if int(content_length) > WEBHOOK_MAX_BODY_BYTES:
+                    raise HTTPException(status_code=413, detail="Webhook payload too large")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid Content-Length")
+        raw_body = await request.body()
+        if len(raw_body) > WEBHOOK_MAX_BODY_BYTES:
+            raise HTTPException(status_code=413, detail="Webhook payload too large")
+        try:
+            data = json.loads(raw_body)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise HTTPException(status_code=400, detail="Invalid Telegram update JSON")
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=400, detail="Invalid Telegram update")
         logger.debug("Webhook received update: %s", data.get("update_id", "?"))
         if tg_app:
             update = Update.de_json(data, tg_app.bot)
+            update_id = getattr(update, "update_id", None)
+            if isinstance(update_id, int):
+                now = time.monotonic()
+                recent_at = _webhook_recent_update_ids.get(update_id)
+                if (
+                    update_id in _webhook_active_update_ids
+                    or recent_at is not None
+                    and now - recent_at < WEBHOOK_UPDATE_DEDUPE_SECONDS
+                ):
+                    _webhook_deduplicated_times.append(now)
+                    return {"ok": True, "deduplicated": True}
+                if len(_webhook_recent_update_ids) > 5000:
+                    cutoff = now - WEBHOOK_UPDATE_DEDUPE_SECONDS
+                    for recent_id, completed_at in list(_webhook_recent_update_ids.items()):
+                        if completed_at < cutoff:
+                            _webhook_recent_update_ids.pop(recent_id, None)
+                _webhook_active_update_ids.add(update_id)
+                _webhook_update_id_by_object[id(update)] = update_id
             lock_key = _webhook_lock_key(update)
             if _webhook_queued_by_key[lock_key] >= WEBHOOK_USER_QUEUE_MAX:
+                _release_webhook_dedupe(update, completed=False)
                 _webhook_deduplicated_times.append(time.monotonic())
                 logger.info(
                     "Dropped webhook update for saturated per-user queue key=%s depth=%d",
@@ -5445,6 +5823,7 @@ async def telegram_webhook(request: StarletteRequest):
                         and now - recent_start < _WEBHOOK_START_DEBOUNCE_SECONDS
                     )
                 ):
+                    _release_webhook_dedupe(update, completed=False)
                     _webhook_deduplicated_times.append(time.monotonic())
                     return {"ok": True, "deduplicated": True}
                 if len(_webhook_recent_start_signatures) > 2000:
@@ -5457,6 +5836,7 @@ async def telegram_webhook(request: StarletteRequest):
             _webhook_enqueued_at[id(update)] = time.monotonic()
             try:
                 webhook_update_queue.put_nowait(update)
+                update_enqueued = True
                 _webhook_queued_by_key[lock_key] += 1
                 _record_webhook_queue_depth()
             except asyncio.QueueFull:
@@ -5473,10 +5853,16 @@ async def telegram_webhook(request: StarletteRequest):
                 )
         return {"ok": True}
     except HTTPException:
+        if update is not None and not update_enqueued:
+            _webhook_enqueued_at.pop(id(update), None)
+            _release_webhook_dedupe(update, completed=False)
         raise
     except Exception as exc:
+        if update is not None and not update_enqueued:
+            _webhook_enqueued_at.pop(id(update), None)
+            _release_webhook_dedupe(update, completed=False)
         logger.error("❌ Webhook error: %s", exc, exc_info=True)
-        return {"ok": False}
+        raise HTTPException(status_code=500, detail="Webhook processing failed")
 
 
 def _webhook_lock_key(update: Update) -> str:
@@ -5825,8 +6211,8 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
 
     try:
         await update.message.reply_text("\n".join(logs))
-    except Exception as exc:
-        await update.message.reply_text(f"❌ Completed with some errors, check logs.")
+    except Exception:
+        await update.message.reply_text("❌ Completed with some errors, check logs.")
 
 
 
@@ -5837,7 +6223,7 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
 
 def main() -> None:
     """Build the Application, register handlers, and start in webhook or polling mode."""
-    global tg_app, webhook_update_queue, webhook_worker_tasks, _service_ready
+    global tg_app, _service_ready
 
     _service_ready = False
 
@@ -5845,6 +6231,7 @@ def main() -> None:
     enable_fault_diagnostics()
 
     webhook_url = os.environ.get("WEBHOOK_URL", "").strip()
+    _validate_runtime_security(webhook_url)
 
     # In webhook mode, disable the built-in Updater (we handle updates via FastAPI)
     builder = Application.builder().token(BOT_TOKEN).connect_timeout(30.0).read_timeout(30.0).write_timeout(30.0).pool_timeout(30.0).post_init(post_init).post_shutdown(post_shutdown)
@@ -5896,8 +6283,21 @@ def main() -> None:
                 raise ApplicationHandlerStop()
         except ApplicationHandlerStop:
             raise
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Ban check failed closed for user %s: %s", user_id, exc)
+            try:
+                if update.callback_query:
+                    await update.callback_query.answer(
+                        "Service temporarily unavailable. Please retry.",
+                        show_alert=True,
+                    )
+                elif update.message:
+                    await update.message.reply_text(
+                        "Service temporarily unavailable. Please retry."
+                    )
+            except Exception:
+                pass
+            raise ApplicationHandlerStop()
 
         # Check if they clicked a referral link and store it in context.user_data
         if update.message and update.message.text:
@@ -5931,12 +6331,12 @@ def main() -> None:
                             is_subscribed = True
                             if context.user_data is not None:
                                 context.user_data["sub_verified_at"] = now
-                    except Exception as e:
-                        err_msg = str(e).lower()
-                        if "chat not found" in err_msg or "not enough rights" in err_msg or "admin" in err_msg:
-                            is_subscribed = True
-                            if context.user_data is not None:
-                                context.user_data["sub_verified_at"] = now
+                    except Exception as exc:
+                        logger.warning(
+                            "Subscription verification failed closed for user %s: %s",
+                            user_id,
+                            exc,
+                        )
 
                 if not is_subscribed:
                     lang = "fr"

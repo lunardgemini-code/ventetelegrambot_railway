@@ -173,7 +173,7 @@ class DatabaseResilienceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(connect.call_count, 1)
         self.assertIn("PRAGMA foreign_keys = ON", connection.statements)
-        self.assertIn("SELECT 1", connection.statements)
+        self.assertNotIn("SELECT 1", connection.statements)
         self.assertFalse(any("busy_timeout" in sql for sql in connection.statements))
         db_module._libsql_pool.clear()
         db_module._pool_lock = None
@@ -193,10 +193,11 @@ class DatabaseResilienceTests(unittest.IsolatedAsyncioTestCase):
             return func()
 
         with patch("database.db._run_turso_call", side_effect=run_call):
-            selected, created_at = await db_module._take_pooled_turso_connection()
+            selected, created_at, returned_at = await db_module._take_pooled_turso_connection()
 
         self.assertIsNone(selected)
         self.assertIsNone(created_at)
+        self.assertIsNone(returned_at)
         self.assertEqual(lock_states, [False])
         self.assertTrue(connection.closed)
 

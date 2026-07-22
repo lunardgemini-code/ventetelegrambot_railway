@@ -2,7 +2,7 @@ import os
 import tempfile
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 
@@ -16,6 +16,7 @@ from services.reseller_security import (
     canonical_webhook_body,
     ip_is_allowed,
     normalize_ip_allowlist,
+    resolve_webhook_target,
     sign_webhook_body,
     validate_webhook_url,
 )
@@ -197,6 +198,66 @@ class ResellerFundingTests(unittest.IsolatedAsyncioTestCase):
             await validate_webhook_url("https://127.0.0.1/webhook")
         with self.assertRaisesRegex(ValueError, "HTTPS"):
             await validate_webhook_url("http://example.com/webhook")
+
+    async def test_webhook_resolution_is_frozen_to_validated_public_addresses(self):
+        resolved = [
+            (2, 1, 6, "", ("93.184.216.34", 443)),
+            (2, 1, 6, "", ("93.184.216.35", 443)),
+        ]
+        with patch("services.reseller_security.socket.getaddrinfo", return_value=resolved):
+            target = await resolve_webhook_target(
+                "https://hooks.example.test/deposit?tenant=7"
+            )
+
+        self.assertEqual(target.hostname, "hooks.example.test")
+        self.assertEqual(target.request_target, "/deposit?tenant=7")
+        self.assertEqual(target.addresses, ("93.184.216.34", "93.184.216.35"))
+
+    async def test_webhook_target_rejects_credentials_and_encodes_spaces(self):
+        with self.assertRaisesRegex(ValueError, "credentials"):
+            await resolve_webhook_target("https://user:pass@example.com/hook")
+
+        resolved = [(2, 1, 6, "", ("93.184.216.34", 443))]
+        with patch("services.reseller_security.socket.getaddrinfo", return_value=resolved):
+            target = await resolve_webhook_target(
+                "https://hooks.example.test/order ready?name=Jane Doe"
+            )
+
+        self.assertEqual(target.request_target, "/order%20ready?name=Jane%20Doe")
+
+    async def test_webhook_delivery_connects_to_pinned_ip_with_original_sni(self):
+        from services.reseller_webhooks import _post_pinned_webhook
+
+        resolved = [(2, 1, 6, "", ("93.184.216.34", 443))]
+        with patch("services.reseller_security.socket.getaddrinfo", return_value=resolved):
+            target = await resolve_webhook_target("https://hooks.example.test/events")
+        reader = SimpleNamespace(
+            readuntil=AsyncMock(return_value=b"HTTP/1.1 204 No Content\r\n\r\n")
+        )
+        writer = SimpleNamespace(
+            write=Mock(),
+            drain=AsyncMock(),
+            close=Mock(),
+            wait_closed=AsyncMock(),
+        )
+        with patch(
+            "services.reseller_webhooks.asyncio.open_connection",
+            AsyncMock(return_value=(reader, writer)),
+        ) as open_connection:
+            status_code = await _post_pinned_webhook(
+                target,
+                b"{}",
+                {"Content-Type": "application/json"},
+            )
+
+        self.assertEqual(status_code, 204)
+        self.assertEqual(open_connection.await_args.args[:2], ("93.184.216.34", 443))
+        self.assertEqual(
+            open_connection.await_args.kwargs["server_hostname"],
+            "hooks.example.test",
+        )
+        sent = writer.write.call_args.args[0]
+        self.assertIn(b"Host: hooks.example.test\r\n", sent)
 
     async def test_security_settings_are_persisted_without_exposing_key_hash(self):
         updated = await models.update_reseller_api_security(

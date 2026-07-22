@@ -14,6 +14,7 @@ import httpx
 
 from config import CANBOSO_API_AUTH_HEADER, CANBOSO_API_BASE_URL, CANBOSO_API_KEY
 from services.runtime_metrics import DependencyCircuitOpen, dependency_call
+from utils.money import usd_float
 
 
 logger = logging.getLogger(__name__)
@@ -168,7 +169,7 @@ def normalize_products(payload: Any) -> list[dict]:
         if external_id is None or not name or price is None:
             continue
         try:
-            price_value = round(float(price), 4)
+            price_value = usd_float(price, places=4, allow_zero=False)
         except (TypeError, ValueError):
             continue
         stats = raw.get("stats") if isinstance(raw.get("stats"), dict) else {}

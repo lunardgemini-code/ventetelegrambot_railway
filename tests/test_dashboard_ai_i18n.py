@@ -52,7 +52,8 @@ class DashboardAiI18nTests(unittest.TestCase):
     def test_reseller_special_price_controls_are_wired_and_responsive(self):
         self.assertIn('id="reseller-special-prices-modal"', self.html)
         self.assertIn('id="reseller-special-prices-form"', self.html)
-        self.assertIn('openResellerSpecialPrices(${k.user_telegram_id})', self.app)
+        self.assertIn('data-action="reseller-special"', self.app)
+        self.assertIn("case 'reseller-special':", self.app)
         self.assertIn("/special-prices", self.app)
         self.assertIn('id="reseller-special-telegram"', self.html)
         self.assertIn('apply_to_telegram: DOM.resellerSpecialTelegram.checked', self.app)

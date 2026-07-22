@@ -58,6 +58,42 @@ class NowPaymentsTests(unittest.IsolatedAsyncioTestCase):
             second["payment_status"] = "waiting"
             self.assertFalse(nowpayments.verify_ipn_signature(second, signature))
 
+    async def test_non_finite_provider_amounts_are_rejected_before_io(self):
+        request = AsyncMock()
+        with patch.object(nowpayments, "_request", request):
+            with self.assertRaises(ValueError):
+                await nowpayments.create_payment(
+                    price_amount="NaN",
+                    order_id=self.order["id"],
+                    order_description="invalid",
+                    callback_url="https://example.test/ipn",
+                )
+        request.assert_not_awaited()
+
+        with self.assertRaises(ValueError):
+            await models.prepare_nowpayments_attempt(self.order["id"], "Infinity")
+
+        topup = await models.prepare_nowpayments_wallet_topup(2001, 2.0, 2.0)
+        with self.assertRaises(ValueError):
+            await models.attach_nowpayments_wallet_topup(
+                topup["request_key"],
+                {
+                    "payment_id": "invalid-wallet-amount",
+                    "payment_status": "waiting",
+                    "pay_amount": "NaN",
+                },
+            )
+
+        with self.assertRaises(ValueError):
+            await models.save_nowpayments_update(
+                {
+                    "payment_id": self.payment_id,
+                    "payment_status": "confirming",
+                    "order_id": str(self.order["id"]),
+                    "actually_paid": "Infinity",
+                }
+            )
+
     async def test_notification_claim_prevents_duplicate_messages(self):
         self.assertTrue(await models.claim_nowpayments_notification(self.payment_id))
         self.assertFalse(await models.claim_nowpayments_notification(self.payment_id))

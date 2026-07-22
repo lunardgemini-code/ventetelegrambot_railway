@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import asyncio
 import logging
+import ssl
 import time
 from datetime import datetime, timezone
-
-import httpx
 
 from database.jobs import create_background_job_once
 from database.models import (
@@ -18,32 +18,78 @@ from database.models import (
 from services.reseller_security import (
     canonical_webhook_body,
     derive_webhook_secret,
+    resolve_webhook_target,
     sign_webhook_body,
-    validate_webhook_url,
 )
 from services.runtime_metrics import dependency_call
 
 
 logger = logging.getLogger(__name__)
-_HTTP_CLIENT: httpx.AsyncClient | None = None
-
-
-async def _client() -> httpx.AsyncClient:
-    global _HTTP_CLIENT
-    if _HTTP_CLIENT is None or _HTTP_CLIENT.is_closed:
-        _HTTP_CLIENT = httpx.AsyncClient(
-            timeout=httpx.Timeout(10.0, connect=5.0),
-            follow_redirects=False,
-            headers={"User-Agent": "VenteBot-Reseller-Webhook/1.0"},
-        )
-    return _HTTP_CLIENT
-
-
 async def close_reseller_webhook_client() -> None:
-    global _HTTP_CLIENT
-    if _HTTP_CLIENT is not None and not _HTTP_CLIENT.is_closed:
-        await _HTTP_CLIENT.aclose()
-    _HTTP_CLIENT = None
+    return None
+
+
+async def _post_pinned_webhook(target, body: bytes, headers: dict[str, str]) -> int:
+    """POST to a validated IP while preserving TLS SNI and the HTTP Host."""
+    ssl_context = ssl.create_default_context()
+    safe_headers = {
+        str(name): str(value)
+        for name, value in headers.items()
+        if "\r" not in str(name) + str(value) and "\n" not in str(name) + str(value)
+    }
+    request_headers = {
+        "Host": target.authority,
+        "User-Agent": "VenteBot-Reseller-Webhook/1.0",
+        "Accept": "application/json",
+        "Connection": "close",
+        "Content-Length": str(len(body)),
+        **safe_headers,
+    }
+    request = (
+        f"POST {target.request_target} HTTP/1.1\r\n"
+        + "".join(f"{name}: {value}\r\n" for name, value in request_headers.items())
+        + "\r\n"
+    ).encode("ascii") + body
+
+    last_error: Exception | None = None
+    for address in target.addresses:
+        writer = None
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(
+                    address,
+                    target.port,
+                    ssl=ssl_context,
+                    server_hostname=target.hostname,
+                ),
+                timeout=5.0,
+            )
+            writer.write(request)
+            await asyncio.wait_for(writer.drain(), timeout=5.0)
+            response_head = await asyncio.wait_for(
+                reader.readuntil(b"\r\n\r\n"),
+                timeout=10.0,
+            )
+            status_line = response_head.split(b"\r\n", 1)[0].decode("ascii", "replace")
+            parts = status_line.split(" ", 2)
+            if len(parts) < 2 or not parts[1].isdigit():
+                raise RuntimeError("Reseller webhook returned an invalid HTTP response")
+            return int(parts[1])
+        except (
+            OSError,
+            asyncio.TimeoutError,
+            asyncio.IncompleteReadError,
+            asyncio.LimitOverrunError,
+        ) as exc:
+            last_error = exc
+        finally:
+            if writer is not None:
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except Exception:
+                    pass
+    raise RuntimeError("Reseller webhook connection failed") from last_error
 
 
 def _event_type(status: str) -> str:
@@ -93,8 +139,8 @@ async def deliver_reseller_webhook(payload: dict) -> None:
     security = await get_reseller_api_security(key_id, active_only=True)
     if not security or not security.get("webhook_enabled"):
         return
-    webhook_url = await validate_webhook_url(str(security.get("webhook_url") or ""))
-    if not webhook_url:
+    target = await resolve_webhook_target(str(security.get("webhook_url") or ""))
+    if not target:
         return
 
     signing_secret = derive_webhook_secret(
@@ -116,6 +162,6 @@ async def deliver_reseller_webhook(payload: dict) -> None:
         "X-Vente-Signature": sign_webhook_body(signing_secret, timestamp, body),
     }
     async with dependency_call("reseller_webhook", circuit_breaker=False):
-        response = await (await _client()).post(webhook_url, content=body, headers=headers)
-    if response.status_code < 200 or response.status_code >= 300:
-        raise RuntimeError(f"Reseller webhook returned HTTP {response.status_code}")
+        response_status = await _post_pinned_webhook(target, body, headers)
+    if response_status < 200 or response_status >= 300:
+        raise RuntimeError(f"Reseller webhook returned HTTP {response_status}")

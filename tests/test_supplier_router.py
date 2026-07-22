@@ -19,6 +19,7 @@ from services.supplier_multi_api import (
 from services.supplier_api import SupplierAPIError
 from services.supplier_identity import extract_supplier_identity
 from services.supplier_registry import list_supplier_providers
+from services.supplier_guard import reset_supplier_guard_state, verify_supplier_candidate
 from services.supplier_router import (
     compatibility_score,
     extract_product_signature,
@@ -152,6 +153,12 @@ class SupplierRouterUnitTests(unittest.TestCase):
 
 
 class SupplierRouterHTTPTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        reset_supplier_guard_state()
+
+    async def asyncTearDown(self):
+        reset_supplier_guard_state()
+
     async def test_post_server_error_has_unknown_outcome(self):
         response = httpx.Response(
             500,
@@ -186,6 +193,61 @@ class SupplierRouterHTTPTests(unittest.IsolatedAsyncioTestCase):
         )
         kwargs = request.await_args.kwargs
         self.assertTrue(kwargs["headers"]["Idempotency-Key"].startswith("ventebot-"))
+
+    async def test_live_supplier_guard_rejects_price_increase(self):
+        candidate = {
+            "supplier_code": "canboso",
+            "external_product_id": "p-1",
+            "base_price": 0.5,
+        }
+        with (
+            patch(
+                "services.supplier_registry.list_supplier_products",
+                AsyncMock(return_value=[{
+                    "external_product_id": "p-1",
+                    "base_price": 1.01,
+                    "remote_stock": 10,
+                }]),
+            ),
+            patch(
+                "database.suppliers.get_supplier_units_per_usd",
+                AsyncMock(return_value=1.0),
+            ),
+        ):
+            with self.assertRaisesRegex(SupplierAPIError, "no longer profitable"):
+                await verify_supplier_candidate(
+                    candidate, quantity=1, unit_revenue=1.0
+                )
+
+    async def test_live_supplier_guard_returns_current_cost(self):
+        candidate = {
+            "supplier_code": "canboso",
+            "external_product_id": "p-2",
+            "base_price": 0.5,
+        }
+        with (
+            patch(
+                "services.supplier_registry.list_supplier_products",
+                AsyncMock(return_value=[{
+                    "external_product_id": "p-2",
+                    "base_price": 0.7,
+                    "remote_stock": 3,
+                }]),
+            ),
+            patch(
+                "services.supplier_registry.get_supplier_balance",
+                AsyncMock(return_value={"balance": 10.0}),
+            ),
+            patch(
+                "database.suppliers.get_supplier_units_per_usd",
+                AsyncMock(return_value=1.0),
+            ),
+        ):
+            verified = await verify_supplier_candidate(
+                candidate, quantity=2, unit_revenue=1.0
+            )
+        self.assertEqual(verified["base_price"], 0.7)
+        self.assertEqual(verified["remote_stock"], 3)
 
 
 if __name__ == "__main__":

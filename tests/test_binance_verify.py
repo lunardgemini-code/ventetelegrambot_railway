@@ -1,3 +1,5 @@
+import asyncio
+import time
 import unittest
 from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs, urlparse
@@ -16,6 +18,12 @@ class _FakeResponse:
 
 
 class BinanceVerifyTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        binance_verify.reset_binance_verification_cache()
+
+    async def asyncTearDown(self):
+        binance_verify.reset_binance_verification_cache()
+
     async def test_uses_supported_time_parameters_and_accepts_overpayment(self):
         client = AsyncMock()
         transaction = {
@@ -145,6 +153,32 @@ class BinanceVerifyTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["verified"])
         self.assertIsNone(result["transaction"])
         self.assertLessEqual(client.get.await_count, binance_verify.PAY_MAX_API_REQUESTS)
+
+    async def test_concurrent_identical_checks_share_one_scan(self):
+        client = AsyncMock()
+
+        async def delayed_empty(*_args, **_kwargs):
+            await asyncio.sleep(0.01)
+            return _FakeResponse({"code": "000000", "data": []})
+
+        client.get.side_effect = delayed_empty
+        with patch.object(
+            binance_verify, "_get_http_client", AsyncMock(return_value=client)
+        ):
+            first, second = await asyncio.gather(
+                binance_verify.verify_payment(
+                    "MISSING", 1.0, api_key="key", api_secret="secret"
+                ),
+                binance_verify.verify_payment(
+                    "MISSING", 1.0, api_key="key", api_secret="secret"
+                ),
+            )
+
+        self.assertFalse(first["verified"])
+        self.assertEqual(first, second)
+        self.assertEqual(
+            client.get.await_count, len(binance_verify._payment_search_ranges(int(time.time() * 1000)))
+        )
 
 
 if __name__ == "__main__":

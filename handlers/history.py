@@ -55,11 +55,11 @@ async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = f"{t('history_title', lang)}\n\n"
         for o in orders:
             # Product data is already joined by get_user_orders (no extra DB call)
-            pname = o.get("product_name") or "?"
-            pemoji = o.get("product_emoji") or "📦"
+            pname = escape_html(o.get("product_name") or "?")
+            pemoji = escape_html(o.get("product_emoji") or "📦")
             status_key = f"s_{o.get('status', 'PENDING').lower()}"
             status = t(status_key, lang)
-            order_no = o.get("merchant_trade_no", "")
+            order_no = escape_html(o.get("merchant_trade_no", ""))
             text += f"📦 #{o['id']} ({order_no}) — {pemoji} {pname}\n   {format_price(o['amount_usd'])} — {status}\n\n"
 
         text += f"📄 {page + 1}/{total_pages}"
@@ -101,14 +101,14 @@ async def show_order_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         product = await get_product(order.get("product_id"))
-        prod_name = product["name"] if product else "?"
-        prod_emoji = product["emoji"] if product else "📦"
+        prod_name = escape_html(product["name"] if product else "?")
+        prod_emoji = escape_html(product["emoji"] if product else "📦")
         warranty_days = product.get("warranty_days", 0) if product else 0
 
         status_key = f"s_{order.get('status', 'PENDING').lower()}"
         status = t(status_key, lang)
 
-        order_no = order.get("merchant_trade_no", "—")
+        order_no = escape_html(order.get("merchant_trade_no", "—"))
 
         text = (
             f"{t('order_detail', lang).format(id=order_id)}\n\n"

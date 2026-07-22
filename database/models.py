@@ -16,6 +16,13 @@ from datetime import datetime, timedelta, timezone
 
 from config import PAYMENT_TIMEOUT_SECONDS
 from services.singleflight import AsyncSingleFlight
+from utils.money import usd_float
+from utils.secret_store import (
+    decrypt_secret,
+    encrypt_secret,
+    secret_needs_migration,
+    secret_store_configured,
+)
 from .db import get_db, is_transient_db_connection_error
 
 logger = logging.getLogger(__name__)
@@ -811,13 +818,16 @@ async def get_conversion_funnel(days: int = 30) -> dict:
                 "products": [],
             }
 
-        # Ignore events collected before buy-click tracking actually started,
-        # even when they happened earlier on the same calendar day.
+        # Ignore legacy events collected before buy-click tracking started. A
+        # short lookback is kept for views because the view naturally happens
+        # before the first click and may fall in the preceding clock second.
         effective_since = max(requested_since, str(first_click))
         cursor = await db.execute(
             """WITH views AS (
                    SELECT product_id, COUNT(*) AS views
-                   FROM product_views WHERE viewed_at >= ? GROUP BY product_id
+                   FROM product_views
+                   WHERE viewed_at >= MAX(?, datetime(?, '-10 minutes'))
+                   GROUP BY product_id
                ), clicks AS (
                    SELECT product_id, COUNT(*) AS buy_clicks
                    FROM product_buy_clicks WHERE clicked_at >= ? GROUP BY product_id
@@ -847,7 +857,13 @@ async def get_conversion_funnel(days: int = 30) -> dict:
                WHERE COALESCE(p.is_deleted, 0) = 0
                  AND (COALESCE(v.views, 0) + COALESCE(c.buy_clicks, 0)
                       + COALESCE(o.payments_created, 0) + COALESCE(pd.payments_completed, 0)) > 0""",
-            (effective_since, effective_since, effective_since, effective_since),
+            (
+                requested_since,
+                effective_since,
+                effective_since,
+                effective_since,
+                effective_since,
+            ),
         )
         products = []
         summary = {"views": 0, "buy_clicks": 0, "payments_created": 0, "payments_completed": 0}
@@ -1170,6 +1186,7 @@ async def add_product(
     delivery_type: str = "stock",
 ) -> int:
     """Ajoute un nouveau produit et retourne son identifiant."""
+    price_usd = usd_float(price_usd, places=4, allow_zero=False)
     delivery_type = delivery_type if delivery_type in ("activation", "supplier_api") else "stock"
     db = await get_db()
     try:
@@ -1194,6 +1211,10 @@ async def update_product(product_id: int, **kwargs) -> None:
     safe_kwargs = {k: v for k, v in kwargs.items() if k in ALLOWED_PRODUCT_COLUMNS}
     if not safe_kwargs:
         return
+    if "price_usd" in safe_kwargs:
+        safe_kwargs["price_usd"] = usd_float(
+            safe_kwargs["price_usd"], places=4, allow_zero=False
+        )
     db = await get_db()
     try:
         if "delivery_type" in safe_kwargs:
@@ -1222,13 +1243,51 @@ async def update_product(product_id: int, **kwargs) -> None:
 # â”€â”€ Binance Accounts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
+async def _decode_binance_accounts(db, rows) -> list[dict]:
+    decoded: list[dict] = []
+    migrations: list[tuple[str, str, int]] = []
+    can_migrate = secret_store_configured()
+    for raw_row in rows:
+        account = dict(raw_row)
+        stored_key = str(account.get("api_key") or "")
+        stored_secret = str(account.get("api_secret") or "")
+        account["api_key"] = decrypt_secret(stored_key)
+        account["api_secret"] = decrypt_secret(stored_secret)
+        if can_migrate and (
+            secret_needs_migration(stored_key)
+            or secret_needs_migration(stored_secret)
+        ):
+            migrations.append((
+                encrypt_secret(account["api_key"]),
+                encrypt_secret(account["api_secret"]),
+                int(account["id"]),
+            ))
+        decoded.append(account)
+    if migrations:
+        try:
+            for encrypted_key, encrypted_secret, account_id in migrations:
+                await db.execute(
+                    "UPDATE binance_accounts SET api_key = ?, api_secret = ? WHERE id = ?",
+                    (encrypted_key, encrypted_secret, account_id),
+                )
+            await db.commit()
+            logger.info("Encrypted %d legacy Binance account credential set(s)", len(migrations))
+        except Exception as exc:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            logger.warning("Could not migrate legacy Binance credentials: %s", exc)
+    return decoded
+
+
 async def get_binance_accounts() -> list[dict]:
     """Return all Binance accounts."""
     db = await get_db()
     try:
         cursor = await db.execute("SELECT * FROM binance_accounts ORDER BY is_default DESC, id ASC")
         rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
+        return await _decode_binance_accounts(db, rows)
     finally:
         await db.close()
 
@@ -1239,7 +1298,9 @@ async def get_binance_account(account_id: int) -> dict | None:
     try:
         cursor = await db.execute("SELECT * FROM binance_accounts WHERE id = ?", (account_id,))
         row = await cursor.fetchone()
-        return dict(row) if row else None
+        if not row:
+            return None
+        return (await _decode_binance_accounts(db, [row]))[0]
     finally:
         await db.close()
 
@@ -1259,7 +1320,8 @@ async def get_default_binance_account() -> dict | None:
             if not row:
                 cursor = await db.execute("SELECT * FROM binance_accounts ORDER BY id ASC LIMIT 1")
                 row = await cursor.fetchone()
-            _DEFAULT_BINANCE_ACCOUNT_CACHE = dict(row) if row else None
+            decoded = await _decode_binance_accounts(db, [row]) if row else []
+            _DEFAULT_BINANCE_ACCOUNT_CACHE = decoded[0] if decoded else None
             _DEFAULT_BINANCE_ACCOUNT_LOADED = True
             return dict(_DEFAULT_BINANCE_ACCOUNT_CACHE) if _DEFAULT_BINANCE_ACCOUNT_CACHE else None
         finally:
@@ -1278,7 +1340,7 @@ async def add_binance_account(label: str, uid: str, api_key: str = "", api_secre
             await db.execute("UPDATE binance_accounts SET is_default = 0")
         cursor = await db.execute(
             "INSERT INTO binance_accounts (label, uid, api_key, api_secret, is_default) VALUES (?, ?, ?, ?, ?)",
-            (label, uid, api_key, api_secret, is_default),
+            (label, uid, encrypt_secret(api_key), encrypt_secret(api_secret), is_default),
         )
         await db.commit()
         return cursor.lastrowid
@@ -1291,6 +1353,9 @@ async def update_binance_account(account_id: int, **kwargs) -> None:
     _clear_binance_account_cache()
     allowed = {"label", "uid", "api_key", "api_secret", "is_default"}
     fields = {k: v for k, v in kwargs.items() if k in allowed}
+    for secret_field in ("api_key", "api_secret"):
+        if secret_field in fields:
+            fields[secret_field] = encrypt_secret(fields[secret_field])
     if not fields:
         return
     db = await get_db()
@@ -1429,6 +1494,22 @@ async def set_price_tiers(product_id: int, tiers: list[dict]) -> None:
 
     Chaque tier est un dict avec min_qty, max_qty, price_usd.
     """
+    normalized_tiers: list[tuple[int, int, float]] = []
+    for tier in tiers:
+        try:
+            minimum = int(tier["min_qty"])
+            maximum = int(tier["max_qty"])
+            price = usd_float(tier["price_usd"], places=4, allow_zero=False)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("Each price tier requires valid min_qty, max_qty, and price_usd") from exc
+        if minimum < 1 or maximum < minimum or maximum > 1_000_000:
+            raise ValueError("Invalid price tier quantity range")
+        normalized_tiers.append((minimum, maximum, price))
+    normalized_tiers.sort(key=lambda item: item[0])
+    for previous, current in zip(normalized_tiers, normalized_tiers[1:]):
+        if current[0] <= previous[1]:
+            raise ValueError("Price tier ranges cannot overlap")
+
     global _TIERS_CACHE
     _TIERS_CACHE.pop(product_id, None)
     db = await get_db()
@@ -1436,10 +1517,10 @@ async def set_price_tiers(product_id: int, tiers: list[dict]) -> None:
         await db.execute(
             "DELETE FROM price_tiers WHERE product_id = ?", (product_id,)
         )
-        for tier in tiers:
+        for minimum, maximum, price in normalized_tiers:
             await db.execute(
                 "INSERT INTO price_tiers (product_id, min_qty, max_qty, price_usd) VALUES (?, ?, ?, ?)",
-                (product_id, int(tier["min_qty"]), int(tier["max_qty"]), float(tier["price_usd"])),
+                (product_id, minimum, maximum, price),
             )
         await db.commit()
         _PRODUCT_DETAILS_CACHE.pop(int(product_id), None)
@@ -2544,6 +2625,8 @@ async def create_order(
     amount_usd: float,
     quantity: int = 1,
 ) -> dict:
+    amount_usd = usd_float(amount_usd, places=4, allow_zero=False)
+    quantity = max(1, int(quantity))
     _clear_stock_cache()
     invalidate_stats_cache()
     """CrÃ©e une nouvelle commande avec un merchant_trade_no unique et une quantitÃ©."""
@@ -2603,7 +2686,9 @@ async def get_sale_notification_details(order_id: int) -> dict | None:
             (order_id,),
         )
         row = await cursor.fetchone()
-        return dict(row) if row else None
+        if not row:
+            return None
+        return dict(row)
     finally:
         await db.close()
 
@@ -2719,10 +2804,10 @@ async def purchase_order_with_wallet(order_id: int, user_telegram_id: int) -> di
             await db.rollback()
             raise ValueError(f"ORDER_NOT_PAYABLE:{order.get('status')}")
 
-        amount = round(float(order.get("amount_usd") or 0), 4)
+        amount = usd_float(order.get("amount_usd") or 0, places=4, allow_zero=False)
         cursor = await db.execute(
             """UPDATE users
-               SET wallet_balance = MAX(0.0, COALESCE(wallet_balance, 0) - ?)
+               SET wallet_balance = ROUND(MAX(0.0, COALESCE(wallet_balance, 0) - ?), 4)
                WHERE telegram_id = ?
                  AND COALESCE(wallet_balance, 0) >= ?
                RETURNING wallet_balance""",
@@ -3200,6 +3285,7 @@ async def list_active_nowpayments_timeouts(
 
 async def prepare_nowpayments_attempt(order_id: int, price_amount: float) -> dict:
     """Create one provider attempt or return the existing active attempt."""
+    price_amount = usd_float(price_amount, places=2, allow_zero=False)
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
@@ -3222,7 +3308,7 @@ async def prepare_nowpayments_attempt(order_id: int, price_amount: float) -> dic
             """INSERT INTO nowpayments_payments
                (order_id, request_key, provider_status, price_amount, price_currency, pay_currency)
                VALUES (?, ?, 'creating', ?, 'usd', 'usdtbsc')""",
-            (int(order_id), request_key, round(float(price_amount), 2)),
+            (int(order_id), request_key, price_amount),
         )
         attempt_id = cursor.lastrowid
         await db.commit()
@@ -3246,6 +3332,7 @@ async def attach_nowpayments_payment(request_key: str, payload: dict) -> dict:
         raise ValueError("NOWPAYMENTS_PAYMENT_ID_MISSING")
 
     provider_status = str(payload.get("payment_status") or "waiting").lower()
+    pay_amount = usd_float(payload.get("pay_amount") or 0, places=8)
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
@@ -3259,7 +3346,7 @@ async def attach_nowpayments_payment(request_key: str, payload: dict) -> dict:
             (
                 payment_id,
                 provider_status,
-                float(payload.get("pay_amount") or 0),
+                pay_amount,
                 str(payload.get("pay_currency") or "usdtbsc").lower(),
                 str(payload.get("pay_address") or ""),
                 str(payload.get("network") or ""),
@@ -3295,6 +3382,8 @@ async def prepare_nowpayments_wallet_topup(
     price_amount: float,
 ) -> dict:
     """Create one wallet top-up checkout or reuse the matching active one."""
+    wallet_amount = usd_float(wallet_amount, places=2, allow_zero=False)
+    price_amount = usd_float(price_amount, places=2, allow_zero=False)
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
@@ -3305,7 +3394,7 @@ async def prepare_nowpayments_wallet_topup(
                   AND ABS(wallet_amount - ?) < 0.000001
                   AND provider_status IN ({placeholders})
                 ORDER BY id DESC LIMIT 1""",
-            (int(user_telegram_id), float(wallet_amount), *_NOWPAYMENTS_ACTIVE_STATUSES),
+            (int(user_telegram_id), wallet_amount, *_NOWPAYMENTS_ACTIVE_STATUSES),
         )
         existing = await cursor.fetchone()
         if existing:
@@ -3335,8 +3424,8 @@ async def prepare_nowpayments_wallet_topup(
             (
                 int(user_telegram_id),
                 request_key,
-                round(float(wallet_amount), 2),
-                round(float(price_amount), 2),
+                wallet_amount,
+                price_amount,
             ),
         )
         attempt_id = cursor.lastrowid
@@ -3364,6 +3453,7 @@ async def attach_nowpayments_wallet_topup(request_key: str, payload: dict) -> di
         raise ValueError("NOWPAYMENTS_PAYMENT_ID_MISSING")
 
     provider_status = str(payload.get("payment_status") or "waiting").lower()
+    pay_amount = usd_float(payload.get("pay_amount") or 0, places=8)
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
@@ -3377,7 +3467,7 @@ async def attach_nowpayments_wallet_topup(request_key: str, payload: dict) -> di
             (
                 payment_id,
                 provider_status,
-                float(payload.get("pay_amount") or 0),
+                pay_amount,
                 str(payload.get("pay_currency") or "usdtbsc").lower(),
                 str(payload.get("pay_address") or ""),
                 str(payload.get("network") or ""),
@@ -3755,6 +3845,12 @@ async def _save_nowpayments_update_once(
     provider_status = str(payload.get("payment_status") or "").strip().lower()
     if not provider_status:
         return None
+    pay_amount = (
+        usd_float(payload["pay_amount"], places=8)
+        if payload.get("pay_amount") is not None
+        else None
+    )
+    actually_paid = usd_float(payload.get("actually_paid") or 0, places=8)
 
     db = await get_db(fresh=fresh_connection)
     try:
@@ -3821,10 +3917,10 @@ async def _save_nowpayments_update_once(
                RETURNING *""",
             (
                 provider_status,
-                float(payload["pay_amount"]) if payload.get("pay_amount") is not None else None,
+                pay_amount,
                 str(payload.get("pay_currency")).lower() if payload.get("pay_currency") else None,
                 str(payload.get("pay_address")) if payload.get("pay_address") else None,
-                float(payload.get("actually_paid") or 0),
+                actually_paid,
                 str(payload.get("network")) if payload.get("network") else None,
                 payload.get("valid_until") or payload.get("expiration_estimate_date"),
                 json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
@@ -4630,7 +4726,7 @@ async def recover_stale_processing_wallet_orders(age_minutes: int = 5) -> dict[s
             )
             if not await cursor.fetchone():
                 cursor = await db.execute(
-                    """UPDATE users SET wallet_balance = COALESCE(wallet_balance, 0) + ?
+                    """UPDATE users SET wallet_balance = ROUND(COALESCE(wallet_balance, 0) + ?, 4)
                        WHERE telegram_id = ? RETURNING wallet_balance""",
                     (float(order["amount_usd"]), int(order["user_telegram_id"])),
                 )
@@ -5207,8 +5303,9 @@ async def _credit_wallet_tx(
     tx_hash: str | None = None,
 ) -> float:
     """Credit a wallet using the caller's existing transaction."""
+    amount = usd_float(amount, places=4, allow_zero=False)
     cursor = await db.execute(
-        "UPDATE users SET wallet_balance = COALESCE(wallet_balance, 0) + ? WHERE telegram_id = ? RETURNING wallet_balance",
+        "UPDATE users SET wallet_balance = ROUND(COALESCE(wallet_balance, 0) + ?, 4) WHERE telegram_id = ? RETURNING wallet_balance",
         (amount, telegram_id),
     )
     row = await cursor.fetchone()
@@ -5270,7 +5367,7 @@ async def deduct_wallet(telegram_id: int, amount: float, description: str = "") 
             raise ValueError("User not found")
         val = row["wallet_balance"]
         balance = round(float(val) if val is not None else 0.0, 4)
-        amount = round(float(amount), 4)
+        amount = usd_float(amount, places=4, allow_zero=False)
         
         if balance < amount:
             raise ValueError(f"Insufficient balance: {balance} < {amount}")
@@ -5278,7 +5375,7 @@ async def deduct_wallet(telegram_id: int, amount: float, description: str = "") 
         # Atomic conditional update
         # We subtract a tiny epsilon (1e-5) in the WHERE clause to avoid float precision issues failing the atomic update.
         cursor = await db.execute(
-            "UPDATE users SET wallet_balance = MAX(0.0, wallet_balance - ?) WHERE telegram_id = ? AND wallet_balance >= ? RETURNING wallet_balance",
+            "UPDATE users SET wallet_balance = ROUND(MAX(0.0, wallet_balance - ?), 4) WHERE telegram_id = ? AND wallet_balance >= ? RETURNING wallet_balance",
             (amount, telegram_id, amount - 1e-5),
         )
         row = await cursor.fetchone()
@@ -5450,8 +5547,8 @@ async def upsert_reseller_special_price(
     global _TELEGRAM_SPECIAL_PRICE_USERS_CACHE
     user_telegram_id = int(user_telegram_id)
     product_id = int(product_id)
-    price_usd = round(float(price_usd), 2)
-    if price_usd <= 0 or price_usd > 1_000_000:
+    price_usd = usd_float(price_usd, places=2, allow_zero=False)
+    if price_usd > 1_000_000:
         raise ValueError("Special price must be greater than zero")
     expiry = _normalize_reseller_price_expiry(expires_at)
     if expiry and _reseller_price_is_expired(expiry):
@@ -6278,7 +6375,7 @@ async def create_reseller_test_order(
         total = round(float(test_product["price_usd"]), 2)
         cursor = await db.execute(
             """UPDATE users
-               SET wallet_balance = MAX(0.0, COALESCE(wallet_balance, 0) - ?)
+               SET wallet_balance = ROUND(MAX(0.0, COALESCE(wallet_balance, 0) - ?), 4)
                WHERE telegram_id = ? AND COALESCE(wallet_balance, 0) >= ?
                RETURNING wallet_balance""",
             (total, int(user_telegram_id), total - 1e-5),
@@ -6523,12 +6620,10 @@ async def prepare_reseller_deposit(
     idempotency_key: str,
     reference: str = "",
 ) -> dict:
-    amount_usd = round(float(amount_usd), 2)
+    amount_usd = usd_float(amount_usd, places=2, allow_zero=False)
     network = str(network or "BEP20").strip().upper()
     idempotency_key = str(idempotency_key or "").strip()[:120]
     reference = str(reference or "").strip()[:120]
-    if amount_usd <= 0:
-        raise ValueError("Deposit amount must be positive")
     if network not in {"BEP20", "BSC", "USDTBSC"}:
         raise ValueError("Unsupported deposit network")
     network = "BEP20"
@@ -6712,10 +6807,10 @@ async def create_reseller_order(
             raise ValueError("Price changed; request a new quote and retry")
         product = pricing["product"]
         unit_price = float(pricing["unit_price"])
-        total = round(unit_price * quantity, 2)
+        total = usd_float(unit_price * quantity, places=2, allow_zero=False)
 
         cursor = await db.execute(
-            "UPDATE users SET wallet_balance = MAX(0.0, COALESCE(wallet_balance, 0) - ?) WHERE telegram_id = ? AND COALESCE(wallet_balance, 0) >= ? RETURNING wallet_balance",
+            "UPDATE users SET wallet_balance = ROUND(MAX(0.0, COALESCE(wallet_balance, 0) - ?), 4) WHERE telegram_id = ? AND COALESCE(wallet_balance, 0) >= ? RETURNING wallet_balance",
             (total, reseller_user_telegram_id, total - 1e-5),
         )
         balance_row = await cursor.fetchone()
@@ -7139,6 +7234,7 @@ async def claim_binance_order_payment(
     transaction_id = str(transaction_id or "").strip()
     if not transaction_id:
         raise ValueError("BINANCE_TRANSACTION_ID_REQUIRED")
+    amount = usd_float(amount, places=8, allow_zero=False)
 
     last_exc: Exception | None = None
     for attempt in range(3):
@@ -7148,7 +7244,7 @@ async def claim_binance_order_payment(
                     transaction_id,
                     int(order_id),
                     int(user_telegram_id),
-                    float(amount),
+                    amount,
                     str(payment_reference or transaction_id),
                     fresh_connection=True,
                 )
@@ -7261,6 +7357,7 @@ async def credit_wallet_from_binance_transaction(
     transaction_id = str(transaction_id or "").strip()
     if not transaction_id:
         raise ValueError("BINANCE_TRANSACTION_ID_REQUIRED")
+    amount = usd_float(amount, places=8, allow_zero=False)
 
     last_exc: Exception | None = None
     for attempt in range(3):
@@ -7269,7 +7366,7 @@ async def credit_wallet_from_binance_transaction(
                 return await _credit_wallet_from_binance_transaction_once(
                     transaction_id,
                     int(user_telegram_id),
-                    float(amount),
+                    amount,
                     str(description or "Binance Pay"),
                     fresh_connection=True,
                 )
@@ -7528,7 +7625,7 @@ async def process_referral_payout(order_id: int) -> None:
             return
 
         buyer_id = order["user_telegram_id"]
-        amount_usd = float(order["amount_usd"])
+        amount_usd = usd_float(order["amount_usd"], places=4, allow_zero=False)
 
         # 2. Get the buyer (referred user) details to check if they have a referrer
         cursor = await db.execute("SELECT * FROM users WHERE telegram_id = ?", (buyer_id,))
@@ -7544,7 +7641,10 @@ async def process_referral_payout(order_id: int) -> None:
             return
 
         commission = amount_usd * 0.05
-        payout = min(5.0 - already_paid, commission)
+        payout = usd_float(
+            min(5.0 - already_paid, commission),
+            places=4,
+        )
 
         if payout <= 0.001:
             return
@@ -7552,12 +7652,12 @@ async def process_referral_payout(order_id: int) -> None:
         # 3. Credit the referrer's wallet and update statistics
         # Update referrer wallet and referral earnings
         await db.execute(
-            "UPDATE users SET wallet_balance = COALESCE(wallet_balance, 0) + ?, referral_earnings = COALESCE(referral_earnings, 0) + ? WHERE telegram_id = ?",
+            "UPDATE users SET wallet_balance = ROUND(COALESCE(wallet_balance, 0) + ?, 4), referral_earnings = ROUND(COALESCE(referral_earnings, 0) + ?, 4) WHERE telegram_id = ?",
             (payout, payout, referrer_id)
         )
         # Update referred user's generated commission paid
         await db.execute(
-            "UPDATE users SET referral_commission_paid = COALESCE(referral_commission_paid, 0) + ? WHERE telegram_id = ?",
+            "UPDATE users SET referral_commission_paid = ROUND(COALESCE(referral_commission_paid, 0) + ?, 4) WHERE telegram_id = ?",
             (payout, buyer_id)
         )
 
@@ -7649,16 +7749,7 @@ async def record_used_bep20_transaction(
         except Exception as e:
             if "UNIQUE" in str(e).upper():
                 await db.rollback()
-                cursor = await db.execute(
-                    "SELECT order_id, user_telegram_id FROM used_bep20_transactions WHERE tx_hash = ?",
-                    (tx_hash.strip().lower(),),
-                )
-                existing = await cursor.fetchone()
-                return bool(
-                    existing
-                    and existing["order_id"] == order_id
-                    and existing["user_telegram_id"] == user_telegram_id
-                )
+                return False
             raise
     finally:
         await db.close()
@@ -7731,23 +7822,293 @@ async def record_used_trc20_transaction(
         except Exception as e:
             if "UNIQUE" in str(e).upper():
                 await db.rollback()
-                cursor = await db.execute(
-                    "SELECT order_id, user_telegram_id FROM used_trc20_transactions WHERE tx_hash = ?",
-                    (tx_hash.strip().lower(),),
-                )
-                existing = await cursor.fetchone()
-                return bool(
-                    existing
-                    and existing["order_id"] == order_id
-                    and existing["user_telegram_id"] == user_telegram_id
-                )
+                return False
             raise
     finally:
         await db.close()
 
 
+_CHAIN_PAYMENT_CONFIG = {
+    "bep20": ("used_bep20_transactions", "bep20"),
+    "trc20": ("used_trc20_transactions", "trc20"),
+}
+
+
+def _chain_payment_config(network: str) -> tuple[str, str]:
+    try:
+        return _CHAIN_PAYMENT_CONFIG[str(network).strip().lower()]
+    except KeyError as exc:
+        raise ValueError("UNSUPPORTED_CHAIN_PAYMENT") from exc
+
+
+async def _claim_chain_order_payment(
+    network: str,
+    tx_hash: str,
+    order_id: int,
+    user_telegram_id: int,
+    amount: float,
+) -> dict:
+    """Atomically consume one chain transaction and mark its order as paid."""
+    normalized_hash = str(tx_hash or "").strip().lower()
+    if not normalized_hash:
+        raise ValueError("CHAIN_TRANSACTION_ID_REQUIRED")
+    amount = usd_float(amount, places=8, allow_zero=False)
+
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            async with _get_critical_db_semaphore():
+                return await _claim_chain_order_payment_once(
+                    network,
+                    normalized_hash,
+                    int(order_id),
+                    int(user_telegram_id),
+                    amount,
+                    fresh_connection=True,
+                )
+        except Exception as exc:
+            last_exc = exc
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            logger.warning(
+                "Retrying atomic %s order payment claim for order %s: %s",
+                network,
+                order_id,
+                exc,
+            )
+            await asyncio.sleep(0.1 * (attempt + 1))
+    raise RuntimeError("Chain order payment claim unavailable") from last_exc
+
+
+async def _claim_chain_order_payment_once(
+    network: str,
+    tx_hash: str,
+    order_id: int,
+    user_telegram_id: int,
+    amount: float,
+    *,
+    fresh_connection: bool,
+) -> dict:
+    table_name, payment_method = _chain_payment_config(network)
+    db = await get_db(fresh=fresh_connection)
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute(
+            f"SELECT order_id, user_telegram_id FROM {table_name} WHERE tx_hash = ?",
+            (tx_hash,),
+        )
+        existing = await cursor.fetchone()
+        if existing:
+            await db.rollback()
+            same_order = (
+                existing["order_id"] == order_id
+                and existing["user_telegram_id"] == user_telegram_id
+            )
+            return {
+                "claimed": False,
+                "reason": "already_claimed" if same_order else "transaction_used",
+            }
+
+        cursor = await db.execute(
+            """SELECT o.status, p.delivery_type
+               FROM orders o
+               JOIN products p ON p.id = o.product_id
+               WHERE o.id = ? AND o.user_telegram_id = ?""",
+            (order_id, user_telegram_id),
+        )
+        order = await cursor.fetchone()
+        if not order:
+            await db.rollback()
+            return {"claimed": False, "reason": "order_not_found"}
+
+        previous_status = str(order["status"] or "")
+        if previous_status not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED"):
+            await db.rollback()
+            return {
+                "claimed": False,
+                "reason": "order_not_payable",
+                "order_status": previous_status,
+            }
+
+        await db.execute(
+            f"""INSERT INTO {table_name}
+                (tx_hash, order_id, user_telegram_id, amount)
+                VALUES (?, ?, ?, ?)""",
+            (tx_hash, order_id, user_telegram_id, amount),
+        )
+        next_status = (
+            "AWAITING_ACTIVATION_INFO"
+            if str(order["delivery_type"] or "stock") == "activation"
+            else "PAID_PENDING_DELIVERY"
+        )
+        await db.execute(
+            """UPDATE orders
+               SET status = ?, payment_method = ?, binance_order_id = ?,
+                   paid_at = COALESCE(paid_at, CURRENT_TIMESTAMP)
+               WHERE id = ? AND user_telegram_id = ?""",
+            (next_status, payment_method, tx_hash, order_id, user_telegram_id),
+        )
+        await db.commit()
+        _clear_stock_cache()
+        invalidate_stats_cache()
+        return {
+            "claimed": True,
+            "reason": "claimed",
+            "previous_status": previous_status,
+            "order_status": next_status,
+        }
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def claim_bep20_order_payment(
+    tx_hash: str,
+    order_id: int,
+    user_telegram_id: int,
+    amount: float,
+) -> dict:
+    return await _claim_chain_order_payment(
+        "bep20", tx_hash, order_id, user_telegram_id, amount
+    )
+
+
+async def claim_trc20_order_payment(
+    tx_hash: str,
+    order_id: int,
+    user_telegram_id: int,
+    amount: float,
+) -> dict:
+    return await _claim_chain_order_payment(
+        "trc20", tx_hash, order_id, user_telegram_id, amount
+    )
+
+
+async def _credit_wallet_from_chain_transaction(
+    network: str,
+    tx_hash: str,
+    user_telegram_id: int,
+    amount: float,
+    description: str,
+) -> dict:
+    """Atomically consume one chain transaction and credit one wallet."""
+    normalized_hash = str(tx_hash or "").strip().lower()
+    if not normalized_hash:
+        raise ValueError("CHAIN_TRANSACTION_ID_REQUIRED")
+    amount = usd_float(amount, places=8, allow_zero=False)
+
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            async with _get_critical_db_semaphore():
+                return await _credit_wallet_from_chain_transaction_once(
+                    network,
+                    normalized_hash,
+                    int(user_telegram_id),
+                    amount,
+                    str(description or network.upper()),
+                    fresh_connection=True,
+                )
+        except Exception as exc:
+            last_exc = exc
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            logger.warning(
+                "Retrying atomic %s wallet credit for user %s: %s",
+                network,
+                user_telegram_id,
+                exc,
+            )
+            await asyncio.sleep(0.1 * (attempt + 1))
+    raise RuntimeError("Chain wallet credit unavailable") from last_exc
+
+
+async def _credit_wallet_from_chain_transaction_once(
+    network: str,
+    tx_hash: str,
+    user_telegram_id: int,
+    amount: float,
+    description: str,
+    *,
+    fresh_connection: bool,
+) -> dict:
+    table_name, _ = _chain_payment_config(network)
+    invalidate_stats_cache()
+    db = await get_db(fresh=fresh_connection)
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute(
+            f"SELECT order_id, user_telegram_id FROM {table_name} WHERE tx_hash = ?",
+            (tx_hash,),
+        )
+        existing = await cursor.fetchone()
+        if existing:
+            await db.rollback()
+            return {
+                "credited": False,
+                "reason": "already_credited"
+                if existing["order_id"] is None
+                and existing["user_telegram_id"] == user_telegram_id
+                else "transaction_used",
+            }
+
+        await db.execute(
+            f"""INSERT INTO {table_name}
+                (tx_hash, order_id, user_telegram_id, amount)
+                VALUES (?, NULL, ?, ?)""",
+            (tx_hash, user_telegram_id, amount),
+        )
+        balance_after = await _credit_wallet_tx(
+            db,
+            user_telegram_id,
+            amount,
+            description,
+            tx_hash,
+        )
+        await db.commit()
+        return {
+            "credited": True,
+            "reason": "credited",
+            "balance_after": balance_after,
+        }
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def credit_wallet_from_bep20_transaction(
+    tx_hash: str,
+    user_telegram_id: int,
+    amount: float,
+    description: str,
+) -> dict:
+    return await _credit_wallet_from_chain_transaction(
+        "bep20", tx_hash, user_telegram_id, amount, description
+    )
+
+
+async def credit_wallet_from_trc20_transaction(
+    tx_hash: str,
+    user_telegram_id: int,
+    amount: float,
+    description: str,
+) -> dict:
+    return await _credit_wallet_from_chain_transaction(
+        "trc20", tx_hash, user_telegram_id, amount, description
+    )
+
+
 async def get_transactions_for_export(start_date: str, end_date: str):
-    import sqlite3
     from .db import get_db
     
     # Normalize ISO-8601 strings (with T/Z) to standard SQLite timestamp format (YYYY-MM-DD HH:MM:SS)

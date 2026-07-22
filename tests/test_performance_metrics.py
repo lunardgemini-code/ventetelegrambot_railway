@@ -214,6 +214,17 @@ class PerformanceMetricsTests(unittest.TestCase):
 
 class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        self.webhook_secret = "test-webhook-secret-" + ("s" * 32)
+        self.webhook_headers = {
+            "X-Telegram-Bot-Api-Secret-Token": self.webhook_secret,
+        }
+        self._webhook_secret_patch = patch.object(
+            bot,
+            "WEBHOOK_SECRET",
+            self.webhook_secret,
+        )
+        self._webhook_secret_patch.start()
+        self.addCleanup(self._webhook_secret_patch.stop)
         bot._webhook_active_workers = 0
         bot._webhook_peak_active_workers = 0
         bot._webhook_enqueued_at.clear()
@@ -258,7 +269,11 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
         transport = httpx.ASGITransport(app=bot.api)
         try:
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-                response = await client.post("/webhook", json={"update_id": 1})
+                response = await client.post(
+                    "/webhook",
+                    json={"update_id": 1},
+                    headers=self.webhook_headers,
+                )
         finally:
             bot.webhook_update_queue = original_queue
             bot.tg_app = original_app
@@ -314,8 +329,14 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
         transport = httpx.ASGITransport(app=bot.api)
         try:
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-                first = await client.post("/webhook", json=payload)
-                second = await client.post("/webhook", json={**payload, "update_id": 101})
+                first = await client.post(
+                    "/webhook", json=payload, headers=self.webhook_headers
+                )
+                second = await client.post(
+                    "/webhook",
+                    json={**payload, "update_id": 101},
+                    headers=self.webhook_headers,
+                )
 
             self.assertEqual(first.status_code, 200)
             self.assertEqual(second.status_code, 200)
@@ -348,13 +369,17 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
         transport = httpx.ASGITransport(app=bot.api)
         try:
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-                first = await client.post("/webhook", json=payload)
+                first = await client.post(
+                    "/webhook", json=payload, headers=self.webhook_headers
+                )
                 queued = bot.webhook_update_queue.get_nowait()
                 bot.webhook_update_queue.task_done()
                 bot._webhook_enqueued_at.pop(id(queued), None)
                 bot._release_webhook_dedupe(queued, completed=True)
                 second = await client.post(
-                    "/webhook", json={**payload, "update_id": 111}
+                    "/webhook",
+                    json={**payload, "update_id": 111},
+                    headers=self.webhook_headers,
                 )
 
             self.assertEqual(first.status_code, 200)
@@ -413,8 +438,12 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
         transport = httpx.ASGITransport(app=bot.api)
         try:
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-                first = await client.post("/webhook", json=payload)
-                second = await client.post("/webhook", json=second_payload)
+                first = await client.post(
+                    "/webhook", json=payload, headers=self.webhook_headers
+                )
+                second = await client.post(
+                    "/webhook", json=second_payload, headers=self.webhook_headers
+                )
 
             self.assertEqual(first.status_code, 200)
             self.assertEqual(second.status_code, 200)
@@ -441,21 +470,25 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
         try:
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 for index in range(4):
-                    responses.append(await client.post("/webhook", json={
-                        "update_id": 300 + index,
-                        "callback_query": {
-                            "id": f"callback-spam-{index}",
-                            "from": {"id": 42, "is_bot": False, "first_name": "Buyer"},
-                            "chat_instance": "instance-spam",
-                            "data": f"menu_product:{index}",
-                            "message": {
-                                "message_id": 30 + index,
-                                "date": 0,
-                                "chat": {"id": 42, "type": "private"},
-                                "text": "Menu",
+                    responses.append(await client.post(
+                        "/webhook",
+                        headers=self.webhook_headers,
+                        json={
+                            "update_id": 300 + index,
+                            "callback_query": {
+                                "id": f"callback-spam-{index}",
+                                "from": {"id": 42, "is_bot": False, "first_name": "Buyer"},
+                                "chat_instance": "instance-spam",
+                                "data": f"menu_product:{index}",
+                                "message": {
+                                    "message_id": 30 + index,
+                                    "date": 0,
+                                    "chat": {"id": 42, "type": "private"},
+                                    "text": "Menu",
+                                },
                             },
                         },
-                    }))
+                    ))
 
             self.assertEqual(bot.webhook_update_queue.qsize(), 3)
             self.assertTrue(responses[-1].json().get("rate_limited"))

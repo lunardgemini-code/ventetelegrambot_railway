@@ -8,7 +8,6 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from database.models import get_or_create_user, get_user_lang, prepare_user_start, set_user_language, is_user_banned
-from utils.helpers import is_admin
 from utils.keyboards import language_keyboard, main_menu_keyboard, reply_menu_keyboard
 from utils.locales import t
 from utils.telegram import safe_edit_message_text
@@ -157,11 +156,12 @@ async def callback_check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE)
         member = await context.bot.get_chat_member(chat_id=REQUIRED_CHANNEL, user_id=user_id)
         if member.status in ["creator", "administrator", "member", "restricted"]:
             is_subscribed = True
-    except Exception as e:
-        # Fallback to True if bot is not admin or configured incorrectly
-        err_msg = str(e).lower()
-        if "chat not found" in err_msg or "not enough rights" in err_msg or "admin" in err_msg:
-            is_subscribed = True
+    except Exception as exc:
+        logger.warning(
+            "Subscription callback verification failed closed for user %s: %s",
+            user_id,
+            exc,
+        )
 
     referred_by = context.user_data.get("referred_by") if context.user_data else None
     db_user = await get_or_create_user(user_id, query.from_user.username, query.from_user.first_name, referred_by=referred_by)

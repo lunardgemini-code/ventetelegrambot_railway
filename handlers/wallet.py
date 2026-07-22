@@ -17,16 +17,16 @@ from telegram.ext import (
 
 from config import BINANCE_PAY_ID, PAYMENT_TIMEOUT_SECONDS
 from database.models import (
+    credit_wallet_from_bep20_transaction,
     credit_wallet_from_binance_transaction,
+    credit_wallet_from_trc20_transaction,
     get_user_lang,
     get_wallet_balance,
     get_wallet_transactions,
-    topup_wallet,
 )
 from services.binance_verify import verify_payment
 from utils.helpers import escape_html, format_price
 from utils.keyboards import (
-    back_keyboard,
     main_menu_keyboard,
     make_button,
     nowpayments_wallet_topup_keyboard,
@@ -144,7 +144,6 @@ async def wallet_topup_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def _start_binance_topup(update, context, amount, lang, is_callback=True):
     """Create Binance Pay instructions for wallet top-up."""
-    telegram_id = update.effective_user.id
     context.user_data["wallet_topup_amount"] = amount
 
     uid_to_show = BINANCE_PAY_ID
@@ -651,7 +650,11 @@ async def _verify_crypto_topup(update: Update, context: ContextTypes.DEFAULT_TYP
 
     await update.message.reply_text(t("verifying", lang))
     
-    from database.models import get_setting, record_used_bep20_transaction, record_used_trc20_transaction, is_bep20_transaction_used, is_trc20_transaction_used, topup_wallet
+    from database.models import (
+        get_setting,
+        is_bep20_transaction_used,
+        is_trc20_transaction_used,
+    )
     
     try:
         if crypto_type == "BEP20":
@@ -683,9 +686,16 @@ async def _verify_crypto_topup(update: Update, context: ContextTypes.DEFAULT_TYP
             
             if result.get("verified"):
                 amount = float(result.get("transaction", {}).get("amount", amount))
-                if not await record_used_bep20_transaction(tx_hash, None, telegram_id, amount):
+                credit = await credit_wallet_from_bep20_transaction(
+                    tx_hash,
+                    telegram_id,
+                    amount,
+                    "Topup via BEP20",
+                )
+                if not credit.get("credited"):
                     await update.message.reply_text(t("tx_already_used", lang), reply_markup=main_menu_keyboard(lang))
                     return ConversationHandler.END
+                new_balance = float(credit["balance_after"])
             else:
                 error_msg = result.get("error", "Payment not verified")
                 await update.message.reply_text(f"❌ {error_msg}\n\n👉 {t('bep20_send_tx_hash', lang)}")
@@ -725,17 +735,22 @@ async def _verify_crypto_topup(update: Update, context: ContextTypes.DEFAULT_TYP
             
             if result.get("verified"):
                 amount = float(result.get("transaction", {}).get("amount", amount))
-                if not await record_used_trc20_transaction(tx_hash_clean, None, telegram_id, amount):
+                credit = await credit_wallet_from_trc20_transaction(
+                    tx_hash_clean,
+                    telegram_id,
+                    amount,
+                    "Topup via TRC20",
+                )
+                if not credit.get("credited"):
                     await update.message.reply_text(t("tx_already_used", lang), reply_markup=main_menu_keyboard(lang))
                     return ConversationHandler.END
+                new_balance = float(credit["balance_after"])
             else:
                 error_msg = result.get("error", "Payment not verified")
                 await update.message.reply_text(f"❌ {error_msg}\n\n👉 {t('trc20_send_tx_hash', lang)}")
                 return WALLET_TOPUP_TRC20_TX
 
-        # If verified, credit wallet
         final_hash = tx_hash_clean if crypto_type == "TRC20" else tx_hash
-        new_balance = await topup_wallet(telegram_id, amount, f"Topup via {crypto_type}", tx_hash=final_hash)
         
         await update.message.reply_text(
             f"✅ <b>Rechargement réussi !</b>\n\n"
@@ -751,9 +766,9 @@ async def _verify_crypto_topup(update: Update, context: ContextTypes.DEFAULT_TYP
         user_name = f"@{user.username}" if user.username else "Aucun"
         msg = (
             f"💰 <b>Wallet Rechargé ({crypto_type})</b>\n\n"
-            f"👤 Utilisateur : {user.first_name} ({user_name})\n"
+            f"👤 Utilisateur : {escape_html(user.first_name or str(user.id))} ({escape_html(user_name)})\n"
             f"💵 Montant : {format_price(amount)}\n"
-            f"🔗 Tx Hash :\n<code>{tx_hash}</code>"
+            f"🔗 Tx Hash :\n<code>{escape_html(final_hash)}</code>"
         )
         try:
             await notify_admins(msg)

@@ -39,6 +39,25 @@ class CallbackSafetyTests(unittest.IsolatedAsyncioTestCase):
             parse_mode="HTML",
         )
 
+    async def test_safe_edit_deduplicates_repeated_fallback_messages(self):
+        query = SimpleNamespace(
+            edit_message_text=AsyncMock(
+                side_effect=BadRequest("Message to edit not found")
+            ),
+            message=SimpleNamespace(
+                chat_id=42,
+                message_id=7,
+                reply_text=AsyncMock(return_value="sent"),
+            ),
+        )
+
+        first = await safe_edit_message_text(query, "Deduped text")
+        second = await safe_edit_message_text(query, "Deduped text")
+
+        self.assertEqual(first, "sent")
+        self.assertIsNone(second)
+        query.message.reply_text.assert_awaited_once()
+
     async def test_referrals_list_uses_database_language_lookup(self):
         query = SimpleNamespace(answer=AsyncMock(), edit_message_text=AsyncMock())
         update = SimpleNamespace(

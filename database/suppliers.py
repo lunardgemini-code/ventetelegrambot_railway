@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import time
 from datetime import datetime, timedelta, timezone
@@ -901,9 +902,15 @@ async def update_supplier_settings(
     supplier_code = provider["code"]
     if margin_type not in ("fixed", "percent"):
         raise ValueError("INVALID_MARGIN_TYPE")
-    margin_value = max(0.0, min(float(margin_value), 100000.0))
+    margin_value = float(margin_value)
+    if not math.isfinite(margin_value):
+        raise ValueError("INVALID_MARGIN_VALUE")
+    margin_value = max(0.0, min(margin_value, 100000.0))
     if units_per_usd is not None:
-        units_per_usd = max(1.0, min(float(units_per_usd), 1000000000.0))
+        units_per_usd = float(units_per_usd)
+        if not math.isfinite(units_per_usd):
+            raise ValueError("INVALID_UNITS_PER_USD")
+        units_per_usd = max(1.0, min(units_per_usd, 1000000000.0))
     if display_name is not None:
         display_name = " ".join(str(display_name).split())[:80]
     db = await get_db()
@@ -1372,8 +1379,7 @@ async def get_ranked_supplier_route_candidates(
         if row.get("provider_enabled") or row.get("route_kind") == "primary"
     ]
     if len(candidates) == 1 and candidates[0].get("route_kind") == "primary":
-        ranked = rank_supplier_candidates(candidates, unit_revenue)
-        return ranked or [{**candidates[0], "route_score": float(candidates[0].get("base_price") or 0), "reliability": 1.0}]
+        return rank_supplier_candidates(candidates, unit_revenue)
 
     async def with_stock(mapping: dict) -> dict | None:
         try:
@@ -1384,10 +1390,7 @@ async def get_ranked_supplier_route_candidates(
 
     checked = [row for row in await asyncio.gather(*(with_stock(row) for row in candidates)) if row]
     ranked = rank_supplier_candidates(checked, unit_revenue)
-    if ranked:
-        return ranked
-    primary = next((row for row in checked if row.get("route_kind") == "primary"), None)
-    return [{**primary, "route_score": float(primary.get("base_price") or 0), "reliability": 1.0}] if primary else []
+    return ranked
 
 
 async def get_supplier_product_by_mapping_id(
@@ -1536,6 +1539,14 @@ async def claim_supplier_order(
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute(
+            "SELECT * FROM supplier_orders WHERE order_id = ?", (int(order_id),)
+        )
+        existing = await cursor.fetchone()
+        if existing and existing["status"] in ("completed", "purchasing", "unknown"):
+            await db.commit()
+            return {**dict(existing), "claimed": False}
+
         quantity = max(1, int(quantity))
         cost_usd = round(
             max(0.0, float(mapping.get("base_price") or 0)) * quantity,
@@ -1551,15 +1562,15 @@ async def claim_supplier_order(
             if order_row and order_row["amount_usd"] is not None
             else None
         )
-        cursor = await db.execute(
-            "SELECT * FROM supplier_orders WHERE order_id = ?", (int(order_id),)
-        )
-        existing = await cursor.fetchone()
+        if (
+            revenue_usd is None
+            or revenue_usd <= 0
+            or cost_usd <= 0
+            or cost_usd >= revenue_usd
+        ):
+            raise ValueError("SUPPLIER_ORDER_UNPROFITABLE")
         if existing:
             row = dict(existing)
-            if row["status"] in ("completed", "purchasing", "unknown"):
-                await db.commit()
-                return {**row, "claimed": False}
             await db.execute(
                 "UPDATE supplier_orders SET status = 'purchasing', "
                 "attempts = attempts + 1, error = NULL, "
@@ -1679,5 +1690,19 @@ async def get_supplier_items_for_order(order_id: int) -> list[dict]:
             else {"id": stable_prefix + index, "account_data": str(item)}
             for index, item in enumerate(items, start=1)
         ]
+    finally:
+        await db.close()
+
+
+async def get_supplier_order_by_order_id(order_id: int) -> dict | None:
+    db = await get_db()
+    try:
+        row = await (
+            await db.execute(
+                "SELECT * FROM supplier_orders WHERE order_id = ?",
+                (int(order_id),),
+            )
+        ).fetchone()
+        return dict(row) if row else None
     finally:
         await db.close()
