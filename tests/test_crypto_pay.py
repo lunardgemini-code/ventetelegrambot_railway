@@ -12,6 +12,7 @@ from database import db as db_module
 from database import models
 from database.db import init_db
 from services import crypto_pay
+from utils.keyboards import payment_method_keyboard, wallet_topup_method_keyboard
 from utils.locales import t
 
 
@@ -109,6 +110,39 @@ class CryptoPayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(crypto_pay.calculate_invoice_amount(100, 3), 103.10)
         label = t("btn_pay_cryptopay", "en").format(fee="3")
         self.assertEqual(label, "CryptoBot (3%)")
+
+    async def test_cryptopay_buttons_use_the_configured_custom_emoji(self):
+        with (
+            patch.object(crypto_pay, "CRYPTO_PAY_ENABLED", True),
+            patch.object(crypto_pay, "CRYPTO_PAY_API_TOKEN", "test-token"),
+            patch.object(
+                crypto_pay,
+                "CRYPTO_PAY_WEBHOOK_SECRET",
+                "test-webhook-secret",
+            ),
+        ):
+            purchase_markup = await payment_method_keyboard(
+                self.order["id"],
+                "en",
+                0,
+            )
+            topup_markup = await wallet_topup_method_keyboard("en")
+
+        purchase_button = next(
+            button
+            for row in purchase_markup.inline_keyboard
+            for button in row
+            if str(button.callback_data or "").startswith("pay_cryptopay:")
+        )
+        topup_button = next(
+            button
+            for row in topup_markup.inline_keyboard
+            for button in row
+            if button.callback_data == "topup_cryptopay"
+        )
+        expected_emoji_id = "5373118582534228948"
+        self.assertEqual(purchase_button.icon_custom_emoji_id, expected_emoji_id)
+        self.assertEqual(topup_button.icon_custom_emoji_id, expected_emoji_id)
 
     async def test_paid_order_is_delivered_exactly_once(self):
         await models.update_order_status(

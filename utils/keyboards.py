@@ -27,6 +27,7 @@ CUSTOM_EMOJIS = {
     "btn_back": "5332348837405145999",
     "btn_buy_now": "5312361253610475399",
     "btn_pay_wallet": "5278223861404421915",
+    "btn_pay_cryptopay": "5373118582534228948",
     "btn_start": "5463156928307801722",
     "wallet_topup": "5361656830944624968",
     "wallet_history": "5305265301917549162",
@@ -378,6 +379,7 @@ async def payment_method_keyboard(order_id: int, lang: str = "fr", wallet_balanc
         buttons.append([InlineKeyboardButton(
             t("btn_pay_cryptopay", lang).format(fee=fee_percent_label()),
             callback_data=f"pay_cryptopay:{order_id}",
+            icon_custom_emoji_id=CUSTOM_EMOJIS["btn_pay_cryptopay"],
         )])
 
     # Dynamic BEP20 button
@@ -489,6 +491,7 @@ async def wallet_topup_method_keyboard(lang: str = "fr") -> InlineKeyboardMarkup
         buttons.append([InlineKeyboardButton(
             t("btn_pay_cryptopay", lang).format(fee=fee_percent_label()),
             callback_data="topup_cryptopay",
+            icon_custom_emoji_id=CUSTOM_EMOJIS["btn_pay_cryptopay"],
         )])
 
     # Keep the legacy manual-address flow as a fallback when NOWPayments is off.
