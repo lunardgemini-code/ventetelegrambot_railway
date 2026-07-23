@@ -40,8 +40,22 @@ class DashboardMobileProductTests(unittest.TestCase):
         self.assertEqual(self.app.count("product_collapse_details:"), 6)
         self.assertEqual(self.app.count("product_reorder:"), 6)
 
+    def test_mobile_product_accordion_uses_liquid_glass_tokens(self):
+        selector = (
+            'html:is([data-appearance="liquid"], [data-appearance="auto"]) '
+            "#inventory-tab #products-table-body tr.product-list-row"
+        )
+        self.assertIn(selector, self.css)
+        self.assertIn("var(--lg-panel-raised)", self.css)
+        self.assertIn("var(--lg-highlight-strong)", self.css)
+        self.assertIn(
+            'html[data-reduce-transparency="true"]:is([data-appearance="liquid"], '
+            '[data-appearance="auto"]) #inventory-tab',
+            self.css,
+        )
+
     def test_pwa_cache_uses_the_mobile_product_asset_version(self):
-        version = "20260723-mobile-products-v1"
+        version = "20260723-mobile-products-v2"
         self.assertIn(f"operations.css?v={version}", self.html)
         self.assertIn(f"app.js?v={version}", self.html)
         self.assertIn(f"ventebot-dashboard-shell-{version}", self.worker)

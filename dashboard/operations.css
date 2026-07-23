@@ -1283,7 +1283,135 @@ html[data-reduce-transparency="true"]:is([data-appearance="liquid"], [data-appea
         margin: 0;
         border: 1px solid var(--ds-border);
         border-radius: 6px;
-        background: var(--ds-surface-strong);
+        background: var(--ds-surface-raised);
+    }
+
+    html:is([data-appearance="liquid"], [data-appearance="auto"]) #inventory-tab #products-table-body tr.product-list-row {
+        isolation: isolate;
+        border-color: var(--lg-border);
+        background:
+            linear-gradient(135deg, var(--lg-highlight), transparent 44%),
+            var(--lg-panel-raised);
+        box-shadow:
+            inset 0 1px 0 var(--lg-highlight-strong),
+            var(--lg-shadow-soft);
+    }
+
+    html:is([data-appearance="liquid"], [data-appearance="auto"]) #inventory-tab #products-table-body tr.product-list-row::before {
+        content: "";
+        position: absolute;
+        inset: 0 12px auto;
+        z-index: 2;
+        height: 1px;
+        pointer-events: none;
+        background: linear-gradient(90deg, transparent, var(--lg-highlight-strong), transparent);
+        opacity: 0.82;
+    }
+
+    html:is([data-appearance="liquid"], [data-appearance="auto"]) #inventory-tab #products-table-body tr.product-list-row.is-mobile-expanded {
+        border-color: color-mix(in srgb, var(--lg-primary) 52%, var(--lg-border));
+        background:
+            linear-gradient(135deg, color-mix(in srgb, var(--lg-primary) 13%, var(--lg-highlight)), transparent 48%),
+            color-mix(in srgb, var(--lg-primary) 7%, var(--lg-panel-raised));
+        box-shadow:
+            inset 0 1px 0 var(--lg-highlight-strong),
+            0 9px 26px color-mix(in srgb, var(--lg-primary) 10%, transparent);
+    }
+
+    html:is([data-appearance="liquid"], [data-appearance="auto"]) #inventory-tab #products-table-body .mobile-product-summary {
+        position: relative;
+        z-index: 3;
+    }
+
+    html:is([data-appearance="liquid"], [data-appearance="auto"]) #inventory-tab #products-table-body .mobile-product-drag {
+        border-inline-end-color: var(--lg-border);
+        background: linear-gradient(180deg, var(--lg-panel-soft), transparent);
+        color: var(--lg-subtle);
+    }
+
+    html:is([data-appearance="liquid"], [data-appearance="auto"]) #inventory-tab #products-table-body .mobile-product-toggle {
+        transition: background-color 150ms ease, color 150ms ease;
+    }
+
+    html:is([data-appearance="liquid"], [data-appearance="auto"]) #inventory-tab #products-table-body .mobile-product-toggle:hover {
+        background: color-mix(in srgb, var(--lg-primary) 6%, transparent);
+    }
+
+    html:is([data-appearance="liquid"], [data-appearance="auto"]) #inventory-tab #products-table-body .mobile-product-toggle:active {
+        background: color-mix(in srgb, var(--lg-primary) 11%, transparent);
+    }
+
+    html:is([data-appearance="liquid"], [data-appearance="auto"]) #inventory-tab #products-table-body .mobile-product-main .prod-emoji {
+        border: 1px solid var(--lg-border);
+        border-radius: 8px;
+        background: var(--lg-panel-soft);
+        box-shadow: inset 0 1px 0 var(--lg-highlight);
+    }
+
+    html:is([data-appearance="liquid"], [data-appearance="auto"]) #inventory-tab #products-table-body .mobile-product-copy > strong {
+        color: var(--lg-text);
+    }
+
+    html:is([data-appearance="liquid"], [data-appearance="auto"]) #inventory-tab #products-table-body .mobile-product-copy > small b {
+        color: var(--lg-primary);
+    }
+
+    html:is([data-appearance="liquid"], [data-appearance="auto"]) #inventory-tab #products-table-body .mobile-product-chevron {
+        display: grid;
+        width: 26px;
+        height: 26px;
+        place-items: center;
+        border: 1px solid var(--lg-border);
+        border-radius: 50%;
+        background: var(--lg-panel-soft);
+        box-shadow: inset 0 1px 0 var(--lg-highlight);
+    }
+
+    html:is([data-appearance="liquid"], [data-appearance="auto"]) #inventory-tab #products-table-body tr.product-list-row.is-mobile-expanded .product-detail-cell:not(.product-actions-cell) {
+        border-color: var(--lg-border);
+        background: color-mix(in srgb, var(--lg-panel-dense) 62%, transparent);
+    }
+
+    html:is([data-appearance="liquid"], [data-appearance="auto"]) #inventory-tab #products-table-body tr.product-list-row.is-mobile-expanded .product-detail-cell:not(.product-actions-cell)::before {
+        color: var(--lg-subtle);
+    }
+
+    html:is([data-appearance="liquid"], [data-appearance="auto"]) #inventory-tab #products-table-body tr.product-list-row.is-mobile-expanded .product-actions-cell {
+        border-top-color: var(--lg-border);
+        background: color-mix(in srgb, var(--lg-panel-dense) 54%, transparent);
+    }
+
+    html:is([data-appearance="liquid"], [data-appearance="auto"]) #inventory-tab #products-table-body .product-actions-cell .btn-table-action {
+        border-color: var(--lg-border);
+        background: var(--lg-panel-soft);
+        box-shadow: inset 0 1px 0 var(--lg-highlight);
+        transition:
+            border-color 150ms ease,
+            background-color 150ms ease,
+            box-shadow 150ms ease,
+            translate 150ms ease;
+    }
+
+    html:is([data-appearance="liquid"], [data-appearance="auto"]) #inventory-tab #products-table-body .product-actions-cell .btn-table-action:hover {
+        border-color: color-mix(in srgb, currentColor 40%, var(--lg-border));
+        background: color-mix(in srgb, currentColor 10%, var(--lg-panel-soft));
+        box-shadow:
+            inset 0 1px 0 var(--lg-highlight-strong),
+            0 4px 12px color-mix(in srgb, currentColor 9%, transparent);
+        translate: 0 -1px;
+    }
+
+    html[data-reduce-transparency="true"]:is([data-appearance="liquid"], [data-appearance="auto"]) #inventory-tab #products-table-body tr.product-list-row {
+        background: var(--lg-panel-dense);
+        box-shadow: inset 0 1px 0 var(--lg-highlight);
+    }
+
+    html[data-reduce-transparency="true"]:is([data-appearance="liquid"], [data-appearance="auto"]) #inventory-tab #products-table-body tr.product-list-row.is-mobile-expanded {
+        background: color-mix(in srgb, var(--lg-primary) 8%, var(--lg-panel-dense));
+    }
+
+    html[data-reduce-transparency="true"]:is([data-appearance="liquid"], [data-appearance="auto"]) #inventory-tab #products-table-body .product-actions-cell .btn-table-action {
+        background: var(--lg-panel-raised);
     }
 
     .topbar-actions {
@@ -1598,5 +1726,12 @@ html[data-reduce-transparency="true"]:is([data-appearance="liquid"], [data-appea
 
     .ops-alert-strip > button {
         translate: none !important;
+    }
+
+    #inventory-tab #products-table-body tr.product-list-row,
+    #inventory-tab #products-table-body .mobile-product-toggle,
+    #inventory-tab #products-table-body .mobile-product-chevron,
+    #inventory-tab #products-table-body .product-actions-cell .btn-table-action {
+        transition-duration: 0.01ms !important;
     }
 }
