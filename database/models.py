@@ -3037,6 +3037,7 @@ async def _apply_completion_effects_tx(
             "binance_pay": "binance",
             "binance": "binance",
             "manual": "binance",
+            "cryptopay": "cryptopay",
         }.get((payment_method or "binance").lower(), "binance")
         setting_key = f"finance_bot_balance_{method_suffix}"
         await db.execute(
@@ -3137,6 +3138,759 @@ async def _update_order_status_once(
         except Exception:
             pass
         raise
+    finally:
+        await db.close()
+
+
+# ---------------------------------------------------------------------------
+# Crypto Pay invoices
+# ---------------------------------------------------------------------------
+
+_CRYPTOPAY_ACTIVE_STATUSES = ("creating", "active")
+
+
+async def prepare_cryptopay_invoice(
+    payment_kind: str,
+    user_telegram_id: int,
+    amount_usd: float,
+    *,
+    order_id: int | None = None,
+    wallet_amount: float | None = None,
+) -> dict:
+    """Create one local invoice attempt or return the existing active attempt."""
+    kind = str(payment_kind or "").strip().lower()
+    if kind not in {"order", "wallet_topup"}:
+        raise ValueError("INVALID_CRYPTOPAY_KIND")
+    if kind == "order" and not order_id:
+        raise ValueError("CRYPTOPAY_ORDER_REQUIRED")
+
+    amount = usd_float(amount_usd, places=2, allow_zero=False)
+    credit_amount = (
+        usd_float(wallet_amount, places=2, allow_zero=False)
+        if wallet_amount is not None
+        else None
+    )
+    for attempt in range(3):
+        try:
+            async with _get_critical_db_semaphore():
+                db = await get_db(fresh=True)
+                try:
+                    await db.execute("BEGIN IMMEDIATE")
+                    if kind == "order":
+                        cursor = await db.execute(
+                            """SELECT * FROM cryptopay_invoices
+                               WHERE payment_kind = 'order' AND order_id = ?
+                                 AND provider_status IN ('creating', 'active')
+                                 AND cancelled_at IS NULL
+                               ORDER BY id DESC LIMIT 1""",
+                            (int(order_id),),
+                        )
+                    else:
+                        cursor = await db.execute(
+                            """SELECT * FROM cryptopay_invoices
+                               WHERE payment_kind = 'wallet_topup'
+                                 AND user_telegram_id = ?
+                                 AND ROUND(COALESCE(wallet_amount, 0), 2) = ROUND(?, 2)
+                                 AND provider_status IN ('creating', 'active')
+                                 AND cancelled_at IS NULL
+                                 AND created_at >= datetime('now', ?)
+                               ORDER BY id DESC LIMIT 1""",
+                            (
+                                int(user_telegram_id),
+                                float(credit_amount or amount),
+                                f"-{PAYMENT_TIMEOUT_SECONDS} seconds",
+                            ),
+                        )
+                    existing = await cursor.fetchone()
+                    if existing:
+                        await db.commit()
+                        result = dict(existing)
+                        result["created"] = False
+                        return result
+
+                    request_key = f"cp_{kind}_{uuid.uuid4().hex}"
+                    provider_payload = (
+                        f"ventebot:{kind}:{int(order_id or user_telegram_id)}:{request_key}"
+                    )
+                    cursor = await db.execute(
+                        """INSERT INTO cryptopay_invoices
+                           (payment_kind, order_id, user_telegram_id, request_key,
+                            amount_usd, wallet_amount, provider_payload)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)
+                           RETURNING *""",
+                        (
+                            kind,
+                            int(order_id) if order_id else None,
+                            int(user_telegram_id),
+                            request_key,
+                            amount,
+                            credit_amount,
+                            provider_payload,
+                        ),
+                    )
+                    row = await cursor.fetchone()
+                    await db.commit()
+                    result = dict(row)
+                    result["created"] = True
+                    return result
+                except Exception:
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                    raise
+                finally:
+                    await db.close()
+        except Exception as exc:
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            await asyncio.sleep(0.1 * (attempt + 1))
+    raise RuntimeError("Crypto Pay invoice preparation unavailable")
+
+
+async def attach_cryptopay_invoice(request_key: str, payload: dict) -> dict:
+    invoice_id = str(payload.get("invoice_id") or "").strip()
+    if not invoice_id:
+        raise ValueError("CRYPTOPAY_INVOICE_ID_MISSING")
+    status = str(payload.get("status") or "active").strip().lower()
+    for attempt in range(3):
+        try:
+            async with _get_critical_db_semaphore():
+                db = await get_db(fresh=True)
+                try:
+                    await db.execute("BEGIN IMMEDIATE")
+                    cursor = await db.execute(
+                        """UPDATE cryptopay_invoices SET
+                               invoice_id = ?,
+                               provider_status = ?,
+                               asset = COALESCE(?, asset),
+                               paid_amount = COALESCE(?, paid_amount),
+                               paid_fiat_rate = COALESCE(?, paid_fiat_rate),
+                               bot_invoice_url = COALESCE(?, bot_invoice_url),
+                               mini_app_invoice_url = COALESCE(?, mini_app_invoice_url),
+                               web_app_invoice_url = COALESCE(?, web_app_invoice_url),
+                               expires_at = COALESCE(?, expires_at),
+                               raw_payload = ?,
+                               processing_error = NULL,
+                               updated_at = CURRENT_TIMESTAMP
+                           WHERE request_key = ?
+                           RETURNING *""",
+                        (
+                            invoice_id,
+                            status,
+                            str(payload.get("asset") or "") or None,
+                            float(payload["paid_amount"]) if payload.get("paid_amount") is not None else None,
+                            float(payload["paid_usd_rate"]) if payload.get("paid_usd_rate") is not None else None,
+                            payload.get("bot_invoice_url"),
+                            payload.get("mini_app_invoice_url"),
+                            payload.get("web_app_invoice_url"),
+                            payload.get("expiration_date"),
+                            json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                            str(request_key),
+                        ),
+                    )
+                    row = await cursor.fetchone()
+                    if not row:
+                        await db.rollback()
+                        raise ValueError("CRYPTOPAY_ATTEMPT_NOT_FOUND")
+                    await db.commit()
+                    return dict(row)
+                except Exception:
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                    raise
+                finally:
+                    await db.close()
+        except Exception as exc:
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            await asyncio.sleep(0.1 * (attempt + 1))
+    raise RuntimeError("Crypto Pay invoice attachment unavailable")
+
+
+async def mark_cryptopay_creation_failed(
+    request_key: str,
+    *,
+    uncertain: bool,
+    error: str,
+) -> None:
+    db = await get_db()
+    try:
+        await db.execute(
+            """UPDATE cryptopay_invoices
+               SET provider_status = ?, processing_error = ?,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE request_key = ? AND invoice_id IS NULL""",
+            (
+                "creation_unknown" if uncertain else "failed",
+                str(error)[:1000],
+                str(request_key),
+            ),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def get_cryptopay_invoice(invoice_id: str | int) -> dict | None:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM cryptopay_invoices WHERE invoice_id = ?",
+            (str(invoice_id),),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def get_cryptopay_invoice_by_local_id(local_id: int) -> dict | None:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM cryptopay_invoices WHERE id = ?",
+            (int(local_id),),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def get_cryptopay_invoice_for_order(order_id: int) -> dict | None:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT * FROM cryptopay_invoices
+               WHERE payment_kind = 'order' AND order_id = ?
+               ORDER BY id DESC LIMIT 1""",
+            (int(order_id),),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def save_cryptopay_update(payload: dict) -> dict | None:
+    """Persist a signed or polled provider invoice update."""
+    invoice_id = str(payload.get("invoice_id") or "").strip()
+    status = str(payload.get("status") or "").strip().lower()
+    if not invoice_id or status not in {"active", "paid", "expired"}:
+        return None
+
+    for attempt in range(3):
+        try:
+            async with _get_critical_db_semaphore():
+                db = await get_db(fresh=True)
+                try:
+                    await db.execute("BEGIN IMMEDIATE")
+                    cursor = await db.execute(
+                        "SELECT * FROM cryptopay_invoices WHERE invoice_id = ?",
+                        (invoice_id,),
+                    )
+                    row = await cursor.fetchone()
+                    if not row:
+                        await db.rollback()
+                        return None
+                    existing = dict(row)
+
+                    callback_payload = str(payload.get("payload") or "")
+                    expected_payload = str(existing.get("provider_payload") or "")
+                    if callback_payload and callback_payload != expected_payload:
+                        await db.rollback()
+                        raise ValueError("CRYPTOPAY_PAYLOAD_MISMATCH")
+
+                    old_status = str(existing.get("provider_status") or "")
+                    if old_status == "paid":
+                        status = "paid"
+                    elif old_status == "expired" and status == "active":
+                        status = "expired"
+
+                    cursor = await db.execute(
+                        """UPDATE cryptopay_invoices SET
+                               provider_status = ?,
+                               asset = COALESCE(?, asset),
+                               paid_amount = COALESCE(?, paid_amount),
+                               paid_fiat_rate = COALESCE(?, paid_fiat_rate),
+                               bot_invoice_url = COALESCE(?, bot_invoice_url),
+                               mini_app_invoice_url = COALESCE(?, mini_app_invoice_url),
+                               web_app_invoice_url = COALESCE(?, web_app_invoice_url),
+                               expires_at = COALESCE(?, expires_at),
+                               raw_payload = ?,
+                               updated_at = CURRENT_TIMESTAMP,
+                               notified_at = CASE
+                                   WHEN provider_status != ? THEN NULL
+                                   ELSE notified_at
+                               END
+                           WHERE invoice_id = ?
+                           RETURNING *""",
+                        (
+                            status,
+                            str(payload.get("asset") or "") or None,
+                            float(payload["paid_amount"]) if payload.get("paid_amount") is not None else None,
+                            float(payload["paid_usd_rate"]) if payload.get("paid_usd_rate") is not None else None,
+                            payload.get("bot_invoice_url"),
+                            payload.get("mini_app_invoice_url"),
+                            payload.get("web_app_invoice_url"),
+                            payload.get("expiration_date"),
+                            json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                            status,
+                            invoice_id,
+                        ),
+                    )
+                    updated = await cursor.fetchone()
+                    await db.commit()
+                    result = dict(updated)
+                    result["status_changed"] = old_status != status
+                    return result
+                except Exception:
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                    raise
+                finally:
+                    await db.close()
+        except Exception as exc:
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            await asyncio.sleep(0.1 * (attempt + 1))
+    raise RuntimeError("Crypto Pay status update unavailable")
+
+
+async def finalize_cryptopay_invoice(invoice_id: str | int) -> dict:
+    """Finalize a paid Crypto Pay invoice exactly once."""
+    for attempt in range(3):
+        try:
+            async with _get_critical_db_semaphore():
+                return await _finalize_cryptopay_invoice_once(
+                    str(invoice_id),
+                    fresh_connection=True,
+                )
+        except Exception as exc:
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            logger.warning(
+                "Retrying Crypto Pay finalization for %s: %s",
+                invoice_id,
+                exc,
+            )
+            await asyncio.sleep(0.15 * (attempt + 1))
+    raise RuntimeError("Crypto Pay finalization unavailable")
+
+
+async def _finalize_cryptopay_invoice_once(
+    invoice_id: str,
+    *,
+    fresh_connection: bool,
+) -> dict:
+    _clear_stock_cache()
+    invalidate_stats_cache()
+    db = await get_db(fresh=fresh_connection)
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute(
+            "SELECT * FROM cryptopay_invoices WHERE invoice_id = ?",
+            (str(invoice_id),),
+        )
+        invoice_row = await cursor.fetchone()
+        if not invoice_row:
+            await db.rollback()
+            return {"action": "unknown"}
+        invoice = dict(invoice_row)
+        status = str(invoice.get("provider_status") or "").lower()
+        if status != "paid":
+            await db.commit()
+            return {"action": status or "active", "invoice": invoice}
+
+        if invoice.get("processed_at") is not None:
+            await db.commit()
+            action = (
+                "wallet_credited"
+                if invoice.get("payment_kind") == "wallet_topup"
+                else "completed"
+            )
+            if invoice.get("payment_kind") == "order":
+                cursor = await db.execute(
+                    "SELECT status, product_id, quantity FROM orders WHERE id = ?",
+                    (int(invoice["order_id"]),),
+                )
+                order_status_row = await cursor.fetchone()
+                order_status = str(order_status_row["status"] if order_status_row else "")
+                if order_status_row:
+                    invoice["product_id"] = int(order_status_row["product_id"])
+                    invoice["quantity"] = int(order_status_row["quantity"] or 1)
+                if order_status in ("AWAITING_ACTIVATION_INFO", "AWAITING_ACTIVATION"):
+                    action = "activation"
+                elif order_status == "PAID_PENDING_DELIVERY":
+                    action = "paid_pending_delivery"
+                cursor = await db.execute(
+                    "SELECT id, account_data FROM stock_items WHERE sold_to_order_id = ? ORDER BY id",
+                    (int(invoice["order_id"]),),
+                )
+                items = [dict(row) for row in await cursor.fetchall()]
+            else:
+                items = []
+                cursor = await db.execute(
+                    "SELECT wallet_balance FROM users WHERE telegram_id = ?",
+                    (int(invoice["user_telegram_id"]),),
+                )
+                user = await cursor.fetchone()
+                invoice["new_balance"] = float(user["wallet_balance"] or 0) if user else 0.0
+            return {
+                "action": action,
+                "invoice": invoice,
+                "items": items,
+                "already_processed": True,
+            }
+
+        stored_amount = round(float(invoice.get("amount_usd") or 0), 2)
+        error = None
+        if stored_amount <= 0:
+            error = "Invalid Crypto Pay invoice amount"
+        elif invoice.get("cancelled_at"):
+            error = "Crypto Pay invoice paid after local cancellation"
+
+        if invoice.get("payment_kind") == "wallet_topup":
+            wallet_amount = round(float(invoice.get("wallet_amount") or 0), 2)
+            if wallet_amount <= 0 or abs(stored_amount - wallet_amount) > 0.001:
+                error = "Crypto Pay wallet amount mismatch"
+            if error:
+                await db.execute(
+                    """UPDATE cryptopay_invoices
+                       SET processing_error = ?, updated_at = CURRENT_TIMESTAMP
+                       WHERE id = ?""",
+                    (error, int(invoice["id"])),
+                )
+                await db.commit()
+                invoice["processing_error"] = error
+                return {"action": "review_required", "invoice": invoice}
+
+            new_balance = await _credit_wallet_tx(
+                db,
+                int(invoice["user_telegram_id"]),
+                wallet_amount,
+                "Topup via Crypto Pay",
+                str(invoice_id),
+            )
+            await db.execute(
+                """UPDATE cryptopay_invoices
+                   SET processed_at = CURRENT_TIMESTAMP, processing_error = NULL
+                   WHERE id = ? AND processed_at IS NULL""",
+                (int(invoice["id"]),),
+            )
+            await db.commit()
+            invoice["new_balance"] = new_balance
+            invoice["processed_at"] = True
+            return {"action": "wallet_credited", "invoice": invoice, "items": []}
+
+        cursor = await db.execute(
+            """SELECT o.*, p.delivery_type, p.name AS product_name,
+                      p.warranty_days
+               FROM orders o
+               JOIN products p ON p.id = o.product_id
+               WHERE o.id = ? AND o.user_telegram_id = ?""",
+            (int(invoice["order_id"]), int(invoice["user_telegram_id"])),
+        )
+        order_row = await cursor.fetchone()
+        if not order_row:
+            error = "Crypto Pay order not found"
+            order = {}
+        else:
+            order = dict(order_row)
+            if abs(round(float(order.get("amount_usd") or 0), 2) - stored_amount) > 0.001:
+                error = "Crypto Pay order amount mismatch"
+            elif order.get("status") == "CANCELLED":
+                error = "Crypto Pay invoice paid after order cancellation"
+            elif (
+                order.get("status") == "COMPLETED"
+                and order.get("payment_method") != "cryptopay"
+            ):
+                error = (
+                    "Order already completed with "
+                    f"{order.get('payment_method') or 'another method'}"
+                )
+        if error:
+            await db.execute(
+                """UPDATE cryptopay_invoices
+                   SET processing_error = ?, updated_at = CURRENT_TIMESTAMP
+                   WHERE id = ?""",
+                (error, int(invoice["id"])),
+            )
+            await db.commit()
+            invoice["processing_error"] = error
+            invoice.update(
+                {
+                    "product_id": order.get("product_id"),
+                    "order_status": order.get("status"),
+                }
+            )
+            return {"action": "review_required", "invoice": invoice}
+
+        delivery_type = str(order.get("delivery_type") or "stock")
+        items: list[dict] = []
+        if delivery_type == "activation":
+            next_status = (
+                order["status"]
+                if order.get("status") in ("AWAITING_ACTIVATION_INFO", "AWAITING_ACTIVATION")
+                else "AWAITING_ACTIVATION_INFO"
+            )
+        elif delivery_type == "supplier_api":
+            next_status = "PAID_PENDING_DELIVERY"
+        else:
+            quantity = max(1, int(order.get("quantity") or 1))
+            cursor = await db.execute(
+                """SELECT id, account_data FROM stock_items
+                   WHERE product_id = ? AND is_sold = 0
+                   ORDER BY added_at ASC, id ASC LIMIT ?""",
+                (int(order["product_id"]), quantity),
+            )
+            items = [dict(item) for item in await cursor.fetchall()]
+            if len(items) < quantity:
+                next_status = "PAID_PENDING_DELIVERY"
+            else:
+                ids = [int(item["id"]) for item in items]
+                placeholders = ",".join("?" for _ in ids)
+                cursor = await db.execute(
+                    f"""UPDATE stock_items
+                        SET is_sold = 1, sold_to_order_id = ?,
+                            sold_at = CURRENT_TIMESTAMP
+                        WHERE id IN ({placeholders}) AND is_sold = 0""",
+                    [int(order["id"]), *ids],
+                )
+                if cursor.rowcount != -1 and cursor.rowcount != len(ids):
+                    await db.rollback()
+                    raise ValueError("CRYPTOPAY_STOCK_CONFLICT")
+                next_status = "COMPLETED"
+
+        first_stock_id = items[0]["id"] if items else None
+        transitioned = order.get("status") != "COMPLETED" and next_status == "COMPLETED"
+        await db.execute(
+            """UPDATE orders SET status = ?, payment_method = 'cryptopay',
+                      binance_order_id = ?, paid_at = COALESCE(paid_at, CURRENT_TIMESTAMP),
+                      stock_item_id = COALESCE(?, stock_item_id)
+               WHERE id = ?""",
+            (next_status, str(invoice_id), first_stock_id, int(order["id"])),
+        )
+        if transitioned:
+            await _apply_completion_effects_tx(db, order, "cryptopay")
+        await db.execute(
+            """UPDATE cryptopay_invoices
+               SET processed_at = CURRENT_TIMESTAMP, processing_error = NULL
+               WHERE id = ?""",
+            (int(invoice["id"]),),
+        )
+        await db.commit()
+
+        invoice.update(
+            {
+                "product_id": order.get("product_id"),
+                "quantity": order.get("quantity"),
+                "order_status": next_status,
+                "delivery_type": delivery_type,
+                "warranty_days": order.get("warranty_days"),
+                "product_name": order.get("product_name"),
+            }
+        )
+        if next_status in ("AWAITING_ACTIVATION_INFO", "AWAITING_ACTIVATION"):
+            action = "activation"
+        elif next_status == "PAID_PENDING_DELIVERY":
+            action = "paid_pending_delivery"
+        else:
+            action = "completed"
+        return {"action": action, "invoice": invoice, "items": items}
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def claim_cryptopay_notification(invoice_id: str | int) -> bool:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """UPDATE cryptopay_invoices
+               SET notification_claimed_at = CURRENT_TIMESTAMP
+               WHERE invoice_id = ? AND notified_at IS NULL
+                 AND (notification_claimed_at IS NULL
+                      OR notification_claimed_at <= datetime('now', '-5 minutes'))
+               RETURNING id""",
+            (str(invoice_id),),
+        )
+        row = await cursor.fetchone()
+        await db.commit()
+        return row is not None
+    finally:
+        await db.close()
+
+
+async def mark_cryptopay_notified(invoice_id: str | int) -> None:
+    db = await get_db()
+    try:
+        await db.execute(
+            """UPDATE cryptopay_invoices
+               SET notified_at = CURRENT_TIMESTAMP, notification_claimed_at = NULL
+               WHERE invoice_id = ?""",
+            (str(invoice_id),),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def release_cryptopay_notification(invoice_id: str | int) -> None:
+    db = await get_db()
+    try:
+        await db.execute(
+            """UPDATE cryptopay_invoices SET notification_claimed_at = NULL
+               WHERE invoice_id = ? AND notified_at IS NULL""",
+            (str(invoice_id),),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def cancel_cryptopay_order_invoice(order_id: int) -> None:
+    db = await get_db()
+    try:
+        await db.execute(
+            """UPDATE cryptopay_invoices
+               SET cancelled_at = COALESCE(cancelled_at, CURRENT_TIMESTAMP),
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE payment_kind = 'order' AND order_id = ?
+                 AND processed_at IS NULL""",
+            (int(order_id),),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def cancel_cryptopay_wallet_invoice(
+    local_id: int,
+    user_telegram_id: int,
+) -> bool:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """UPDATE cryptopay_invoices
+               SET cancelled_at = COALESCE(cancelled_at, CURRENT_TIMESTAMP),
+                   provider_status = CASE
+                       WHEN provider_status = 'paid' THEN provider_status
+                       ELSE 'expired'
+                   END,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = ? AND payment_kind = 'wallet_topup'
+                 AND user_telegram_id = ? AND processed_at IS NULL
+               RETURNING id""",
+            (int(local_id), int(user_telegram_id)),
+        )
+        row = await cursor.fetchone()
+        await db.commit()
+        return row is not None
+    finally:
+        await db.close()
+
+
+async def expire_stale_cryptopay_invoices(
+    *,
+    timeout_seconds: int = PAYMENT_TIMEOUT_SECONDS,
+) -> list[str]:
+    """Expire local active invoices and cancel only still-unpaid orders."""
+    timeout = max(60, int(timeout_seconds))
+    for attempt in range(3):
+        try:
+            async with _get_critical_db_semaphore():
+                db = await get_db(fresh=True)
+                try:
+                    await db.execute("BEGIN IMMEDIATE")
+                    cursor = await db.execute(
+                        """SELECT id, invoice_id, payment_kind, order_id
+                           FROM cryptopay_invoices
+                           WHERE provider_status IN ('creating', 'active')
+                             AND processed_at IS NULL AND cancelled_at IS NULL
+                             AND created_at <= datetime('now', ?)
+                           ORDER BY id LIMIT 100""",
+                        (f"-{timeout} seconds",),
+                    )
+                    rows = [dict(row) for row in await cursor.fetchall()]
+                    invoice_ids: list[str] = []
+                    for row in rows:
+                        await db.execute(
+                            """UPDATE cryptopay_invoices
+                               SET provider_status = 'expired',
+                                   cancelled_at = CURRENT_TIMESTAMP,
+                                   updated_at = CURRENT_TIMESTAMP,
+                                   notified_at = NULL
+                               WHERE id = ? AND provider_status IN ('creating', 'active')
+                                 AND processed_at IS NULL""",
+                            (int(row["id"]),),
+                        )
+                        if row.get("payment_kind") == "order" and row.get("order_id"):
+                            await db.execute(
+                                """UPDATE orders SET status = 'CANCELLED'
+                                   WHERE id = ? AND status IN ('PENDING', 'AWAITING_PAYMENT')
+                                     AND NOT EXISTS (
+                                         SELECT 1 FROM stock_items
+                                         WHERE sold_to_order_id = orders.id AND is_sold = 1
+                                     )""",
+                                (int(row["order_id"]),),
+                            )
+                        if row.get("invoice_id"):
+                            invoice_ids.append(str(row["invoice_id"]))
+                    await db.commit()
+                    return invoice_ids
+                except Exception:
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                    raise
+                finally:
+                    await db.close()
+        except Exception as exc:
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            await asyncio.sleep(0.15 * (attempt + 1))
+    return []
+
+
+async def list_cryptopay_invoices_to_poll(limit: int = 10) -> list[dict]:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT * FROM cryptopay_invoices
+               WHERE invoice_id IS NOT NULL
+                 AND provider_status = 'active'
+                 AND processed_at IS NULL AND cancelled_at IS NULL
+               ORDER BY updated_at ASC LIMIT ?""",
+            (max(1, min(int(limit), 100)),),
+        )
+        return [dict(row) for row in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+
+async def list_cryptopay_invoices_to_finalize(limit: int = 25) -> list[dict]:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT * FROM cryptopay_invoices
+               WHERE invoice_id IS NOT NULL AND provider_status = 'paid'
+                 AND (processed_at IS NULL OR notified_at IS NULL)
+               ORDER BY updated_at ASC LIMIT ?""",
+            (max(1, min(int(limit), 100)),),
+        )
+        return [dict(row) for row in await cursor.fetchall()]
     finally:
         await db.close()
 

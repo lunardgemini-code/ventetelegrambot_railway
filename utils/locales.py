@@ -1478,6 +1478,115 @@ TRANSLATIONS["ru"].update({
 })
 
 
+TRANSLATIONS["en"].update({
+    "btn_pay_cryptopay": "CryptoBot",
+    "btn_open_cryptopay": "Open CryptoBot invoice",
+    "btn_check_cryptopay": "Check payment",
+    "cryptopay_title": "<b>CryptoBot payment</b>",
+    "cryptopay_amount": "<b>Amount:</b> <code>${amount}</code>",
+    "cryptopay_reference": "<b>Invoice:</b> <code>{invoice_id}</code>",
+    "cryptopay_instructions": "Open the invoice, pay it in CryptoBot, then return here. Confirmation is automatic.",
+    "cryptopay_waiting": "Waiting for your payment...",
+    "cryptopay_checking_short": "Checking payment...",
+    "cryptopay_checking": "Checking your CryptoBot invoice...",
+    "cryptopay_expired": "This CryptoBot invoice has expired. Create a new payment from the payment methods.",
+    "cryptopay_unavailable": "CryptoBot payment is temporarily unavailable. Please try again shortly.",
+    "cryptopay_creation_unknown": "The invoice may have been created without a response. Do not retry repeatedly; contact support with reference {reference}.",
+    "cryptopay_paid_pending": "Payment confirmed. Order #{order_id} is being processed.",
+    "cryptopay_review": "Payment received but held for a security review. An administrator has been notified.",
+})
+
+TRANSLATIONS["fr"].update({
+    "btn_pay_cryptopay": "CryptoBot",
+    "btn_open_cryptopay": "Ouvrir la facture CryptoBot",
+    "btn_check_cryptopay": "Verifier le paiement",
+    "cryptopay_title": "<b>Paiement CryptoBot</b>",
+    "cryptopay_amount": "<b>Montant :</b> <code>${amount}</code>",
+    "cryptopay_reference": "<b>Facture :</b> <code>{invoice_id}</code>",
+    "cryptopay_instructions": "Ouvrez la facture, payez-la dans CryptoBot, puis revenez ici. La confirmation est automatique.",
+    "cryptopay_waiting": "En attente de votre paiement...",
+    "cryptopay_checking_short": "Verification du paiement...",
+    "cryptopay_checking": "Verification de votre facture CryptoBot...",
+    "cryptopay_expired": "Cette facture CryptoBot a expire. Creez un nouveau paiement depuis les methodes de paiement.",
+    "cryptopay_unavailable": "Le paiement CryptoBot est temporairement indisponible. Reessayez dans quelques instants.",
+    "cryptopay_creation_unknown": "La facture a peut-etre ete creee sans reponse. Ne recommencez pas plusieurs fois et contactez le support avec la reference {reference}.",
+    "cryptopay_paid_pending": "Paiement confirme. La commande #{order_id} est en cours de traitement.",
+    "cryptopay_review": "Paiement recu mais place en verification de securite. Un administrateur a ete averti.",
+})
+
+TRANSLATIONS["ar"].update({
+    "btn_pay_cryptopay": "CryptoBot",
+    "btn_open_cryptopay": "فتح فاتورة CryptoBot",
+    "btn_check_cryptopay": "التحقق من الدفع",
+    "cryptopay_title": "<b>الدفع عبر CryptoBot</b>",
+    "cryptopay_amount": "<b>المبلغ:</b> <code>${amount}</code>",
+    "cryptopay_reference": "<b>الفاتورة:</b> <code>{invoice_id}</code>",
+    "cryptopay_instructions": "افتح الفاتورة وادفعها في CryptoBot ثم عد إلى هنا. يتم التأكيد تلقائيا.",
+    "cryptopay_waiting": "بانتظار دفعتك...",
+    "cryptopay_checking_short": "جار التحقق من الدفع...",
+    "cryptopay_checking": "جار التحقق من فاتورة CryptoBot...",
+    "cryptopay_expired": "انتهت صلاحية فاتورة CryptoBot. أنشئ دفعة جديدة من طرق الدفع.",
+    "cryptopay_unavailable": "الدفع عبر CryptoBot غير متاح مؤقتا. حاول بعد قليل.",
+    "cryptopay_creation_unknown": "ربما تم إنشاء الفاتورة من دون رد. لا تكرر المحاولة واتصل بالدعم مع المرجع {reference}.",
+    "cryptopay_paid_pending": "تم تأكيد الدفع. الطلب #{order_id} قيد المعالجة.",
+    "cryptopay_review": "تم استلام الدفع ووضعه قيد المراجعة الأمنية. تم إشعار المسؤول.",
+})
+
+TRANSLATIONS["zh"].update({
+    "btn_pay_cryptopay": "CryptoBot",
+    "btn_open_cryptopay": "打开 CryptoBot 发票",
+    "btn_check_cryptopay": "检查付款",
+    "cryptopay_title": "<b>CryptoBot 付款</b>",
+    "cryptopay_amount": "<b>金额：</b> <code>${amount}</code>",
+    "cryptopay_reference": "<b>发票：</b> <code>{invoice_id}</code>",
+    "cryptopay_instructions": "打开发票并在 CryptoBot 中付款，然后返回此处。系统会自动确认。",
+    "cryptopay_waiting": "正在等待付款...",
+    "cryptopay_checking_short": "正在检查付款...",
+    "cryptopay_checking": "正在检查 CryptoBot 发票...",
+    "cryptopay_expired": "此 CryptoBot 发票已过期。请从付款方式中创建新付款。",
+    "cryptopay_unavailable": "CryptoBot 付款暂时不可用，请稍后重试。",
+    "cryptopay_creation_unknown": "发票可能已创建但未返回响应。请勿重复尝试，并将参考号 {reference} 提交给客服。",
+    "cryptopay_paid_pending": "付款已确认。订单 #{order_id} 正在处理中。",
+    "cryptopay_review": "付款已收到，但正在进行安全审核。管理员已收到通知。",
+})
+
+TRANSLATIONS["vi"].update({
+    "btn_pay_cryptopay": "CryptoBot",
+    "btn_open_cryptopay": "Mo hoa don CryptoBot",
+    "btn_check_cryptopay": "Kiem tra thanh toan",
+    "cryptopay_title": "<b>Thanh toan CryptoBot</b>",
+    "cryptopay_amount": "<b>So tien:</b> <code>${amount}</code>",
+    "cryptopay_reference": "<b>Hoa don:</b> <code>{invoice_id}</code>",
+    "cryptopay_instructions": "Mo hoa don, thanh toan trong CryptoBot, sau do quay lai day. He thong tu dong xac nhan.",
+    "cryptopay_waiting": "Dang cho thanh toan...",
+    "cryptopay_checking_short": "Dang kiem tra thanh toan...",
+    "cryptopay_checking": "Dang kiem tra hoa don CryptoBot...",
+    "cryptopay_expired": "Hoa don CryptoBot da het han. Tao thanh toan moi tu danh sach phuong thuc.",
+    "cryptopay_unavailable": "Thanh toan CryptoBot tam thoi khong kha dung. Vui long thu lai sau.",
+    "cryptopay_creation_unknown": "Hoa don co the da duoc tao nhung khong co phan hoi. Khong thu lai nhieu lan; lien he ho tro voi ma {reference}.",
+    "cryptopay_paid_pending": "Thanh toan da xac nhan. Don hang #{order_id} dang duoc xu ly.",
+    "cryptopay_review": "Da nhan thanh toan nhung dang duoc kiem tra bao mat. Quan tri vien da duoc thong bao.",
+})
+
+TRANSLATIONS["ru"].update({
+    "btn_pay_cryptopay": "CryptoBot",
+    "btn_open_cryptopay": "Открыть счет CryptoBot",
+    "btn_check_cryptopay": "Проверить платеж",
+    "cryptopay_title": "<b>Оплата через CryptoBot</b>",
+    "cryptopay_amount": "<b>Сумма:</b> <code>${amount}</code>",
+    "cryptopay_reference": "<b>Счет:</b> <code>{invoice_id}</code>",
+    "cryptopay_instructions": "Откройте счет, оплатите его в CryptoBot и вернитесь сюда. Подтверждение выполняется автоматически.",
+    "cryptopay_waiting": "Ожидаем оплату...",
+    "cryptopay_checking_short": "Проверяем платеж...",
+    "cryptopay_checking": "Проверяем счет CryptoBot...",
+    "cryptopay_expired": "Срок счета CryptoBot истек. Создайте новый платеж в списке способов оплаты.",
+    "cryptopay_unavailable": "Оплата через CryptoBot временно недоступна. Повторите попытку позже.",
+    "cryptopay_creation_unknown": "Счет мог быть создан без ответа. Не повторяйте попытку много раз; обратитесь в поддержку с номером {reference}.",
+    "cryptopay_paid_pending": "Платеж подтвержден. Заказ #{order_id} обрабатывается.",
+    "cryptopay_review": "Платеж получен и отправлен на проверку безопасности. Администратор уведомлен.",
+})
+
+
 from utils.game_locales import GAME_TRANSLATIONS
 
 for _game_lang, _game_strings in GAME_TRANSLATIONS.items():

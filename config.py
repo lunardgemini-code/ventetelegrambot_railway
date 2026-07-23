@@ -37,6 +37,23 @@ NOWPAYMENTS_FIXED_RATE: bool = os.getenv("NOWPAYMENTS_FIXED_RATE", "false").stri
 NOWPAYMENTS_FEE_PAID_BY_USER: bool = os.getenv(
     "NOWPAYMENTS_FEE_PAID_BY_USER", "false"
 ).strip().lower() in {"1", "true", "yes", "on"}
+
+# Crypto Pay (@CryptoBot) credentials must stay in Railway variables. Keep the
+# feature disabled until the signed webhook endpoint has been deployed.
+CRYPTO_PAY_API_TOKEN: str = os.getenv("CRYPTO_PAY_API_TOKEN", "").strip()
+CRYPTO_PAY_BASE_URL: str = os.getenv(
+    "CRYPTO_PAY_BASE_URL", "https://pay.crypt.bot/api"
+).strip().rstrip("/")
+CRYPTO_PAY_ENABLED: bool = os.getenv("CRYPTO_PAY_ENABLED", "false").strip().lower() in {
+    "1", "true", "yes", "on"
+}
+CRYPTO_PAY_WEBHOOK_SECRET: str = os.getenv(
+    "CRYPTO_PAY_WEBHOOK_SECRET", ""
+).strip()
+CRYPTO_PAY_ACCEPTED_ASSETS: str = os.getenv(
+    "CRYPTO_PAY_ACCEPTED_ASSETS", "USDT"
+).strip().upper() or "USDT"
+
 PAYMENT_TIMEOUT_SECONDS: int = max(
     60,
     int(os.getenv("PAYMENT_TIMEOUT_SECONDS", "300")),

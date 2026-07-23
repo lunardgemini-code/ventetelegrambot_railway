@@ -27,6 +27,7 @@ from database.models import (
 from services.binance_verify import verify_payment
 from utils.helpers import escape_html, format_price
 from utils.keyboards import (
+    cryptopay_payment_keyboard,
     main_menu_keyboard,
     make_button,
     nowpayments_wallet_topup_keyboard,
@@ -44,9 +45,11 @@ WALLET_TOPUP_VERIFY = 302
 WALLET_TOPUP_BEP20_TX = 303
 WALLET_TOPUP_TRC20_TX = 304
 WALLET_TOPUP_NOWPAYMENTS = 305
+WALLET_TOPUP_CRYPTOPAY = 306
 
 _nowpayments_topup_locks = [asyncio.Lock() for _ in range(64)]
 _nowpayments_topup_timeout_tasks: dict[int, asyncio.Task] = {}
+_cryptopay_topup_locks = [asyncio.Lock() for _ in range(64)]
 
 
 def wallet_menu_keyboard(balance: float, lang: str = "fr") -> InlineKeyboardMarkup:
@@ -601,6 +604,441 @@ async def cancel_nowpayments_wallet_topup_callback(update: Update, context: Cont
     return ConversationHandler.END
 
 
+def _cryptopay_invoice_url(invoice: dict) -> str:
+    return str(
+        invoice.get("bot_invoice_url")
+        or invoice.get("mini_app_invoice_url")
+        or invoice.get("web_app_invoice_url")
+        or ""
+    ).strip()
+
+
+async def _render_cryptopay_topup_checkout(
+    query,
+    invoice: dict,
+    lang: str,
+    status_text: str | None = None,
+):
+    invoice_url = _cryptopay_invoice_url(invoice)
+    if not invoice_url:
+        await safe_edit_message_text(
+            query,
+            t("cryptopay_unavailable", lang),
+            reply_markup=main_menu_keyboard(lang),
+        )
+        return
+    amount = f"{float(invoice.get('wallet_amount') or invoice.get('amount_usd') or 0):.2f}"
+    invoice_id = escape_html(str(invoice.get("invoice_id") or ""))
+    text = (
+        f"{t('cryptopay_title', lang)}\n\n"
+        f"{t('cryptopay_amount', lang).format(amount=amount)}\n"
+        f"{t('cryptopay_reference', lang).format(invoice_id=invoice_id)}\n\n"
+        f"{t('cryptopay_instructions', lang)}\n\n"
+        f"{status_text or t('cryptopay_waiting', lang)}"
+    )
+    await safe_edit_message_text(
+        query,
+        text,
+        parse_mode="HTML",
+        reply_markup=cryptopay_payment_keyboard(
+            int(invoice["id"]),
+            invoice_url,
+            lang,
+            wallet_topup=True,
+        ),
+    )
+
+
+async def process_cryptopay_wallet_topup_notification(
+    bot,
+    invoice_id: str | int,
+    *,
+    finalized_result: dict | None = None,
+) -> dict:
+    from config import ADMIN_IDS
+    from database.models import (
+        claim_cryptopay_notification,
+        finalize_cryptopay_invoice,
+        get_user_lang,
+        mark_cryptopay_notified,
+        release_cryptopay_notification,
+    )
+
+    result = finalized_result or await finalize_cryptopay_invoice(invoice_id)
+    action = result.get("action")
+    invoice = result.get("invoice") or {}
+    if invoice.get("payment_kind") != "wallet_topup":
+        return result
+    if not invoice or invoice.get("notified_at"):
+        return result
+    if action not in {"wallet_credited", "review_required", "expired"}:
+        return result
+    if not await claim_cryptopay_notification(invoice_id):
+        return result
+
+    user_id = int(invoice.get("user_telegram_id") or 0)
+    lang = await get_user_lang(user_id) if user_id else "en"
+    notified = False
+    if action == "wallet_credited" and user_id:
+        balance = float(
+            invoice.get("new_balance")
+            or await get_wallet_balance(user_id)
+        )
+        text = (
+            t("wallet_credited", lang)
+            .replace(
+                "${amount}",
+                format_price(float(invoice.get("wallet_amount") or 0)),
+            )
+            .replace("${balance}", format_price(balance))
+        )
+        await bot.send_message(
+            user_id,
+            text,
+            parse_mode="HTML",
+            reply_markup=wallet_menu_keyboard(balance, lang),
+        )
+        for admin_id in ADMIN_IDS:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    (
+                        "<b>CryptoBot wallet top-up confirmed</b>\n\n"
+                        f"User: <code>{user_id}</code>\n"
+                        f"Amount: {format_price(float(invoice.get('wallet_amount') or 0))}\n"
+                        f"Invoice: <code>{escape_html(str(invoice_id))}</code>"
+                    ),
+                    parse_mode="HTML",
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Could not notify admin about Crypto Pay top-up %s: %s",
+                    invoice_id,
+                    exc,
+                )
+        notified = True
+    elif action == "review_required":
+        if user_id:
+            await bot.send_message(
+                user_id,
+                t("cryptopay_review", lang),
+                reply_markup=main_menu_keyboard(lang),
+            )
+        reason = escape_html(
+            str(invoice.get("processing_error") or "Payment validation mismatch")
+        )
+        for admin_id in ADMIN_IDS:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    (
+                        "<b>Crypto Pay wallet review</b>\n"
+                        f"User: <code>{user_id}</code>\n"
+                        f"Invoice: <code>{escape_html(str(invoice_id))}</code>\n"
+                        f"Reason: {reason}"
+                    ),
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
+        notified = True
+    elif action == "expired" and user_id:
+        await bot.send_message(
+            user_id,
+            t("cryptopay_expired", lang),
+            reply_markup=main_menu_keyboard(lang),
+        )
+        notified = True
+
+    if notified:
+        await mark_cryptopay_notified(invoice_id)
+    else:
+        await release_cryptopay_notification(invoice_id)
+    return result
+
+
+async def wallet_topup_method_cryptopay(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    query = update.callback_query
+    await query.answer()
+    lang = await get_user_lang(update.effective_user.id)
+    amount = round(float(context.user_data.get("wallet_topup_amount") or 0), 2)
+    if amount <= 0:
+        await safe_edit_message_text(
+            query,
+            t("wallet_invalid_amount", lang),
+            reply_markup=main_menu_keyboard(lang),
+        )
+        return ConversationHandler.END
+
+    lock = _cryptopay_topup_locks[
+        update.effective_user.id % len(_cryptopay_topup_locks)
+    ]
+    async with lock:
+        from database.models import (
+            attach_cryptopay_invoice,
+            mark_cryptopay_creation_failed,
+            prepare_cryptopay_invoice,
+        )
+        from services.crypto_pay import (
+            CryptoPayError,
+            create_invoice,
+            is_crypto_pay_configured,
+        )
+
+        if not is_crypto_pay_configured():
+            await safe_edit_message_text(
+                query,
+                t("cryptopay_unavailable", lang),
+                reply_markup=main_menu_keyboard(lang),
+            )
+            return ConversationHandler.END
+
+        attempt = await prepare_cryptopay_invoice(
+            "wallet_topup",
+            update.effective_user.id,
+            amount,
+            wallet_amount=amount,
+        )
+        if not attempt.get("created"):
+            if attempt.get("invoice_id") and _cryptopay_invoice_url(attempt):
+                context.user_data["wallet_topup_cryptopay_id"] = int(attempt["id"])
+                await _render_cryptopay_topup_checkout(query, attempt, lang)
+                return WALLET_TOPUP_CRYPTOPAY
+            await safe_edit_message_text(
+                query,
+                t("cryptopay_creation_unknown", lang).format(
+                    reference=escape_html(str(attempt.get("request_key") or "wallet"))
+                ),
+                reply_markup=main_menu_keyboard(lang),
+            )
+            return ConversationHandler.END
+
+        try:
+            provider_invoice = await create_invoice(
+                amount_usd=amount,
+                payload=str(attempt["provider_payload"]),
+                description=f"VenteBot wallet top-up {amount:.2f} USD",
+                expires_in=PAYMENT_TIMEOUT_SECONDS,
+            )
+            invoice = await attach_cryptopay_invoice(
+                str(attempt["request_key"]),
+                provider_invoice,
+            )
+        except (CryptoPayError, ValueError, TypeError) as exc:
+            uncertain = bool(isinstance(exc, CryptoPayError) and exc.retryable)
+            await mark_cryptopay_creation_failed(
+                str(attempt["request_key"]),
+                uncertain=uncertain,
+                error=str(exc),
+            )
+            logger.warning(
+                "Crypto Pay wallet invoice creation failed for user %s: %s",
+                update.effective_user.id,
+                exc,
+            )
+            text = (
+                t("cryptopay_creation_unknown", lang).format(
+                    reference=escape_html(str(attempt["request_key"]))
+                )
+                if uncertain
+                else t("cryptopay_unavailable", lang)
+            )
+            await safe_edit_message_text(
+                query,
+                text,
+                reply_markup=main_menu_keyboard(lang),
+            )
+            return ConversationHandler.END
+
+        context.user_data["wallet_topup_cryptopay_id"] = int(invoice["id"])
+        await _render_cryptopay_topup_checkout(query, invoice, lang)
+        return WALLET_TOPUP_CRYPTOPAY
+
+
+async def check_cryptopay_wallet_topup(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    query = update.callback_query
+    lang = await get_user_lang(update.effective_user.id)
+    await query.answer(t("cryptopay_checking_short", lang))
+    local_id = int(query.data.split(":", 1)[1])
+    from database.models import (
+        get_cryptopay_invoice_by_local_id,
+        save_cryptopay_update,
+    )
+    from services.crypto_pay import CryptoPayError, get_invoices
+
+    invoice = await get_cryptopay_invoice_by_local_id(local_id)
+    if (
+        not invoice
+        or invoice.get("payment_kind") != "wallet_topup"
+        or int(invoice.get("user_telegram_id") or 0) != update.effective_user.id
+    ):
+        await safe_edit_message_text(query, t("access_denied", lang))
+        return ConversationHandler.END
+
+    await _render_cryptopay_topup_checkout(
+        query,
+        invoice,
+        lang,
+        t("cryptopay_checking", lang),
+    )
+    try:
+        provider_invoices = await get_invoices([invoice["invoice_id"]])
+        if not provider_invoices:
+            raise CryptoPayError("Invoice not returned")
+        invoice = await save_cryptopay_update(provider_invoices[0]) or invoice
+        result = await process_cryptopay_wallet_topup_notification(
+            context.bot,
+            invoice["invoice_id"],
+        )
+    except (CryptoPayError, ValueError, TypeError):
+        await _render_cryptopay_topup_checkout(
+            query,
+            invoice,
+            lang,
+            t("cryptopay_unavailable", lang),
+        )
+        return WALLET_TOPUP_CRYPTOPAY
+
+    action = result.get("action")
+    if action == "wallet_credited":
+        payment = result.get("invoice") or invoice
+        balance = float(
+            payment.get("new_balance")
+            or await get_wallet_balance(update.effective_user.id)
+        )
+        text = (
+            t("wallet_credited", lang)
+            .replace(
+                "${amount}",
+                format_price(float(payment.get("wallet_amount") or 0)),
+            )
+            .replace("${balance}", format_price(balance))
+        )
+        await safe_edit_message_text(
+            query,
+            text,
+            parse_mode="HTML",
+            reply_markup=wallet_menu_keyboard(balance, lang),
+        )
+        context.user_data.pop("wallet_topup_amount", None)
+        context.user_data.pop("wallet_topup_cryptopay_id", None)
+        return ConversationHandler.END
+    if action == "review_required":
+        await safe_edit_message_text(
+            query,
+            t("cryptopay_review", lang),
+            reply_markup=main_menu_keyboard(lang),
+        )
+        return ConversationHandler.END
+    if action == "expired":
+        await safe_edit_message_text(
+            query,
+            t("cryptopay_expired", lang),
+            reply_markup=main_menu_keyboard(lang),
+        )
+        return ConversationHandler.END
+
+    await _render_cryptopay_topup_checkout(
+        query,
+        invoice,
+        lang,
+        t("cryptopay_waiting", lang),
+    )
+    return WALLET_TOPUP_CRYPTOPAY
+
+
+async def cancel_cryptopay_wallet_topup(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    query = update.callback_query
+    await query.answer()
+    lang = await get_user_lang(update.effective_user.id)
+    local_id = int(query.data.split(":", 1)[1])
+    from database.models import (
+        cancel_cryptopay_wallet_invoice,
+        get_cryptopay_invoice_by_local_id,
+    )
+
+    invoice = await get_cryptopay_invoice_by_local_id(local_id)
+    if (
+        not invoice
+        or invoice.get("payment_kind") != "wallet_topup"
+        or int(invoice.get("user_telegram_id") or 0) != update.effective_user.id
+    ):
+        await safe_edit_message_text(query, t("access_denied", lang))
+        return ConversationHandler.END
+
+    from database.models import save_cryptopay_update
+    from services.crypto_pay import CryptoPayError, get_invoices
+
+    try:
+        provider_invoices = await get_invoices([invoice["invoice_id"]])
+        if not provider_invoices:
+            raise CryptoPayError("Invoice not returned")
+        invoice = await save_cryptopay_update(provider_invoices[0]) or invoice
+    except (CryptoPayError, ValueError, TypeError) as exc:
+        logger.warning(
+            "Crypto Pay pre-cancellation check failed for wallet invoice %s: %s",
+            invoice.get("invoice_id"),
+            exc,
+        )
+        await _render_cryptopay_topup_checkout(
+            query,
+            invoice,
+            lang,
+            t("cryptopay_unavailable", lang),
+        )
+        return WALLET_TOPUP_CRYPTOPAY
+
+    if str(invoice.get("provider_status") or "") == "paid":
+        result = await process_cryptopay_wallet_topup_notification(
+            context.bot,
+            invoice["invoice_id"],
+        )
+        if result.get("action") == "wallet_credited":
+            payment = result.get("invoice") or invoice
+            balance = float(
+                payment.get("new_balance")
+                or await get_wallet_balance(update.effective_user.id)
+            )
+            text = (
+                t("wallet_credited", lang)
+                .replace(
+                    "${amount}",
+                    format_price(float(payment.get("wallet_amount") or 0)),
+                )
+                .replace("${balance}", format_price(balance))
+            )
+            await safe_edit_message_text(
+                query,
+                text,
+                parse_mode="HTML",
+                reply_markup=wallet_menu_keyboard(balance, lang),
+            )
+            return ConversationHandler.END
+
+    await cancel_cryptopay_wallet_invoice(
+        local_id,
+        update.effective_user.id,
+    )
+    context.user_data.pop("wallet_topup_amount", None)
+    context.user_data.pop("wallet_topup_cryptopay_id", None)
+    balance = await get_wallet_balance(update.effective_user.id)
+    await safe_edit_message_text(
+        query,
+        t("cryptopay_expired", lang),
+        reply_markup=wallet_menu_keyboard(balance, lang),
+    )
+    return ConversationHandler.END
+
+
 async def _start_crypto_topup(update, context, crypto_type: str, setting_key: str, state_to_return: int):
     query = update.callback_query
     await query.answer()
@@ -937,6 +1375,7 @@ def wallet_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(wallet_back, pattern=r"^back_wallet$"),
                 CallbackQueryHandler(wallet_topup_method_binance, pattern=r"^topup_binance$"),
                 CallbackQueryHandler(wallet_topup_method_nowpayments, pattern=r"^topup_nowpayments$"),
+                CallbackQueryHandler(wallet_topup_method_cryptopay, pattern=r"^topup_cryptopay$"),
                 CallbackQueryHandler(wallet_topup_method_bep20, pattern=r"^topup_bep20$"),
                 CallbackQueryHandler(wallet_topup_method_trc20, pattern=r"^topup_trc20$"),
             ],
@@ -955,6 +1394,10 @@ def wallet_conversation_handler() -> ConversationHandler:
             WALLET_TOPUP_NOWPAYMENTS: [
                 CallbackQueryHandler(check_nowpayments_wallet_topup, pattern=r"^check_topup_nowpayments:"),
                 CallbackQueryHandler(cancel_nowpayments_wallet_topup_callback, pattern=r"^cancel_topup_nowpayments:"),
+            ],
+            WALLET_TOPUP_CRYPTOPAY: [
+                CallbackQueryHandler(check_cryptopay_wallet_topup, pattern=r"^check_topup_cryptopay:"),
+                CallbackQueryHandler(cancel_cryptopay_wallet_topup, pattern=r"^cancel_topup_cryptopay:"),
             ],
         },
         fallbacks=[

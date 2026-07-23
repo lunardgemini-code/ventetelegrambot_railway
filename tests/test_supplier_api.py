@@ -998,7 +998,7 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(mapping["description_en"], "Edited English")
             self.assertEqual(mapping["description_fr"], "Français existant")
             self.assertEqual(mapping["description_ar"], "عربي موجود")
-            self.assertEqual(int(version["version"]), 17)
+            self.assertEqual(int(version["version"]), 18)
         finally:
             os.environ["DB_PATH"] = current_path
             db_module._sqlite_wal_configured = False
@@ -1055,7 +1055,7 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
                 mapping["custom_image_url"],
                 "https://example.com/existing-custom.png",
             )
-            self.assertEqual(int(version["version"]), 17)
+            self.assertEqual(int(version["version"]), 18)
         finally:
             os.environ["DB_PATH"] = current_path
             db_module._sqlite_wal_configured = False
@@ -1119,7 +1119,7 @@ class SupplierAPITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(float(row["cost_usd"]), 3.0)
             self.assertEqual(float(row["revenue_usd"]), 4.5)
             self.assertEqual(int(row["cost_estimated"]), 1)
-            self.assertEqual(int(version["version"]), 17)
+            self.assertEqual(int(version["version"]), 18)
         finally:
             os.environ["DB_PATH"] = current_path
             db_module._sqlite_wal_configured = False

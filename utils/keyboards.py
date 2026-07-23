@@ -373,6 +373,13 @@ async def payment_method_keyboard(order_id: int, lang: str = "fr", wallet_balanc
             icon_custom_emoji_id="5359437015752401733",
         )])
 
+    from services.crypto_pay import is_crypto_pay_configured
+    if is_crypto_pay_configured():
+        buttons.append([InlineKeyboardButton(
+            t("btn_pay_cryptopay", lang),
+            callback_data=f"pay_cryptopay:{order_id}",
+        )])
+
     # Dynamic BEP20 button
     bep20_addr = await get_setting("bep20_address")
     if bep20_addr:
@@ -430,6 +437,31 @@ def nowpayments_wallet_topup_keyboard(topup_id: int, amount: str, lang: str = "f
     ])
 
 
+def cryptopay_payment_keyboard(
+    local_id: int,
+    invoice_url: str,
+    lang: str = "fr",
+    *,
+    wallet_topup: bool = False,
+    order_id: int | None = None,
+) -> InlineKeyboardMarkup:
+    check_callback = (
+        f"check_topup_cryptopay:{local_id}"
+        if wallet_topup
+        else f"check_cryptopay:{local_id}"
+    )
+    cancel_callback = (
+        f"cancel_topup_cryptopay:{local_id}"
+        if wallet_topup
+        else f"cancel_order:{int(order_id or 0)}"
+    )
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(t("btn_open_cryptopay", lang), url=invoice_url)],
+        [InlineKeyboardButton(t("btn_check_cryptopay", lang), callback_data=check_callback)],
+        [make_button("btn_cancel", lang, callback_data=cancel_callback)],
+    ])
+
+
 async def wallet_topup_method_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
     """Choose wallet top-up method or cancel."""
     from database.models import get_setting
@@ -450,6 +482,13 @@ async def wallet_topup_method_keyboard(lang: str = "fr") -> InlineKeyboardMarkup
             t("btn_pay_nowpayments", lang),
             callback_data="topup_nowpayments",
             icon_custom_emoji_id="5359437015752401733",
+        )])
+
+    from services.crypto_pay import is_crypto_pay_configured
+    if is_crypto_pay_configured():
+        buttons.append([InlineKeyboardButton(
+            t("btn_pay_cryptopay", lang),
+            callback_data="topup_cryptopay",
         )])
 
     # Keep the legacy manual-address flow as a fallback when NOWPayments is off.

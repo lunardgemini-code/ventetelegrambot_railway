@@ -985,6 +985,36 @@ async def _process_nowpayments_payment(payment_id: str) -> None:
     await process_nowpayments_payment_notification(tg_app.bot, payment_id)
 
 
+def _log_cryptopay_task_result(task: asyncio.Task) -> None:
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        pass
+    except Exception as exc:
+        logger.exception("Crypto Pay background processing failed: %s", exc)
+
+
+async def _process_cryptopay_invoice(invoice_id: str) -> None:
+    if not tg_app or not getattr(tg_app, "bot", None):
+        return
+    from database.models import get_cryptopay_invoice
+
+    invoice = await get_cryptopay_invoice(invoice_id)
+    if not invoice:
+        return
+    if invoice.get("payment_kind") == "wallet_topup":
+        from handlers.wallet import process_cryptopay_wallet_topup_notification
+
+        await process_cryptopay_wallet_topup_notification(
+            tg_app.bot,
+            invoice_id,
+        )
+        return
+    from handlers.payment import process_cryptopay_invoice_notification
+
+    await process_cryptopay_invoice_notification(tg_app.bot, invoice_id)
+
+
 @api.post("/webhooks/nowpayments", include_in_schema=False)
 async def nowpayments_webhook(request: Request, x_nowpayments_sig: str = Header(None)):
     """Persist a signed IPN quickly, then finish delivery outside the HTTP response."""
@@ -1019,6 +1049,71 @@ async def nowpayments_webhook(request: Request, x_nowpayments_sig: str = Header(
     if tg_app and getattr(tg_app, "bot", None):
         task = asyncio.create_task(_process_nowpayments_payment(payment_id))
         task.add_done_callback(_log_nowpayments_task_result)
+    return {"status": "accepted"}
+
+
+@api.post("/webhooks/cryptopay/{webhook_secret}", include_in_schema=False)
+async def cryptopay_webhook(
+    webhook_secret: str,
+    request: Request,
+    crypto_pay_api_signature: str = Header(
+        None,
+        alias="crypto-pay-api-signature",
+    ),
+):
+    """Persist a signed Crypto Pay update and acknowledge it quickly."""
+    from services.crypto_pay import (
+        is_crypto_pay_configured,
+        request_date_is_fresh,
+        verify_webhook_path_secret,
+        verify_webhook_signature,
+    )
+
+    if not is_crypto_pay_configured():
+        raise HTTPException(status_code=503, detail="Crypto Pay is not configured")
+    if not verify_webhook_path_secret(webhook_secret):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    raw_body = await request.body()
+    if len(raw_body) > 65536:
+        raise HTTPException(status_code=413, detail="Webhook payload too large")
+    if not verify_webhook_signature(raw_body, crypto_pay_api_signature):
+        logger.warning("Rejected Crypto Pay webhook with an invalid signature")
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+    try:
+        update_payload = json.loads(raw_body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+    if not isinstance(update_payload, dict):
+        raise HTTPException(status_code=400, detail="Invalid webhook payload")
+    if not request_date_is_fresh(update_payload.get("request_date")):
+        logger.warning("Rejected stale Crypto Pay webhook update")
+        raise HTTPException(status_code=401, detail="Stale webhook")
+    if update_payload.get("update_type") != "invoice_paid":
+        return {"status": "ignored"}
+
+    invoice_payload = update_payload.get("payload")
+    if not isinstance(invoice_payload, dict):
+        raise HTTPException(status_code=400, detail="Invalid invoice payload")
+
+    from database.models import save_cryptopay_update
+
+    try:
+        invoice = await save_cryptopay_update(invoice_payload)
+    except ValueError as exc:
+        logger.error("Rejected signed Crypto Pay webhook: %s", exc)
+        return {"status": "rejected"}
+    if not invoice:
+        logger.warning(
+            "Ignored signed Crypto Pay webhook for unknown invoice %s",
+            invoice_payload.get("invoice_id"),
+        )
+        return {"status": "ignored"}
+
+    invoice_id = str(invoice["invoice_id"])
+    if tg_app and getattr(tg_app, "bot", None):
+        task = asyncio.create_task(_process_cryptopay_invoice(invoice_id))
+        task.add_done_callback(_log_cryptopay_task_result)
     return {"status": "accepted"}
 
 
@@ -4977,6 +5072,7 @@ WEBHOOK_QUEUE_MAX = _env_int("WEBHOOK_QUEUE_MAX", 1000, minimum=10)
 WEBHOOK_USER_QUEUE_MAX = _env_int("WEBHOOK_USER_QUEUE_MAX", 12, minimum=2)
 SUBSCRIPTION_CACHE_SECONDS = _env_int("SUBSCRIPTION_CACHE_SECONDS", 3600, minimum=60)
 NOWPAYMENTS_POLL_BATCH = _env_int("NOWPAYMENTS_POLL_BATCH", 5, minimum=1)
+CRYPTOPAY_POLL_BATCH = _env_int("CRYPTOPAY_POLL_BATCH", 5, minimum=1)
 _webhook_metrics_started_at = time.monotonic()
 _webhook_enqueued_at: dict[int, float] = {}
 _webhook_dequeued_at: dict[int, float] = {}
@@ -5347,6 +5443,7 @@ def _webhook_performance_snapshot() -> dict:
 
 DYNAMIC_PRICING_CHECK_SECONDS = _env_int("DYNAMIC_PRICING_CHECK_SECONDS", 900, minimum=60)
 NOWPAYMENTS_RECONCILE_SECONDS = _env_int("NOWPAYMENTS_RECONCILE_SECONDS", 180, minimum=30)
+CRYPTOPAY_RECONCILE_SECONDS = _env_int("CRYPTOPAY_RECONCILE_SECONDS", 60, minimum=30)
 STALE_ORDER_CLEANUP_SECONDS = _env_int("STALE_ORDER_CLEANUP_SECONDS", 60, minimum=30)
 SUPPLIER_CATALOG_SYNC_SECONDS = _env_int(
     "SUPPLIER_CATALOG_SYNC_SECONDS", 90, minimum=60
@@ -5525,6 +5622,79 @@ async def _nowpayments_worker() -> None:
         await asyncio.sleep(next_delay)
 
 
+async def _cryptopay_worker() -> None:
+    from database.models import (
+        expire_stale_cryptopay_invoices,
+        list_cryptopay_invoices_to_finalize,
+        list_cryptopay_invoices_to_poll,
+        save_cryptopay_update,
+    )
+    from services.crypto_pay import CryptoPayError, get_invoices
+
+    while True:
+        next_delay = CRYPTOPAY_RECONCILE_SECONDS
+        try:
+            expired_ids = await expire_stale_cryptopay_invoices(
+                timeout_seconds=PAYMENT_TIMEOUT_SECONDS,
+            )
+            for invoice_id in expired_ids:
+                try:
+                    await _process_cryptopay_invoice(invoice_id)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.exception(
+                        "Crypto Pay expiration notification failed for %s: %s",
+                        invoice_id,
+                        exc,
+                    )
+
+            finalizable = await list_cryptopay_invoices_to_finalize(limit=25)
+            for invoice in finalizable:
+                try:
+                    await _process_cryptopay_invoice(str(invoice["invoice_id"]))
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.exception(
+                        "Crypto Pay finalization failed for %s; it will be retried: %s",
+                        invoice.get("invoice_id"),
+                        exc,
+                    )
+
+            if _current_webhook_backlog() <= 0:
+                pollable = await list_cryptopay_invoices_to_poll(
+                    limit=CRYPTOPAY_POLL_BATCH
+                )
+                invoice_ids = [
+                    str(invoice["invoice_id"])
+                    for invoice in pollable
+                    if invoice.get("invoice_id")
+                ]
+                if invoice_ids:
+                    provider_invoices = await get_invoices(invoice_ids)
+                    for provider_invoice in provider_invoices:
+                        if _current_webhook_backlog() > 0:
+                            break
+                        saved = await save_cryptopay_update(provider_invoice)
+                        if saved and (
+                            saved.get("status_changed")
+                            or saved.get("provider_status") in {"paid", "expired"}
+                        ):
+                            await _process_cryptopay_invoice(
+                                str(saved["invoice_id"])
+                            )
+        except asyncio.CancelledError:
+            raise
+        except CryptoPayError as exc:
+            logger.warning("Crypto Pay reconciliation cycle failed: %s", exc)
+            next_delay = 30
+        except Exception as exc:
+            logger.exception("Crypto Pay reconciliation cycle failed: %s", exc)
+            next_delay = 30
+        await asyncio.sleep(next_delay)
+
+
 async def post_init(application: Application) -> None:
     """Called after the Application has been initialised — set up the database."""
     await init_db()
@@ -5676,11 +5846,25 @@ async def post_init(application: Application) -> None:
         except Exception as exc:
             logger.warning("Could not restore NOWPayments expiration timers: %s", exc)
 
+    from services.crypto_pay import is_crypto_pay_configured
+    if is_crypto_pay_configured():
+        task = application.bot_data.get("cryptopay_task")
+        if not task or task.done():
+            application.bot_data["cryptopay_task"] = asyncio.create_task(
+                _cryptopay_worker(),
+                name="cryptopay-reconciliation",
+            )
+            logger.info(
+                "Crypto Pay reconciliation worker started (check every %ds)",
+                CRYPTOPAY_RECONCILE_SECONDS,
+            )
+
 
 async def post_shutdown(application: Application) -> None:
     tasks = [
         application.bot_data.pop("dynamic_pricing_task", None),
         application.bot_data.pop("nowpayments_task", None),
+        application.bot_data.pop("cryptopay_task", None),
         application.bot_data.pop("stale_order_task", None),
         application.bot_data.pop("background_job_task", None),
         application.bot_data.pop("admin_audit_task", None),
@@ -5702,6 +5886,8 @@ async def post_shutdown(application: Application) -> None:
         logger.warning("Final performance metric flush failed: %s", exc)
     from services.nowpayments import close_nowpayments_client
     await close_nowpayments_client()
+    from services.crypto_pay import close_crypto_pay_client
+    await close_crypto_pay_client()
     from services.reseller_webhooks import close_reseller_webhook_client
     await close_reseller_webhook_client()
     from services.supplier_registry import close_supplier_clients
@@ -6115,11 +6301,13 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
         ("CREATE TABLE IF NOT EXISTS reseller_order_links (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER UNIQUE NOT NULL, reseller_user_telegram_id INTEGER NOT NULL, customer_reference TEXT DEFAULT '', idempotency_key TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(reseller_user_telegram_id, idempotency_key))", "Table 'reseller_order_links'"),
         ("CREATE TABLE IF NOT EXISTS nowpayments_payments (id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL, request_key TEXT UNIQUE NOT NULL, payment_id TEXT UNIQUE, provider_status TEXT DEFAULT 'creating', price_amount REAL NOT NULL, price_currency TEXT DEFAULT 'usd', pay_amount REAL, pay_currency TEXT DEFAULT 'usdtbsc', pay_address TEXT, actually_paid REAL DEFAULT 0, network TEXT, valid_until TEXT, raw_payload TEXT DEFAULT '{}', processing_error TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, processed_at TIMESTAMP, notification_claimed_at TIMESTAMP, notified_at TIMESTAMP)", "Table 'nowpayments_payments'"),
         ("CREATE TABLE IF NOT EXISTS nowpayments_wallet_topups (id INTEGER PRIMARY KEY AUTOINCREMENT, user_telegram_id INTEGER NOT NULL, request_key TEXT UNIQUE NOT NULL, payment_id TEXT UNIQUE, provider_status TEXT DEFAULT 'creating', wallet_amount REAL NOT NULL, price_amount REAL NOT NULL, price_currency TEXT DEFAULT 'usd', pay_amount REAL, pay_currency TEXT DEFAULT 'usdtbsc', pay_address TEXT, actually_paid REAL DEFAULT 0, network TEXT, valid_until TEXT, raw_payload TEXT DEFAULT '{}', processing_error TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, processed_at TIMESTAMP, notification_claimed_at TIMESTAMP, notified_at TIMESTAMP)", "Table 'nowpayments_wallet_topups'"),
+        ("CREATE TABLE IF NOT EXISTS cryptopay_invoices (id INTEGER PRIMARY KEY AUTOINCREMENT, payment_kind TEXT NOT NULL CHECK (payment_kind IN ('order', 'wallet_topup')), order_id INTEGER, user_telegram_id INTEGER NOT NULL, request_key TEXT UNIQUE NOT NULL, invoice_id TEXT UNIQUE, provider_status TEXT NOT NULL DEFAULT 'creating', amount_usd REAL NOT NULL, wallet_amount REAL, asset TEXT, paid_amount REAL, paid_fiat_rate REAL, bot_invoice_url TEXT, mini_app_invoice_url TEXT, web_app_invoice_url TEXT, provider_payload TEXT NOT NULL DEFAULT '', expires_at TEXT, raw_payload TEXT NOT NULL DEFAULT '{}', processing_error TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, processed_at TIMESTAMP, notification_claimed_at TIMESTAMP, notified_at TIMESTAMP, cancelled_at TIMESTAMP)", "Table 'cryptopay_invoices'"),
         ("ALTER TABLE nowpayments_payments ADD COLUMN notification_claimed_at TIMESTAMP", "Column 'nowpayments_payments.notification_claimed_at'"),
         ("CREATE INDEX IF NOT EXISTS idx_nowpayments_order ON nowpayments_payments(order_id, created_at)", "Index 'idx_nowpayments_order'"),
         ("CREATE INDEX IF NOT EXISTS idx_nowpayments_status ON nowpayments_payments(provider_status, updated_at)", "Index 'idx_nowpayments_status'"),
         ("CREATE INDEX IF NOT EXISTS idx_nowpayments_topups_user ON nowpayments_wallet_topups(user_telegram_id, created_at)", "Index 'idx_nowpayments_topups_user'"),
         ("CREATE INDEX IF NOT EXISTS idx_nowpayments_topups_status ON nowpayments_wallet_topups(provider_status, updated_at)", "Index 'idx_nowpayments_topups_status'"),
+        ("CREATE INDEX IF NOT EXISTS idx_cryptopay_status_updated ON cryptopay_invoices(provider_status, updated_at)", "Index 'idx_cryptopay_status_updated'"),
         ("CREATE INDEX IF NOT EXISTS idx_stock_product_added ON stock_items(product_id, added_at DESC)", "Index 'idx_stock_product_added'"),
         ("CREATE INDEX IF NOT EXISTS idx_orders_user_status ON orders(user_telegram_id, status)", "Index 'idx_orders_user_status'"),
         ("CREATE INDEX IF NOT EXISTS idx_orders_binance_id ON orders(binance_order_id)", "Index 'idx_orders_binance_id'"),

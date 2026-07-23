@@ -949,6 +949,35 @@ async def init_db() -> None:
                 notified_at TIMESTAMP,
                 FOREIGN KEY (user_telegram_id) REFERENCES users(telegram_id)
             )""",
+            """CREATE TABLE IF NOT EXISTS cryptopay_invoices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                payment_kind TEXT NOT NULL CHECK (payment_kind IN ('order', 'wallet_topup')),
+                order_id INTEGER,
+                user_telegram_id INTEGER NOT NULL,
+                request_key TEXT UNIQUE NOT NULL,
+                invoice_id TEXT UNIQUE,
+                provider_status TEXT NOT NULL DEFAULT 'creating',
+                amount_usd REAL NOT NULL,
+                wallet_amount REAL,
+                asset TEXT,
+                paid_amount REAL,
+                paid_fiat_rate REAL,
+                bot_invoice_url TEXT,
+                mini_app_invoice_url TEXT,
+                web_app_invoice_url TEXT,
+                provider_payload TEXT NOT NULL DEFAULT '',
+                expires_at TEXT,
+                raw_payload TEXT NOT NULL DEFAULT '{}',
+                processing_error TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                processed_at TIMESTAMP,
+                notification_claimed_at TIMESTAMP,
+                notified_at TIMESTAMP,
+                cancelled_at TIMESTAMP,
+                FOREIGN KEY (order_id) REFERENCES orders(id),
+                FOREIGN KEY (user_telegram_id) REFERENCES users(telegram_id)
+            )""",
             """CREATE TABLE IF NOT EXISTS supplier_products (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 supplier_code TEXT NOT NULL DEFAULT 'canboso',
@@ -1823,6 +1852,53 @@ async def init_db() -> None:
             )
             await db.commit()
             current_version = 17
+
+        if 17 <= current_version < 18:
+            version_eighteen_statements = [
+                """CREATE TABLE IF NOT EXISTS cryptopay_invoices (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    payment_kind TEXT NOT NULL CHECK (payment_kind IN ('order', 'wallet_topup')),
+                    order_id INTEGER,
+                    user_telegram_id INTEGER NOT NULL,
+                    request_key TEXT UNIQUE NOT NULL,
+                    invoice_id TEXT UNIQUE,
+                    provider_status TEXT NOT NULL DEFAULT 'creating',
+                    amount_usd REAL NOT NULL,
+                    wallet_amount REAL,
+                    asset TEXT,
+                    paid_amount REAL,
+                    paid_fiat_rate REAL,
+                    bot_invoice_url TEXT,
+                    mini_app_invoice_url TEXT,
+                    web_app_invoice_url TEXT,
+                    provider_payload TEXT NOT NULL DEFAULT '',
+                    expires_at TEXT,
+                    raw_payload TEXT NOT NULL DEFAULT '{}',
+                    processing_error TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    processed_at TIMESTAMP,
+                    notification_claimed_at TIMESTAMP,
+                    notified_at TIMESTAMP,
+                    cancelled_at TIMESTAMP,
+                    FOREIGN KEY (order_id) REFERENCES orders(id),
+                    FOREIGN KEY (user_telegram_id) REFERENCES users(telegram_id)
+                )""",
+                "CREATE INDEX IF NOT EXISTS idx_cryptopay_order_created "
+                "ON cryptopay_invoices(order_id, created_at DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_cryptopay_user_created "
+                "ON cryptopay_invoices(user_telegram_id, payment_kind, created_at DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_cryptopay_status_updated "
+                "ON cryptopay_invoices(provider_status, updated_at)",
+            ]
+            for sql in version_eighteen_statements:
+                await db.execute(sql)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (18, ?)",
+                ("cryptopay_invoices",),
+            )
+            await db.commit()
+            current_version = 18
 
     finally:
         await db.close()

@@ -47,6 +47,7 @@ from utils.keyboards import (
     main_menu_keyboard,
     payment_check_keyboard,
     payment_method_keyboard,
+    cryptopay_payment_keyboard,
     nowpayments_payment_keyboard,
     quantity_keyboard,
 )
@@ -63,9 +64,11 @@ WAITING_BEP20_TX_HASH = 204
 WAITING_TRC20_TX_HASH = 205
 WAITING_ACTIVATION_IDENTIFIER = 206
 WAITING_NOWPAYMENTS = 207
+WAITING_CRYPTOPAY = 208
 
 _timeout_tasks = {}
 _nowpayments_locks = [asyncio.Lock() for _ in range(64)]
+_cryptopay_locks = [asyncio.Lock() for _ in range(64)]
 
 
 def _nowpayments_callback_url() -> str:
@@ -888,7 +891,7 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text = t("order_cancelled", lang)
             else:
                 text = t("pay_error", lang)
-            await safe_edit_message_text(query, 
+            await safe_edit_message_text(query,
                 text,
                 parse_mode="HTML",
                 reply_markup=main_menu_keyboard(lang),
@@ -1365,11 +1368,66 @@ async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Only allow cancelling PENDING or AWAITING_PAYMENT orders
         if order.get("status") not in ("PENDING", "AWAITING_PAYMENT"):
-            await safe_edit_message_text(query, 
+            await safe_edit_message_text(query,
                 t("cannot_cancel", lang).format(status=order.get("status")),
                 reply_markup=main_menu_keyboard(lang),
             )
             return
+
+        if str(order.get("payment_method") or "").lower() == "cryptopay":
+            from database.models import (
+                get_cryptopay_invoice_for_order,
+                save_cryptopay_update,
+            )
+            from services.crypto_pay import CryptoPayError, get_invoices
+
+            invoice = await get_cryptopay_invoice_for_order(order_id)
+            if invoice and invoice.get("invoice_id"):
+                try:
+                    provider_invoices = await get_invoices([invoice["invoice_id"]])
+                    if not provider_invoices:
+                        raise CryptoPayError("Invoice not returned")
+                    invoice = (
+                        await save_cryptopay_update(provider_invoices[0])
+                        or invoice
+                    )
+                    if str(invoice.get("provider_status") or "") == "paid":
+                        result = await process_cryptopay_invoice_notification(
+                            context.bot,
+                            invoice["invoice_id"],
+                        )
+                        action = result.get("action")
+                        if action in (
+                            "completed",
+                            "activation",
+                            "paid_pending_delivery",
+                        ):
+                            await safe_edit_message_text(
+                                query,
+                                t("payment_confirmed", lang),
+                                parse_mode="HTML",
+                                reply_markup=main_menu_keyboard(lang),
+                            )
+                            return ConversationHandler.END
+                        if action == "review_required":
+                            await safe_edit_message_text(
+                                query,
+                                t("cryptopay_review", lang),
+                                reply_markup=main_menu_keyboard(lang),
+                            )
+                            return ConversationHandler.END
+                except (CryptoPayError, ValueError, TypeError) as exc:
+                    logger.warning(
+                        "Crypto Pay pre-cancellation check failed for order #%s: %s",
+                        order_id,
+                        exc,
+                    )
+                    await safe_edit_message_text(
+                        query,
+                        t("cryptopay_unavailable", lang),
+                        reply_markup=payment_check_keyboard(order_id, lang),
+                    )
+                    return WAITING_CRYPTOPAY
 
         # Cancel the background timeout task if it exists
         task = _timeout_tasks.pop(order_id, None)
@@ -1388,6 +1446,16 @@ async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=main_menu_keyboard(lang),
             )
             return ConversationHandler.END
+
+        try:
+            from database.models import cancel_cryptopay_order_invoice
+            await cancel_cryptopay_order_invoice(order_id)
+        except Exception as exc:
+            logger.warning(
+                "Could not mark Crypto Pay invoice cancelled for order #%s: %s",
+                order_id,
+                exc,
+            )
 
         context.user_data.pop("paying_order_id", None)
         context.user_data.pop("paying_amount", None)
@@ -1514,6 +1582,409 @@ async def _notify_admins_manual_check(context, order_id, client_order_id):
             await context.bot.send_message(admin_id, text, parse_mode="HTML")
         except Exception as exc:
             logger.warning("Could not notify admin %s: %s", admin_id, exc)
+
+
+def _cryptopay_invoice_url(invoice: dict) -> str:
+    return str(
+        invoice.get("bot_invoice_url")
+        or invoice.get("mini_app_invoice_url")
+        or invoice.get("web_app_invoice_url")
+        or ""
+    ).strip()
+
+
+async def _render_cryptopay_checkout(
+    query,
+    invoice: dict,
+    lang: str,
+    status_text: str | None = None,
+):
+    invoice_url = _cryptopay_invoice_url(invoice)
+    if not invoice_url:
+        await safe_edit_message_text(
+            query,
+            t("cryptopay_unavailable", lang),
+            reply_markup=main_menu_keyboard(lang),
+        )
+        return
+    amount = f"{float(invoice.get('amount_usd') or 0):.2f}"
+    invoice_id = escape_html(str(invoice.get("invoice_id") or ""))
+    text = (
+        f"{t('cryptopay_title', lang)}\n\n"
+        f"{t('cryptopay_amount', lang).format(amount=amount)}\n"
+        f"{t('cryptopay_reference', lang).format(invoice_id=invoice_id)}\n\n"
+        f"{t('cryptopay_instructions', lang)}\n\n"
+        f"{status_text or t('cryptopay_waiting', lang)}"
+    )
+    await safe_edit_message_text(
+        query,
+        text,
+        parse_mode="HTML",
+        reply_markup=cryptopay_payment_keyboard(
+            int(invoice["id"]),
+            invoice_url,
+            lang,
+            order_id=int(invoice["order_id"]),
+        ),
+    )
+
+
+async def process_cryptopay_invoice_notification(
+    bot,
+    invoice_id: str | int,
+    *,
+    finalized_result: dict | None = None,
+) -> dict:
+    from database.models import (
+        claim_cryptopay_notification,
+        finalize_cryptopay_invoice,
+        get_product,
+        get_user_lang,
+        mark_cryptopay_notified,
+        release_cryptopay_notification,
+        update_order_status,
+    )
+
+    result = finalized_result or await finalize_cryptopay_invoice(invoice_id)
+    action = result.get("action")
+    invoice = result.get("invoice") or {}
+    if invoice.get("payment_kind") == "wallet_topup":
+        return result
+
+    if action == "paid_pending_delivery" and invoice.get("product_id"):
+        product = await get_product(int(invoice["product_id"]))
+        if (product or {}).get("delivery_type") == "supplier_api":
+            delivered = await deliver_order(
+                int(invoice["order_id"]),
+                int(invoice["product_id"]),
+            )
+            if delivered:
+                await update_order_status(
+                    int(invoice["order_id"]),
+                    "COMPLETED",
+                    expected_statuses=("PAID_PENDING_DELIVERY",),
+                    payment_method="cryptopay",
+                    binance_order_id=str(invoice_id),
+                )
+                result["action"] = action = "completed"
+                result["items"] = delivered
+
+    if not invoice or invoice.get("notified_at"):
+        return result
+    if action not in {
+        "completed",
+        "activation",
+        "paid_pending_delivery",
+        "review_required",
+        "expired",
+    }:
+        return result
+    if not await claim_cryptopay_notification(invoice_id):
+        return result
+
+    user_id = int(invoice.get("user_telegram_id") or 0)
+    order_id = int(invoice.get("order_id") or 0)
+    product_id = int(invoice.get("product_id") or 0)
+    lang = await get_user_lang(user_id) if user_id else "en"
+    notified = False
+
+    if action == "completed" and user_id:
+        product = await get_product(product_id)
+        warranty_days = int((product or {}).get("warranty_days") or 0)
+        footer = (
+            f"{t('warranty_lbl', lang).format(days=warranty_days)}\n"
+            f"{t('save_info', lang)}\n\n"
+            f"{get_confirmation_message(product, lang, order_id)}"
+        )
+        notified = await safe_send_delivery_messages(
+            bot,
+            user_id,
+            t("payment_confirmed", lang),
+            result.get("items") or [],
+            footer,
+            lang,
+            order_id,
+        )
+    elif action == "activation" and user_id:
+        product = await get_product(product_id)
+        product_name = escape_html((product or {}).get("name") or f"#{order_id}")
+        markup = InlineKeyboardMarkup([[
+            InlineKeyboardButton(
+                t("btn_enter_activation", lang),
+                callback_data=f"activation_info:{order_id}",
+            )
+        ]])
+        await bot.send_message(
+            user_id,
+            t("activation_prompt", lang).format(
+                payment_confirmed=t("payment_confirmed", lang),
+                product=product_name,
+            ),
+            parse_mode="HTML",
+            reply_markup=markup,
+        )
+        notified = True
+    elif action == "paid_pending_delivery" and user_id:
+        await bot.send_message(
+            user_id,
+            t("cryptopay_paid_pending", lang).format(order_id=order_id),
+            reply_markup=main_menu_keyboard(lang),
+        )
+        notified = True
+    elif action == "review_required":
+        if user_id:
+            await bot.send_message(
+                user_id,
+                t("cryptopay_review", lang),
+                reply_markup=main_menu_keyboard(lang),
+            )
+        reason = escape_html(
+            str(invoice.get("processing_error") or "Payment validation mismatch")
+        )
+        for admin_id in ADMIN_IDS:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    (
+                        "<b>Crypto Pay security review</b>\n"
+                        f"Order: #{order_id}\n"
+                        f"Invoice: <code>{escape_html(str(invoice_id))}</code>\n"
+                        f"Reason: {reason}"
+                    ),
+                    parse_mode="HTML",
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Could not notify admin %s about Crypto Pay review: %s",
+                    admin_id,
+                    exc,
+                )
+        notified = True
+    elif action == "expired" and user_id:
+        await bot.send_message(
+            user_id,
+            t("cryptopay_expired", lang),
+            reply_markup=main_menu_keyboard(lang),
+        )
+        notified = True
+
+    if notified:
+        await mark_cryptopay_notified(invoice_id)
+        if action in ("completed", "activation", "paid_pending_delivery"):
+            await _notify_admins_sale_with_bot(
+                bot,
+                order_id,
+                product_id,
+                float(invoice.get("amount_usd") or 0),
+                payment_method="CryptoBot",
+                user_id=user_id,
+            )
+    else:
+        await release_cryptopay_notification(invoice_id)
+    return result
+
+
+async def pay_with_cryptopay(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    lang = await get_user_lang(update.effective_user.id)
+    order_id = int(query.data.split(":")[1])
+    lock = _cryptopay_locks[order_id % len(_cryptopay_locks)]
+
+    async with lock:
+        order = await get_order(order_id)
+        if not order:
+            await safe_edit_message_text(query, t("product_not_found", lang))
+            return ConversationHandler.END
+        if int(order.get("user_telegram_id") or 0) != update.effective_user.id:
+            await safe_edit_message_text(query, t("access_denied", lang))
+            return ConversationHandler.END
+        if order.get("status") not in ("PENDING", "AWAITING_PAYMENT"):
+            text = (
+                t("payment_confirmed", lang)
+                if order.get("status") == "COMPLETED"
+                else t("order_cancelled", lang)
+            )
+            await safe_edit_message_text(
+                query,
+                text,
+                reply_markup=main_menu_keyboard(lang),
+            )
+            return ConversationHandler.END
+        if not await _ensure_supplier_stock_for_order(query, order, lang):
+            return ConversationHandler.END
+
+        from database.models import (
+            attach_cryptopay_invoice,
+            mark_cryptopay_creation_failed,
+            prepare_cryptopay_invoice,
+        )
+        from services.crypto_pay import (
+            CryptoPayError,
+            create_invoice,
+            is_crypto_pay_configured,
+        )
+
+        if not is_crypto_pay_configured():
+            await safe_edit_message_text(
+                query,
+                t("cryptopay_unavailable", lang),
+                reply_markup=main_menu_keyboard(lang),
+            )
+            return ConversationHandler.END
+
+        amount = round(float(order["amount_usd"]), 2)
+        attempt = await prepare_cryptopay_invoice(
+            "order",
+            update.effective_user.id,
+            amount,
+            order_id=order_id,
+        )
+        if not attempt.get("created"):
+            if attempt.get("invoice_id") and _cryptopay_invoice_url(attempt):
+                await _render_cryptopay_checkout(query, attempt, lang)
+                return WAITING_CRYPTOPAY
+            await safe_edit_message_text(
+                query,
+                t("cryptopay_creation_unknown", lang).format(
+                    reference=escape_html(str(attempt.get("request_key") or order_id))
+                ),
+                reply_markup=main_menu_keyboard(lang),
+            )
+            return ConversationHandler.END
+
+        await update_order_status(
+            order_id,
+            "AWAITING_PAYMENT",
+            expected_statuses=("PENDING", "AWAITING_PAYMENT"),
+            payment_method="cryptopay",
+        )
+        product = await get_product(int(order["product_id"]))
+        description = (
+            f"{(product or {}).get('name') or 'Product'} "
+            f"x{max(1, int(order.get('quantity') or 1))}"
+        )
+        try:
+            provider_invoice = await create_invoice(
+                amount_usd=amount,
+                payload=str(attempt["provider_payload"]),
+                description=description,
+                expires_in=PAYMENT_TIMEOUT_SECONDS,
+            )
+            invoice = await attach_cryptopay_invoice(
+                str(attempt["request_key"]),
+                provider_invoice,
+            )
+        except (CryptoPayError, ValueError, TypeError) as exc:
+            uncertain = bool(isinstance(exc, CryptoPayError) and exc.retryable)
+            await mark_cryptopay_creation_failed(
+                str(attempt["request_key"]),
+                uncertain=uncertain,
+                error=str(exc),
+            )
+            text = (
+                t("cryptopay_creation_unknown", lang).format(
+                    reference=escape_html(str(attempt["request_key"]))
+                )
+                if uncertain
+                else t("cryptopay_unavailable", lang)
+            )
+            logger.warning(
+                "Crypto Pay invoice creation failed for order %s: %s",
+                order_id,
+                exc,
+            )
+            await safe_edit_message_text(
+                query,
+                text,
+                reply_markup=main_menu_keyboard(lang),
+            )
+            return ConversationHandler.END
+
+        context.user_data["paying_order_id"] = order_id
+        context.user_data["paying_product_id"] = order.get("product_id")
+        await _render_cryptopay_checkout(query, invoice, lang)
+        return WAITING_CRYPTOPAY
+
+
+async def check_cryptopay_payment(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    query = update.callback_query
+    lang = await get_user_lang(update.effective_user.id)
+    await query.answer(t("cryptopay_checking_short", lang))
+    local_id = int(query.data.split(":", 1)[1])
+
+    from database.models import (
+        get_cryptopay_invoice_by_local_id,
+        save_cryptopay_update,
+    )
+    from services.crypto_pay import CryptoPayError, get_invoices
+
+    invoice = await get_cryptopay_invoice_by_local_id(local_id)
+    if (
+        not invoice
+        or invoice.get("payment_kind") != "order"
+        or int(invoice.get("user_telegram_id") or 0) != update.effective_user.id
+    ):
+        await safe_edit_message_text(query, t("access_denied", lang))
+        return ConversationHandler.END
+    await _render_cryptopay_checkout(
+        query,
+        invoice,
+        lang,
+        t("cryptopay_checking", lang),
+    )
+    try:
+        provider_invoices = await get_invoices([invoice["invoice_id"]])
+        if not provider_invoices:
+            raise CryptoPayError("Invoice not returned")
+        invoice = await save_cryptopay_update(provider_invoices[0]) or invoice
+        result = await process_cryptopay_invoice_notification(
+            context.bot,
+            invoice["invoice_id"],
+        )
+    except (CryptoPayError, ValueError, TypeError):
+        await _render_cryptopay_checkout(
+            query,
+            invoice,
+            lang,
+            t("cryptopay_unavailable", lang),
+        )
+        return WAITING_CRYPTOPAY
+
+    action = result.get("action")
+    if action in ("completed", "activation", "paid_pending_delivery"):
+        await safe_edit_message_text(
+            query,
+            t("payment_confirmed", lang),
+            parse_mode="HTML",
+            reply_markup=main_menu_keyboard(lang),
+        )
+        return ConversationHandler.END
+    if action == "review_required":
+        await safe_edit_message_text(
+            query,
+            t("cryptopay_review", lang),
+            reply_markup=main_menu_keyboard(lang),
+        )
+        return ConversationHandler.END
+    if action == "expired":
+        await safe_edit_message_text(
+            query,
+            t("cryptopay_expired", lang),
+            reply_markup=main_menu_keyboard(lang),
+        )
+        return ConversationHandler.END
+
+    await _render_cryptopay_checkout(
+        query,
+        invoice,
+        lang,
+        t("cryptopay_waiting", lang),
+    )
+    return WAITING_CRYPTOPAY
 
 
 async def _render_nowpayments_checkout(
@@ -2515,7 +2986,9 @@ def get_payment_conversation_handler() -> ConversationHandler:
             CallbackQueryHandler(pay_with_binance, pattern=r"^pay_binance:"),
             CallbackQueryHandler(pay_with_wallet, pattern=r"^pay_wallet:"),
             CallbackQueryHandler(pay_with_nowpayments, pattern=r"^pay_nowpayments:"),
+            CallbackQueryHandler(pay_with_cryptopay, pattern=r"^pay_cryptopay:"),
             CallbackQueryHandler(check_nowpayments_payment, pattern=r"^check_nowpayments:"),
+            CallbackQueryHandler(check_cryptopay_payment, pattern=r"^check_cryptopay:"),
             CallbackQueryHandler(start_activation_identifier, pattern=r"^activation_info:"),
             CallbackQueryHandler(pay_with_bep20, pattern=r"^pay_bep20:"),
             CallbackQueryHandler(pay_with_trc20, pattern=r"^pay_trc20:"),
@@ -2529,6 +3002,7 @@ def get_payment_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(pay_with_binance, pattern=r"^pay_binance:"),
                 CallbackQueryHandler(pay_with_wallet, pattern=r"^pay_wallet:"),
                 CallbackQueryHandler(pay_with_nowpayments, pattern=r"^pay_nowpayments:"),
+                CallbackQueryHandler(pay_with_cryptopay, pattern=r"^pay_cryptopay:"),
                 CallbackQueryHandler(pay_with_bep20, pattern=r"^pay_bep20:"),
                 CallbackQueryHandler(pay_with_trc20, pattern=r"^pay_trc20:"),
                 CallbackQueryHandler(start_apply_promo, pattern=r"^apply_promo:"),
@@ -2550,6 +3024,10 @@ def get_payment_conversation_handler() -> ConversationHandler:
             ],
             WAITING_NOWPAYMENTS: [
                 CallbackQueryHandler(check_nowpayments_payment, pattern=r"^check_nowpayments:"),
+                CallbackQueryHandler(start_activation_identifier, pattern=r"^activation_info:"),
+            ],
+            WAITING_CRYPTOPAY: [
+                CallbackQueryHandler(check_cryptopay_payment, pattern=r"^check_cryptopay:"),
                 CallbackQueryHandler(start_activation_identifier, pattern=r"^activation_info:"),
             ],
             WAITING_ACTIVATION_IDENTIFIER: [
