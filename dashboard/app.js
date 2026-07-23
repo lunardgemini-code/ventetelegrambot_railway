@@ -582,6 +582,39 @@ ru: {
 }
 };
 Object.entries(DASHBOARD_RUNTIME_TRANSLATIONS).forEach(([language, strings]) => Object.assign(LANG[language], strings));
+const MOBILE_PRODUCT_TRANSLATIONS = {
+fr: {
+    product_expand_details:"Afficher les détails de {product}",
+    product_collapse_details:"Masquer les détails de {product}",
+    product_reorder:"Déplacer le produit"
+},
+en: {
+    product_expand_details:"Show details for {product}",
+    product_collapse_details:"Hide details for {product}",
+    product_reorder:"Reorder product"
+},
+ar: {
+    product_expand_details:"عرض تفاصيل {product}",
+    product_collapse_details:"إخفاء تفاصيل {product}",
+    product_reorder:"تغيير ترتيب المنتج"
+},
+zh: {
+    product_expand_details:"显示 {product} 的详情",
+    product_collapse_details:"隐藏 {product} 的详情",
+    product_reorder:"调整产品顺序"
+},
+vi: {
+    product_expand_details:"Hiển thị chi tiết của {product}",
+    product_collapse_details:"Ẩn chi tiết của {product}",
+    product_reorder:"Sắp xếp lại sản phẩm"
+},
+ru: {
+    product_expand_details:"Показать сведения о {product}",
+    product_collapse_details:"Скрыть сведения о {product}",
+    product_reorder:"Изменить порядок товара"
+}
+};
+Object.entries(MOBILE_PRODUCT_TRANSLATIONS).forEach(([language, strings]) => Object.assign(LANG[language], strings));
 const OPERATIONAL_SCREEN_TRANSLATIONS = {
 fr: {
     finance_title:"Gestion financière", finance_all_methods:"Toutes les méthodes", finance_internal_wallet:"Portefeuille interne", finance_withdraw:"Retirer", finance_adjust:"Ajuster", finance_topups_30:"Rechargements wallet (30 jours)", review_show_archived:"Afficher les dossiers classés", review_payment:"Paiement", review_loading_payments:"Chargement des paiements...", binance_add_account:"Ajouter un compte", binance_no_accounts:"Aucun compte Binance.",
@@ -1265,6 +1298,7 @@ function handleDelegatedDashboardClick(event) {
         case 'switch-tab': return switchTab(element.dataset.tabTarget || 'dashboard-tab');
         case 'view-product-stock': if (id) return void viewProductStock(id); break;
         case 'open-stock': if (id) return void openStockModal(id); break;
+        case 'toggle-mobile-product-details': return toggleMobileProductRow(element);
         case 'toggle-product': if (id) return void toggleProductVisibility(id); break;
         case 'edit-product': if (id) return void openEditProduct(id); break;
         case 'open-tiers': if (id) return void openTiersModal(id); break;
@@ -1401,6 +1435,119 @@ function queueResponsiveTable(table) {
 function enhanceResponsiveTables(root=document) {
     if (root instanceof HTMLTableElement) queueResponsiveTable(root);
     if (root?.querySelectorAll) root.querySelectorAll('table.data-table').forEach(queueResponsiveTable);
+}
+
+function enhanceMobileProductRows(products) {
+    const productById = new Map(products.map(product => [Number(product.id), product]));
+    DOM.productsTableBody?.querySelectorAll('tr[data-id]').forEach(row => {
+        const product = productById.get(Number(row.dataset.id));
+        const cells = row.cells;
+        if (!product || cells.length < 7 || cells[1].querySelector('.mobile-product-summary')) return;
+
+        row.classList.add('product-list-row');
+        row.dataset.mobileExpanded = 'false';
+        cells[0].classList.add('product-order-cell');
+        cells[1].classList.add('product-name-cell');
+        cells[2].classList.add('product-detail-cell', 'product-price-cell');
+        cells[3].classList.add('product-detail-cell', 'product-warranty-cell');
+        cells[4].classList.add('product-detail-cell', 'product-stock-cell');
+        cells[5].classList.add('product-detail-cell', 'product-status-cell');
+        cells[6].classList.add('product-detail-cell', 'product-actions-cell');
+        cells[1].querySelector('.prod-badge')?.classList.add('product-desktop-name');
+
+        const summary = document.createElement('div');
+        summary.className = 'mobile-product-summary';
+
+        const drag = document.createElement('span');
+        drag.className = 'mobile-product-drag drag-handle';
+        drag.title = t('product_reorder');
+        drag.setAttribute('aria-hidden', 'true');
+        drag.innerHTML = '<i class="fa-solid fa-grip-vertical"></i>';
+
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'mobile-product-toggle';
+        toggle.dataset.action = 'toggle-mobile-product-details';
+        toggle.dataset.id = String(Number(product.id));
+        toggle.dataset.productName = product.name || '';
+        toggle.setAttribute('aria-expanded', 'false');
+        const expandLabel = tf('product_expand_details', {product:product.name || ''});
+        toggle.setAttribute('aria-label', expandLabel);
+        toggle.title = expandLabel;
+
+        const main = document.createElement('span');
+        main.className = 'mobile-product-main';
+        const emoji = document.createElement('span');
+        emoji.className = 'prod-emoji';
+        emoji.textContent = product.emoji || '📦';
+        const copy = document.createElement('span');
+        copy.className = 'mobile-product-copy';
+        const name = document.createElement('strong');
+        name.textContent = product.name || '';
+        const glance = document.createElement('small');
+        const price = document.createElement('b');
+        price.textContent = `$${Number(product.price_usd || 0).toFixed(2)}`;
+        glance.append(price);
+        if (product.delivery_type === 'supplier_api') {
+            const apiBadge = document.createElement('span');
+            apiBadge.className = 'status-badge info';
+            apiBadge.textContent = 'API';
+            glance.append(apiBadge);
+        }
+        if (product.dynamic_pricing_enabled) {
+            const dynamicIcon = document.createElement('i');
+            dynamicIcon.className = 'fa-solid fa-wave-square';
+            dynamicIcon.setAttribute('aria-hidden', 'true');
+            glance.append(dynamicIcon);
+        }
+        copy.append(name, glance);
+        main.append(emoji, copy);
+
+        const meta = document.createElement('span');
+        meta.className = 'mobile-product-meta';
+        const stockBadge = cells[4].querySelector('.stock-count-badge')?.cloneNode(true);
+        if (stockBadge) meta.append(stockBadge);
+        const activeState = document.createElement('span');
+        activeState.className = 'product-active-state';
+        const dot = document.createElement('span');
+        dot.className = `status-dot ${product.is_active ? 'online' : ''}`;
+        const activeLabel = document.createElement('span');
+        activeLabel.textContent = t(product.is_active ? 'active' : 'inactive');
+        activeState.append(dot, activeLabel);
+        meta.append(activeState);
+
+        const chevron = document.createElement('i');
+        chevron.className = 'fa-solid fa-chevron-down mobile-product-chevron';
+        chevron.setAttribute('aria-hidden', 'true');
+        toggle.append(main, meta, chevron);
+        summary.append(drag, toggle);
+        cells[1].append(summary);
+    });
+}
+
+function setMobileProductRowExpanded(row, expanded) {
+    if (!row) return;
+    const toggle = row.querySelector('.mobile-product-toggle');
+    if (!toggle) return;
+    row.classList.toggle('is-mobile-expanded', expanded);
+    row.dataset.mobileExpanded = String(expanded);
+    toggle.setAttribute('aria-expanded', String(expanded));
+    const productName = toggle.dataset.productName || '';
+    const label = tf(expanded ? 'product_collapse_details' : 'product_expand_details', {product:productName});
+    toggle.setAttribute('aria-label', label);
+    toggle.title = label;
+}
+
+function toggleMobileProductRow(toggle) {
+    const row = toggle?.closest('tr.product-list-row');
+    if (!row) return;
+    const shouldExpand = toggle.getAttribute('aria-expanded') !== 'true';
+    if (shouldExpand) {
+        row.parentElement?.querySelectorAll('tr.product-list-row.is-mobile-expanded').forEach(otherRow => {
+            if (otherRow !== row) setMobileProductRowExpanded(otherRow, false);
+        });
+    }
+    setMobileProductRowExpanded(row, shouldExpand);
 }
 
 function setupResponsiveTables() {
@@ -3369,6 +3516,7 @@ async function loadProducts() {
             <td><button class="btn-table-action ops-intelligence-action" data-ops-open="product" data-id="${Number(p.id)}" title="${escapeHtml(t('ops_view_intelligence'))}"><i class="fa-solid fa-chart-line"></i></button><button class="btn-table-action" data-action="toggle-product" data-id="${Number(p.id)}" title="${escapeHtml(p.is_active ? t('product_disable') : t('product_enable'))}" style="color:${p.is_active ? '#ef4444' : '#22c55e'};"><i class="fa-solid ${p.is_active ? 'fa-xmark' : 'fa-check'}"></i></button><button class="btn-table-action" data-action="edit-product" data-id="${Number(p.id)}" title="${escapeHtml(t('product_edit'))}" style="color:#3b82f6;"><i class="fa-solid fa-pen"></i></button>${stockActions}<button class="btn-table-action" data-action="open-tiers" data-id="${Number(p.id)}" title="${escapeHtml(t('product_tiers'))}" style="color:#a78bfa;"><i class="fa-solid fa-tags"></i></button><button class="btn-table-action delete" data-action="delete-product" data-id="${Number(p.id)}" title="${escapeHtml(t('product_delete'))}"><i class="fa-solid fa-trash-can"></i></button></td>
         </tr>`;
         }).join('');
+        enhanceMobileProductRows(prods);
         if (DOM.broadcastBtnProductId) {
             DOM.broadcastBtnProductId.innerHTML = prods.map(p => `<option value="${Number(p.id)}">${escapeHtml(p.emoji||'📦')} ${escapeHtml(p.name)}</option>`).join('');
         }
