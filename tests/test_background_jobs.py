@@ -65,10 +65,14 @@ class PersistentBackgroundJobTests(unittest.IsolatedAsyncioTestCase):
                 "AND name = 'idx_reseller_prices_telegram_active'"
             )
             telegram_price_index = await cursor.fetchone()
+            cursor = await db.execute("PRAGMA table_info(cryptopay_invoices)")
+            cryptopay_columns = {
+                str(row["name"]) for row in await cursor.fetchall()
+            }
         finally:
             await db.close()
 
-        self.assertEqual(versions, list(range(1, 19)))
+        self.assertEqual(versions, list(range(1, 20)))
         self.assertEqual(tables, [
             "background_jobs",
             "performance_action_hourly",
@@ -77,6 +81,9 @@ class PersistentBackgroundJobTests(unittest.IsolatedAsyncioTestCase):
             "webhook_autoscale_settings",
         ])
         self.assertIsNotNone(telegram_price_index)
+        self.assertTrue(
+            {"provider_amount_usd", "fee_percent"} <= cryptopay_columns
+        )
 
     async def test_webhook_autoscale_settings_and_decisions_are_persistent(self):
         settings = await update_webhook_autoscale_settings(

@@ -373,10 +373,10 @@ async def payment_method_keyboard(order_id: int, lang: str = "fr", wallet_balanc
             icon_custom_emoji_id="5359437015752401733",
         )])
 
-    from services.crypto_pay import is_crypto_pay_configured
+    from services.crypto_pay import fee_percent_label, is_crypto_pay_configured
     if is_crypto_pay_configured():
         buttons.append([InlineKeyboardButton(
-            t("btn_pay_cryptopay", lang),
+            t("btn_pay_cryptopay", lang).format(fee=fee_percent_label()),
             callback_data=f"pay_cryptopay:{order_id}",
         )])
 
@@ -484,10 +484,10 @@ async def wallet_topup_method_keyboard(lang: str = "fr") -> InlineKeyboardMarkup
             icon_custom_emoji_id="5359437015752401733",
         )])
 
-    from services.crypto_pay import is_crypto_pay_configured
+    from services.crypto_pay import fee_percent_label, is_crypto_pay_configured
     if is_crypto_pay_configured():
         buttons.append([InlineKeyboardButton(
-            t("btn_pay_cryptopay", lang),
+            t("btn_pay_cryptopay", lang).format(fee=fee_percent_label()),
             callback_data="topup_cryptopay",
         )])
 

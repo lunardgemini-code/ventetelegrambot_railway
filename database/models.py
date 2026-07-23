@@ -3156,6 +3156,8 @@ async def prepare_cryptopay_invoice(
     *,
     order_id: int | None = None,
     wallet_amount: float | None = None,
+    provider_amount_usd: float | None = None,
+    fee_percent: float = 0,
 ) -> dict:
     """Create one local invoice attempt or return the existing active attempt."""
     kind = str(payment_kind or "").strip().lower()
@@ -3165,6 +3167,16 @@ async def prepare_cryptopay_invoice(
         raise ValueError("CRYPTOPAY_ORDER_REQUIRED")
 
     amount = usd_float(amount_usd, places=2, allow_zero=False)
+    provider_amount = usd_float(
+        amount if provider_amount_usd is None else provider_amount_usd,
+        places=2,
+        allow_zero=False,
+    )
+    normalized_fee_percent = round(float(fee_percent or 0), 4)
+    if provider_amount < amount:
+        raise ValueError("CRYPTOPAY_PROVIDER_AMOUNT_TOO_LOW")
+    if normalized_fee_percent < 0 or normalized_fee_percent >= 100:
+        raise ValueError("CRYPTOPAY_FEE_PERCENT_INVALID")
     credit_amount = (
         usd_float(wallet_amount, places=2, allow_zero=False)
         if wallet_amount is not None
@@ -3215,8 +3227,9 @@ async def prepare_cryptopay_invoice(
                     cursor = await db.execute(
                         """INSERT INTO cryptopay_invoices
                            (payment_kind, order_id, user_telegram_id, request_key,
-                            amount_usd, wallet_amount, provider_payload)
-                           VALUES (?, ?, ?, ?, ?, ?, ?)
+                            amount_usd, provider_amount_usd, fee_percent,
+                            wallet_amount, provider_payload)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                            RETURNING *""",
                         (
                             kind,
@@ -3224,6 +3237,8 @@ async def prepare_cryptopay_invoice(
                             int(user_telegram_id),
                             request_key,
                             amount,
+                            provider_amount,
+                            normalized_fee_percent,
                             credit_amount,
                             provider_payload,
                         ),
@@ -3259,6 +3274,30 @@ async def attach_cryptopay_invoice(request_key: str, payload: dict) -> dict:
                 db = await get_db(fresh=True)
                 try:
                     await db.execute("BEGIN IMMEDIATE")
+                    cursor = await db.execute(
+                        """SELECT amount_usd, provider_amount_usd
+                           FROM cryptopay_invoices WHERE request_key = ?""",
+                        (str(request_key),),
+                    )
+                    attempt_row = await cursor.fetchone()
+                    if not attempt_row:
+                        await db.rollback()
+                        raise ValueError("CRYPTOPAY_ATTEMPT_NOT_FOUND")
+                    expected_provider_amount = round(
+                        float(
+                            attempt_row["provider_amount_usd"]
+                            if attempt_row["provider_amount_usd"] is not None
+                            else attempt_row["amount_usd"]
+                        ),
+                        2,
+                    )
+                    try:
+                        actual_provider_amount = round(float(payload["amount"]), 2)
+                    except (KeyError, TypeError, ValueError) as exc:
+                        raise ValueError("CRYPTOPAY_INVOICE_AMOUNT_MISSING") from exc
+                    if abs(expected_provider_amount - actual_provider_amount) > 0.001:
+                        raise ValueError("CRYPTOPAY_INVOICE_AMOUNT_MISMATCH")
+
                     cursor = await db.execute(
                         """UPDATE cryptopay_invoices SET
                                invoice_id = ?,
@@ -3548,16 +3587,33 @@ async def _finalize_cryptopay_invoice_once(
                 "already_processed": True,
             }
 
-        stored_amount = round(float(invoice.get("amount_usd") or 0), 2)
+        business_amount = round(float(invoice.get("amount_usd") or 0), 2)
+        provider_amount = round(
+            float(
+                invoice.get("provider_amount_usd")
+                if invoice.get("provider_amount_usd") is not None
+                else business_amount
+            ),
+            2,
+        )
+        try:
+            raw_payload = json.loads(str(invoice.get("raw_payload") or "{}"))
+            callback_amount = round(float(raw_payload["amount"]), 2)
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            callback_amount = 0
         error = None
-        if stored_amount <= 0:
+        if business_amount <= 0 or provider_amount <= 0:
             error = "Invalid Crypto Pay invoice amount"
+        elif callback_amount <= 0:
+            error = "Crypto Pay provider amount missing"
+        elif abs(callback_amount - provider_amount) > 0.001:
+            error = "Crypto Pay provider amount mismatch"
         elif invoice.get("cancelled_at"):
             error = "Crypto Pay invoice paid after local cancellation"
 
         if invoice.get("payment_kind") == "wallet_topup":
             wallet_amount = round(float(invoice.get("wallet_amount") or 0), 2)
-            if wallet_amount <= 0 or abs(stored_amount - wallet_amount) > 0.001:
+            if wallet_amount <= 0 or abs(business_amount - wallet_amount) > 0.001:
                 error = "Crypto Pay wallet amount mismatch"
             if error:
                 await db.execute(
@@ -3602,7 +3658,13 @@ async def _finalize_cryptopay_invoice_once(
             order = {}
         else:
             order = dict(order_row)
-            if abs(round(float(order.get("amount_usd") or 0), 2) - stored_amount) > 0.001:
+            if (
+                abs(
+                    round(float(order.get("amount_usd") or 0), 2)
+                    - business_amount
+                )
+                > 0.001
+            ):
                 error = "Crypto Pay order amount mismatch"
             elif order.get("status") == "CANCELLED":
                 error = "Crypto Pay invoice paid after order cancellation"

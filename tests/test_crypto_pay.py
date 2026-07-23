@@ -12,6 +12,7 @@ from database import db as db_module
 from database import models
 from database.db import init_db
 from services import crypto_pay
+from utils.locales import t
 
 
 class CryptoPayTests(unittest.IsolatedAsyncioTestCase):
@@ -43,11 +44,14 @@ class CryptoPayTests(unittest.IsolatedAsyncioTestCase):
             5,
             quantity=1,
         )
+        self.provider_amount = crypto_pay.calculate_invoice_amount(5, 3)
         self.attempt = await models.prepare_cryptopay_invoice(
             "order",
             4101,
             5,
             order_id=self.order["id"],
+            provider_amount_usd=self.provider_amount,
+            fee_percent=3,
         )
         self.invoice_id = "810001"
         self.invoice = await models.attach_cryptopay_invoice(
@@ -69,9 +73,11 @@ class CryptoPayTests(unittest.IsolatedAsyncioTestCase):
             "status": status,
             "currency_type": "fiat",
             "fiat": "USD",
-            "amount": "5.00",
+            "amount": f"{self.provider_amount:.2f}",
             "asset": "USDT" if status == "paid" else None,
-            "paid_amount": "5.00" if status == "paid" else None,
+            "paid_amount": (
+                f"{self.provider_amount:.2f}" if status == "paid" else None
+            ),
             "paid_usd_rate": "1.00" if status == "paid" else None,
             "payload": self.attempt["provider_payload"],
             "bot_invoice_url": f"https://t.me/CryptoBot?start=invoice-{self.invoice_id}",
@@ -97,6 +103,13 @@ class CryptoPayTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(crypto_pay.request_date_is_fresh("not-a-date"))
 
+    def test_three_percent_fee_is_grossed_up_and_labelled(self):
+        self.assertEqual(crypto_pay.calculate_invoice_amount(0.50, 3), 0.52)
+        self.assertEqual(crypto_pay.calculate_invoice_amount(2.50, 3), 2.58)
+        self.assertEqual(crypto_pay.calculate_invoice_amount(100, 3), 103.10)
+        label = t("btn_pay_cryptopay", "en").format(fee="3")
+        self.assertEqual(label, "CryptoBot (3%)")
+
     async def test_paid_order_is_delivered_exactly_once(self):
         await models.update_order_status(
             self.order["id"],
@@ -120,19 +133,27 @@ class CryptoPayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(user["total_orders"], 1)
         self.assertAlmostEqual(float(user["total_spent"]), 5.0)
+        self.assertAlmostEqual(
+            float(first["invoice"]["provider_amount_usd"]),
+            self.provider_amount,
+        )
+        self.assertAlmostEqual(float(first["invoice"]["amount_usd"]), 5.0)
 
     async def test_wallet_topup_is_credited_exactly_once(self):
+        provider_amount = crypto_pay.calculate_invoice_amount(3.25, 3)
         attempt = await models.prepare_cryptopay_invoice(
             "wallet_topup",
             4101,
             3.25,
             wallet_amount=3.25,
+            provider_amount_usd=provider_amount,
+            fee_percent=3,
         )
         invoice_id = "810002"
         payload = {
             "invoice_id": invoice_id,
             "status": "active",
-            "amount": "3.25",
+            "amount": f"{provider_amount:.2f}",
             "currency_type": "fiat",
             "fiat": "USD",
             "payload": attempt["provider_payload"],
@@ -143,7 +164,7 @@ class CryptoPayTests(unittest.IsolatedAsyncioTestCase):
             {
                 "status": "paid",
                 "asset": "USDT",
-                "paid_amount": "3.25",
+                "paid_amount": f"{provider_amount:.2f}",
                 "paid_usd_rate": "1.00",
             }
         )
@@ -164,6 +185,32 @@ class CryptoPayTests(unittest.IsolatedAsyncioTestCase):
             if "Crypto Pay" in str(tx.get("description") or "")
         ]
         self.assertEqual(len(matching), 1)
+
+    async def test_provider_amount_mismatch_is_rejected_before_payment(self):
+        attempt = await models.prepare_cryptopay_invoice(
+            "wallet_topup",
+            4101,
+            4.00,
+            wallet_amount=4.00,
+            provider_amount_usd=4.13,
+            fee_percent=3,
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "CRYPTOPAY_INVOICE_AMOUNT_MISMATCH",
+        ):
+            await models.attach_cryptopay_invoice(
+                attempt["request_key"],
+                {
+                    "invoice_id": "810003",
+                    "status": "active",
+                    "amount": "4.00",
+                    "payload": attempt["provider_payload"],
+                    "bot_invoice_url": (
+                        "https://t.me/CryptoBot?start=invoice-810003"
+                    ),
+                },
+            )
 
     async def test_expiration_cancels_order_and_stops_polling(self):
         await models.update_order_status(

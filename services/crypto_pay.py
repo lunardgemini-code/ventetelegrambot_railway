@@ -9,7 +9,7 @@ import json
 import logging
 import time
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_HALF_UP
 from typing import Any
 
 import httpx
@@ -19,6 +19,7 @@ from config import (
     CRYPTO_PAY_API_TOKEN,
     CRYPTO_PAY_BASE_URL,
     CRYPTO_PAY_ENABLED,
+    CRYPTO_PAY_FEE_PERCENT,
     CRYPTO_PAY_WEBHOOK_SECRET,
 )
 from services.runtime_metrics import DependencyCircuitOpen, dependency_call
@@ -57,6 +58,36 @@ def accepted_assets() -> str:
         if value.strip().upper() in _ALLOWED_ASSETS
     ]
     return ",".join(dict.fromkeys(values)) or "USDT"
+
+
+def fee_percent_label() -> str:
+    value = Decimal(str(CRYPTO_PAY_FEE_PERCENT)).normalize()
+    return format(value, "f")
+
+
+def calculate_invoice_amount(
+    amount_usd: Any,
+    fee_percent: Any | None = None,
+) -> float:
+    """Gross up a net USD amount so the configured provider fee is covered."""
+    try:
+        net_amount = Decimal(str(amount_usd))
+        percent = Decimal(
+            str(CRYPTO_PAY_FEE_PERCENT if fee_percent is None else fee_percent)
+        )
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise CryptoPayError("Invalid Crypto Pay fee calculation") from exc
+    if net_amount <= 0:
+        raise CryptoPayError("Invoice amount must be positive")
+    if percent < 0 or percent >= 100:
+        raise CryptoPayError("Crypto Pay fee percent must be between 0 and 100")
+
+    divisor = Decimal("1") - (percent / Decimal("100"))
+    gross_amount = (net_amount / divisor).quantize(
+        Decimal("0.01"),
+        rounding=ROUND_CEILING,
+    )
+    return float(gross_amount)
 
 
 def _money(value: Any) -> str:

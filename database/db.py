@@ -958,6 +958,8 @@ async def init_db() -> None:
                 invoice_id TEXT UNIQUE,
                 provider_status TEXT NOT NULL DEFAULT 'creating',
                 amount_usd REAL NOT NULL,
+                provider_amount_usd REAL,
+                fee_percent REAL NOT NULL DEFAULT 0,
                 wallet_amount REAL,
                 asset TEXT,
                 paid_amount REAL,
@@ -1899,6 +1901,27 @@ async def init_db() -> None:
             )
             await db.commit()
             current_version = 18
+
+        if 18 <= current_version < 19:
+            cryptopay_columns = await _columns_for("cryptopay_invoices")
+            if "provider_amount_usd" not in cryptopay_columns:
+                await db.execute(
+                    "ALTER TABLE cryptopay_invoices "
+                    "ADD COLUMN provider_amount_usd REAL"
+                )
+                cryptopay_columns.add("provider_amount_usd")
+            if "fee_percent" not in cryptopay_columns:
+                await db.execute(
+                    "ALTER TABLE cryptopay_invoices "
+                    "ADD COLUMN fee_percent REAL NOT NULL DEFAULT 0"
+                )
+                cryptopay_columns.add("fee_percent")
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (19, ?)",
+                ("cryptopay_provider_fees",),
+            )
+            await db.commit()
+            current_version = 19
 
     finally:
         await db.close()

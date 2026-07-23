@@ -53,6 +53,14 @@ CRYPTO_PAY_WEBHOOK_SECRET: str = os.getenv(
 CRYPTO_PAY_ACCEPTED_ASSETS: str = os.getenv(
     "CRYPTO_PAY_ACCEPTED_ASSETS", "USDT"
 ).strip().upper() or "USDT"
+try:
+    CRYPTO_PAY_FEE_PERCENT: float = min(
+        99.0,
+        max(0.0, float(os.getenv("CRYPTO_PAY_FEE_PERCENT", "3"))),
+    )
+except (TypeError, ValueError):
+    _log.warning("Invalid CRYPTO_PAY_FEE_PERCENT; falling back to 3%")
+    CRYPTO_PAY_FEE_PERCENT = 3.0
 
 PAYMENT_TIMEOUT_SECONDS: int = max(
     60,

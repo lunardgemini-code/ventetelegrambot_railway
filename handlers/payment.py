@@ -19,7 +19,12 @@ from telegram.ext import (
     filters,
 )
 
-from config import ADMIN_IDS, BINANCE_PAY_ID, PAYMENT_TIMEOUT_SECONDS
+from config import (
+    ADMIN_IDS,
+    BINANCE_PAY_ID,
+    CRYPTO_PAY_FEE_PERCENT,
+    PAYMENT_TIMEOUT_SECONDS,
+)
 from database.models import (
     claim_bep20_order_payment,
     claim_binance_order_payment,
@@ -1607,7 +1612,12 @@ async def _render_cryptopay_checkout(
             reply_markup=main_menu_keyboard(lang),
         )
         return
-    amount = f"{float(invoice.get('amount_usd') or 0):.2f}"
+    invoice_amount = (
+        invoice.get("provider_amount_usd")
+        or invoice.get("amount_usd")
+        or 0
+    )
+    amount = f"{float(invoice_amount):.2f}"
     invoice_id = escape_html(str(invoice.get("invoice_id") or ""))
     text = (
         f"{t('cryptopay_title', lang)}\n\n"
@@ -1821,6 +1831,7 @@ async def pay_with_cryptopay(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         from services.crypto_pay import (
             CryptoPayError,
+            calculate_invoice_amount,
             create_invoice,
             is_crypto_pay_configured,
         )
@@ -1834,11 +1845,14 @@ async def pay_with_cryptopay(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return ConversationHandler.END
 
         amount = round(float(order["amount_usd"]), 2)
+        provider_amount = calculate_invoice_amount(amount)
         attempt = await prepare_cryptopay_invoice(
             "order",
             update.effective_user.id,
             amount,
             order_id=order_id,
+            provider_amount_usd=provider_amount,
+            fee_percent=CRYPTO_PAY_FEE_PERCENT,
         )
         if not attempt.get("created"):
             if attempt.get("invoice_id") and _cryptopay_invoice_url(attempt):
@@ -1865,8 +1879,13 @@ async def pay_with_cryptopay(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"x{max(1, int(order.get('quantity') or 1))}"
         )
         try:
+            invoice_amount = float(
+                attempt.get("provider_amount_usd")
+                or attempt.get("amount_usd")
+                or provider_amount
+            )
             provider_invoice = await create_invoice(
-                amount_usd=amount,
+                amount_usd=invoice_amount,
                 payload=str(attempt["provider_payload"]),
                 description=description,
                 expires_in=PAYMENT_TIMEOUT_SECONDS,

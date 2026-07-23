@@ -1479,7 +1479,7 @@ TRANSLATIONS["ru"].update({
 
 
 TRANSLATIONS["en"].update({
-    "btn_pay_cryptopay": "CryptoBot",
+    "btn_pay_cryptopay": "CryptoBot ({fee}%)",
     "btn_open_cryptopay": "Open CryptoBot invoice",
     "btn_check_cryptopay": "Check payment",
     "cryptopay_title": "<b>CryptoBot payment</b>",
@@ -1497,7 +1497,7 @@ TRANSLATIONS["en"].update({
 })
 
 TRANSLATIONS["fr"].update({
-    "btn_pay_cryptopay": "CryptoBot",
+    "btn_pay_cryptopay": "CryptoBot ({fee}%)",
     "btn_open_cryptopay": "Ouvrir la facture CryptoBot",
     "btn_check_cryptopay": "Verifier le paiement",
     "cryptopay_title": "<b>Paiement CryptoBot</b>",
@@ -1515,7 +1515,7 @@ TRANSLATIONS["fr"].update({
 })
 
 TRANSLATIONS["ar"].update({
-    "btn_pay_cryptopay": "CryptoBot",
+    "btn_pay_cryptopay": "CryptoBot ({fee}%)",
     "btn_open_cryptopay": "فتح فاتورة CryptoBot",
     "btn_check_cryptopay": "التحقق من الدفع",
     "cryptopay_title": "<b>الدفع عبر CryptoBot</b>",
@@ -1533,7 +1533,7 @@ TRANSLATIONS["ar"].update({
 })
 
 TRANSLATIONS["zh"].update({
-    "btn_pay_cryptopay": "CryptoBot",
+    "btn_pay_cryptopay": "CryptoBot ({fee}%)",
     "btn_open_cryptopay": "打开 CryptoBot 发票",
     "btn_check_cryptopay": "检查付款",
     "cryptopay_title": "<b>CryptoBot 付款</b>",
@@ -1551,7 +1551,7 @@ TRANSLATIONS["zh"].update({
 })
 
 TRANSLATIONS["vi"].update({
-    "btn_pay_cryptopay": "CryptoBot",
+    "btn_pay_cryptopay": "CryptoBot ({fee}%)",
     "btn_open_cryptopay": "Mo hoa don CryptoBot",
     "btn_check_cryptopay": "Kiem tra thanh toan",
     "cryptopay_title": "<b>Thanh toan CryptoBot</b>",
@@ -1569,7 +1569,7 @@ TRANSLATIONS["vi"].update({
 })
 
 TRANSLATIONS["ru"].update({
-    "btn_pay_cryptopay": "CryptoBot",
+    "btn_pay_cryptopay": "CryptoBot ({fee}%)",
     "btn_open_cryptopay": "Открыть счет CryptoBot",
     "btn_check_cryptopay": "Проверить платеж",
     "cryptopay_title": "<b>Оплата через CryptoBot</b>",

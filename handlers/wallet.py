@@ -15,7 +15,11 @@ from telegram.ext import (
     filters,
 )
 
-from config import BINANCE_PAY_ID, PAYMENT_TIMEOUT_SECONDS
+from config import (
+    BINANCE_PAY_ID,
+    CRYPTO_PAY_FEE_PERCENT,
+    PAYMENT_TIMEOUT_SECONDS,
+)
 from database.models import (
     credit_wallet_from_bep20_transaction,
     credit_wallet_from_binance_transaction,
@@ -627,7 +631,12 @@ async def _render_cryptopay_topup_checkout(
             reply_markup=main_menu_keyboard(lang),
         )
         return
-    amount = f"{float(invoice.get('wallet_amount') or invoice.get('amount_usd') or 0):.2f}"
+    invoice_amount = (
+        invoice.get("provider_amount_usd")
+        or invoice.get("amount_usd")
+        or 0
+    )
+    amount = f"{float(invoice_amount):.2f}"
     invoice_id = escape_html(str(invoice.get("invoice_id") or ""))
     text = (
         f"{t('cryptopay_title', lang)}\n\n"
@@ -784,6 +793,7 @@ async def wallet_topup_method_cryptopay(
         )
         from services.crypto_pay import (
             CryptoPayError,
+            calculate_invoice_amount,
             create_invoice,
             is_crypto_pay_configured,
         )
@@ -796,11 +806,14 @@ async def wallet_topup_method_cryptopay(
             )
             return ConversationHandler.END
 
+        provider_amount = calculate_invoice_amount(amount)
         attempt = await prepare_cryptopay_invoice(
             "wallet_topup",
             update.effective_user.id,
             amount,
             wallet_amount=amount,
+            provider_amount_usd=provider_amount,
+            fee_percent=CRYPTO_PAY_FEE_PERCENT,
         )
         if not attempt.get("created"):
             if attempt.get("invoice_id") and _cryptopay_invoice_url(attempt):
@@ -817,10 +830,15 @@ async def wallet_topup_method_cryptopay(
             return ConversationHandler.END
 
         try:
+            invoice_amount = float(
+                attempt.get("provider_amount_usd")
+                or attempt.get("amount_usd")
+                or provider_amount
+            )
             provider_invoice = await create_invoice(
-                amount_usd=amount,
+                amount_usd=invoice_amount,
                 payload=str(attempt["provider_payload"]),
-                description=f"VenteBot wallet top-up {amount:.2f} USD",
+                description="VenteBot wallet top-up",
                 expires_in=PAYMENT_TIMEOUT_SECONDS,
             )
             invoice = await attach_cryptopay_invoice(
