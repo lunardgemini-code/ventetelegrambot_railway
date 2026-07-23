@@ -1325,8 +1325,13 @@ async def get_supplier_route_candidates(local_product_id: int) -> list[dict]:
                       COALESCE(stats.completed_orders, 0) AS completed_orders,
                       COALESCE(stats.failed_orders, 0) AS failed_orders,
                       COALESCE(stats.unknown_orders, 0) AS unknown_orders,
+                      analysis.family, analysis.duration_months, analysis.duration_days,
+                      analysis.delivery_mode, analysis.access_mode, analysis.region,
+                      analysis.confidence AS analysis_confidence,
                       CASE WHEN sp.local_product_id = ? THEN 'primary' ELSE 'confirmed' END AS route_kind
                FROM supplier_products sp
+               LEFT JOIN supplier_product_analysis analysis
+                 ON analysis.supplier_product_id = sp.id
                LEFT JOIN (
                     SELECT supplier_code, external_product_id,
                            SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed_orders,
@@ -1347,8 +1352,28 @@ async def get_supplier_route_candidates(local_product_id: int) -> list[dict]:
             ),
         )
         rows = [dict(row) for row in await cursor.fetchall()]
+        supplier_codes = {str(row["supplier_code"]) for row in rows}
+        enabled_keys = {
+            code: f"{_settings_prefix(code)}_enabled"
+            for code in supplier_codes
+        }
+        enabled_values = {}
+        if enabled_keys:
+            placeholders = ",".join("?" for _ in enabled_keys)
+            cursor = await db.execute(
+                f"SELECT key, value FROM settings WHERE key IN ({placeholders})",
+                list(enabled_keys.values()),
+            )
+            enabled_values = {
+                str(row["key"]): str(row["value"])
+                for row in await cursor.fetchall()
+            }
         for row in rows:
-            row["provider_enabled"] = await _supplier_enabled(db, str(row["supplier_code"]))
+            code = str(row["supplier_code"])
+            default = "1" if code == DEFAULT_SUPPLIER_CODE else "0"
+            row["provider_enabled"] = (
+                enabled_values.get(enabled_keys[code], default) != "0"
+            )
             if row.get("route_kind") == "confirmed":
                 row["margin_type"] = "sale_price"
                 row["margin_value"] = float(row.get("route_sale_price") or 0)

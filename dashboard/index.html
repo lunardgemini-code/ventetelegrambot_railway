@@ -24,6 +24,7 @@
     <link rel="stylesheet" href="revamp.css?v=20260720-reseller-prices">
     <link rel="stylesheet" href="system.css?v=20260723-pwa-v8">
     <link rel="stylesheet" href="liquid-glass.css?v=20260723-liquid-v1">
+    <link rel="stylesheet" href="operations.css?v=20260723-ops-v2">
 </head>
 <body>
     <a class="skip-link" href="#dashboard-workspace" data-i18n="skip_to_content">Aller au contenu</a>
@@ -107,6 +108,11 @@
                     <div class="page-title"><h1 id="current-tab-title" data-i18n="tab_dashboard">Tableau de Bord</h1><p id="page-context" data-i18n="context_dashboard">Vue opérationnelle</p></div>
                 </div>
                 <div class="topbar-actions">
+                    <button id="btn-command-palette" class="command-trigger" type="button" aria-haspopup="dialog" aria-controls="command-palette" data-i18n-aria-label="ops_command_open" aria-label="Recherche rapide">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                        <span data-i18n="ops_command_search">Rechercher</span>
+                        <kbd>Ctrl K</kbd>
+                    </button>
                     <div class="lang-selector" aria-label="Langue" data-i18n-aria-label="language_label">
                         <button class="lang-btn" data-lang="fr" title="Français">🇫🇷</button>
                         <button class="lang-btn" data-lang="en" title="English">🇬🇧</button>
@@ -139,15 +145,42 @@
             <section id="dashboard-tab" class="tab-content active">
                 <div class="overview-heading">
                     <div><p class="eyebrow" data-i18n="overview_kicker">Aujourd'hui</p><h2 data-i18n="overview_title">Le magasin en un coup d'œil</h2></div>
-                    <div class="segmented-control" id="dashboard-range" aria-label="Période des graphiques" data-i18n-aria-label="chart_period">
-                        <button data-days="7">7J</button><button data-days="30" class="active">30J</button><button data-days="90">90J</button>
+                    <div class="overview-controls">
+                        <button id="btn-customize-cockpit" type="button" class="btn-secondary btn-sm">
+                            <i class="fa-solid fa-sliders"></i><span data-i18n="ops_customize">Personnaliser</span>
+                        </button>
+                        <div class="segmented-control" id="dashboard-range" aria-label="Période des graphiques" data-i18n-aria-label="chart_period">
+                            <button data-days="7">7J</button><button data-days="30" class="active">30J</button><button data-days="90">90J</button>
+                        </div>
                     </div>
                 </div>
-                <div class="today-strip">
+                <div id="ops-alert-strip" class="ops-alert-strip" data-cockpit-module="alerts" aria-label="Alertes opérationnelles" data-i18n-aria-label="ops_alerts">
+                    <button type="button" data-ops-tab="payment-review-tab" data-signal="underpaid">
+                        <span class="ops-signal-icon coral"><i class="fa-solid fa-circle-exclamation"></i></span>
+                        <span><small data-i18n="ops_underpaid">Sous-payés</small><strong id="ops-underpaid-count">0</strong></span>
+                    </button>
+                    <button type="button" data-ops-tab="activations-tab" data-signal="activations">
+                        <span class="ops-signal-icon cobalt"><i class="fa-solid fa-bolt"></i></span>
+                        <span><small data-i18n="ops_pending_activations">Activations</small><strong id="ops-activation-count">0</strong></span>
+                    </button>
+                    <button type="button" data-ops-tab="inventory-tab" data-signal="stock">
+                        <span class="ops-signal-icon amber"><i class="fa-solid fa-box-open"></i></span>
+                        <span><small data-i18n="ops_critical_stock">Stocks critiques</small><strong id="ops-stock-count">0</strong></span>
+                    </button>
+                    <button type="button" data-ops-tab="supplier-bots-tab" data-signal="suppliers">
+                        <span class="ops-signal-icon mint"><i class="fa-solid fa-server"></i></span>
+                        <span><small data-i18n="ops_supplier_attention">Fournisseurs à vérifier</small><strong id="ops-supplier-count">0</strong></span>
+                    </button>
+                </div>
+                <div class="today-strip" data-cockpit-module="today">
                     <div class="today-signal"><span data-i18n="today_revenue">Revenus du jour</span><strong id="today-revenue">$0.00</strong><small id="today-revenue-delta" data-i18n="versus_yesterday">vs hier</small></div>
                     <div class="today-signal"><span data-i18n="today_orders">Ventes du jour</span><strong id="today-orders">0</strong><small id="today-orders-delta" data-i18n="versus_yesterday">vs hier</small></div>
                 </div>
-                <div class="metrics-grid">
+                <div class="metrics-grid" data-cockpit-module="metrics">
+                    <button type="button" class="metric-card glass-panel ops-metric-action" data-ops-open="profit">
+                        <div class="metric-info"><p class="metric-label" data-i18n="ops_known_profit">Bénéfice fournisseur connu (30J)</p><h3 id="ops-known-profit">$0.00</h3><small id="ops-known-profit-coverage" data-i18n="ops_profit_coverage_empty">Aucune commande avec coût connu</small></div>
+                        <div class="metric-icon color-green"><i class="fa-solid fa-arrow-trend-up"></i></div>
+                    </button>
                     <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label"><span data-i18n="metric_revenue">Revenus (30J)</span> <button type="button" class="icon-button-inline" data-action="show-revenue-details" data-i18n-title="revenue_details" data-i18n-aria-label="revenue_details" title="Détails des revenus (30J)" aria-label="Détails des revenus (30J)"><i class="fa-solid fa-circle-info"></i></button></p><h3 id="stat-revenue">$0.00</h3></div><div class="metric-icon color-green"><i class="fa-solid fa-dollar-sign"></i></div></div>
                     <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label" data-i18n="metric_sales">Ventes (30J)</p><h3 id="stat-orders">0</h3></div><div class="metric-icon color-blue"><i class="fa-solid fa-cart-shopping"></i></div></div>
                     <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label" data-i18n="metric_clients">Clients</p><h3 id="stat-users">0</h3></div><div class="metric-icon color-purple"><i class="fa-solid fa-users"></i></div></div>
@@ -155,7 +188,7 @@
                     <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label" data-i18n="metric_new_users">Nouveaux (30J)</p><h3 id="stat-new-users">0</h3></div><div class="metric-icon color-blue"><i class="fa-solid fa-user-plus"></i></div></div>
                     <div class="metric-card glass-panel"><div class="metric-info"><p class="metric-label" data-i18n="metric_returning_users">Récurrents</p><h3 id="stat-returning-users">0</h3></div><div class="metric-icon color-purple"><i class="fa-solid fa-user-check"></i></div></div>
                 </div>
-                <section class="bot-performance glass-panel" aria-labelledby="bot-performance-title">
+                <section class="bot-performance glass-panel" data-cockpit-module="performance" aria-labelledby="bot-performance-title">
                     <div class="panel-header">
                         <div><p class="eyebrow" data-i18n="performance_realtime">Temps réel - 5 minutes</p><h3 id="bot-performance-title"><i class="fa-solid fa-gauge-high"></i> <span data-i18n="performance_title">Performance du bot</span></h3></div>
                         <div class="performance-actions">
@@ -200,18 +233,18 @@
                         <div id="autoscale-history" class="autoscale-history"><p class="empty-state" data-i18n="no_autoscale_decisions">Aucune décision enregistrée.</p></div>
                     </div>
                 </section>
-                <div class="operations-grid">
+                <div class="operations-grid" data-cockpit-module="operations">
                     <section class="dashboard-col glass-panel action-center" aria-labelledby="action-center-title">
                         <div class="panel-header"><div><p class="eyebrow" data-i18n="priorities">Priorités</p><h3 id="action-center-title" data-i18n="actions_title">À traiter maintenant</h3></div></div>
                         <div id="action-center-list" class="action-center-list"><div class="skeleton-row"></div><div class="skeleton-row"></div><div class="skeleton-row"></div></div>
                     </section>
-                    <section class="dashboard-col glass-panel recent-orders" aria-labelledby="recent-orders-title">
-                        <div class="panel-header"><div><p class="eyebrow" data-i18n="activity">Activité</p><h3 id="recent-orders-title" data-i18n="recent_orders">Dernières commandes</h3></div><button class="text-button" data-go-tab="orders-tab"><span data-i18n="view_all">Tout voir</span> <i class="fa-solid fa-arrow-right"></i></button></div>
+                    <section class="dashboard-col glass-panel recent-orders ops-activity-center" aria-labelledby="recent-orders-title">
+                        <div class="panel-header"><div><p class="eyebrow" data-i18n="activity">Activité</p><h3 id="recent-orders-title" data-i18n="ops_activity_title">Centre d’activité</h3></div><span id="ops-activity-live" class="ops-live-indicator"><i class="fa-solid fa-circle"></i><span data-i18n="ops_from_current_data">Données courantes</span></span></div>
                         <div id="recent-orders-list" class="recent-orders-list"><div class="skeleton-row"></div><div class="skeleton-row"></div><div class="skeleton-row"></div></div>
                     </section>
                 </div>
                 <!-- Charts -->
-                <div class="charts-row">
+                <div class="charts-row" data-cockpit-module="charts">
                     <div class="chart-card glass-panel">
                         <div class="panel-header"><h3><i class="fa-solid fa-chart-line"></i> <span data-i18n="chart_revenue">Revenus quotidiens</span></h3></div>
                         <div class="chart-wrapper"><canvas id="chart-revenue"></canvas></div>
@@ -222,7 +255,7 @@
                     </div>
                 </div>
                 <!-- Stock Summary -->
-                <div class="dashboard-row">
+                <div class="dashboard-row" data-cockpit-module="stock">
                     <div class="dashboard-col glass-panel flex-grow-2">
                         <div class="panel-header"><h3><i class="fa-solid fa-warehouse"></i> <span data-i18n="stock_status">État des Stocks</span></h3></div>
                         <div class="panel-body"><div id="stock-summary-list" class="stock-status-list"><p class="empty-state" data-i18n="no_products">Aucun produit configuré.</p></div></div>
@@ -1692,7 +1725,39 @@
 </div>
 
 
-    <script defer src="app.js?v=20260723-liquid-v1"></script>
+    <nav id="ops-mobile-nav" class="ops-mobile-nav" aria-label="Navigation rapide" data-i18n-aria-label="ops_mobile_navigation">
+        <button type="button" class="active" data-ops-tab="dashboard-tab"><i class="fa-solid fa-chart-simple"></i><span data-i18n="nav_dashboard">Dashboard</span></button>
+        <button type="button" data-ops-tab="orders-tab"><i class="fa-solid fa-receipt"></i><span data-i18n="nav_orders">Commandes</span></button>
+        <button type="button" data-ops-tab="payment-review-tab"><i class="fa-solid fa-shield-halved"></i><span data-i18n="nav_payment_review">Paiements</span></button>
+        <button type="button" data-ops-tab="inventory-tab"><i class="fa-solid fa-box-open"></i><span data-i18n="nav_inventory">Stock</span></button>
+        <button type="button" id="ops-mobile-more"><i class="fa-solid fa-bars"></i><span data-i18n="ops_more">Plus</span></button>
+    </nav>
+
+    <div id="command-palette" class="ops-command-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="command-palette-title">
+        <div class="ops-command-panel">
+            <div class="ops-command-search">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <label id="command-palette-title" class="sr-only" for="ops-command-input" data-i18n="ops_command_title">Palette de commandes</label>
+                <input id="ops-command-input" type="search" autocomplete="off" data-i18n-placeholder="ops_command_placeholder" placeholder="Produit, client, commande ou action...">
+                <kbd>Esc</kbd>
+            </div>
+            <div id="ops-command-results" class="ops-command-results" role="listbox" aria-label="Résultats" data-i18n-aria-label="ops_command_results"></div>
+            <footer><span data-i18n="ops_command_hint">↑↓ naviguer · Entrée ouvrir</span><span id="ops-command-status"></span></footer>
+        </div>
+    </div>
+
+    <div id="ops-drawer-backdrop" class="ops-drawer-backdrop hidden" aria-hidden="true"></div>
+    <aside id="ops-context-drawer" class="ops-context-drawer hidden" role="dialog" aria-modal="true" aria-labelledby="ops-drawer-title">
+        <header>
+            <div><p id="ops-drawer-eyebrow" class="eyebrow"></p><h2 id="ops-drawer-title" data-i18n="ops_details">Détails</h2></div>
+            <button id="ops-drawer-close" type="button" class="btn-icon" data-i18n-title="close" data-i18n-aria-label="close" title="Fermer" aria-label="Fermer"><i class="fa-solid fa-xmark"></i></button>
+        </header>
+        <div id="ops-drawer-body" class="ops-drawer-body"></div>
+        <footer id="ops-drawer-actions" class="ops-drawer-actions"></footer>
+    </aside>
+
+    <script defer src="app.js?v=20260723-ops-v2"></script>
+    <script defer src="operations.js?v=20260723-ops-v2"></script>
     <!-- Mass Translation Progress Overlay -->
     <div id="mass-translate-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; flex-direction:column; justify-content:center; align-items:center; color:white;">
         <h2 style="margin-bottom:20px;"><i class="fa-solid fa-language"></i> Traduction de masse en cours...</h2>

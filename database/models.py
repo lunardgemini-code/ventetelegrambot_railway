@@ -5775,7 +5775,22 @@ async def get_dashboard_overview() -> dict:
                    COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND DATE(created_at) = DATE('now') THEN 1 ELSE 0 END), 0) AS today_orders,
                    COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND DATE(created_at) = DATE('now') THEN amount_usd ELSE 0 END), 0) AS today_revenue,
                    COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND DATE(created_at) = DATE('now', '-1 day') THEN 1 ELSE 0 END), 0) AS yesterday_orders,
-                   COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND DATE(created_at) = DATE('now', '-1 day') THEN amount_usd ELSE 0 END), 0) AS yesterday_revenue
+                   COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND DATE(created_at) = DATE('now', '-1 day') THEN amount_usd ELSE 0 END), 0) AS yesterday_revenue,
+                   COALESCE((
+                       SELECT SUM(COALESCE(so.revenue_usd, linked.amount_usd, 0) - COALESCE(so.cost_usd, 0))
+                       FROM supplier_orders so
+                       LEFT JOIN orders linked ON linked.id = so.order_id
+                       WHERE so.status = 'completed'
+                         AND so.cost_usd IS NOT NULL
+                         AND COALESCE(so.completed_at, so.updated_at, so.created_at) >= datetime('now', '-30 days')
+                   ), 0) AS known_profit_30d,
+                   COALESCE((
+                       SELECT COUNT(*)
+                       FROM supplier_orders so
+                       WHERE so.status = 'completed'
+                         AND so.cost_usd IS NOT NULL
+                         AND COALESCE(so.completed_at, so.updated_at, so.created_at) >= datetime('now', '-30 days')
+                   ), 0) AS known_profit_orders_30d
                FROM orders"""
         )
         summary = dict(await cursor.fetchone())
@@ -5813,7 +5828,258 @@ async def get_dashboard_overview() -> dict:
                 "delivery_issues": int(summary.get("delivery_issues") or 0),
                 "open_tickets": int(ticket_row["cnt"] if ticket_row else 0),
             },
+            "economics": {
+                "known_profit_30d": float(summary.get("known_profit_30d") or 0),
+                "known_profit_orders_30d": int(summary.get("known_profit_orders_30d") or 0),
+            },
             "recent_orders": recent_orders,
+        }
+    finally:
+        await db.close()
+
+
+async def search_dashboard_entities(query: str, limit: int = 12) -> list[dict]:
+    """Search the dashboard's core entities in one bounded database round trip."""
+    normalized = " ".join(str(query or "").split())[:80]
+    if not normalized:
+        return []
+    limit = max(1, min(int(limit), 24))
+    escaped = (
+        normalized.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    )
+    pattern = f"%{escaped}%"
+    exact_number = -1
+    if normalized.isdigit():
+        parsed_number = int(normalized)
+        if parsed_number <= 9_223_372_036_854_775_807:
+            exact_number = parsed_number
+
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """
+            WITH matches AS (
+                SELECT
+                    'product' AS entity_type,
+                    CAST(p.id AS TEXT) AS entity_id,
+                    p.name AS title,
+                    printf('$%.2f', COALESCE(p.price_usd, 0)) AS subtitle,
+                    CASE WHEN p.is_active = 1 THEN 'active' ELSE 'inactive' END AS status,
+                    COALESCE(p.price_usd, 0) AS amount,
+                    '' AS created_at,
+                    p.id AS related_id,
+                    CASE WHEN p.id = ? THEN 0 WHEN p.name LIKE ? ESCAPE '\\' THEN 2 ELSE 9 END AS relevance
+                FROM products p
+                WHERE COALESCE(p.is_deleted, 0) = 0
+                  AND (p.id = ? OR p.name LIKE ? ESCAPE '\\')
+
+                UNION ALL
+
+                SELECT
+                    'user',
+                    CAST(u.telegram_id AS TEXT),
+                    COALESCE(NULLIF('@' || u.username, '@'), NULLIF(u.first_name, ''), CAST(u.telegram_id AS TEXT)),
+                    'ID ' || CAST(u.telegram_id AS TEXT),
+                    CASE WHEN COALESCE(u.is_banned, 0) = 1 THEN 'banned' ELSE 'active' END,
+                    COALESCE(u.wallet_balance, 0),
+                    COALESCE(u.created_at, ''),
+                    u.telegram_id,
+                    CASE
+                        WHEN u.telegram_id = ? THEN 0
+                        WHEN u.username LIKE ? ESCAPE '\\' THEN 3
+                        WHEN u.first_name LIKE ? ESCAPE '\\' THEN 4
+                        ELSE 9
+                    END
+                FROM users u
+                WHERE u.telegram_id = ?
+                   OR u.username LIKE ? ESCAPE '\\'
+                   OR u.first_name LIKE ? ESCAPE '\\'
+
+                UNION ALL
+
+                SELECT
+                    'order',
+                    CAST(o.id AS TEXT),
+                    '#' || CAST(o.id AS TEXT),
+                    COALESCE(NULLIF(p.name, ''), 'Product #' || CAST(o.product_id AS TEXT))
+                        || ' · '
+                        || COALESCE(NULLIF('@' || u.username, '@'), NULLIF(u.first_name, ''), CAST(o.user_telegram_id AS TEXT)),
+                    COALESCE(o.status, ''),
+                    COALESCE(o.amount_usd, 0),
+                    COALESCE(o.created_at, ''),
+                    o.product_id,
+                    CASE
+                        WHEN o.id = ? THEN 0
+                        WHEN o.merchant_trade_no LIKE ? ESCAPE '\\' THEN 1
+                        WHEN o.binance_order_id LIKE ? ESCAPE '\\' THEN 1
+                        ELSE 8
+                    END
+                FROM orders o
+                LEFT JOIN users u ON u.telegram_id = o.user_telegram_id
+                LEFT JOIN products p ON p.id = o.product_id
+                WHERE o.id = ?
+                   OR o.merchant_trade_no LIKE ? ESCAPE '\\'
+                   OR o.binance_order_id LIKE ? ESCAPE '\\'
+            )
+            SELECT entity_type, entity_id, title, subtitle, status, amount,
+                   created_at, related_id
+            FROM matches
+            ORDER BY relevance ASC, entity_type ASC, title COLLATE NOCASE ASC
+            LIMIT ?
+            """,
+            (
+                exact_number,
+                pattern,
+                exact_number,
+                pattern,
+                exact_number,
+                pattern,
+                pattern,
+                exact_number,
+                pattern,
+                pattern,
+                exact_number,
+                pattern,
+                pattern,
+                exact_number,
+                pattern,
+                pattern,
+                limit,
+            ),
+        )
+        return [dict(row) for row in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+
+async def get_product_operational_insights(
+    product_id: int,
+    *,
+    days: int = 30,
+) -> dict | None:
+    """Return one product's on-demand operational picture without background polling."""
+    product_id = int(product_id)
+    days = max(7, min(int(days), 90))
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT p.id, p.name, p.emoji, p.price_usd, p.warranty_days,
+                      p.delivery_type, p.is_active, p.dynamic_pricing_enabled,
+                      CASE WHEN p.delivery_type = 'activation' THEN NULL ELSE
+                          (SELECT COUNT(*) FROM stock_items si
+                           WHERE si.product_id = p.id AND COALESCE(si.is_sold, 0) = 0)
+                      END AS stock
+               FROM products p
+               WHERE p.id = ? AND COALESCE(p.is_deleted, 0) = 0""",
+            (product_id,),
+        )
+        product_row = await cursor.fetchone()
+        if not product_row:
+            return None
+        product = dict(product_row)
+
+        cursor = await db.execute(
+            """SELECT DATE(created_at) AS day,
+                      COALESCE(SUM(CASE WHEN quantity IS NULL OR quantity < 1 THEN 1 ELSE quantity END), 0) AS quantity,
+                      COALESCE(SUM(amount_usd), 0) AS revenue
+               FROM orders
+               WHERE product_id = ? AND status = 'COMPLETED'
+                 AND created_at >= datetime('now', ?)
+               GROUP BY DATE(created_at)
+               ORDER BY day ASC""",
+            (product_id, f"-{days - 1} days"),
+        )
+        sales_rows = [dict(row) for row in await cursor.fetchall()]
+        sales_by_day = {str(row["day"]): row for row in sales_rows}
+        today = _utcnow().date()
+        labels = [
+            (today - timedelta(days=offset)).isoformat()
+            for offset in range(days - 1, -1, -1)
+        ]
+        quantity_series = [
+            int((sales_by_day.get(day) or {}).get("quantity") or 0)
+            for day in labels
+        ]
+        revenue_series = [
+            round(float((sales_by_day.get(day) or {}).get("revenue") or 0), 2)
+            for day in labels
+        ]
+
+        cursor = await db.execute(
+            """SELECT
+                   (SELECT COUNT(*) FROM product_views
+                    WHERE product_id = ? AND viewed_at >= datetime('now', '-30 days')) AS views,
+                   (SELECT COUNT(*) FROM product_buy_clicks
+                    WHERE product_id = ? AND clicked_at >= datetime('now', '-30 days')) AS buy_clicks,
+                   (SELECT COUNT(*) FROM orders
+                    WHERE product_id = ? AND created_at >= datetime('now', '-30 days')) AS payments_created,
+                   (SELECT COUNT(*) FROM orders
+                    WHERE product_id = ? AND created_at >= datetime('now', '-30 days')
+                      AND (paid_at IS NOT NULL OR status = 'COMPLETED')) AS payments_completed,
+                   COALESCE((SELECT SUM(COALESCE(so.revenue_usd, linked.amount_usd, 0) - COALESCE(so.cost_usd, 0))
+                    FROM supplier_orders so
+                    LEFT JOIN orders linked ON linked.id = so.order_id
+                    WHERE linked.product_id = ? AND so.status = 'completed'
+                      AND so.cost_usd IS NOT NULL
+                      AND COALESCE(so.completed_at, so.updated_at, so.created_at) >= datetime('now', '-30 days')), 0) AS known_profit
+            """,
+            (product_id, product_id, product_id, product_id, product_id),
+        )
+        metrics = dict(await cursor.fetchone())
+
+        cursor = await db.execute(
+            """SELECT old_price, new_price, suggested_price, applied, created_at
+               FROM dynamic_price_history
+               WHERE product_id = ?
+               ORDER BY created_at DESC, id DESC
+               LIMIT 12""",
+            (product_id,),
+        )
+        price_history = [dict(row) for row in await cursor.fetchall()]
+        price_history.reverse()
+
+        sales_7d = sum(quantity_series[-7:])
+        revenue_7d = round(sum(revenue_series[-7:]), 2)
+        sales_30d = sum(quantity_series[-30:])
+        revenue_30d = round(sum(revenue_series[-30:]), 2)
+        stock = product.get("stock")
+        daily_velocity = sales_7d / 7.0
+        days_left = (
+            round(float(stock) / daily_velocity, 1)
+            if stock is not None and daily_velocity > 0
+            else None
+        )
+        views = int(metrics.get("views") or 0)
+        paid = int(metrics.get("payments_completed") or 0)
+
+        return {
+            "product": product,
+            "sales": {
+                "days": labels,
+                "quantity_series": quantity_series,
+                "revenue_series": revenue_series,
+                "today": quantity_series[-1] if quantity_series else 0,
+                "sales_7d": sales_7d,
+                "revenue_7d": revenue_7d,
+                "sales_30d": sales_30d,
+                "revenue_30d": revenue_30d,
+            },
+            "conversion": {
+                "views": views,
+                "buy_clicks": int(metrics.get("buy_clicks") or 0),
+                "payments_created": int(metrics.get("payments_created") or 0),
+                "payments_completed": paid,
+                "overall_rate": round(paid / views, 4) if views else 0.0,
+            },
+            "stock": {
+                "current": stock,
+                "daily_velocity_7d": round(daily_velocity, 2),
+                "days_left": days_left,
+            },
+            "economics": {
+                "known_profit_30d": round(float(metrics.get("known_profit") or 0), 2),
+            },
+            "price_history": price_history,
         }
     finally:
         await db.close()

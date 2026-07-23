@@ -46,7 +46,8 @@ class DashboardAiI18nTests(unittest.TestCase):
         self.assertNotIn("result.access_mode || 'unknown'", ai_code)
 
     def test_dashboard_assets_use_the_i18n_cache_version(self):
-        self.assertIn('app.js?v=20260723-liquid-v1', self.html)
+        self.assertIn('app.js?v=20260723-ops-v2', self.html)
+        self.assertIn('operations.js?v=20260723-ops-v2', self.html)
         self.assertIn('style.css?v=20260720-reseller-telegram-prices', self.html)
         self.assertIn('system.css?v=20260723-pwa-v8', self.html)
 

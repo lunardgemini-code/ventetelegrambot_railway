@@ -3364,6 +3364,28 @@ async def api_dashboard_overview():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@api.get("/api/dashboard/search", dependencies=[Depends(verify_api_key)])
+async def api_dashboard_search(q: str = "", limit: int = 12):
+    """Bounded, on-demand search used by the dashboard command palette."""
+    normalized = " ".join(str(q or "").split())
+    if not normalized:
+        return {"query": "", "results": []}
+    if len(normalized) > 80:
+        raise HTTPException(status_code=422, detail="Search query is too long")
+    limit = max(1, min(int(limit), 24))
+
+    from database.models import search_dashboard_entities
+
+    try:
+        return {
+            "query": normalized,
+            "results": await search_dashboard_entities(normalized, limit=limit),
+        }
+    except Exception as exc:
+        logger.error("API dashboard search error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Could not search dashboard")
+
+
 @api.get("/api/products", dependencies=[Depends(verify_api_key)])
 async def api_get_products():
     from database.models import get_all_products, get_all_stock_counts
@@ -3379,6 +3401,166 @@ async def api_get_products():
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.get(
+    "/api/products/{product_id}/insights",
+    dependencies=[Depends(verify_api_key)],
+)
+async def api_get_product_insights(product_id: int):
+    """Load product intelligence and supplier alternatives only when requested."""
+    cache_key = f"product_insights_{int(product_id)}"
+    current_time = time.time()
+    cached = _stats_cache.get(cache_key)
+    if cached and current_time - cached["time"] < 60:
+        return cached["data"]
+
+    from database.models import get_product_operational_insights
+    from database.supplier_ai import get_supplier_wallet_snapshots
+    from database.suppliers import (
+        get_supplier_dashboard_summaries,
+        get_supplier_route_candidates,
+    )
+    from services.supplier_registry import list_supplier_providers
+
+    try:
+        insights = await get_product_operational_insights(product_id, days=30)
+        if not insights:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        candidates = await get_supplier_route_candidates(product_id)
+        supplier_codes = sorted(
+            {str(candidate.get("supplier_code") or "") for candidate in candidates}
+            - {""}
+        )
+        wallets, summaries = await asyncio.gather(
+            get_supplier_wallet_snapshots(supplier_codes),
+            get_supplier_dashboard_summaries(supplier_codes),
+        )
+        registered_names = {
+            str(provider["code"]): str(provider.get("name") or provider["code"])
+            for provider in list_supplier_providers()
+        }
+        sale_price = float(
+            (insights.get("product") or {}).get("price_usd") or 0
+        )
+        now = datetime.now(timezone.utc)
+        comparison = []
+        for candidate in candidates:
+            code = str(candidate.get("supplier_code") or "")
+            summary = summaries.get(code, {})
+            wallet = wallets.get(code, {})
+            cost = max(0.0, float(candidate.get("base_price") or 0))
+            remote_stock = max(0, int(candidate.get("remote_stock") or 0))
+            balance = max(0.0, float(wallet.get("balance") or 0))
+            affordable = (
+                min(remote_stock, int((balance + 1e-9) // cost))
+                if cost > 0
+                else 0
+            )
+            completed = max(0, int(candidate.get("completed_orders") or 0))
+            failed = max(0, int(candidate.get("failed_orders") or 0))
+            unknown = max(0, int(candidate.get("unknown_orders") or 0))
+            reliability = (completed + 9.0) / (
+                completed + failed + unknown + 10.0
+            )
+            last_sync = candidate.get("last_synced_at") or summary.get("last_sync")
+            freshness_hours = 9999.0
+            if last_sync:
+                try:
+                    parsed = datetime.fromisoformat(
+                        str(last_sync).replace("Z", "+00:00")
+                    )
+                    if parsed.tzinfo is None:
+                        parsed = parsed.replace(tzinfo=timezone.utc)
+                    freshness_hours = max(
+                        0.0, (now - parsed.astimezone(timezone.utc)).total_seconds() / 3600
+                    )
+                except (TypeError, ValueError):
+                    pass
+            comparison.append(
+                {
+                    "supplier_product_id": int(candidate.get("id") or 0),
+                    "supplier_code": code,
+                    "supplier_name": (
+                        str(summary.get("display_name") or "").strip()
+                        or str(summary.get("detected_name") or "").strip()
+                        or registered_names.get(code, code)
+                    ),
+                    "external_product_id": str(
+                        candidate.get("external_product_id") or ""
+                    ),
+                    "name": str(
+                        candidate.get("custom_name")
+                        or candidate.get("name")
+                        or ""
+                    ),
+                    "route_kind": str(candidate.get("route_kind") or ""),
+                    "provider_enabled": bool(candidate.get("provider_enabled")),
+                    "cost": round(cost, 4),
+                    "sale_price": round(sale_price, 4),
+                    "margin": round(sale_price - cost, 4),
+                    "remote_stock": remote_stock,
+                    "affordable_stock": affordable,
+                    "wallet_balance": round(balance, 2),
+                    "warranty_days": max(
+                        0,
+                        int(
+                            candidate.get("custom_warranty_days")
+                            if candidate.get("custom_warranty_days") is not None
+                            else candidate.get("warranty_days") or 0
+                        ),
+                    ),
+                    "delivery_mode": str(
+                        candidate.get("delivery_mode") or "unknown"
+                    ),
+                    "access_mode": str(
+                        candidate.get("access_mode") or "unknown"
+                    ),
+                    "reliability": round(reliability, 4),
+                    "freshness_hours": round(freshness_hours, 1),
+                    "last_sync": last_sync or "",
+                }
+            )
+        comparison.sort(
+            key=lambda item: (
+                not item["provider_enabled"],
+                item["affordable_stock"] <= 0,
+                item["cost"] <= 0,
+                item["cost"] if item["cost"] > 0 else float("inf"),
+                -item["reliability"],
+                item["freshness_hours"],
+            )
+        )
+        recommended_index = next(
+            (
+                index
+                for index, candidate in enumerate(comparison)
+                if candidate["provider_enabled"]
+                and candidate["affordable_stock"] > 0
+                and candidate["cost"] > 0
+            ),
+            None,
+        )
+        for index, candidate in enumerate(comparison):
+            candidate["recommended"] = index == recommended_index
+
+        response = {
+            **insights,
+            "supplier_comparison": comparison,
+            "recommended_supplier": (
+                comparison[recommended_index]
+                if recommended_index is not None
+                else None
+            ),
+        }
+        _stats_cache[cache_key] = {"time": current_time, "data": response}
+        return response
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("API product insights error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Could not load product insights")
 
 
 _DYNAMIC_PRICING_FIELDS = {

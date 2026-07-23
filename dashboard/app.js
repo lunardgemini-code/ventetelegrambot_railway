@@ -775,11 +775,18 @@ const state = {
     gameProvider:null, gameCatalog:[], gameMatches:[], gameCompetitions:[], gameView:'catalog', currentGameMatch:null,
     autoscaleChart:null, autoscaleStatus:null,
     resellerSpecialPrices:[], resellerSpecialPriceUserId:null,
-    orderDetailItems:[], orderDetailTimeline:[], orderDetailId:null
+    orderDetailItems:[], orderDetailTimeline:[], orderDetailId:null,
+    dashboardOverview:null, paymentReviewSummary:{}, conversionFunnel:null
 };
 
 function $(id) { return document.getElementById(id); }
 function $$(sel) { return document.querySelectorAll(sel); }
+
+function emitDashboardData(type, payload={}) {
+    document.dispatchEvent(new CustomEvent('ventebot:data', {
+        detail:{type, payload},
+    }));
+}
 
 const DOM = {
     loginScreen:$('login-screen'), loginForm:$('login-form'), botUrlInput:$('bot-url'), apiKeyInput:$('api-key'), loginError:$('login-error'),
@@ -973,6 +980,7 @@ function setLang(lang) {
     document.querySelector('.menu-item.active[data-tab]')?.setAttribute('aria-current', 'page');
     updateCurrentTabLabels();
     rerenderAiSupplierContent();
+    emitDashboardData('language', {language:lang});
     if (!DOM.appContainer.classList.contains('hidden')) refreshData();
 }
 
@@ -2074,10 +2082,11 @@ function setActionControlBusy(control, busy) {
 }
 
 async function apiCall(endpoint, method='GET', body=null) {
+    let requestOptions = {};
     if (method && typeof method === 'object') {
-        const options = method;
-        method = options.method || 'GET';
-        body = options.body ?? null;
+        requestOptions = method;
+        method = requestOptions.method || 'GET';
+        body = requestOptions.body ?? null;
     }
     method = String(method || 'GET').toUpperCase();
     const base = resolveBotUrl(state.botUrl);
@@ -2090,7 +2099,13 @@ async function apiCall(endpoint, method='GET', body=null) {
     const headers = {};
     if (state.apiKey) headers['X-API-Key'] = state.apiKey;
     if (body) headers['Content-Type'] = 'application/json';
-    const ctrl = new AbortController(); const tid = setTimeout(() => ctrl.abort(), 60000);
+    const ctrl = new AbortController();
+    const externalSignal = requestOptions.signal;
+    if (externalSignal?.aborted) throw new Error('REQUEST_CANCELLED');
+    const forwardAbort = () => ctrl.abort();
+    externalSignal?.addEventListener('abort', forwardAbort, {once:true});
+    const timeoutMs = Math.max(1000, Number(requestOptions.timeoutMs || 60000));
+    const tid = setTimeout(() => ctrl.abort(), timeoutMs);
     const cfg = {
         method,
         headers,
@@ -2116,13 +2131,16 @@ async function apiCall(endpoint, method='GET', body=null) {
             return await res.json();
         } catch(e) {
             clearTimeout(tid);
-            if (e.name==='AbortError') throw new Error('TIMEOUT');
+            if (e.name==='AbortError') {
+                throw new Error(externalSignal?.aborted ? 'REQUEST_CANCELLED' : 'TIMEOUT');
+            }
             // Browser network/CORS failures surface as TypeError: Failed to fetch
             if (e instanceof TypeError || /failed to fetch|networkerror|load failed/i.test(e.message || '')) {
                 throw new Error('UNREACHABLE');
             }
             throw e;
         } finally {
+            externalSignal?.removeEventListener('abort', forwardAbort);
             inFlightApiRequests.delete(requestKey);
             setActionControlBusy(actionControl, false);
         }
@@ -2635,6 +2653,7 @@ async function exportPerformanceDiagnostic() {
 
 async function loadDashboardOverview() {
     const data = await apiCall('/api/dashboard/overview');
+    state.dashboardOverview = data;
     const today = data.today || {};
     const yesterday = data.yesterday || {};
     const actions = data.actions || {};
@@ -2682,6 +2701,7 @@ async function loadDashboardOverview() {
     DOM.badgeActivations.classList.toggle('hidden', Number(actions.pending_activations || 0) === 0);
     DOM.badgeTickets.textContent = Number(actions.open_tickets || 0);
     DOM.badgeTickets.classList.toggle('hidden', Number(actions.open_tickets || 0) === 0);
+    emitDashboardData('overview', data);
 }
 
 async function loadStatsBundle() {
@@ -2721,6 +2741,7 @@ async function loadStats(providedStats=null) {
             return `<div class="stock-status-item"><div class="prod-badge"><span class="prod-emoji">${escapeHtml(i.emoji || '📦')}</span><span class="prod-name-lbl">${escapeHtml(i.name)}</span></div><div style="display:flex; gap:0.45rem; align-items:center; flex-wrap:wrap; justify-content:flex-end;"><span class="status-badge neutral" title="${escapeHtml(t('stock_sales_average'))}">${escapeHtml(salesPerDay)}</span><span class="stock-count-badge ${c}">${escapeHtml(daysLeft)}</span><span class="stock-count-badge ${c}">${escapeHtml(stockLabel)}</span></div></div>`;
         }).join('');
     } else DOM.stockSummaryList.innerHTML = `<p class="empty-state">${t('no_products')}</p>`;
+    emitDashboardData('stats', s);
 }
 
 window.showRevenueDetails = function() {
@@ -3136,7 +3157,9 @@ async function loadConversionFunnel(providedData=null) {
     if (!DOM.conversionFunnelStages) return;
     try {
         const data = providedData || await apiCall(`/api/stats/conversion?days=${state.chartDays}`);
+        state.conversionFunnel = data || {};
         renderConversionFunnel(data || {});
+        emitDashboardData('conversion', data || {});
     } catch (error) {
         console.warn('Conversion funnel failed:', error);
         DOM.conversionFunnelStages.innerHTML = `<p class="empty-state">${t('conversion_unavailable')}</p>`;
@@ -3196,7 +3219,9 @@ async function loadPaymentReview() {
     const includeResolved = state.paymentReviewIncludeResolved ? 'true' : 'false';
     const data = await apiCall(`/api/payments/review?category=${category}&include_resolved=${includeResolved}&limit=150`);
     state.paymentReviewItems = data.items || [];
+    state.paymentReviewSummary = data.summary || {};
     renderPaymentReview(data);
+    emitDashboardData('payment-review', data);
 }
 
 function renderPaymentReview(data) {
@@ -3341,7 +3366,7 @@ async function loadProducts() {
             <td><strong>$${parseFloat(p.price_usd).toFixed(2)}</strong>${p.dynamic_pricing_enabled ? `<span class="dynamic-price-badge" title="${escapeHtml(p.dynamic_pricing_mode === 'suggestion' ? t('product_dynamic_suggestion') : t('product_dynamic_auto'))}"><i class="fa-solid fa-wave-square"></i> ${escapeHtml(t('product_dynamic'))}</span>` : ''}</td><td>${p.warranty_days||0} ${t('days')}</td>
             <td>${p.delivery_type === 'activation' ? `<span class="stock-count-badge ok">${escapeHtml(t('product_activation'))}</span>` : `<span class="stock-count-badge ${p.stock===0?'empty':p.stock<3?'low':'ok'}">${p.stock}${supplierProduct ? ' API' : ''}</span>`}</td>
             <td><span class="status-dot ${p.is_active?'online':''}"></span> ${p.is_active?t('active'):t('inactive')}</td>
-            <td><button class="btn-table-action" data-action="toggle-product" data-id="${Number(p.id)}" title="${escapeHtml(p.is_active ? t('product_disable') : t('product_enable'))}" style="color:${p.is_active ? '#ef4444' : '#22c55e'};"><i class="fa-solid ${p.is_active ? 'fa-xmark' : 'fa-check'}"></i></button><button class="btn-table-action" data-action="edit-product" data-id="${Number(p.id)}" title="${escapeHtml(t('product_edit'))}" style="color:#3b82f6;"><i class="fa-solid fa-pen"></i></button>${stockActions}<button class="btn-table-action" data-action="open-tiers" data-id="${Number(p.id)}" title="${escapeHtml(t('product_tiers'))}" style="color:#a78bfa;"><i class="fa-solid fa-tags"></i></button><button class="btn-table-action delete" data-action="delete-product" data-id="${Number(p.id)}" title="${escapeHtml(t('product_delete'))}"><i class="fa-solid fa-trash-can"></i></button></td>
+            <td><button class="btn-table-action ops-intelligence-action" data-ops-open="product" data-id="${Number(p.id)}" title="${escapeHtml(t('ops_view_intelligence'))}"><i class="fa-solid fa-chart-line"></i></button><button class="btn-table-action" data-action="toggle-product" data-id="${Number(p.id)}" title="${escapeHtml(p.is_active ? t('product_disable') : t('product_enable'))}" style="color:${p.is_active ? '#ef4444' : '#22c55e'};"><i class="fa-solid ${p.is_active ? 'fa-xmark' : 'fa-check'}"></i></button><button class="btn-table-action" data-action="edit-product" data-id="${Number(p.id)}" title="${escapeHtml(t('product_edit'))}" style="color:#3b82f6;"><i class="fa-solid fa-pen"></i></button>${stockActions}<button class="btn-table-action" data-action="open-tiers" data-id="${Number(p.id)}" title="${escapeHtml(t('product_tiers'))}" style="color:#a78bfa;"><i class="fa-solid fa-tags"></i></button><button class="btn-table-action delete" data-action="delete-product" data-id="${Number(p.id)}" title="${escapeHtml(t('product_delete'))}"><i class="fa-solid fa-trash-can"></i></button></td>
         </tr>`;
         }).join('');
         if (DOM.broadcastBtnProductId) {
@@ -3373,6 +3398,7 @@ async function loadProducts() {
             DOM.broadcastBtnProductId.innerHTML = `<option value="">${escapeHtml(t('product_none'))}</option>`;
         }
     }
+    emitDashboardData('products', {products:prods});
 }
 
 async function loadAllOrders() {
@@ -3456,6 +3482,7 @@ async function loadAllOrders() {
     const tp = Math.max(1, Math.ceil(r.total/20));
     DOM.ordersPageInfo.textContent = `${state.orderPage+1} / ${tp}`;
     DOM.ordersPagination.classList.toggle('hidden', tp <= 1);
+    emitDashboardData('orders', {orders:state.orders, total:state.orderTotal});
 }
 
 async function loadActivations() {
@@ -5798,6 +5825,7 @@ function switchTab(tabId) {
     state.currentTab = tabId;
     updateCurrentTabLabels();
     clearPageStatus();
+    emitDashboardData('tab', {tabId});
     requestAnimationFrame(() => window.scrollTo({top:Number(state.tabScrollPositions[tabId] || 0), behavior:'auto'}));
     if (!DOM.appContainer.classList.contains('hidden')) {
         void refreshData({tabId, useCache:true, silent:Boolean(state.tabLoadedAt[tabId])});

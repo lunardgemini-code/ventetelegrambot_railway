@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 
 DASHBOARD_DIR = Path(__file__).resolve().parents[1] / "dashboard"
@@ -46,6 +46,7 @@ MOCK_RESPONSES: dict[str, object] = {
         "today": {"revenue": 184.7, "orders": 42},
         "yesterday": {"revenue": 156.5, "orders": 38},
         "actions": {"delivery_issues": 2, "pending_activations": 7, "pending_payments": 4, "open_tickets": 3},
+        "economics": {"known_profit_30d": 418.62, "known_profit_orders_30d": 233},
         "recent_orders": [
             {"id": 4821, "product_name": "Gemini 18 months", "product_emoji": "⚡", "username": "customer", "status": "COMPLETED", "amount_usd": 0.55, "created_at": "2026-07-22 14:20:00"},
             {"id": 4820, "product_name": "ChatGPT Plus", "product_emoji": "🎒", "username": "reseller", "status": "PENDING", "amount_usd": 2.4, "created_at": "2026-07-22 14:18:00"},
@@ -152,7 +153,19 @@ MOCK_RESPONSES: dict[str, object] = {
         "history_24h": {"actions": [{"action": "products", "average_ms": 118, "count": 244}]},
         "autoscaling": {"mode": "auto", "observe_only": True, "state": "CALM", "current_workers": 8, "proposed_workers": 8, "min_workers": 6, "max_workers": 20, "next_analysis_at": 4102444800, "timeline": [], "decisions": []},
     },
-    "/api/payments/review": {"summary": {"all": 2, "underpaid": 2, "confirming": 0, "late_after_cancel": 0, "expired": 0}, "items": []},
+    "/api/payments/review": {
+        "summary": {"all": 2, "underpaid": 2, "confirming": 0, "late_after_cancel": 0, "expired": 0},
+        "items": [
+            {
+                "category": "underpaid",
+                "payment_id": "NP-8801",
+                "product_name": "ChatGPT Plus",
+                "actually_paid": 2.35,
+                "resolved": False,
+                "updated_at": "2026-07-22 14:22:00",
+            }
+        ],
+    },
     "/api/binance-accounts": [],
     "/api/orders/activations": {"total": 0, "orders": []},
     "/api/resellers": {"resellers": []},
@@ -209,6 +222,95 @@ MOCK_RESPONSES: dict[str, object] = {
     },
     "/api/finance/reconciliation": {"available": False},
 }
+
+
+def _product_insights(product_id: int) -> dict[str, object]:
+    product = next(
+        (
+            item
+            for item in MOCK_RESPONSES["/api/products"]
+            if int(item["id"]) == int(product_id)
+        ),
+        MOCK_RESPONSES["/api/products"][0],
+    )
+    days = [
+        (datetime.now(timezone.utc).date() - timedelta(days=offset)).isoformat()
+        for offset in range(29, -1, -1)
+    ]
+    quantity = [0, 1, 0, 2, 1, 3, 2, 4, 3, 5] * 3
+    revenue = [round(value * float(product["price_usd"]), 2) for value in quantity]
+    sale_price = float(product["price_usd"])
+    return {
+        "product": product,
+        "sales": {
+            "days": days,
+            "quantity_series": quantity,
+            "revenue_series": revenue,
+            "today": quantity[-1],
+            "sales_7d": sum(quantity[-7:]),
+            "revenue_7d": round(sum(revenue[-7:]), 2),
+            "sales_30d": sum(quantity),
+            "revenue_30d": round(sum(revenue), 2),
+        },
+        "conversion": {
+            "views": 820,
+            "buy_clicks": 412,
+            "payments_created": 330,
+            "payments_completed": 304,
+            "overall_rate": 0.3707,
+        },
+        "stock": {
+            "current": product.get("stock", 0),
+            "daily_velocity_7d": 3.1,
+            "days_left": 5.8,
+        },
+        "economics": {"known_profit_30d": 81.42},
+        "price_history": [
+            {"new_price": round(sale_price * 0.92, 2), "created_at": "2026-07-10 10:00:00"},
+            {"new_price": round(sale_price * 0.96, 2), "created_at": "2026-07-16 10:00:00"},
+            {"new_price": sale_price, "created_at": "2026-07-22 10:00:00"},
+        ],
+        "supplier_comparison": [
+            {
+                "supplier_code": "preview",
+                "supplier_name": "Preview Supplier",
+                "external_product_id": "PREVIEW-01",
+                "name": product["name"],
+                "provider_enabled": True,
+                "cost": round(max(0.1, sale_price - 0.18), 2),
+                "sale_price": sale_price,
+                "margin": 0.18,
+                "remote_stock": 120,
+                "affordable_stock": 45,
+                "wallet_balance": 25.0,
+                "warranty_days": 30,
+                "delivery_mode": "instant",
+                "access_mode": "private",
+                "reliability": 0.97,
+                "freshness_hours": 0.4,
+                "recommended": True,
+            },
+            {
+                "supplier_code": "backup",
+                "supplier_name": "Backup Market",
+                "external_product_id": "BACKUP-14",
+                "name": product["name"],
+                "provider_enabled": True,
+                "cost": round(max(0.1, sale_price - 0.11), 2),
+                "sale_price": sale_price,
+                "margin": 0.11,
+                "remote_stock": 80,
+                "affordable_stock": 12,
+                "wallet_balance": 8.0,
+                "warranty_days": 7,
+                "delivery_mode": "instant",
+                "access_mode": "shared",
+                "reliability": 0.91,
+                "freshness_hours": 2.2,
+                "recommended": False,
+            },
+        ],
+    }
 
 
 def _stats_bundle() -> dict[str, object]:
@@ -271,6 +373,86 @@ class PreviewHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
+        if parsed.path == "/api/dashboard/search":
+            query = parse_qs(parsed.query).get("q", [""])[0]
+            self._json(
+                {
+                    "query": query,
+                    "results": [
+                        {
+                            "entity_type": "product",
+                            "entity_id": "16",
+                            "title": "Gemini 18 months",
+                            "subtitle": "$0.55",
+                            "status": "active",
+                            "amount": 0.55,
+                            "related_id": 16,
+                        },
+                        {
+                            "entity_type": "order",
+                            "entity_id": "4821",
+                            "title": "#4821",
+                            "subtitle": "Gemini 18 months - @customer",
+                            "status": "COMPLETED",
+                            "amount": 0.55,
+                            "related_id": 16,
+                        },
+                        {
+                            "entity_type": "user",
+                            "entity_id": "100000001",
+                            "title": "@customer",
+                            "subtitle": "ID 100000001",
+                            "status": "active",
+                            "amount": 12.4,
+                            "related_id": 100000001,
+                        },
+                    ],
+                }
+            )
+            return
+        if parsed.path.startswith("/api/products/") and parsed.path.endswith("/insights"):
+            try:
+                product_id = int(parsed.path.split("/")[3])
+            except (ValueError, IndexError):
+                self._json({"detail": "Product not found"}, 404)
+                return
+            self._json(_product_insights(product_id))
+            return
+        if parsed.path.startswith("/api/orders/") and parsed.path.endswith("/items"):
+            self._json(
+                {
+                    "status": "COMPLETED",
+                    "items": [{"account_data": "preview-account@example.com | preview-password"}],
+                }
+            )
+            return
+        if parsed.path.startswith("/api/orders/") and parsed.path.endswith("/timeline"):
+            self._json(
+                {
+                    "events": [
+                        {"type": "order.created", "occurred_at": "2026-07-22 14:18:00", "details": {}},
+                        {"type": "payment.confirmed", "occurred_at": "2026-07-22 14:19:00", "details": {"status": "confirmed"}},
+                        {"type": "stock.reserved", "occurred_at": "2026-07-22 14:19:02", "details": {}},
+                    ]
+                }
+            )
+            return
+        if parsed.path.startswith("/api/users/") and parsed.path.endswith("/orders"):
+            self._json(
+                {
+                    "user": {
+                        "telegram_id": 100000001,
+                        "username": "customer",
+                        "language": "en",
+                        "wallet_balance": 12.4,
+                        "total_spent": 18.75,
+                        "total_orders": 14,
+                    },
+                    "total": 2,
+                    "orders": MOCK_RESPONSES["/api/orders/all"]["orders"][:2],
+                }
+            )
+            return
         if parsed.path == "/api/stats/daily":
             self._json(_daily_points())
             return
