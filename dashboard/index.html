@@ -10,7 +10,8 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="BatmanBot V2">
     <title>BatmanBot V2 Admin Console</title>
-    <link rel="manifest" href="manifest.webmanifest?v=20260723-pwa-v1">
+    <script src="theme-bootstrap.js?v=20260723-liquid-v1"></script>
+    <link rel="manifest" href="manifest.webmanifest?v=20260723-liquid-v1">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/ventebot-icon-192.png">
     <link rel="apple-touch-icon" sizes="180x180" href="icons/ventebot-apple-touch-180.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous">
@@ -22,6 +23,7 @@
     <link rel="stylesheet" href="style.css?v=20260720-reseller-telegram-prices">
     <link rel="stylesheet" href="revamp.css?v=20260720-reseller-prices">
     <link rel="stylesheet" href="system.css?v=20260723-pwa-v8">
+    <link rel="stylesheet" href="liquid-glass.css?v=20260723-liquid-v1">
 </head>
 <body>
     <a class="skip-link" href="#dashboard-workspace" data-i18n="skip_to_content">Aller au contenu</a>
@@ -970,6 +972,51 @@
 
             <!-- Settings Tab -->
             <section id="settings-tab" class="tab-content">
+                <div class="glass-panel max-w-xl mx-auto appearance-panel">
+                    <div class="panel-header">
+                        <div>
+                            <h2 id="appearance-mode-label"><i class="fa-solid fa-wand-magic-sparkles"></i> <span data-i18n="settings_appearance_title">Apparence</span></h2>
+                            <p data-i18n="settings_appearance_description">Choisissez le rendu du dashboard sur cet appareil.</p>
+                        </div>
+                    </div>
+                    <div class="appearance-options" role="radiogroup" aria-labelledby="appearance-mode-label">
+                        <label class="appearance-option">
+                            <input type="radio" name="appearance-mode" value="liquid">
+                            <span class="appearance-option-icon" aria-hidden="true"><i class="fa-solid fa-droplet"></i></span>
+                            <span class="appearance-option-copy">
+                                <strong data-i18n="appearance_liquid">Liquid Glass</strong>
+                                <small data-i18n="appearance_liquid_description">Surfaces translucides avec une profondeur légère.</small>
+                            </span>
+                        </label>
+                        <label class="appearance-option">
+                            <input type="radio" name="appearance-mode" value="standard">
+                            <span class="appearance-option-icon" aria-hidden="true"><i class="fa-solid fa-table-cells-large"></i></span>
+                            <span class="appearance-option-copy">
+                                <strong data-i18n="appearance_standard">Standard</strong>
+                                <small data-i18n="appearance_standard_description">Interface opaque, sobre et rapide.</small>
+                            </span>
+                        </label>
+                        <label class="appearance-option">
+                            <input type="radio" name="appearance-mode" value="auto">
+                            <span class="appearance-option-icon" aria-hidden="true"><i class="fa-solid fa-circle-half-stroke"></i></span>
+                            <span class="appearance-option-copy">
+                                <strong data-i18n="appearance_auto">Automatique</strong>
+                                <small data-i18n="appearance_auto_description">Liquid Glass suit le mode clair ou sombre du système.</small>
+                            </span>
+                        </label>
+                    </div>
+                    <div class="appearance-accessibility">
+                        <div class="appearance-accessibility-copy">
+                            <strong id="reduce-transparency-label" data-i18n="reduce_transparency">Réduire la transparence</strong>
+                            <small id="reduce-transparency-description" data-i18n="reduce_transparency_description">Utilise des surfaces opaques et désactive le flou.</small>
+                        </div>
+                        <label class="appearance-switch" for="reduce-transparency">
+                            <input id="reduce-transparency" type="checkbox" aria-labelledby="reduce-transparency-label" aria-describedby="reduce-transparency-description">
+                            <span class="appearance-switch-track" aria-hidden="true"></span>
+                        </label>
+                    </div>
+                </div>
+
                 <div class="glass-panel max-w-xl mx-auto" style="padding: 2rem;">
                     <div class="panel-header mb-4">
                         <h2><i class="fa-solid fa-link"></i> <span data-i18n="settings_title">Configuration de l'API</span></h2>
@@ -1645,7 +1692,7 @@
 </div>
 
 
-    <script defer src="app.js?v=20260723-pwa-v8"></script>
+    <script defer src="app.js?v=20260723-liquid-v1"></script>
     <!-- Mass Translation Progress Overlay -->
     <div id="mass-translate-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; flex-direction:column; justify-content:center; align-items:center; color:white;">
         <h2 style="margin-bottom:20px;"><i class="fa-solid fa-language"></i> Traduction de masse en cours...</h2>

@@ -425,6 +425,51 @@ ru: {
 }
 };
 Object.entries(SHELL_TRANSLATIONS).forEach(([language, strings]) => Object.assign(LANG[language], strings));
+const APPEARANCE_TRANSLATIONS = {
+fr: {
+    settings_appearance_title:"Apparence", settings_appearance_description:"Choisissez le rendu du dashboard sur cet appareil.",
+    appearance_liquid:"Liquid Glass", appearance_liquid_description:"Surfaces translucides avec une profondeur légère.",
+    appearance_standard:"Standard", appearance_standard_description:"Interface opaque, sobre et rapide.",
+    appearance_auto:"Automatique", appearance_auto_description:"Liquid Glass suit le mode clair ou sombre du système.",
+    reduce_transparency:"Réduire la transparence", reduce_transparency_description:"Utilise des surfaces opaques et désactive le flou."
+},
+en: {
+    settings_appearance_title:"Appearance", settings_appearance_description:"Choose how the dashboard looks on this device.",
+    appearance_liquid:"Liquid Glass", appearance_liquid_description:"Translucent surfaces with subtle depth.",
+    appearance_standard:"Standard", appearance_standard_description:"A clean, fast, opaque interface.",
+    appearance_auto:"Automatic", appearance_auto_description:"Liquid Glass follows the system light or dark mode.",
+    reduce_transparency:"Reduce transparency", reduce_transparency_description:"Uses opaque surfaces and disables blur."
+},
+ar: {
+    settings_appearance_title:"المظهر", settings_appearance_description:"اختر شكل لوحة التحكم على هذا الجهاز.",
+    appearance_liquid:"الزجاج السائل", appearance_liquid_description:"أسطح شفافة بعمق بصري خفيف.",
+    appearance_standard:"قياسي", appearance_standard_description:"واجهة معتمة وبسيطة وسريعة.",
+    appearance_auto:"تلقائي", appearance_auto_description:"يتبع الزجاج السائل الوضع الفاتح أو الداكن للنظام.",
+    reduce_transparency:"تقليل الشفافية", reduce_transparency_description:"يستخدم أسطحًا معتمة ويعطّل التمويه."
+},
+zh: {
+    settings_appearance_title:"外观", settings_appearance_description:"选择此设备上的仪表板外观。",
+    appearance_liquid:"液态玻璃", appearance_liquid_description:"使用半透明表面和轻微的层次感。",
+    appearance_standard:"标准", appearance_standard_description:"简洁、快速的不透明界面。",
+    appearance_auto:"自动", appearance_auto_description:"液态玻璃跟随系统的浅色或深色模式。",
+    reduce_transparency:"减少透明效果", reduce_transparency_description:"使用不透明表面并关闭模糊效果。"
+},
+vi: {
+    settings_appearance_title:"Giao diện", settings_appearance_description:"Chọn cách hiển thị dashboard trên thiết bị này.",
+    appearance_liquid:"Kính lỏng", appearance_liquid_description:"Bề mặt trong mờ với chiều sâu nhẹ.",
+    appearance_standard:"Tiêu chuẩn", appearance_standard_description:"Giao diện đục, gọn gàng và nhanh.",
+    appearance_auto:"Tự động", appearance_auto_description:"Kính lỏng theo chế độ sáng hoặc tối của hệ thống.",
+    reduce_transparency:"Giảm độ trong suốt", reduce_transparency_description:"Dùng bề mặt đục và tắt hiệu ứng làm mờ."
+},
+ru: {
+    settings_appearance_title:"Оформление", settings_appearance_description:"Выберите вид панели на этом устройстве.",
+    appearance_liquid:"Жидкое стекло", appearance_liquid_description:"Полупрозрачные поверхности с лёгкой глубиной.",
+    appearance_standard:"Стандартный", appearance_standard_description:"Строгий, быстрый и непрозрачный интерфейс.",
+    appearance_auto:"Автоматически", appearance_auto_description:"Жидкое стекло следует светлой или тёмной теме системы.",
+    reduce_transparency:"Уменьшить прозрачность", reduce_transparency_description:"Использует непрозрачные поверхности и отключает размытие."
+}
+};
+Object.entries(APPEARANCE_TRANSLATIONS).forEach(([language, strings]) => Object.assign(LANG[language], strings));
 const DASHBOARD_DETAIL_TRANSLATIONS = {
 fr: {revenue_details:"Détails des revenus (30J)", revenue_store:"Ventes (boutique)", revenue_topups:"Recharges (wallet)", revenue_deductions:"Déductions (remboursements)", revenue_net:"Total net", worker_manual_controls:"Réglage manuel des workers", worker_remove:"Retirer un worker inactif", worker_add:"Ajouter un worker"},
 en: {revenue_details:"Revenue details (30D)", revenue_store:"Store sales", revenue_topups:"Wallet top-ups", revenue_deductions:"Deductions (refunds)", revenue_net:"Net total", worker_manual_controls:"Manual worker controls", worker_remove:"Remove an idle worker", worker_add:"Add a worker"},
@@ -828,6 +873,7 @@ const DOM = {
     broadcastBtnText:$('broadcast-btn-text'), broadcastBtnUrl:$('broadcast-btn-url'),
     stockBroadcastCheckbox:$('stock-broadcast-checkbox'),
     settingsForm:$('settings-form'), settingsBotUrl:$('settings-bot-url'), settingsApiKey:$('settings-api-key'),
+    reduceTransparency:$('reduce-transparency'),
     cryptoSettingsForm:$('crypto-settings-form'), settingsBep20Address:$('settings-bep20-address'), settingsTrc20Address:$('settings-trc20-address'),
     prodModal:$('prod-modal'), stockModal:$('stock-modal'), promoModal:$('promo-modal'), tiersModal:$('tiers-modal'),
     orderDetailModal:$('order-detail-modal'), viewStockModal:$('view-stock-modal'), editProdModal:$('edit-prod-modal'),
@@ -1046,13 +1092,81 @@ window.addEventListener('appinstalled', () => {
     showToast(t('pwa_install_success'), 'success');
 });
 
+const APPEARANCE_STORAGE_KEY = 'ventebot_appearance';
+const REDUCE_TRANSPARENCY_STORAGE_KEY = 'ventebot_reduce_transparency';
+const VALID_APPEARANCES = new Set(['liquid', 'standard', 'auto']);
+const systemColorScheme = window.matchMedia('(prefers-color-scheme: light)');
+
+function getAppearancePreference() {
+    const stored = localStorage.getItem(APPEARANCE_STORAGE_KEY);
+    if (VALID_APPEARANCES.has(stored)) return stored;
+    const bootstrapped = document.documentElement.dataset.appearance;
+    return VALID_APPEARANCES.has(bootstrapped) ? bootstrapped : 'liquid';
+}
+
+function getExplicitThemePreference() {
+    const stored = localStorage.getItem('vb_theme');
+    return stored === 'light' || stored === 'dark' ? stored : 'dark';
+}
+
+function updateThemeControls(appearance, theme) {
+    $$('input[name="appearance-mode"]').forEach(input => {
+        input.checked = input.value === appearance;
+    });
+    if (DOM.reduceTransparency) {
+        DOM.reduceTransparency.checked = document.documentElement.dataset.reduceTransparency === 'true';
+    }
+    if (!DOM.btnTheme) return;
+    DOM.btnTheme.innerHTML = appearance === 'auto'
+        ? '<i class="fa-solid fa-circle-half-stroke"></i>'
+        : (theme === 'dark' ? '<i class="fa-solid fa-moon"></i>' : '<i class="fa-solid fa-sun"></i>');
+}
+
+function applyAppearance(appearance, {persist=false}={}) {
+    const selected = VALID_APPEARANCES.has(appearance) ? appearance : 'liquid';
+    if (persist) localStorage.setItem(APPEARANCE_STORAGE_KEY, selected);
+    const theme = selected === 'auto'
+        ? (systemColorScheme.matches ? 'light' : 'dark')
+        : getExplicitThemePreference();
+    const html = document.documentElement;
+    html.dataset.appearance = selected;
+    html.dataset.theme = theme;
+    html.style.colorScheme = theme;
+    updateThemeControls(selected, theme);
+}
+
+function setReducedTransparency(enabled, {persist=true}={}) {
+    const reduced = Boolean(enabled);
+    document.documentElement.dataset.reduceTransparency = reduced ? 'true' : 'false';
+    if (persist) localStorage.setItem(REDUCE_TRANSPARENCY_STORAGE_KEY, reduced ? 'true' : 'false');
+    if (DOM.reduceTransparency) DOM.reduceTransparency.checked = reduced;
+}
+
+function initializeAppearance() {
+    setReducedTransparency(
+        localStorage.getItem(REDUCE_TRANSPARENCY_STORAGE_KEY) === 'true',
+        {persist:false},
+    );
+    applyAppearance(getAppearancePreference());
+    const handleSystemThemeChange = () => {
+        if (getAppearancePreference() === 'auto') applyAppearance('auto');
+    };
+    if (typeof systemColorScheme.addEventListener === 'function') {
+        systemColorScheme.addEventListener('change', handleSystemThemeChange);
+    } else if (typeof systemColorScheme.addListener === 'function') {
+        systemColorScheme.addListener(handleSystemThemeChange);
+    }
+}
+
 function toggleTheme() {
     const html = document.documentElement;
-    const current = html.getAttribute('data-theme');
+    const current = html.dataset.theme === 'light' ? 'light' : 'dark';
     const next = current === 'dark' ? 'light' : 'dark';
-    html.setAttribute('data-theme', next);
+    if (getAppearancePreference() === 'auto') {
+        localStorage.setItem(APPEARANCE_STORAGE_KEY, 'liquid');
+    }
     localStorage.setItem('vb_theme', next);
-    DOM.btnTheme.innerHTML = next === 'dark' ? '<i class="fa-solid fa-moon"></i>' : '<i class="fa-solid fa-sun"></i>';
+    applyAppearance(getAppearancePreference());
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -1081,9 +1195,7 @@ function stopAutoRefresh() {
 // ═════════════════════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
     state.currentLang = localStorage.getItem('vb_lang') || 'fr';
-    const theme = localStorage.getItem('vb_theme') || 'dark';
-    document.documentElement.setAttribute('data-theme', theme);
-    DOM.btnTheme.innerHTML = theme === 'dark' ? '<i class="fa-solid fa-moon"></i>' : '<i class="fa-solid fa-sun"></i>';
+    initializeAppearance();
     applyTranslations();
     setupPwa();
 
@@ -1324,6 +1436,16 @@ function setupEvents() {
     DOM.btnLogout.addEventListener('click', logout);
     DOM.btnRefresh.addEventListener('click', () => refreshData({force:true}));
     DOM.btnTheme.addEventListener('click', toggleTheme);
+    $$('input[name="appearance-mode"]').forEach(input => {
+        input.addEventListener('change', () => {
+            if (input.checked) applyAppearance(input.value, {persist:true});
+        });
+    });
+    if (DOM.reduceTransparency) {
+        DOM.reduceTransparency.addEventListener('change', () => {
+            setReducedTransparency(DOM.reduceTransparency.checked);
+        });
+    }
     DOM.btnAutoRefresh.addEventListener('click', toggleAutoRefresh);
     $('btn-export').addEventListener('click', () => showModal($('exportModal')));
     if (DOM.btnExportPerformance) DOM.btnExportPerformance.addEventListener('click', exportPerformanceDiagnostic);

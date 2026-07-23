@@ -63,6 +63,12 @@ class DashboardPwaTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("pwa_update_ready", self.app)
         self.assertNotIn("window.location.reload()", self.app)
 
+    def test_liquid_theme_assets_are_part_of_the_versioned_app_shell(self):
+        self.assertIn("liquid-glass.css?v=20260723-liquid-v1", self.worker)
+        self.assertIn("theme-bootstrap.js?v=20260723-liquid-v1", self.worker)
+        self.assertIn("app.js?v=20260723-liquid-v1", self.worker)
+        self.assertIn("ventebot-dashboard-shell-20260723-liquid-v1", self.worker)
+
     def test_pwa_strings_are_available_in_all_dashboard_languages(self):
         shell = self.app.split("const SHELL_TRANSLATIONS = {", 1)[1].split(
             "Object.entries(SHELL_TRANSLATIONS)", 1

@@ -1,11 +1,13 @@
-const CACHE_NAME = 'ventebot-dashboard-shell-20260723-v2';
+const CACHE_NAME = 'ventebot-dashboard-shell-20260723-liquid-v1';
 const APP_SHELL = [
     './',
     './index.html',
     './style.css?v=20260720-reseller-telegram-prices',
     './revamp.css?v=20260720-reseller-prices',
     './system.css?v=20260723-pwa-v8',
-    './app.js?v=20260723-pwa-v8',
+    './liquid-glass.css?v=20260723-liquid-v1',
+    './theme-bootstrap.js?v=20260723-liquid-v1',
+    './app.js?v=20260723-liquid-v1',
     './manifest.webmanifest',
     './icons/ventebot-icon-192.png',
     './icons/ventebot-icon-512.png',
