@@ -11,7 +11,7 @@ function toggleActivationFields(type) {
     }
 }
 
-// dashboard/app.js — VenteBot Admin Dashboard with all features
+// dashboard/app.js — BatmanBot V2 Admin Dashboard with all features
 
 // —————————————————————————————————————————————————————
 //  i18n TRANSLATIONS
@@ -358,7 +358,7 @@ Object.entries(OPERATIONS_TRANSLATIONS).forEach(([language, strings]) => Object.
 
 const SHELL_TRANSLATIONS = {
 fr: {
-    install_app:"Installer l'application", app_installed:"Application installée", pwa_install_success:"VenteBot a été installé sur cet appareil.", pwa_install_unavailable:"Utilisez le menu du navigateur puis Ajouter à l'écran d'accueil.", pwa_ios_instructions:"Sur iPhone, ouvrez ce dashboard dans Safari puis choisissez Partager → Sur l'écran d'accueil.", pwa_update_ready:"Une nouvelle version est prête. Elle sera appliquée au prochain lancement.",
+    install_app:"Installer l'application", app_installed:"Application installée", pwa_install_success:"BatmanBot V2 a été installé sur cet appareil.", pwa_install_unavailable:"Utilisez le menu du navigateur puis Ajouter à l'écran d'accueil.", pwa_ios_instructions:"Sur iPhone, ouvrez ce dashboard dans Safari puis choisissez Partager → Sur l'écran d'accueil.", pwa_update_ready:"Une nouvelle version est prête. Elle sera appliquée au prochain lancement.",
     skip_to_content:"Aller au contenu", primary_navigation:"Navigation principale", sidebar_operations:"Opérations", mobile_menu:"Menu", language_label:"Langue",
     nav_group_overview:"Vue générale", nav_group_sales:"Ventes et paiements", nav_group_catalog:"Catalogue et stock", nav_group_clients:"Clients et support", nav_group_resellers:"Revendeurs et fournisseurs API", nav_group_analytics:"Analyses", nav_group_tools:"Outils et configuration",
     context_dashboard:"Vue opérationnelle", context_stats:"Tendances de ventes et produits", context_inventory:"Produits, prix et disponibilité", context_orders:"Paiements et livraisons", context_payment_review:"Anomalies de paiement et actions manuelles", context_activations:"Demandes manuelles à traiter", context_finance:"Revenus et ajustements", context_wallet:"Mouvements des soldes clients", context_users:"Clients, wallets et parrainages", context_tickets:"Demandes de support ouvertes", context_resellers:"Accès et activité API", context_suppliers:"Catalogues distants, marges et produits affichés", context_ai:"Recherche parmi tous les catalogues fournisseurs", context_game:"Matchs publiés et règlements", context_binance:"Comptes de réception", context_broadcast:"Communication aux clients", context_settings:"Connexion et paiements",
@@ -369,7 +369,7 @@ fr: {
     recent_orders_empty:"Aucune commande récente.", generic_customer:"Client", generic_order:"Commande #{id}", stock_activation:"Activation", stock_out_unknown:"Rupture : -", stock_out_days:"Rupture : ~{days} j", stock_manual:"Manuel", stock_sales_average:"Ventes moyennes sur 7 jours", sales_per_day:"{value}/j"
 },
 en: {
-    install_app:"Install app", app_installed:"App installed", pwa_install_success:"VenteBot was installed on this device.", pwa_install_unavailable:"Use your browser menu and choose Add to Home screen.", pwa_ios_instructions:"On iPhone, open this dashboard in Safari, then choose Share → Add to Home Screen.", pwa_update_ready:"A new version is ready. It will be applied the next time the app starts.",
+    install_app:"Install app", app_installed:"App installed", pwa_install_success:"BatmanBot V2 was installed on this device.", pwa_install_unavailable:"Use your browser menu and choose Add to Home screen.", pwa_ios_instructions:"On iPhone, open this dashboard in Safari, then choose Share → Add to Home Screen.", pwa_update_ready:"A new version is ready. It will be applied the next time the app starts.",
     skip_to_content:"Skip to content", primary_navigation:"Primary navigation", sidebar_operations:"Operations", mobile_menu:"Menu", language_label:"Language",
     nav_group_overview:"Overview", nav_group_sales:"Sales and payments", nav_group_catalog:"Catalog and stock", nav_group_clients:"Customers and support", nav_group_resellers:"Resellers and API suppliers", nav_group_analytics:"Analytics", nav_group_tools:"Tools and configuration",
     context_dashboard:"Operational overview", context_stats:"Sales and product trends", context_inventory:"Products, pricing and availability", context_orders:"Payments and fulfillment", context_payment_review:"Payment anomalies and manual actions", context_activations:"Manual requests to process", context_finance:"Revenue and adjustments", context_wallet:"Customer balance movements", context_users:"Customers, wallets and referrals", context_tickets:"Open support requests", context_resellers:"API access and activity", context_suppliers:"Remote catalogs, margins and displayed products", context_ai:"Search across all supplier catalogs", context_game:"Published matches and settlements", context_binance:"Receiving accounts", context_broadcast:"Customer communications", context_settings:"Connection and payments",
@@ -380,7 +380,7 @@ en: {
     recent_orders_empty:"No recent orders.", generic_customer:"Customer", generic_order:"Order #{id}", stock_activation:"Activation", stock_out_unknown:"Out of stock: -", stock_out_days:"Out of stock in ~{days}d", stock_manual:"Manual", stock_sales_average:"Average sales over 7 days", sales_per_day:"{value}/day"
 },
 ar: {
-    install_app:"تثبيت التطبيق", app_installed:"التطبيق مثبت", pwa_install_success:"تم تثبيت VenteBot على هذا الجهاز.", pwa_install_unavailable:"استخدم قائمة المتصفح ثم اختر إضافة إلى الشاشة الرئيسية.", pwa_ios_instructions:"على iPhone، افتح لوحة التحكم في Safari ثم اختر مشاركة ← إضافة إلى الشاشة الرئيسية.", pwa_update_ready:"إصدار جديد جاهز وسيتم تطبيقه عند تشغيل التطبيق في المرة القادمة.",
+    install_app:"تثبيت التطبيق", app_installed:"التطبيق مثبت", pwa_install_success:"تم تثبيت BatmanBot V2 على هذا الجهاز.", pwa_install_unavailable:"استخدم قائمة المتصفح ثم اختر إضافة إلى الشاشة الرئيسية.", pwa_ios_instructions:"على iPhone، افتح لوحة التحكم في Safari ثم اختر مشاركة ← إضافة إلى الشاشة الرئيسية.", pwa_update_ready:"إصدار جديد جاهز وسيتم تطبيقه عند تشغيل التطبيق في المرة القادمة.",
     skip_to_content:"الانتقال إلى المحتوى", primary_navigation:"التنقل الرئيسي", sidebar_operations:"العمليات", mobile_menu:"القائمة", language_label:"اللغة",
     nav_group_overview:"نظرة عامة", nav_group_sales:"المبيعات والمدفوعات", nav_group_catalog:"الكتالوج والمخزون", nav_group_clients:"العملاء والدعم", nav_group_resellers:"الموزعون وموردو API", nav_group_analytics:"التحليلات", nav_group_tools:"الأدوات والإعدادات",
     context_dashboard:"نظرة تشغيلية", context_stats:"اتجاهات المبيعات والمنتجات", context_inventory:"المنتجات والأسعار والتوفر", context_orders:"المدفوعات والتسليم", context_payment_review:"مشكلات الدفع والإجراءات اليدوية", context_activations:"طلبات يدوية للمعالجة", context_finance:"الإيرادات والتعديلات", context_wallet:"حركات أرصدة العملاء", context_users:"العملاء والمحافظ والإحالات", context_tickets:"طلبات الدعم المفتوحة", context_resellers:"الوصول إلى API والنشاط", context_suppliers:"الكتالوجات الخارجية والهوامش والمنتجات المعروضة", context_ai:"البحث في جميع كتالوجات الموردين", context_game:"المباريات المنشورة والتسويات", context_binance:"حسابات الاستلام", context_broadcast:"التواصل مع العملاء", context_settings:"الاتصال والمدفوعات",
@@ -391,7 +391,7 @@ ar: {
     recent_orders_empty:"لا توجد طلبات حديثة.", generic_customer:"العميل", generic_order:"الطلب رقم {id}", stock_activation:"تفعيل", stock_out_unknown:"نفاد المخزون: -", stock_out_days:"ينفد المخزون خلال ~{days} يوم", stock_manual:"يدوي", stock_sales_average:"متوسط المبيعات خلال 7 أيام", sales_per_day:"{value}/يوم"
 },
 zh: {
-    install_app:"安装应用", app_installed:"应用已安装", pwa_install_success:"VenteBot 已安装到此设备。", pwa_install_unavailable:"打开浏览器菜单，然后选择添加到主屏幕。", pwa_ios_instructions:"在 iPhone 上，请用 Safari 打开此控制台，然后选择分享 → 添加到主屏幕。", pwa_update_ready:"新版本已准备好，将在下次启动应用时生效。",
+    install_app:"安装应用", app_installed:"应用已安装", pwa_install_success:"BatmanBot V2 已安装到此设备。", pwa_install_unavailable:"打开浏览器菜单，然后选择添加到主屏幕。", pwa_ios_instructions:"在 iPhone 上，请用 Safari 打开此控制台，然后选择分享 → 添加到主屏幕。", pwa_update_ready:"新版本已准备好，将在下次启动应用时生效。",
     skip_to_content:"跳到内容", primary_navigation:"主导航", sidebar_operations:"运营", mobile_menu:"菜单", language_label:"语言",
     nav_group_overview:"概览", nav_group_sales:"销售与支付", nav_group_catalog:"目录与库存", nav_group_clients:"客户与支持", nav_group_resellers:"经销商与 API 供应商", nav_group_analytics:"分析", nav_group_tools:"工具与配置",
     context_dashboard:"运营概览", context_stats:"销售和产品趋势", context_inventory:"产品、价格和库存", context_orders:"支付和交付", context_payment_review:"支付异常和手动操作", context_activations:"待处理的手动请求", context_finance:"收入和调整", context_wallet:"客户余额变动", context_users:"客户、钱包和推荐", context_tickets:"未处理的支持请求", context_resellers:"API 访问和活动", context_suppliers:"远程目录、利润和展示产品", context_ai:"搜索所有供应商目录", context_game:"已发布比赛和结算", context_binance:"收款账户", context_broadcast:"客户沟通", context_settings:"连接和支付",
@@ -402,7 +402,7 @@ zh: {
     recent_orders_empty:"暂无最近订单。", generic_customer:"客户", generic_order:"订单 #{id}", stock_activation:"激活", stock_out_unknown:"预计售罄：-", stock_out_days:"预计约 {days} 天售罄", stock_manual:"手动", stock_sales_average:"过去 7 天平均销量", sales_per_day:"{value}/天"
 },
 vi: {
-    install_app:"Cài đặt ứng dụng", app_installed:"Ứng dụng đã cài", pwa_install_success:"VenteBot đã được cài đặt trên thiết bị này.", pwa_install_unavailable:"Mở menu trình duyệt rồi chọn Thêm vào màn hình chính.", pwa_ios_instructions:"Trên iPhone, hãy mở dashboard này bằng Safari rồi chọn Chia sẻ → Thêm vào Màn hình chính.", pwa_update_ready:"Phiên bản mới đã sẵn sàng và sẽ được áp dụng vào lần mở ứng dụng tiếp theo.",
+    install_app:"Cài đặt ứng dụng", app_installed:"Ứng dụng đã cài", pwa_install_success:"BatmanBot V2 đã được cài đặt trên thiết bị này.", pwa_install_unavailable:"Mở menu trình duyệt rồi chọn Thêm vào màn hình chính.", pwa_ios_instructions:"Trên iPhone, hãy mở dashboard này bằng Safari rồi chọn Chia sẻ → Thêm vào Màn hình chính.", pwa_update_ready:"Phiên bản mới đã sẵn sàng và sẽ được áp dụng vào lần mở ứng dụng tiếp theo.",
     skip_to_content:"Chuyển đến nội dung", primary_navigation:"Điều hướng chính", sidebar_operations:"Vận hành", mobile_menu:"Menu", language_label:"Ngôn ngữ",
     nav_group_overview:"Tổng quan", nav_group_sales:"Bán hàng và thanh toán", nav_group_catalog:"Danh mục và tồn kho", nav_group_clients:"Khách hàng và hỗ trợ", nav_group_resellers:"Đại lý và nhà cung cấp API", nav_group_analytics:"Phân tích", nav_group_tools:"Công cụ và cấu hình",
     context_dashboard:"Tổng quan vận hành", context_stats:"Xu hướng bán hàng và sản phẩm", context_inventory:"Sản phẩm, giá và tình trạng", context_orders:"Thanh toán và giao hàng", context_payment_review:"Bất thường thanh toán và thao tác thủ công", context_activations:"Yêu cầu thủ công cần xử lý", context_finance:"Doanh thu và điều chỉnh", context_wallet:"Biến động số dư khách hàng", context_users:"Khách hàng, ví và giới thiệu", context_tickets:"Yêu cầu hỗ trợ đang mở", context_resellers:"Quyền truy cập và hoạt động API", context_suppliers:"Danh mục từ xa, biên lợi nhuận và sản phẩm hiển thị", context_ai:"Tìm kiếm trong mọi danh mục nhà cung cấp", context_game:"Trận đấu đã đăng và quyết toán", context_binance:"Tài khoản nhận tiền", context_broadcast:"Truyền thông khách hàng", context_settings:"Kết nối và thanh toán",
@@ -413,7 +413,7 @@ vi: {
     recent_orders_empty:"Không có đơn hàng gần đây.", generic_customer:"Khách hàng", generic_order:"Đơn hàng #{id}", stock_activation:"Kích hoạt", stock_out_unknown:"Hết hàng: -", stock_out_days:"Dự kiến hết hàng sau ~{days} ngày", stock_manual:"Thủ công", stock_sales_average:"Doanh số trung bình trong 7 ngày", sales_per_day:"{value}/ngày"
 },
 ru: {
-    install_app:"Установить приложение", app_installed:"Приложение установлено", pwa_install_success:"VenteBot установлен на этом устройстве.", pwa_install_unavailable:"Откройте меню браузера и выберите Добавить на главный экран.", pwa_ios_instructions:"На iPhone откройте панель в Safari и выберите Поделиться → На экран «Домой».", pwa_update_ready:"Новая версия готова и будет применена при следующем запуске приложения.",
+    install_app:"Установить приложение", app_installed:"Приложение установлено", pwa_install_success:"BatmanBot V2 установлен на этом устройстве.", pwa_install_unavailable:"Откройте меню браузера и выберите Добавить на главный экран.", pwa_ios_instructions:"На iPhone откройте панель в Safari и выберите Поделиться → На экран «Домой».", pwa_update_ready:"Новая версия готова и будет применена при следующем запуске приложения.",
     skip_to_content:"Перейти к содержимому", primary_navigation:"Основная навигация", sidebar_operations:"Операции", mobile_menu:"Меню", language_label:"Язык",
     nav_group_overview:"Обзор", nav_group_sales:"Продажи и платежи", nav_group_catalog:"Каталог и склад", nav_group_clients:"Клиенты и поддержка", nav_group_resellers:"Реселлеры и API-поставщики", nav_group_analytics:"Аналитика", nav_group_tools:"Инструменты и настройки",
     context_dashboard:"Оперативный обзор", context_stats:"Тенденции продаж и товаров", context_inventory:"Товары, цены и наличие", context_orders:"Платежи и доставка", context_payment_review:"Проблемы платежей и ручные действия", context_activations:"Ручные запросы в обработке", context_finance:"Доходы и корректировки", context_wallet:"Движения балансов клиентов", context_users:"Клиенты, кошельки и рефералы", context_tickets:"Открытые запросы поддержки", context_resellers:"Доступ и активность API", context_suppliers:"Внешние каталоги, наценки и опубликованные товары", context_ai:"Поиск по всем каталогам поставщиков", context_game:"Опубликованные матчи и расчёты", context_binance:"Счета получения", context_broadcast:"Связь с клиентами", context_settings:"Подключение и платежи",
@@ -2489,7 +2489,7 @@ async function exportPerformanceDiagnostic() {
         const diagnostic = {
             export_version: 1,
             exported_at: exportedAt.toISOString(),
-            source: 'VenteBot dashboard',
+            source: 'BatmanBot V2 dashboard',
             metrics
         };
         const blob = new Blob([JSON.stringify(diagnostic, null, 2)], {type:'application/json'});

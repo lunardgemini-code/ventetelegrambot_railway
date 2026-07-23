@@ -1,8 +1,8 @@
 {
   "id": "./",
-  "name": "VenteBot Admin Console",
-  "short_name": "VenteBot",
-  "description": "Operational administration dashboard for VenteBot.",
+  "name": "BatmanBot V2 Admin Console",
+  "short_name": "BatmanBot V2",
+  "description": "Operational administration dashboard for BatmanBot V2.",
   "lang": "en",
   "dir": "auto",
   "start_url": "./",

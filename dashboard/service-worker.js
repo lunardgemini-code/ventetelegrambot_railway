@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ventebot-dashboard-shell-20260723-v1';
+const CACHE_NAME = 'ventebot-dashboard-shell-20260723-v2';
 const APP_SHELL = [
     './',
     './index.html',
