@@ -2,6 +2,7 @@ import os
 import re
 import tempfile
 import unittest
+from unittest.mock import AsyncMock, patch
 
 import httpx
 
@@ -112,7 +113,7 @@ class DashboardCockpitDataTests(unittest.IsolatedAsyncioTestCase):
         db_module.TURSO_URL = ""
         db_module._sqlite_wal_configured = False
         models.clear_products_cache()
-        models._GET_STATS_CACHE.clear()
+        models.invalidate_stats_cache()
         bot._stats_cache.clear()
         await init_db()
 
@@ -172,7 +173,7 @@ class DashboardCockpitDataTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         models.clear_products_cache()
-        models._GET_STATS_CACHE.clear()
+        models.invalidate_stats_cache()
         bot._stats_cache.clear()
         db_module.TURSO_URL = self.previous_turso_url
         if self.previous_db_path is None:
@@ -220,6 +221,83 @@ class DashboardCockpitDataTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(overview["economics"]["known_profit_orders_30d"], 1)
         self.assertEqual(overview["economics"]["known_profit_30d"], 0.75)
         self.assertEqual(overview["today"]["orders"], 1)
+
+    async def test_overview_cache_is_reused_and_invalidated(self):
+        models.invalidate_stats_cache()
+        payload = {"marker": "cached"}
+        loader = AsyncMock(return_value=payload)
+        with patch.object(models, "_get_dashboard_overview_uncached", loader):
+            first = await models.get_dashboard_overview()
+            second = await models.get_dashboard_overview()
+            self.assertIs(first, payload)
+            self.assertIs(second, payload)
+            self.assertEqual(loader.await_count, 1)
+
+            models.invalidate_stats_cache()
+            third = await models.get_dashboard_overview()
+            self.assertIs(third, payload)
+            self.assertEqual(loader.await_count, 2)
+
+    async def test_recent_order_queries_use_ordered_indexes(self):
+        db = await db_module.get_db()
+        try:
+            cursor = await db.execute(
+                """EXPLAIN QUERY PLAN
+                   SELECT o.id
+                   FROM orders o
+                   ORDER BY o.created_at DESC, o.id DESC
+                   LIMIT 8"""
+            )
+            overview_plan = " ".join(
+                str(row["detail"]) for row in await cursor.fetchall()
+            )
+            cursor = await db.execute(
+                """EXPLAIN QUERY PLAN
+                   SELECT o.id
+                   FROM orders o
+                   WHERE o.status NOT IN
+                         ('AWAITING_ACTIVATION_INFO', 'AWAITING_ACTIVATION')
+                   ORDER BY o.created_at DESC, o.id DESC
+                   LIMIT 50 OFFSET 0"""
+            )
+            orders_plan = " ".join(
+                str(row["detail"]) for row in await cursor.fetchall()
+            )
+        finally:
+            await db.close()
+
+        self.assertIn("idx_orders_created_id", overview_plan)
+        self.assertIn("idx_orders_non_activation_created_id", orders_plan)
+        self.assertNotIn("USE TEMP B-TREE FOR ORDER BY", overview_plan)
+        self.assertNotIn("USE TEMP B-TREE FOR ORDER BY", orders_plan)
+
+    async def test_order_total_cache_refreshes_after_invalidation(self):
+        _, initial_total = await models.get_all_orders_filtered(
+            exclude_activation=True,
+        )
+        db = await db_module.get_db()
+        try:
+            await db.execute(
+                """INSERT INTO orders
+                   (user_telegram_id, product_id, amount_usd,
+                    merchant_trade_no, status)
+                   VALUES (?, ?, 1.0, 'CACHE-COUNT-TEST', 'PENDING')""",
+                (91001, self.product_id),
+            )
+            await db.commit()
+        finally:
+            await db.close()
+
+        _, cached_total = await models.get_all_orders_filtered(
+            exclude_activation=True,
+        )
+        self.assertEqual(cached_total, initial_total)
+
+        models.invalidate_stats_cache()
+        _, refreshed_total = await models.get_all_orders_filtered(
+            exclude_activation=True,
+        )
+        self.assertEqual(refreshed_total, initial_total + 1)
 
     async def test_authenticated_endpoints_return_bounded_contracts(self):
         transport = httpx.ASGITransport(app=bot.api)

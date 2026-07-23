@@ -99,6 +99,15 @@ _TELEGRAM_SPECIAL_PRICE_USERS_CACHE_LOCK = None
 _TELEGRAM_SPECIAL_PRICE_USERS_CACHE_LOCK_LOOP = None
 _GET_STATS_CACHE = {}
 _GET_STATS_CACHE_TTL = 30
+_DASHBOARD_OVERVIEW_CACHE: tuple[float, int, dict] | None = None
+_DASHBOARD_OVERVIEW_CACHE_TTL = max(
+    5.0,
+    float(os.environ.get("DASHBOARD_OVERVIEW_CACHE_SECONDS", "15")),
+)
+_DASHBOARD_OVERVIEW_CACHE_GENERATION = 0
+_DASHBOARD_OVERVIEW_SINGLEFLIGHT: AsyncSingleFlight[int, dict] = AsyncSingleFlight()
+_ORDER_LIST_COUNT_CACHE: dict[tuple[str, bool], tuple[float, int, int]] = {}
+_ORDER_LIST_COUNT_CACHE_TTL = 15.0
 _CATALOG_CACHE_GENERATION = 0
 _PRODUCT_READ_SINGLEFLIGHT: AsyncSingleFlight[tuple, object] = AsyncSingleFlight()
 RESELLER_TEST_PRODUCT_ID = max(
@@ -177,7 +186,11 @@ def _clear_stock_cache() -> None:
 
 def invalidate_stats_cache() -> None:
     """Clear cached dashboard/statistics values after business data changes."""
+    global _DASHBOARD_OVERVIEW_CACHE, _DASHBOARD_OVERVIEW_CACHE_GENERATION
     _GET_STATS_CACHE.clear()
+    _DASHBOARD_OVERVIEW_CACHE = None
+    _DASHBOARD_OVERVIEW_CACHE_GENERATION += 1
+    _ORDER_LIST_COUNT_CACHE.clear()
 
 
 def _clear_binance_account_cache() -> None:
@@ -5764,7 +5777,41 @@ async def get_stats(days: int = 30, method: str = None) -> dict:
 
 
 async def get_dashboard_overview() -> dict:
-    """Return the compact operational summary used by the dashboard home."""
+    """Return a short-lived, invalidation-aware operational summary."""
+    cached = _DASHBOARD_OVERVIEW_CACHE
+    generation = _DASHBOARD_OVERVIEW_CACHE_GENERATION
+    now = time.monotonic()
+    if (
+        cached
+        and cached[1] == generation
+        and now - cached[0] < _DASHBOARD_OVERVIEW_CACHE_TTL
+    ):
+        return cached[2]
+
+    async def load() -> dict:
+        global _DASHBOARD_OVERVIEW_CACHE
+        current = _DASHBOARD_OVERVIEW_CACHE
+        if (
+            current
+            and current[1] == generation
+            and time.monotonic() - current[0] < _DASHBOARD_OVERVIEW_CACHE_TTL
+        ):
+            return current[2]
+
+        data = await _get_dashboard_overview_uncached()
+        if generation == _DASHBOARD_OVERVIEW_CACHE_GENERATION:
+            _DASHBOARD_OVERVIEW_CACHE = (
+                time.monotonic(),
+                generation,
+                data,
+            )
+        return data
+
+    return await _DASHBOARD_OVERVIEW_SINGLEFLIGHT.run(generation, load)
+
+
+async def _get_dashboard_overview_uncached() -> dict:
+    """Load the compact operational summary used by the dashboard home."""
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -5808,7 +5855,7 @@ async def get_dashboard_overview() -> dict:
                FROM orders o
                LEFT JOIN users u ON u.telegram_id = o.user_telegram_id
                LEFT JOIN products p ON p.id = o.product_id
-               ORDER BY o.created_at DESC
+               ORDER BY o.created_at DESC, o.id DESC
                LIMIT 8"""
         )
         recent_orders = [dict(row) for row in await cursor.fetchall()]
@@ -6247,11 +6294,26 @@ async def get_all_orders_filtered(
             where = ""
             params = []
 
-        # Count total
-        cursor = await db.execute(
-            f"SELECT COUNT(*) as cnt FROM orders o {where}", params
-        )
-        total = (await cursor.fetchone())["cnt"]
+        count_key = (str(status or ""), bool(exclude_activation))
+        generation = _DASHBOARD_OVERVIEW_CACHE_GENERATION
+        cached_count = _ORDER_LIST_COUNT_CACHE.get(count_key)
+        if (
+            cached_count
+            and cached_count[1] == generation
+            and time.monotonic() - cached_count[0] < _ORDER_LIST_COUNT_CACHE_TTL
+        ):
+            total = cached_count[2]
+        else:
+            cursor = await db.execute(
+                f"SELECT COUNT(*) as cnt FROM orders o {where}", params
+            )
+            total = int((await cursor.fetchone())["cnt"])
+            if generation == _DASHBOARD_OVERVIEW_CACHE_GENERATION:
+                _ORDER_LIST_COUNT_CACHE[count_key] = (
+                    time.monotonic(),
+                    generation,
+                    total,
+                )
 
         # Fetch page with user info and product info
         try:
@@ -6261,7 +6323,9 @@ async def get_all_orders_filtered(
                     FROM orders o
                     LEFT JOIN users u ON o.user_telegram_id = u.telegram_id
                     LEFT JOIN products p ON o.product_id = p.id
-                    {where} ORDER BY o.created_at DESC LIMIT ? OFFSET ?""",
+                    {where}
+                    ORDER BY o.created_at DESC, o.id DESC
+                    LIMIT ? OFFSET ?""",
                 params + [limit, offset],
             )
             rows = await cursor.fetchall()
@@ -6271,7 +6335,9 @@ async def get_all_orders_filtered(
                 f"""SELECT o.*, u.username, u.first_name as user_first_name
                     FROM orders o
                     LEFT JOIN users u ON o.user_telegram_id = u.telegram_id
-                    {where} ORDER BY o.created_at DESC LIMIT ? OFFSET ?""",
+                    {where}
+                    ORDER BY o.created_at DESC, o.id DESC
+                    LIMIT ? OFFSET ?""",
                 params + [limit, offset],
             )
             rows = await cursor.fetchall()
@@ -6297,7 +6363,7 @@ async def get_activation_orders(limit: int = 100, offset: int = 0) -> tuple[list
                 LEFT JOIN users u ON o.user_telegram_id = u.telegram_id
                 LEFT JOIN products p ON o.product_id = p.id
                 {where}
-                ORDER BY o.created_at DESC
+                ORDER BY o.created_at DESC, o.id DESC
                 LIMIT ? OFFSET ?""",
             (limit, offset),
         )
@@ -8032,6 +8098,7 @@ async def create_ticket(telegram_id: int, message: str) -> int:
             (telegram_id, message),
         )
         await db.commit()
+        invalidate_stats_cache()
         return cursor.lastrowid  # type: ignore[return-value]
     finally:
         await db.close()
@@ -8086,6 +8153,7 @@ async def reply_ticket(ticket_id: int, admin_reply: str) -> None:
             (admin_reply, ticket_id),
         )
         await db.commit()
+        invalidate_stats_cache()
     finally:
         await db.close()
 
@@ -8099,6 +8167,7 @@ async def close_ticket(ticket_id: int) -> None:
             (ticket_id,),
         )
         await db.commit()
+        invalidate_stats_cache()
     finally:
         await db.close()
 

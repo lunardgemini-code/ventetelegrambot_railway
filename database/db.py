@@ -1097,6 +1097,8 @@ async def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_stock_product_sold_added ON stock_items(product_id, is_sold, added_at)",
             "CREATE INDEX IF NOT EXISTS idx_stock_product_added ON stock_items(product_id, added_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_orders_status_created ON orders(status, created_at)",
+            "CREATE INDEX IF NOT EXISTS idx_orders_created_id ON orders(created_at DESC, id DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_orders_non_activation_created_id ON orders(created_at DESC, id DESC) WHERE status NOT IN ('AWAITING_ACTIVATION_INFO', 'AWAITING_ACTIVATION')",
             "CREATE INDEX IF NOT EXISTS idx_orders_user_status ON orders(user_telegram_id, status)",
             "CREATE INDEX IF NOT EXISTS idx_orders_binance_id ON orders(binance_order_id)",
             "CREATE INDEX IF NOT EXISTS idx_orders_product_status ON orders(product_id, status, created_at)",
@@ -1922,6 +1924,27 @@ async def init_db() -> None:
             )
             await db.commit()
             current_version = 19
+
+        if 19 <= current_version < 20:
+            orders_columns = await _columns_for("orders")
+            if {"id", "created_at", "status"} <= orders_columns:
+                version_twenty_statements = [
+                    "CREATE INDEX IF NOT EXISTS idx_orders_created_id "
+                    "ON orders(created_at DESC, id DESC)",
+                    "CREATE INDEX IF NOT EXISTS idx_orders_non_activation_created_id "
+                    "ON orders(created_at DESC, id DESC) "
+                    "WHERE status NOT IN "
+                    "('AWAITING_ACTIVATION_INFO', 'AWAITING_ACTIVATION')",
+                ]
+                for sql in version_twenty_statements:
+                    await db.execute(sql)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) "
+                "VALUES (20, ?)",
+                ("recent_order_read_indexes",),
+            )
+            await db.commit()
+            current_version = 20
 
     finally:
         await db.close()
