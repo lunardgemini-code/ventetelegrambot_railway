@@ -556,14 +556,14 @@ async def _process_quantity(
                 msg,
                 reply_markup=back_keyboard(
                     f"back_prods:{product['category_id']}", lang
-                ),
+)
             )
         return ConversationHandler.END
+
     unit_price = float(pricing["unit_price"])
     total_price = round(unit_price * quantity, 2)
 
-    # â”€â”€ Prevent duplicate orders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    # Cancel any previous PENDING order for this user to avoid duplicates
+    # ————————————————————————————— Prevent duplicate orders ——————————————————————
     existing_order_id = context.user_data.get("pending_order_id")
     if existing_order_id:
         try:
@@ -584,7 +584,16 @@ async def _process_quantity(
     context.user_data["pending_order_id"] = order["id"]
     context.user_data["pending_product_id"] = product_id
 
-    return await show_payment_method_screen(update, context, order["id"], lang, is_callback=is_callback)
+    return await show_payment_method_screen(
+        update,
+        context,
+        order["id"],
+        lang,
+        is_callback=is_callback,
+        order=order,
+        product=product,
+        effective_unit_price=unit_price,
+    )
 
 
 async def show_payment_method_screen(
@@ -592,10 +601,16 @@ async def show_payment_method_screen(
     context: ContextTypes.DEFAULT_TYPE,
     order_id: int,
     lang: str,
-    is_callback: bool = True
+    is_callback: bool = True,
+    *,
+    order: dict | None = None,
+    product: dict | None = None,
+    wallet_balance: float | None = None,
+    effective_unit_price: float | None = None,
 ):
     """Helper to display the payment method selection screen for an order."""
-    order = await get_order(order_id)
+    if not order:
+        order = await get_order(order_id)
     if not order:
         msg = t("product_not_found", lang)
         if is_callback and update.callback_query:
@@ -613,7 +628,8 @@ async def show_payment_method_screen(
             await update.effective_message.reply_text(msg)
         return ConversationHandler.END
 
-    product = await get_product(order["product_id"])
+    if not product:
+        product = await get_product(order["product_id"])
     if not product:
         msg = t("product_not_found", lang)
         if is_callback and update.callback_query:
@@ -622,21 +638,24 @@ async def show_payment_method_screen(
             await update.effective_message.reply_text(msg)
         return ConversationHandler.END
 
-    telegram_id = update.effective_user.id
-    from database.models import get_wallet_balance
-    wallet_balance = await get_wallet_balance(telegram_id)
+    if wallet_balance is None:
+        from database.models import get_wallet_balance
+        wallet_balance = await get_wallet_balance(telegram_id)
 
     # Check if a promo code is already applied
     promo_code_id = order.get("promo_code_id")
     has_promo = bool(promo_code_id)
 
     # Base price and price tiers line
-    from database.models import get_effective_price
-    unit_price = await get_effective_price(order["product_id"], order["quantity"])
+    if effective_unit_price is None:
+        from database.models import get_effective_price
+        unit_price = await get_effective_price(order["product_id"], order["quantity"])
+    else:
+        unit_price = effective_unit_price
     base_price = product["price_usd"]
     unit_price_line = ""
     if abs(unit_price - base_price) > 0.001:
-        discount_label = {"fr": "💰 Prix unitaire (palier)", "en": "💰 Unit price (bulk)", "ar": "💰 Ø³Ø¹Ø± Ø§Ù„ÙˆØ­Ø¯Ø© (Ø¬Ù…Ù„Ø©)"}.get(lang, "💰 Prix unitaire (palier)")
+        discount_label = {"fr": "💰 Prix unitaire (palier)", "en": "💰 Unit price (bulk)", "ar": "💰 سعر الوحدة (جملة)"}.get(lang, "💰 Prix unitaire (palier)")
         unit_price_line = f"{discount_label}: {format_price(unit_price)}\n"
 
     # Promo discount line
@@ -661,7 +680,8 @@ async def show_payment_method_screen(
 
     if is_callback and update.callback_query:
         try:
-            await safe_edit_message_text(update.callback_query, 
+            await safe_edit_message_text(
+                update.callback_query,
                 summary,
                 parse_mode="HTML",
                 reply_markup=markup,
@@ -676,7 +696,6 @@ async def show_payment_method_screen(
             reply_markup=markup,
         )
     return WAITING_PAYMENT_METHOD
-
 
 async def start_apply_promo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle 'apply_promo:{order_id}' callback â€” prompt for promo code."""

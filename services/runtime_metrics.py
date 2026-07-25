@@ -202,6 +202,21 @@ async def runtime_health_monitor(interval_seconds: float = 0.5) -> None:
         expected = now + interval
 
 
+_CACHE_COUNTERS = Counter()
+
+
+def record_cache_access(category: str, hit: bool, stale: bool = False) -> None:
+    """Record a cache lookup result (hit, miss, or stale hit)."""
+    cat = str(category or "general")[:40]
+    if hit:
+        if stale:
+            _CACHE_COUNTERS[f"{cat}:stale_hit"] += 1
+        else:
+            _CACHE_COUNTERS[f"{cat}:hit"] += 1
+    else:
+        _CACHE_COUNTERS[f"{cat}:miss"] += 1
+
+
 def get_runtime_snapshot(window_seconds: int = 300) -> dict:
     now = time.monotonic()
     cutoff = now - max(10, int(window_seconds))
@@ -229,6 +244,14 @@ def get_runtime_snapshot(window_seconds: int = 300) -> dict:
     lags = [sample[1] for sample in _LOOP_LAG_SAMPLES if sample[0] >= cutoff]
     memories = [sample[1] for sample in _MEMORY_SAMPLES if sample[0] >= cutoff]
     external_durations = [sample[2] for sample in samples]
+
+    # Calculate cache metrics summary
+    total_hits = sum(val for key, val in _CACHE_COUNTERS.items() if ":hit" in key)
+    total_stale = sum(val for key, val in _CACHE_COUNTERS.items() if ":stale_hit" in key)
+    total_misses = sum(val for key, val in _CACHE_COUNTERS.items() if ":miss" in key)
+    total_cache_lookups = total_hits + total_stale + total_misses
+    hit_ratio = round(((total_hits + total_stale) / total_cache_lookups * 100), 1) if total_cache_lookups > 0 else 100.0
+
     return {
         "external_apis": {
             "calls": len(samples),
@@ -250,6 +273,12 @@ def get_runtime_snapshot(window_seconds: int = 300) -> dict:
             "rss_mb": round(memories[-1], 1) if memories else round(_rss_mb(), 1),
             "max_rss_mb": round(max(memories, default=0), 1),
         },
+        "cache": {
+            "hits": total_hits,
+            "stale_hits": total_stale,
+            "misses": total_misses,
+            "hit_ratio_percent": hit_ratio,
+        },
     }
 
 
@@ -261,3 +290,4 @@ def reset_runtime_metrics_for_tests() -> None:
     _DEPENDENCY_ACTIVE.clear()
     _DEPENDENCY_WAITERS.clear()
     _SEMAPHORES.clear()
+    _CACHE_COUNTERS.clear()

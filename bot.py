@@ -6190,6 +6190,7 @@ async def post_shutdown(application: Application) -> None:
         application.bot_data.pop("supplier_ai_job_task", None),
         application.bot_data.pop("supplier_ai_auto_cycle_task", None),
         application.bot_data.pop("runtime_health_task", None),
+        application.bot_data.pop("product_warm_preload_task", None),
     ]
     for task in tasks:
         if task and not task.done():
@@ -6199,6 +6200,8 @@ async def post_shutdown(application: Application) -> None:
         await _flush_performance_metrics()
     except Exception as exc:
         logger.warning("Final performance metric flush failed: %s", exc)
+    from services.http_pool import close_http_pools
+    await close_http_pools()
     from services.nowpayments import close_nowpayments_client
     await close_nowpayments_client()
     from services.crypto_pay import close_crypto_pay_client
@@ -6209,11 +6212,6 @@ async def post_shutdown(application: Application) -> None:
     await close_supplier_clients()
     from services.sports_api import close_sports_client
     await close_sports_client()
-
-
-# ──────────────────────────────────────────────
-#  Webhook endpoint for Telegram updates
-# ──────────────────────────────────────────────
 
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
 DROP_PENDING_UPDATES = _env_bool("DROP_PENDING_UPDATES", False)

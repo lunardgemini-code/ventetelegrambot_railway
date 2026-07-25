@@ -25,8 +25,21 @@ from services.broadcast import execute_broadcast
 
 
 logger = logging.getLogger(__name__)
-_JOB_POLL_SECONDS = 2.0
+_JOB_POLL_SECONDS = 25.0
 _STALE_JOB_SECONDS = 180
+
+_JOB_ENQUEUED_EVENT: asyncio.Event | None = None
+
+
+def notify_background_job_enqueued() -> None:
+    """Wake up background job workers immediately when a job is created."""
+    global _JOB_ENQUEUED_EVENT
+    if _JOB_ENQUEUED_EVENT is not None:
+        try:
+            loop = asyncio.get_running_loop()
+            loop.call_soon_threadsafe(_JOB_ENQUEUED_EVENT.set)
+        except RuntimeError:
+            pass
 
 
 def _serialize_markup(reply_markup) -> dict | None:
@@ -227,6 +240,8 @@ async def _process_job(job: dict, bot) -> None:
 
 async def background_job_worker(bot) -> None:
     """Claim and execute persisted jobs until application shutdown."""
+    global _JOB_ENQUEUED_EVENT
+    _JOB_ENQUEUED_EVENT = asyncio.Event()
     last_maintenance = 0.0
     while True:
         try:
@@ -242,7 +257,11 @@ async def background_job_worker(bot) -> None:
                 excluded_job_types={"supplier_ai_sync", "supplier_ai_analyze"}
             )
             if not job:
-                await asyncio.sleep(_JOB_POLL_SECONDS)
+                _JOB_ENQUEUED_EVENT.clear()
+                try:
+                    await asyncio.wait_for(_JOB_ENQUEUED_EVENT.wait(), timeout=_JOB_POLL_SECONDS)
+                except asyncio.TimeoutError:
+                    pass
                 continue
             try:
                 await _process_job(job, bot)

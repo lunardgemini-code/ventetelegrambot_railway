@@ -1028,9 +1028,24 @@ async def _run_supplier_ai_analysis_job(job: dict) -> None:
     )
 
 
+_SUPPLIER_AI_ENQUEUED_EVENT: asyncio.Event | None = None
+
+
+def notify_supplier_ai_enqueued() -> None:
+    global _SUPPLIER_AI_ENQUEUED_EVENT
+    if _SUPPLIER_AI_ENQUEUED_EVENT is not None:
+        try:
+            loop = asyncio.get_running_loop()
+            loop.call_soon_threadsafe(_SUPPLIER_AI_ENQUEUED_EVENT.set)
+        except RuntimeError:
+            pass
+
+
 async def supplier_ai_job_worker(
     snapshot_provider: Callable[[], dict] | None = None,
 ) -> None:
+    global _SUPPLIER_AI_ENQUEUED_EVENT
+    _SUPPLIER_AI_ENQUEUED_EVENT = asyncio.Event()
     while True:
         try:
             job = await claim_next_background_job(job_types={
@@ -1038,7 +1053,11 @@ async def supplier_ai_job_worker(
                 SUPPLIER_AI_ANALYZE_JOB_TYPE,
             })
             if not job:
-                await asyncio.sleep(_POLL_SECONDS)
+                _SUPPLIER_AI_ENQUEUED_EVENT.clear()
+                try:
+                    await asyncio.wait_for(_SUPPLIER_AI_ENQUEUED_EVENT.wait(), timeout=30.0)
+                except asyncio.TimeoutError:
+                    pass
                 continue
             payload = job.get("payload") or {}
             if payload.get("automatic") and snapshot_provider:

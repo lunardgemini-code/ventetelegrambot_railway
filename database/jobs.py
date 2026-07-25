@@ -40,6 +40,19 @@ def _decode_job(row: Any) -> dict | None:
     return job
 
 
+def _notify_job_created(job_type: str = "") -> None:
+    try:
+        from services.background_jobs import notify_background_job_enqueued
+        notify_background_job_enqueued()
+    except Exception:
+        pass
+    try:
+        from services.supplier_ai import notify_supplier_ai_enqueued
+        notify_supplier_ai_enqueued()
+    except Exception:
+        pass
+
+
 async def create_background_job(
     job_id: str,
     job_type: str,
@@ -65,6 +78,7 @@ async def create_background_job(
         await db.commit()
     finally:
         await db.close()
+    _notify_job_created(job_type)
     job = await get_background_job(job_id)
     if not job:
         raise RuntimeError("Background job was not persisted")
@@ -108,6 +122,8 @@ async def create_background_job_once(
         raise
     finally:
         await db.close()
+    if created:
+        _notify_job_created(job_type)
     job = await get_background_job(job_id)
     if not job:
         raise RuntimeError("Background job was not persisted")
@@ -157,6 +173,7 @@ async def create_background_job_unless_active(
     finally:
         await db.close()
     if created:
+        _notify_job_created(job_type)
         job = await get_background_job(job_id)
     if not job:
         raise RuntimeError("Background job was not persisted")
