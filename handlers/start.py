@@ -112,7 +112,7 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await set_user_language(telegram_id, lang_code)
     context.user_data.pop("_reply_menu_sent", None)
 
-    await safe_edit_message_text(query, 
+    await safe_edit_message_text(query,
         t("language_set", lang_code) + "\n\n" + t("welcome", lang_code),
         parse_mode="HTML",
         reply_markup=main_menu_keyboard(lang_code),
@@ -127,7 +127,7 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     text = t("welcome", lang) or t("welcome", "fr")
     try:
-        await safe_edit_message_text(query, 
+        await safe_edit_message_text(query,
             text,
             parse_mode="HTML",
             reply_markup=main_menu_keyboard(lang),
@@ -195,3 +195,39 @@ async def callback_check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "ar": "❌ لم تنضم إلى القناة بعد."
         }
         await query.message.reply_text(alert_msg.get(lang, alert_msg["fr"]))
+
+
+async def products_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /products command."""
+    from handlers.products import show_products_list
+    await show_products_list(update, context)
+
+
+async def wallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /wallet command."""
+    from handlers.wallet import wallet_menu
+    await wallet_menu(update, context)
+
+
+async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /profile command."""
+    from handlers.profile import show_profile
+    await show_profile(update, context)
+
+
+async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /history command."""
+    from handlers.history import show_history
+    await show_history(update, context)
+
+
+async def support_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /support command."""
+    from handlers.support import support_menu
+    await support_menu(update, context)
+
+
+async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /game command."""
+    from handlers.game import show_game_menu
+    await show_game_menu(update, context)

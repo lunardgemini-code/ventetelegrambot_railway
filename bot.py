@@ -87,7 +87,19 @@ from handlers.products import (
 )
 from handlers.profile import show_profile, show_referrals, view_referrals_list
 from handlers.reseller_api import confirm_generate_reseller_api_key, generate_reseller_api_key, reseller_api_menu
-from handlers.start import change_language, main_menu_callback, set_language, start_command, callback_check_sub
+from handlers.start import (
+    callback_check_sub,
+    change_language,
+    game_command,
+    history_command,
+    main_menu_callback,
+    products_command,
+    profile_command,
+    set_language,
+    start_command,
+    support_command,
+    wallet_command,
+)
 from handlers.support import (
     get_support_conversation_handler,
     show_my_tickets,
@@ -3209,7 +3221,7 @@ async def api_get_finance(method: str = None):
             get_stats(days=7),
             get_stats(days=30)
         )
-        
+
         balance = 0.0
         if method and method != "all":
             # Get balance for specific method
@@ -3222,7 +3234,7 @@ async def api_get_finance(method: str = None):
                 b_str = await get_setting(f"finance_bot_balance_{m}")
                 if b_str:
                     balance += _finite_float(b_str, "stored balance")
-        
+
         return {
             "daily_revenue": stats_1.get("total_revenue", 0),
             "weekly_revenue": stats_7.get("total_revenue", 0),
@@ -3245,18 +3257,18 @@ async def api_adjust_finance(data: FinanceAdjustRequest):
     try:
         amount = _finite_float(data.amount, "amount")
         method = data.method.strip().lower()
-        
+
         if not method or method == "all":
             raise HTTPException(status_code=400, detail="Veuillez sélectionner une méthode spécifique (Binance, BEP20, etc.) pour ajuster le solde.")
-            
+
         setting_key = f"finance_bot_balance_{method}"
         balance_str = await get_setting(setting_key)
         balance = _finite_float(balance_str, "stored balance") if balance_str else 0.0
-        
+
         new_balance = round(balance + amount, 4)
         if new_balance < 0:
             new_balance = 0.0
-            
+
         await set_setting(setting_key, str(new_balance))
         _clear_api_stats_cache()
         return {"status": "success", "new_balance": new_balance}
@@ -3722,7 +3734,7 @@ async def api_create_product(data: dict):
     try:
         if "price_usd" not in data or "name" not in data:
             raise HTTPException(status_code=400, detail="Missing required fields: name, price_usd")
-            
+
         # Auto-create a default category if none exists (categories hidden from UI)
         cats = await get_categories()
         if not cats:
@@ -3825,7 +3837,7 @@ async def api_reorder_products(request: Request):
         orders = data.get("orders", [])
         if not orders:
             return {"status": "ok"}
-            
+
         db = await get_db()
         for item in orders:
             prod_id = item.get("id")
@@ -4101,27 +4113,27 @@ async def api_toggle_product_active(product_id: int):
 @api.post("/api/translate", dependencies=[Depends(verify_api_key)])
 async def api_translate(data: dict):
     import httpx
-    
+
     text = data.get("text")
     if not text:
         raise HTTPException(status_code=400, detail="Missing text to translate")
-        
+
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY non configurée")
-        
+
     prompt = (
         "Detect the source language and translate the following product description into English, French, Arabic, Chinese, Vietnamese, and Russian. "
         "Return a valid JSON object with the exact keys: 'en', 'fr', 'ar', 'zh', 'vi', 'ru'. "
         "Do not return markdown, just the raw JSON object.\n\n"
         f"Text to translate: {text}"
     )
-    
+
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.2}
     }
-    
+
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
@@ -4129,7 +4141,7 @@ async def api_translate(data: dict):
                 json=payload,
                 headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
             )
-            
+
             if response.status_code != 200:
                 logger.warning("Gemini 3.5 Flash failed (HTTP %d). Attempting dynamic fallback.", response.status_code)
                 try:
@@ -4138,14 +4150,14 @@ async def api_translate(data: dict):
                     if models_resp.status_code == 200:
                         available_models = models_resp.json().get("models", [])
                         flash_models = [
-                            m["name"].split("/")[-1] for m in available_models 
+                            m["name"].split("/")[-1] for m in available_models
                             if "flash" in m.get("name", "").lower() and "generateContent" in m.get("supportedGenerationMethods", [])
                         ]
                         if flash_models:
                             # Sort to prioritize newer versions (e.g. 3.x over 2.x)
                             flash_models.sort(reverse=True)
                             for fallback_model in flash_models:
-                                if fallback_model == "gemini-3.5-flash": 
+                                if fallback_model == "gemini-3.5-flash":
                                     continue
                                 logger.info("Trying fallback model: %s", fallback_model)
                                 fallback_url = f"https://generativelanguage.googleapis.com/v1beta/models/{fallback_model}:generateContent"
@@ -4163,12 +4175,12 @@ async def api_translate(data: dict):
                 error_body = response.text if response else "No response"
                 logger.error("All Gemini models failed. Last HTTP %s: %s", getattr(response, 'status_code', 'N/A'), error_body)
                 raise HTTPException(status_code=502, detail=f"Erreur API Gemini: {error_body}")
-            
+
             result_json = response.json()
-            
+
             # Extract text from Gemini response format
             response_text = result_json["candidates"][0]["content"]["parts"][0]["text"]
-            
+
             # Clean up potential markdown formatting block if Gemini disobeys "no markdown"
             import re
             match = re.search(r'```(?:json)?\s*(.*?)\s*```', response_text, re.DOTALL)
@@ -4176,7 +4188,7 @@ async def api_translate(data: dict):
                 response_text = match.group(1)
             else:
                 response_text = response_text.strip()
-                
+
             translations = json.loads(response_text)
             return translations
     except HTTPException:
@@ -4221,14 +4233,14 @@ async def api_recalculate_stats():
     try:
         # Update users stats based on their COMPLETED orders
         await db.execute("""
-            UPDATE users 
-            SET 
+            UPDATE users
+            SET
                 total_orders = (
-                    SELECT COUNT(*) FROM orders 
+                    SELECT COUNT(*) FROM orders
                     WHERE orders.user_telegram_id = users.telegram_id AND orders.status = 'COMPLETED'
                 ),
                 total_spent = COALESCE((
-                    SELECT SUM(amount_usd) FROM orders 
+                    SELECT SUM(amount_usd) FROM orders
                     WHERE orders.user_telegram_id = users.telegram_id AND orders.status = 'COMPLETED'
                 ), 0)
             WHERE EXISTS (
@@ -4431,7 +4443,7 @@ async def api_confirm_order(order_id: int):
         if delivered:
             product = await get_product(order.get("product_id"))
             warranty_days = product.get("warranty_days", 0) if product else 0
-            
+
             # Notify user
             delivery_message_sent = False
             try:
@@ -4486,7 +4498,7 @@ async def api_reply_ticket(ticket_id: int, data: TicketReplyRequest):
         if not reply_text:
             raise HTTPException(status_code=400, detail="Reply text cannot be empty")
         await reply_ticket(ticket_id, reply_text)
-        
+
         # Notify user
         try:
             from utils.locales import t
@@ -4499,7 +4511,7 @@ async def api_reply_ticket(ticket_id: int, data: TicketReplyRequest):
                 )
         except Exception as notify_exc:
             logger.warning("Failed to notify user reply via API: %s", notify_exc)
-            
+
         return {"status": "replied"}
     except HTTPException:
         raise
@@ -4550,7 +4562,7 @@ async def api_add_product_stock(product_id: int, data: dict):
                 from handlers.products import notify_restock_subscribers
 
                 asyncio.create_task(notify_restock_subscribers(tg_app.bot, product_id))
-        
+
         broadcast = data.get("broadcast_restock", False)
         if broadcast:
             from database.models import get_product
@@ -4694,7 +4706,7 @@ async def api_activate_order(order_id: int):
                 lang = await get_user_lang(order["user_telegram_id"])
                 product = await get_product(order["product_id"])
                 product_name = product["name"] if product else f"#{order['product_id']}"
-                
+
                 custom_msg = ""
                 if product:
                     lang_msg = product.get(f"activation_message_{lang}") if lang != "en" else ""
@@ -4702,7 +4714,7 @@ async def api_activate_order(order_id: int):
                         custom_msg = lang_msg
                     elif product.get("activation_message"):
                         custom_msg = product["activation_message"]
-                
+
                 if custom_msg:
                     final_msg = custom_msg.replace("{product}", escape_html(product_name)).replace("{order_id}", str(order_id))
                 else:
@@ -4710,7 +4722,7 @@ async def api_activate_order(order_id: int):
                         product=escape_html(product_name),
                         order_id=order_id,
                     )
-                
+
                 await tg_app.bot.send_message(
                     chat_id=order["user_telegram_id"],
                     text=final_msg,
@@ -5238,20 +5250,20 @@ async def api_ban_user(telegram_id: int, notify: bool = False):
                 lang = await get_user_lang(telegram_id)
             except Exception:
                 pass
-            
+
             ban_msg = {
                 "fr": "🚫 Vous avez été banni du bot.",
                 "en": "🚫 You have been banned from the bot.",
                 "ar": "🚫 لقد تم حظرك من البوت."
             }
             text = ban_msg.get(lang, ban_msg["fr"])
-            
+
             if tg_app and tg_app.bot:
                 try:
                     await tg_app.bot.send_message(chat_id=telegram_id, text=text, parse_mode="HTML")
                 except Exception as e:
                     logger.error("Failed to send ban notification to user %s: %s", telegram_id, e)
-                    
+
         return {"status": "banned"}
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
@@ -5337,13 +5349,13 @@ async def api_set_payment_settings(data: dict):
     try:
         bep20_address = data.get("bep20_address", "").strip()
         trc20_address = data.get("trc20_address", "").strip()
-        
+
         if bep20_address and (not bep20_address.startswith("0x") or len(bep20_address) != 42):
             raise HTTPException(status_code=400, detail="Invalid BEP20 address. Must start with 0x and be 42 characters.")
-            
+
         if trc20_address and (not trc20_address.startswith("T") or len(trc20_address) != 34):
             raise HTTPException(status_code=400, detail="Invalid TRC20 address. Must start with T and be 34 characters.")
-            
+
         await set_setting("bep20_address", bep20_address)
         await set_setting("trc20_address", trc20_address)
         return {"status": "saved"}
@@ -6000,9 +6012,68 @@ async def _cryptopay_worker() -> None:
         await asyncio.sleep(next_delay)
 
 
+async def setup_telegram_bot_commands(bot) -> None:
+    """Register official BotCommands and enable the native Telegram blue Menu button."""
+    from telegram import BotCommand, MenuButtonCommands
+
+    commands_default = [
+        BotCommand("start", "🚀 Menu principal / Main Menu"),
+        BotCommand("products", "🛒 Catalogue & Produits"),
+        BotCommand("wallet", "💳 Solde & Recharge Wallet"),
+        BotCommand("profile", "👤 Mon profil & Parrainage"),
+        BotCommand("history", "📜 Historique d'achats"),
+        BotCommand("support", "💬 Aide & Support Client"),
+        BotCommand("game", "🎮 Game Batman Coins"),
+    ]
+
+    commands_fr = [
+        BotCommand("start", "🚀 Menu principal"),
+        BotCommand("products", "🛒 Catalogue & Produits"),
+        BotCommand("wallet", "💳 Solde & Recharge Wallet"),
+        BotCommand("profile", "👤 Mon profil & Parrainage"),
+        BotCommand("history", "📜 Historique d'achats"),
+        BotCommand("support", "💬 Aide & Support Client"),
+        BotCommand("game", "🎮 Game Batman Coins"),
+    ]
+
+    commands_en = [
+        BotCommand("start", "🚀 Main Menu"),
+        BotCommand("products", "🛒 Products & Catalog"),
+        BotCommand("wallet", "💳 Wallet & Top-up"),
+        BotCommand("profile", "👤 My Profile & Referrals"),
+        BotCommand("history", "📜 Purchase History"),
+        BotCommand("support", "💬 Customer Support"),
+        BotCommand("game", "🎮 Game Batman Coins"),
+    ]
+
+    commands_ar = [
+        BotCommand("start", "🚀 القائمة الرئيسية"),
+        BotCommand("products", "🛒 الكتالوج والمنتجات"),
+        BotCommand("wallet", "💳 المحفظة والشحن"),
+        BotCommand("profile", "👤 ملفي الشخصي والإحالة"),
+        BotCommand("history", "📜 سجل المشتريات"),
+        BotCommand("support", "💬 الدعم والمساعدة"),
+        BotCommand("game", "🎮 لعبة Batman Coins"),
+    ]
+
+    try:
+        await bot.set_my_commands(commands_default)
+        try:
+            await bot.set_my_commands(commands_fr, language_code="fr")
+            await bot.set_my_commands(commands_en, language_code="en")
+            await bot.set_my_commands(commands_ar, language_code="ar")
+        except Exception:
+            pass
+        await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+        logger.info("✅ Telegram Bot commands and blue Menu button configured")
+    except Exception as exc:
+        logger.warning("Could not set Telegram bot commands menu button: %s", exc)
+
+
 async def post_init(application: Application) -> None:
     """Called after the Application has been initialised — set up the database."""
     await init_db()
+    await setup_telegram_bot_commands(application.bot)
     runtime_task = application.bot_data.get("runtime_health_task")
     if not runtime_task or runtime_task.done():
         from services.runtime_metrics import runtime_health_monitor
@@ -6531,7 +6602,7 @@ async def get_emoji_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     custom_emojis = [
         e for e in (message.entities or []) if e.type == "custom_emoji"
     ]
-    
+
     if not custom_emojis:
         await message.reply_text(
             "Veuillez envoyer cette commande suivie d'un emoji premium.\n"
@@ -6556,18 +6627,18 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
     if user_id not in ADMIN_IDS:
         await update.message.reply_text("🚫 Access denied.")
         return
-        
+
     try:
         from database.db import get_db
         db = await get_db()
         # count promo usages table
         c = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='promo_code_usages'")
         table_exists = await c.fetchone() is not None
-        
+
         c = await db.execute("SELECT * FROM promo_codes ORDER BY id DESC LIMIT 1")
         last_row = await c.fetchone()
         last_promo = dict(last_row) if last_row else None
-        
+
         usage_count = 0
         if last_promo and table_exists:
             c = await db.execute("SELECT COUNT(*) as c FROM promo_code_usages WHERE promo_code_id = ?", (last_promo["id"],))
@@ -6581,12 +6652,12 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
         )
     except Exception as e:
         await update.message.reply_text(f"Error: {e}")
-    
+
     await update.message.reply_text("🔄 Starting manual database migrations...")
-    
+
     from database.db import get_db
     logs = []
-    
+
     queries = [
         ("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)", "Table 'settings'"),
         ("CREATE TABLE IF NOT EXISTS used_bep20_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, tx_hash TEXT UNIQUE NOT NULL, order_id INTEGER, user_telegram_id INTEGER, amount REAL, used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)", "Table 'used_bep20_transactions'"),
@@ -6636,7 +6707,7 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
         ("ALTER TABLE promo_codes ADD COLUMN applicable_product_ids TEXT DEFAULT NULL", "Column 'promo_codes.applicable_product_ids'"),
         ("ALTER TABLE promo_codes ADD COLUMN max_qty_per_order INTEGER DEFAULT 0", "Column 'promo_codes.max_qty_per_order'"),
     ]
-    
+
     for sql, name in queries:
         try:
             mig_db = await get_db()
@@ -6650,7 +6721,7 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
                 await mig_db.close()
             except Exception:
                 pass
-                
+
     # ── Mises à jour rétroactives des Order IDs Binance (18 chiffres) ──
     # 1. Nettoyage des formats avec slash (ex: 'P_... / 18_chiffres') pour ne garder que la partie à 18 chiffres
     try:
@@ -6683,12 +6754,12 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
         )
         orders_to_update = await cursor.fetchall()
         updated_count = 0
-        
+
         for o in orders_to_update:
             p_id = o["product_id"]
             prepay_id = o["binance_order_id"]
             amount = float(o["amount_usd"])
-            
+
             # Récupération des clés API associées au produit
             api_key_to_use = None
             api_secret_to_use = None
@@ -6701,7 +6772,7 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
                     if acc:
                         api_key_to_use = acc.get("api_key")
                         api_secret_to_use = acc.get("api_secret")
-            
+
             # Requête API Binance SAPI pour récupérer le véritable orderId
             result = await verify_payment(prepay_id, amount, api_key=api_key_to_use, api_secret=api_secret_to_use)
             if result.get("verified") and result.get("transaction"):
@@ -6710,7 +6781,7 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
                 if order_id_18 and order_id_18.isdigit():
                     await mig_db.execute("UPDATE orders SET binance_order_id = ? WHERE id = ?", (order_id_18, o["id"]))
                     updated_count += 1
-                    
+
         if updated_count > 0:
             await mig_db.commit()
             logs.append(f"✅ Mise à jour de {updated_count} commande(s) passée(s) avec leur Order ID SAPI.")
@@ -6951,6 +7022,12 @@ def main() -> None:
 
     # ── Command handlers ─────────────────────────────────────────
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("products", products_command))
+    app.add_handler(CommandHandler("wallet", wallet_command))
+    app.add_handler(CommandHandler("profile", profile_command))
+    app.add_handler(CommandHandler("history", history_command))
+    app.add_handler(CommandHandler("support", support_command))
+    app.add_handler(CommandHandler("game", game_command))
     app.add_handler(CommandHandler("run_migrations", run_migrations_command))
     app.add_handler(CommandHandler("getemoji", get_emoji_command))
 
@@ -7009,7 +7086,7 @@ def main() -> None:
         async def _setup_and_run():
             """Initialize the bot, set webhook, and run FastAPI with connection retries."""
             global webhook_update_queue, webhook_worker_tasks, webhook_worker_manager, _service_ready
-            
+
             loop = asyncio.get_running_loop()
             from concurrent.futures import ThreadPoolExecutor
             loop.set_default_executor(ThreadPoolExecutor(max_workers=THREAD_WORKERS))
