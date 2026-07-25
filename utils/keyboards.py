@@ -65,13 +65,29 @@ def make_reply_button(text_key: str, lang: str = "fr") -> KeyboardButton:
     return KeyboardButton(label, **btn_kwargs)
 
 
+from services.runtime_metrics import record_cache_access
+
+_KEYBOARD_CACHE: dict[str, InlineKeyboardMarkup | ReplyKeyboardMarkup] = {}
+
+
+def clear_keyboard_cache() -> None:
+    """Flush pre-rendered keyboard cache on catalog or locale changes."""
+    _KEYBOARD_CACHE.clear()
+
+
 # ──────────────────────────────────────────────
 #  Language selection
 # ──────────────────────────────────────────────
 
 def language_keyboard() -> InlineKeyboardMarkup:
     """Language selection buttons."""
-    return InlineKeyboardMarkup([
+    cache_key = "language_keyboard"
+    cached = _KEYBOARD_CACHE.get(cache_key)
+    if cached is not None:
+        record_cache_access("keyboard", hit=True)
+        return cached
+    record_cache_access("keyboard", hit=False)
+    markup = InlineKeyboardMarkup([
         [InlineKeyboardButton("🇬🇧 English", callback_data="lang:en")],
         [InlineKeyboardButton("🇫🇷 Français", callback_data="lang:fr")],
         [InlineKeyboardButton("🇸🇦 العربية", callback_data="lang:ar")],
@@ -79,6 +95,8 @@ def language_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🇻🇳 Tiếng Việt", callback_data="lang:vi")],
         [InlineKeyboardButton("🇷🇺 Русский", callback_data="lang:ru")],
     ])
+    _KEYBOARD_CACHE[cache_key] = markup
+    return markup
 
 
 # ──────────────────────────────────────────────
@@ -96,7 +114,14 @@ def main_menu_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
         channel_url = channel
     else:
         channel_url = "https://t.me/Batmanstore2"
-    return InlineKeyboardMarkup([
+
+    cache_key = f"main_menu_keyboard:{lang}:{channel_url}"
+    cached = _KEYBOARD_CACHE.get(cache_key)
+    if cached is not None:
+        record_cache_access("keyboard", hit=True)
+        return cached
+    record_cache_access("keyboard", hit=False)
+    markup = InlineKeyboardMarkup([
         [make_button("btn_buy", lang, callback_data="menu_buy", style=KeyboardButtonStyle.SUCCESS)],
         [make_button("btn_wallet", lang, callback_data="menu_wallet")],
         [make_button("btn_game", lang, callback_data="menu_game", style=KeyboardButtonStyle.DANGER)],
@@ -112,11 +137,19 @@ def main_menu_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
         [make_button("btn_channel", lang, url=channel_url)],
         [make_button("btn_language", lang, callback_data="change_lang")],
     ])
+    _KEYBOARD_CACHE[cache_key] = markup
+    return markup
 
 
 def reply_menu_keyboard(lang: str = "fr") -> ReplyKeyboardMarkup:
     """Persistent bottom keyboard with quick-access buttons in a 2x2 layout."""
-    return ReplyKeyboardMarkup(
+    cache_key = f"reply_menu_keyboard:{lang}"
+    cached = _KEYBOARD_CACHE.get(cache_key)
+    if cached is not None:
+        record_cache_access("keyboard", hit=True)
+        return cached
+    record_cache_access("keyboard", hit=False)
+    markup = ReplyKeyboardMarkup(
         [
             [make_reply_button("btn_start", lang), make_reply_button("btn_products", lang)],
             [make_reply_button("btn_support", lang), make_reply_button("btn_language", lang)],
@@ -124,13 +157,23 @@ def reply_menu_keyboard(lang: str = "fr") -> ReplyKeyboardMarkup:
         resize_keyboard=True,
         one_time_keyboard=False,
     )
+    _KEYBOARD_CACHE[cache_key] = markup
+    return markup
 
 
 def back_keyboard(callback_data: str, lang: str = "fr") -> InlineKeyboardMarkup:
     """Single back button pointing to *callback_data*."""
-    return InlineKeyboardMarkup([
+    cache_key = f"back_keyboard:{callback_data}:{lang}"
+    cached = _KEYBOARD_CACHE.get(cache_key)
+    if cached is not None:
+        record_cache_access("keyboard", hit=True)
+        return cached
+    record_cache_access("keyboard", hit=False)
+    markup = InlineKeyboardMarkup([
         [make_button("btn_back", lang, callback_data=callback_data)],
     ])
+    _KEYBOARD_CACHE[cache_key] = markup
+    return markup
 
 
 def profile_keyboard(lang: str = "fr", is_reseller: bool = False) -> InlineKeyboardMarkup:

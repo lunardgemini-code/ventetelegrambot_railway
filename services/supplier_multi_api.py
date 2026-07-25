@@ -537,6 +537,40 @@ async def get_balance(
         return balance
 
 
+async def get_all_supplier_balances_parallel(
+    providers: list[dict],
+    units_per_usd_map: dict[str, float] | float = 1.0,
+    *,
+    force: bool = False,
+    timeout: float = 2.5,
+) -> dict[str, dict]:
+    """Fetch supplier balances concurrently with a bounded per-connector timeout."""
+    if not providers:
+        return {}
+
+    async def _fetch_one(provider: dict) -> tuple[str, dict | None]:
+        code = str(provider.get("code") or "")
+        if not code:
+            return "", None
+        rate = units_per_usd_map.get(code, 1.0) if isinstance(units_per_usd_map, dict) else float(units_per_usd_map)
+        try:
+            balance = await asyncio.wait_for(
+                get_balance(provider, rate, force=force),
+                timeout=timeout,
+            )
+            return code, balance
+        except Exception as exc:
+            logger.warning("Parallel balance fetch timeout or error for supplier %s: %s", code, exc)
+            return code, None
+
+    results = await asyncio.gather(*[_fetch_one(p) for p in providers], return_exceptions=True)
+    balances = {}
+    for res in results:
+        if isinstance(res, tuple) and res[0] and res[1] is not None:
+            balances[res[0]] = res[1]
+    return balances
+
+
 def _delivery_values(payload: Any) -> list[Any]:
     if isinstance(payload, list):
         return payload
