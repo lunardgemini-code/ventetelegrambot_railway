@@ -283,7 +283,7 @@ async def _send_product_detail_message(
     async def _edit_or_send(body: str, parse_mode: str | None = "HTML"):
         if query is not None:
             try:
-                await safe_edit_message_text(query, 
+                await safe_edit_message_text(query,
                     body,
                     parse_mode=parse_mode,
                     reply_markup=markup,
@@ -397,6 +397,21 @@ async def show_products_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 is_admin=admin_view,
             )
         ]
+        from database.models import get_product_stack_mode
+        stack_mode = await get_product_stack_mode()
+
+        if stack_mode == "hide" and not admin_view:
+            products = [
+                p for p in products
+                if p.get("delivery_type") == "activation" or stock_counts.get(p["id"], 0) > 0
+            ]
+        elif stack_mode == "stack":
+            # Stable sort: in-stock items keep relative order, out-of-stock items stacked at bottom keeping relative order
+            products = sorted(
+                products,
+                key=lambda p: 0 if (p.get("delivery_type") == "activation" or stock_counts.get(p["id"], 0) > 0) else 1
+            )
+
         standard_products = products
         products = await apply_telegram_special_prices_to_products(
             standard_products, update.effective_user.id
@@ -409,7 +424,7 @@ async def show_products_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     await update.callback_query.answer()
                 except Exception:
                     pass
-                await safe_edit_message_text(update.callback_query, 
+                await safe_edit_message_text(update.callback_query,
                     text, reply_markup=back_keyboard("back_main", lang)
                 )
             else:
@@ -425,7 +440,7 @@ async def show_products_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
         else:
             text = t("categories_title", lang)
-            markup = products_keyboard(products, stock_counts, lang)
+            markup = products_keyboard(products, stock_counts, lang, show_stack_separator=(stack_mode == "stack"))
 
         if update.callback_query:
             try:
@@ -433,7 +448,7 @@ async def show_products_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
             except Exception:
                 pass
             try:
-                await safe_edit_message_text(update.callback_query, 
+                await safe_edit_message_text(update.callback_query,
                     text, parse_mode="HTML", reply_markup=markup
                 )
             except Exception as e:
@@ -496,7 +511,7 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
         product, stock, tiers, sold_count = await get_product_full_details(product_id)
 
         if not product:
-            await safe_edit_message_text(query, 
+            await safe_edit_message_text(query,
                 t("product_not_found", lang),
                 reply_markup=back_keyboard("back_products", lang),
             )

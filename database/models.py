@@ -469,7 +469,7 @@ async def get_users_paginated(limit: int = 20, offset: int = 0, search: str = ""
             where_clause = " WHERE CAST(u.telegram_id AS TEXT) LIKE ? OR CAST(u.referred_by AS TEXT) LIKE ? OR u.username LIKE ? OR u.first_name LIKE ?"
             search_param = f"%{search}%"
             params = [search_param, search_param, search_param, search_param]
-        
+
         count_query = f"SELECT COUNT(*) as cnt FROM users u {where_clause}"
         cursor_count = await db.execute(count_query, params)
         row_count = await cursor_count.fetchone()
@@ -486,7 +486,7 @@ async def get_users_paginated(limit: int = 20, offset: int = 0, search: str = ""
             "joined": "u.created_at",
             "referral_earnings": "u.referral_earnings"
         }
-        
+
         sort_col = sort_mapping.get(sort, "u.created_at")
         order_dir = "ASC" if order.lower() == "asc" else "DESC"
 
@@ -502,7 +502,7 @@ async def get_users_paginated(limit: int = 20, offset: int = 0, search: str = ""
         params_paginated = params + [limit, offset]
         cursor = await db.execute(paginated_query, params_paginated)
         rows = await cursor.fetchall()
-        
+
         return [dict(r) for r in rows], total
     finally:
         await db.close()
@@ -1732,7 +1732,7 @@ async def toggle_product_active(product_id: int) -> dict:
         row = await cursor.fetchone()
         if not row:
             raise ValueError(f"Product {product_id} not found")
-        
+
         new_status = 1 if row[0] == 0 else 0
         await db.execute("UPDATE products SET is_active = ? WHERE id = ?", (new_status, product_id))
         await db.commit()
@@ -2547,7 +2547,7 @@ async def _get_product_full_details_uncached(product_id: int) -> tuple[dict | No
         cursor = await db.execute("SELECT * FROM products WHERE id = ?", (product_id,))
         row = await cursor.fetchone()
         product = dict(row) if row else None
-        
+
         if not product:
             return None, 0, [], 0
 
@@ -2691,10 +2691,10 @@ async def get_stock_count(product_id: int) -> int:
 
         # 2. Stock rÃ©servÃ© (commandes PENDING ou AWAITING_PAYMENT crÃ©Ã©es il y a moins de 300 secondes / 5 minutes)
         cursor = await db.execute(
-            """SELECT COALESCE(SUM(quantity), 0) as reserved 
-               FROM orders 
-               WHERE product_id = ? 
-                 AND status IN ('PENDING', 'AWAITING_PAYMENT', 'PROCESSING') 
+            """SELECT COALESCE(SUM(quantity), 0) as reserved
+               FROM orders
+               WHERE product_id = ?
+                 AND status IN ('PENDING', 'AWAITING_PAYMENT', 'PROCESSING')
                  AND created_at >= datetime('now', '-300 seconds')""",
             (product_id,),
         )
@@ -2754,7 +2754,7 @@ async def get_available_stock_items(product_id: int, limit: int = 1) -> list[dic
 async def mark_stock_sold(stock_id: int, order_id: int) -> bool:
     _clear_stock_cache()
     """Marque un article comme vendu de maniÃ¨re atomique.
-    
+
     Utilise WHERE is_sold = 0 pour Ã©viter la double-livraison en cas de requÃªtes concurrentes.
     Retourne True si l'article a Ã©tÃ© marquÃ©, False s'il Ã©tait dÃ©jÃ  vendu.
     """
@@ -6127,7 +6127,7 @@ async def get_stats(days: int = 30, method: str = None) -> dict:
         cache_time, cached_data = _GET_STATS_CACHE[cache_key]
         if now - cache_time < _GET_STATS_CACHE_TTL:
             return cached_data
-            
+
     data = await _get_stats_uncached(days, method)
     _GET_STATS_CACHE[cache_key] = (now, data)
     return data
@@ -6873,7 +6873,7 @@ async def deduct_wallet(telegram_id: int, amount: float, description: str = "") 
         val = row["wallet_balance"]
         balance = round(float(val) if val is not None else 0.0, 4)
         amount = usd_float(amount, places=4, allow_zero=False)
-        
+
         if balance < amount:
             raise ValueError(f"Insufficient balance: {balance} < {amount}")
 
@@ -6888,7 +6888,7 @@ async def deduct_wallet(telegram_id: int, amount: float, description: str = "") 
             raise ValueError("Insufficient balance or update conflict")
 
         new_balance = float(row["wallet_balance"])
-        
+
         # Record transaction
         await db.execute(
             "INSERT INTO wallet_transactions (user_telegram_id, type, amount, balance_after, description) VALUES (?, 'purchase', ?, ?, ?)",
@@ -8728,7 +8728,7 @@ async def _record_used_transaction_once(
 
 # â•”â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â•—
 # â•‘  CODES PROMO                                                     â•‘
-# â•šâ• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• 
+# â•šâ• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â• â•
 
 
 async def claim_binance_order_payment(
@@ -9011,7 +9011,7 @@ async def check_promo_usage(promo_id: int, user_telegram_id: int) -> bool:
         max_per_user = row["max_uses_per_user"]
         if max_per_user <= 0:
             return True # illimitÃ©
-        
+
         c = await db.execute("SELECT usage_count FROM promo_code_usages WHERE promo_code_id = ? AND user_telegram_id = ?", (promo_id, user_telegram_id))
         r = await c.fetchone()
         usage_count = r["usage_count"] if r else 0
@@ -9048,8 +9048,8 @@ async def increment_promo_usage(promo_id: int, user_telegram_id: int) -> None:
         except Exception:
             # Fallback for UNIQUE constraint violation
             await db.execute(
-                """UPDATE promo_code_usages 
-                   SET usage_count = usage_count + 1, last_used_at = CURRENT_TIMESTAMP 
+                """UPDATE promo_code_usages
+                   SET usage_count = usage_count + 1, last_used_at = CURRENT_TIMESTAMP
                    WHERE promo_code_id = ? AND user_telegram_id = ?""",
                 (promo_id, user_telegram_id)
             )
@@ -9190,7 +9190,7 @@ async def process_referral_payout(order_id: int) -> None:
             if tg_app and tg_app.bot:
                 from utils.locales import t
                 from utils.helpers import format_price
-                
+
                 # Fetch referrer language
                 ref_lang = "fr"
                 cursor = await db.execute("SELECT language FROM users WHERE telegram_id = ?", (referrer_id,))
@@ -9204,7 +9204,7 @@ async def process_referral_payout(order_id: int) -> None:
                     .replace("{amount}", format_price(payout))
                     .replace("{friend}", friend_name)
                 )
-                
+
                 # Send the notification in the background
                 import asyncio
                 asyncio.create_task(
@@ -9282,7 +9282,7 @@ async def get_setting(key: str) -> str | None:
 
 async def set_setting(key: str, value: str) -> None:
     clean_value = value.strip()
-    """Enregistre ou met Ã  jour un paramÃ¨tre."""
+    """Enregistre ou met à jour un paramètre."""
     db = await get_db()
     try:
         await db.execute(
@@ -9293,6 +9293,23 @@ async def set_setting(key: str, value: str) -> None:
         _SETTINGS_CACHE[key] = clean_value
     finally:
         await db.close()
+
+
+async def get_product_stack_mode() -> str:
+    """Retourne le mode product stack: 'stack', 'off' ou 'hide'. Défaut: 'stack'."""
+    mode = await get_setting("product_stack_mode")
+    if mode and mode.lower() in ("stack", "off", "hide"):
+        return mode.lower()
+    return "stack"
+
+
+async def set_product_stack_mode(mode: str) -> str:
+    """Enregistre le mode product stack: 'stack', 'off' ou 'hide'."""
+    clean_mode = mode.strip().lower() if mode else "stack"
+    if clean_mode not in ("stack", "off", "hide"):
+        clean_mode = "stack"
+    await set_setting("product_stack_mode", clean_mode)
+    return clean_mode
 
 
 # â”€â”€ TRC20 Transactions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -9618,7 +9635,7 @@ async def credit_wallet_from_trc20_transaction(
 
 async def get_transactions_for_export(start_date: str, end_date: str):
     from .db import get_db
-    
+
     # Normalize ISO-8601 strings (with T/Z) to standard SQLite timestamp format (YYYY-MM-DD HH:MM:SS)
     if start_date:
         start_date = start_date.replace("T", " ").replace("Z", "")
@@ -9628,11 +9645,11 @@ async def get_transactions_for_export(start_date: str, end_date: str):
         end_date = end_date.replace("T", " ").replace("Z", "")
         if "." in end_date:
             end_date = end_date.split(".")[0]
-            
+
     db = await get_db()
     try:
         query = """
-            SELECT 
+            SELECT
                 'Achat' as type,
                 o.created_at as date,
                 u.username,
@@ -9644,21 +9661,21 @@ async def get_transactions_for_export(start_date: str, end_date: str):
                 o.binance_order_id as hash_id
             FROM orders o
             LEFT JOIN users u ON o.user_telegram_id = u.telegram_id
-            WHERE o.status = 'COMPLETED' 
+            WHERE o.status = 'COMPLETED'
               AND (o.payment_method != 'wallet' OR o.payment_method IS NULL)
-              AND o.created_at >= ? 
+              AND o.created_at >= ?
               AND o.created_at <= ?
-            
+
             UNION ALL
-            
-            SELECT 
+
+            SELECT
                 'Topup' as type,
                 w.created_at as date,
                 u.username,
                 u.first_name,
                 w.user_telegram_id,
                 w.amount as amount,
-                CASE 
+                CASE
                     WHEN w.description LIKE '%Binance Pay%' THEN 'binance'
                     WHEN w.description LIKE '%BEP20%' THEN 'bep20'
                     WHEN w.description LIKE '%TRC20%' THEN 'trc20'
@@ -9669,13 +9686,13 @@ async def get_transactions_for_export(start_date: str, end_date: str):
             FROM wallet_transactions w
             LEFT JOIN users u ON w.user_telegram_id = u.telegram_id
             WHERE (w.description LIKE 'Topup via%' OR w.description LIKE 'Binance Pay:%')
-              AND w.created_at >= ? 
+              AND w.created_at >= ?
               AND w.created_at <= ?
             ORDER BY date DESC
         """
         cursor = await db.execute(query, (start_date, end_date, start_date, end_date))
         rows = await cursor.fetchall()
-        
+
         results = []
         for r in rows:
             client = f"@{r['username']}" if r['username'] else (r['first_name'] or str(r['user_telegram_id']))
@@ -9698,10 +9715,10 @@ async def get_products_sales_stats() -> list[dict]:
     db = await get_db()
     try:
         cursor = await db.execute("""
-            SELECT 
-                p.id, 
-                p.name, 
-                p.emoji, 
+            SELECT
+                p.id,
+                p.name,
+                p.emoji,
                 p.price_usd,
                 p.delivery_type,
                 COALESCE(SUM(CASE WHEN o.quantity IS NULL OR o.quantity < 1 THEN 1 ELSE o.quantity END), 0) as total_qty_sold,
@@ -9713,10 +9730,10 @@ async def get_products_sales_stats() -> list[dict]:
             ORDER BY total_qty_sold DESC
         """)
         rows = await cursor.fetchall()
-        
+
         from database.models import get_all_stock_counts
         stock_counts = await get_all_stock_counts()
-        
+
         stats = []
         for r in rows:
             stats.append({

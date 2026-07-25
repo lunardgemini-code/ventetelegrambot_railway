@@ -5366,6 +5366,33 @@ async def api_set_payment_settings(data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@api.get("/api/settings/product-stack", dependencies=[Depends(verify_api_key)])
+async def api_get_product_stack_settings():
+    from database.models import get_product_stack_mode
+    try:
+        mode = await get_product_stack_mode()
+        return {"mode": mode}
+    except Exception as exc:
+        logger.error("API error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/settings/product-stack", dependencies=[Depends(verify_api_key)])
+async def api_set_product_stack_settings(data: dict):
+    from database.models import set_product_stack_mode
+    try:
+        mode = str(data.get("mode") or "stack").strip().lower()
+        if mode not in ("stack", "off", "hide"):
+            raise HTTPException(status_code=400, detail="Invalid mode. Must be 'stack', 'off', or 'hide'.")
+        updated_mode = await set_product_stack_mode(mode)
+        return {"status": "success", "mode": updated_mode}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("API error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 # ── Admin notifications utility ──
 async def notify_admins(text: str, reply_markup=None):
     """Send a notification message to all admin Telegram IDs."""

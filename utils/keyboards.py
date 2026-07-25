@@ -180,16 +180,16 @@ def profile_keyboard(lang: str = "fr", is_reseller: bool = False) -> InlineKeybo
     """Profile menu with Referral Program button and API for resellers."""
     ref_btn = {"fr": "👥 Programme de Parrainage", "en": "👥 Referral Program", "ar": "👥 برنامج الإحالة", "zh": "👥 推荐计划", "vi": "👥 Chương trình giới thiệu", "ru": "👥 Реферальная программа"}.get(lang, "👥 Programme de Parrainage")
     api_btn = {"fr": "🔌 Mon API Revendeur", "en": "🔌 My Reseller API", "ar": "🔌 واجهة برمجة تطبيقات الموزع الخاص بي", "zh": "🔌 我的经销商 API", "vi": "🔌 API đại lý của tôi", "ru": "🔌 Мой API реселлера"}.get(lang, "🔌 Mon API Revendeur")
-    
+
     buttons = [
         [make_button("btn_referral", lang, callback_data="show_referrals", custom_text=ref_btn)]
     ]
-    
+
     if is_reseller:
         buttons.append([make_button("btn_api", lang, callback_data="menu_api", custom_text=api_btn)])
-        
+
     buttons.append([make_button("btn_back", lang, callback_data="back_main")])
-    
+
     return InlineKeyboardMarkup(buttons)
 
 
@@ -312,17 +312,30 @@ def categories_keyboard(categories: list[dict], lang: str = "fr") -> InlineKeybo
     return InlineKeyboardMarkup(buttons)
 
 
-def products_keyboard(products: list[dict], stock_counts: dict, lang: str = "fr") -> InlineKeyboardMarkup:
+def products_keyboard(products: list[dict], stock_counts: dict, lang: str = "fr", show_stack_separator: bool = False) -> InlineKeyboardMarkup:
     """One button per product showing name, price and stock count or ❌."""
     from utils.helpers import format_price
     buttons = []
+    has_in_stock = any((p.get("delivery_type") == "activation" or stock_counts.get(p["id"], 0) > 0) for p in products)
+    added_separator = False
+
     for prod in products:
         stock = stock_counts.get(prod["id"], 0)
         is_activation = prod.get("delivery_type") == "activation"
+
+        if show_stack_separator and has_in_stock and not added_separator and not is_activation and stock <= 0:
+            separator_txt = {
+                "fr": "── 🔴 EN RUPTURE DE STOCK ──",
+                "en": "── 🔴 OUT OF STOCK ──",
+                "ar": "── 🔴 نفذت الكمية ──",
+            }.get(lang, "── 🔴 EN RUPTURE DE STOCK ──")
+            buttons.append([InlineKeyboardButton(separator_txt, callback_data="noop")])
+            added_separator = True
+
         price_lbl = format_price(prod.get("price_usd")).lstrip("$")
         name = prod.get("name") or "?"
         emoji = prod.get("emoji") or "📦"
-        
+
         custom_id = (prod.get("custom_emoji_id") or "").strip()
         # icon_custom_emoji_id must be numeric; invalid IDs break the whole keyboard
         if custom_id and not custom_id.isdigit():
@@ -345,7 +358,7 @@ def products_keyboard(products: list[dict], stock_counts: dict, lang: str = "fr"
                 label = f"{name} | ${price_lbl} | {rupture_txt}"
             else:
                 label = f"⚠️ {name} | ${price_lbl} | {rupture_txt}"
-            
+
         btn_kwargs = {}
         if custom_id:
             btn_kwargs["icon_custom_emoji_id"] = custom_id
@@ -395,16 +408,16 @@ async def payment_method_keyboard(order_id: int, lang: str = "fr", wallet_balanc
     from utils.helpers import format_price
     from database.models import get_setting
     buttons = []
-    
+
     # Always show wallet button
     label = t("btn_pay_wallet", lang).replace("${balance}", format_price(wallet_balance))
     buttons.append([make_button("btn_pay_wallet", lang, callback_data=f"pay_wallet:{order_id}", custom_text=label)])
-    
+
     # Always show binance pay button
     binance_label = t("btn_pay_binance", lang).lstrip("◇ ").strip()
     buttons.append([InlineKeyboardButton(
-        binance_label, 
-        callback_data=f"pay_binance:{order_id}", 
+        binance_label,
+        callback_data=f"pay_binance:{order_id}",
         icon_custom_emoji_id="5388622778817589921"
     )])
 
@@ -434,8 +447,8 @@ async def payment_method_keyboard(order_id: int, lang: str = "fr", wallet_balanc
             "ar": "دفع عبر BEP20 (USDT)"
         }.get(lang, "Payer avec BEP20 (USDT)")
         buttons.append([InlineKeyboardButton(
-            bep20_btn_text, 
-            callback_data=f"pay_bep20:{order_id}", 
+            bep20_btn_text,
+            callback_data=f"pay_bep20:{order_id}",
             icon_custom_emoji_id="5413589900450625318"
         )])
 
@@ -511,12 +524,12 @@ async def wallet_topup_method_keyboard(lang: str = "fr") -> InlineKeyboardMarkup
     """Choose wallet top-up method or cancel."""
     from database.models import get_setting
     buttons = []
-    
+
     # Always show binance pay button
     binance_label = t("btn_pay_binance", lang).lstrip("◇ ").strip()
     buttons.append([InlineKeyboardButton(
-        binance_label, 
-        callback_data="topup_binance", 
+        binance_label,
+        callback_data="topup_binance",
         icon_custom_emoji_id="5388622778817589921"
     )])
 
@@ -546,8 +559,8 @@ async def wallet_topup_method_keyboard(lang: str = "fr") -> InlineKeyboardMarkup
             "ar": "دفع عبر BEP20 (USDT)"
         }.get(lang, "Payer avec BEP20 (USDT)")
         buttons.append([InlineKeyboardButton(
-            bep20_btn_text, 
-            callback_data="topup_bep20", 
+            bep20_btn_text,
+            callback_data="topup_bep20",
             icon_custom_emoji_id="5413589900450625318"
         )])
 
