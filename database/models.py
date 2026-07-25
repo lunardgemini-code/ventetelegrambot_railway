@@ -1075,6 +1075,26 @@ async def get_pending_stock_alerts(product_id: int) -> list[dict]:
         await db.close()
 
 
+async def get_pending_stock_alert_counts() -> dict[int, int]:
+    """Return pending restock subscribers grouped by product."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT a.product_id, COUNT(*) AS subscriber_count
+               FROM product_stock_alerts a
+               LEFT JOIN users u ON u.telegram_id = a.user_telegram_id
+               WHERE a.notified_at IS NULL
+                 AND COALESCE(u.is_banned, 0) = 0
+               GROUP BY a.product_id"""
+        )
+        return {
+            int(row["product_id"]): int(row["subscriber_count"] or 0)
+            for row in await cursor.fetchall()
+        }
+    finally:
+        await db.close()
+
+
 async def mark_stock_alerts_notified(product_id: int, user_ids: list[int]) -> None:
     if not user_ids:
         return
@@ -1169,6 +1189,298 @@ async def get_all_products() -> list[dict]:
             return [dict(product) for product in products]
 
 
+AUTO_HIDE_DEFAULT_DELAY_MINUTES = 60
+AUTO_HIDE_MIN_DELAY_MINUTES = 5
+AUTO_HIDE_MAX_DELAY_MINUTES = 7 * 24 * 60
+
+
+def _auto_hide_delay_minutes(value) -> int:
+    try:
+        delay = int(value)
+    except (TypeError, ValueError):
+        delay = AUTO_HIDE_DEFAULT_DELAY_MINUTES
+    return max(AUTO_HIDE_MIN_DELAY_MINUTES, min(delay, AUTO_HIDE_MAX_DELAY_MINUTES))
+
+
+def _parse_db_datetime(value) -> datetime | None:
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
+
+
+def product_auto_hide_status(
+    product: dict,
+    stock_count: int,
+    *,
+    now: datetime | None = None,
+) -> dict:
+    """Return the derived client visibility state without touching the database."""
+    now = now or _utcnow()
+    delivery_type = str(product.get("delivery_type") or "stock")
+    eligible = delivery_type != "activation"
+    enabled = eligible and bool(product.get("auto_hide_out_of_stock"))
+    stock = max(0, int(stock_count or 0))
+    delay_minutes = _auto_hide_delay_minutes(
+        product.get("auto_hide_delay_minutes")
+    )
+    out_since = _parse_db_datetime(product.get("out_of_stock_since"))
+    deadline = (
+        out_since + timedelta(minutes=delay_minutes)
+        if out_since is not None
+        else None
+    )
+    accumulated = max(0, int(product.get("auto_hidden_total_seconds") or 0))
+
+    if not eligible:
+        status = "not_applicable"
+        visible = True
+        remaining_seconds = None
+    elif not enabled:
+        status = "disabled"
+        visible = True
+        remaining_seconds = None
+    elif stock > 0:
+        status = "in_stock"
+        visible = True
+        remaining_seconds = None
+    elif deadline is None:
+        # A startup or stock-mutation reconciliation will persist the timer.
+        # Remaining visible is safer than hiding a product without a durable start.
+        status = "grace"
+        visible = True
+        remaining_seconds = delay_minutes * 60
+    else:
+        remaining_seconds = max(0, int((deadline - now).total_seconds()))
+        visible = remaining_seconds > 0
+        status = "grace" if visible else "hidden"
+
+    current_hidden_seconds = (
+        max(0, int((now - deadline).total_seconds()))
+        if enabled and stock <= 0 and deadline is not None and now >= deadline
+        else 0
+    )
+    return {
+        "auto_hide_eligible": eligible,
+        "auto_hide_status": status,
+        "auto_hide_customer_visible": visible,
+        "auto_hide_remaining_seconds": remaining_seconds,
+        "auto_hide_deadline": deadline.isoformat(sep=" ") if deadline else None,
+        "auto_hidden_seconds_total": accumulated + current_hidden_seconds,
+    }
+
+
+def product_is_customer_visible(
+    product: dict,
+    stock_count: int,
+    *,
+    is_admin: bool = False,
+    now: datetime | None = None,
+) -> bool:
+    if is_admin:
+        return True
+    return bool(
+        product_auto_hide_status(product, stock_count, now=now)[
+            "auto_hide_customer_visible"
+        ]
+    )
+
+
+def _hidden_seconds_since(
+    product: dict,
+    now: datetime,
+    *,
+    delay_minutes: int | None = None,
+) -> int:
+    out_since = _parse_db_datetime(product.get("out_of_stock_since"))
+    if out_since is None:
+        return 0
+    delay = _auto_hide_delay_minutes(
+        delay_minutes
+        if delay_minutes is not None
+        else product.get("auto_hide_delay_minutes")
+    )
+    return max(
+        0,
+        int((now - (out_since + timedelta(minutes=delay))).total_seconds()),
+    )
+
+
+async def reconcile_product_availability_states(
+    product_ids: list[int] | set[int] | tuple[int, ...] | None = None,
+    *,
+    stock_counts: dict[int, int] | None = None,
+) -> int:
+    """Persist only stock-state transitions; no writes occur for steady states."""
+    products = await get_all_products()
+    wanted = (
+        {int(product_id) for product_id in product_ids}
+        if product_ids is not None
+        else None
+    )
+    products = [
+        product
+        for product in products
+        if wanted is None or int(product["id"]) in wanted
+    ]
+    if not products:
+        return 0
+    if stock_counts is None:
+        stock_counts = await get_all_stock_counts()
+
+    now = _utcnow()
+    changed = 0
+    db = await get_db()
+    try:
+        for product in products:
+            product_id = int(product["id"])
+            stock = max(0, int(stock_counts.get(product_id, 0) or 0))
+            enabled = bool(product.get("auto_hide_out_of_stock"))
+            eligible = str(product.get("delivery_type") or "stock") != "activation"
+            out_since = _parse_db_datetime(product.get("out_of_stock_since"))
+
+            if eligible and enabled and stock <= 0:
+                if out_since is None:
+                    await db.execute(
+                        "UPDATE products SET out_of_stock_since = ? WHERE id = ? "
+                        "AND out_of_stock_since IS NULL",
+                        (now.isoformat(sep=" "), product_id),
+                    )
+                    changed += 1
+                continue
+
+            if out_since is None:
+                continue
+            hidden_seconds = _hidden_seconds_since(product, now)
+            last_restocked = (
+                now.isoformat(sep=" ") if eligible and stock > 0 else None
+            )
+            await db.execute(
+                """UPDATE products
+                   SET out_of_stock_since = NULL,
+                       auto_hidden_total_seconds =
+                           COALESCE(auto_hidden_total_seconds, 0) + ?,
+                       last_restocked_at = COALESCE(?, last_restocked_at)
+                   WHERE id = ?""",
+                (hidden_seconds, last_restocked, product_id),
+            )
+            changed += 1
+        if changed:
+            await db.commit()
+            clear_products_cache()
+        return changed
+    finally:
+        await db.close()
+
+
+async def reconcile_product_availability_state(
+    product_id: int,
+    *,
+    stock_count: int | None = None,
+) -> bool:
+    counts = (
+        {int(product_id): int(stock_count)}
+        if stock_count is not None
+        else None
+    )
+    changed = await reconcile_product_availability_states(
+        [int(product_id)],
+        stock_counts=counts,
+    )
+    return changed > 0
+
+
+async def set_product_auto_hide_settings(
+    product_id: int,
+    *,
+    enabled: bool,
+    delay_minutes: int = AUTO_HIDE_DEFAULT_DELAY_MINUTES,
+) -> dict | None:
+    """Update one product's policy and initialize or clear its durable timer."""
+    product = await get_product(product_id)
+    if not product:
+        return None
+    delay = _auto_hide_delay_minutes(delay_minutes)
+    eligible = str(product.get("delivery_type") or "stock") != "activation"
+    enabled = bool(enabled) and eligible
+    stock = await get_stock_count(product_id) if eligible else 0
+    now = _utcnow()
+    out_since = _parse_db_datetime(product.get("out_of_stock_since"))
+    accumulated_delta = 0
+
+    if not enabled or stock > 0:
+        accumulated_delta = _hidden_seconds_since(product, now)
+        next_out_since = None
+    elif out_since is not None and bool(product.get("auto_hide_out_of_stock")):
+        next_out_since = out_since.isoformat(sep=" ")
+    else:
+        next_out_since = now.isoformat(sep=" ")
+
+    db = await get_db()
+    try:
+        await db.execute(
+            """UPDATE products
+               SET auto_hide_out_of_stock = ?,
+                   auto_hide_delay_minutes = ?,
+                   out_of_stock_since = ?,
+                   auto_hidden_total_seconds =
+                       COALESCE(auto_hidden_total_seconds, 0) + ?
+               WHERE id = ?""",
+            (
+                1 if enabled else 0,
+                delay,
+                next_out_since,
+                accumulated_delta,
+                int(product_id),
+            ),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+    clear_products_cache()
+    return await get_product(product_id)
+
+
+async def reset_product_auto_hide_timer(product_id: int) -> dict | None:
+    product = await get_product(product_id)
+    if not product:
+        return None
+    if (
+        str(product.get("delivery_type") or "stock") == "activation"
+        or not bool(product.get("auto_hide_out_of_stock"))
+    ):
+        return product
+    stock = await get_stock_count(product_id)
+    if stock > 0:
+        return product
+    now = _utcnow()
+    hidden_seconds = _hidden_seconds_since(product, now)
+    db = await get_db()
+    try:
+        await db.execute(
+            """UPDATE products
+               SET out_of_stock_since = ?,
+                   auto_hidden_total_seconds =
+                       COALESCE(auto_hidden_total_seconds, 0) + ?
+               WHERE id = ?""",
+            (now.isoformat(sep=" "), hidden_seconds, int(product_id)),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+    clear_products_cache()
+    return await get_product(product_id)
+
+
 async def add_product(
     category_id: int,
     name: str,
@@ -1197,17 +1509,21 @@ async def add_product(
     confirmation_message_vi: str = "",
     confirmation_message_ru: str = "",
     delivery_type: str = "stock",
+    auto_hide_out_of_stock: bool = False,
+    auto_hide_delay_minutes: int = AUTO_HIDE_DEFAULT_DELAY_MINUTES,
 ) -> int:
     """Ajoute un nouveau produit et retourne son identifiant."""
     price_usd = usd_float(price_usd, places=4, allow_zero=False)
     delivery_type = delivery_type if delivery_type in ("activation", "supplier_api") else "stock"
+    auto_hide_out_of_stock = bool(auto_hide_out_of_stock) and delivery_type != "activation"
+    auto_hide_delay_minutes = _auto_hide_delay_minutes(auto_hide_delay_minutes)
     db = await get_db()
     try:
         cursor = await db.execute(
             """INSERT INTO products
-               (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id, description_fr, description_ar, description_zh, description_vi, description_ru, activation_message, activation_message_fr, activation_message_ar, activation_message_zh, activation_message_vi, activation_message_ru, confirmation_message, confirmation_message_fr, confirmation_message_ar, confirmation_message_zh, confirmation_message_vi, confirmation_message_ru, delivery_type)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id, description_fr, description_ar, description_zh, description_vi, description_ru, activation_message, activation_message_fr, activation_message_ar, activation_message_zh, activation_message_vi, activation_message_ru, confirmation_message, confirmation_message_fr, confirmation_message_ar, confirmation_message_zh, confirmation_message_vi, confirmation_message_ru, delivery_type),
+               (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id, description_fr, description_ar, description_zh, description_vi, description_ru, activation_message, activation_message_fr, activation_message_ar, activation_message_zh, activation_message_vi, activation_message_ru, confirmation_message, confirmation_message_fr, confirmation_message_ar, confirmation_message_zh, confirmation_message_vi, confirmation_message_ru, delivery_type, auto_hide_out_of_stock, auto_hide_delay_minutes, out_of_stock_since)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (category_id, name, description, price_usd, warranty_days, emoji, custom_emoji_id, image_url, binance_account_id, description_fr, description_ar, description_zh, description_vi, description_ru, activation_message, activation_message_fr, activation_message_ar, activation_message_zh, activation_message_vi, activation_message_ru, confirmation_message, confirmation_message_fr, confirmation_message_ar, confirmation_message_zh, confirmation_message_vi, confirmation_message_ru, delivery_type, 1 if auto_hide_out_of_stock else 0, auto_hide_delay_minutes, _utcnow().isoformat(sep=" ") if auto_hide_out_of_stock else None),
         )
         await db.commit()
         clear_products_cache()
@@ -2401,9 +2717,10 @@ async def add_stock_items(product_id: int, items: list[str]) -> int:
             [(product_id, item) for item in items],
         )
         await db.commit()
-        return len(items)
     finally:
         await db.close()
+    await reconcile_product_availability_state(product_id)
+    return len(items)
 
 
 async def get_available_stock_item(product_id: int) -> dict | None:
@@ -2442,22 +2759,39 @@ async def mark_stock_sold(stock_id: int, order_id: int) -> bool:
     Retourne True si l'article a Ã©tÃ© marquÃ©, False s'il Ã©tait dÃ©jÃ  vendu.
     """
     db = await get_db()
+    product_id = None
     try:
+        product_cursor = await db.execute(
+            "SELECT product_id FROM stock_items WHERE id = ?",
+            (stock_id,),
+        )
+        product_row = await product_cursor.fetchone()
+        product_id = int(product_row["product_id"]) if product_row else None
         cursor = await db.execute(
             "UPDATE stock_items SET is_sold = 1, sold_to_order_id = ?, sold_at = CURRENT_TIMESTAMP WHERE id = ? AND is_sold = 0",
             (order_id, stock_id),
         )
         await db.commit()
-        return cursor.rowcount > 0
+        changed = cursor.rowcount > 0
     finally:
         await db.close()
+    if changed and product_id is not None:
+        await reconcile_product_availability_state(product_id)
+    return changed
 
 
 async def release_stock_item(stock_id: int) -> None:
     _clear_stock_cache()
     """RelÃ¢che un article (annule la vente). UtilisÃ© en cas de livraison partielle Ã©chouÃ©e."""
     db = await get_db()
+    product_id = None
     try:
+        product_cursor = await db.execute(
+            "SELECT product_id FROM stock_items WHERE id = ?",
+            (stock_id,),
+        )
+        product_row = await product_cursor.fetchone()
+        product_id = int(product_row["product_id"]) if product_row else None
         await db.execute(
             "UPDATE stock_items SET is_sold = 0, sold_to_order_id = NULL, sold_at = NULL WHERE id = ?",
             (stock_id,),
@@ -2465,6 +2799,8 @@ async def release_stock_item(stock_id: int) -> None:
         await db.commit()
     finally:
         await db.close()
+    if product_id is not None:
+        await reconcile_product_availability_state(product_id)
 
 
 async def reserve_stock_items_for_order(
@@ -2482,7 +2818,7 @@ async def reserve_stock_items_for_order(
     for attempt in range(3):
         try:
             async with _get_critical_db_semaphore():
-                return await _reserve_stock_items_for_order_once(
+                result = await _reserve_stock_items_for_order_once(
                     order_id,
                     product_id,
                     allowed_statuses,
@@ -2490,6 +2826,18 @@ async def reserve_stock_items_for_order(
                     # expiring Hrana stream from the general read pool.
                     fresh_connection=True,
                 )
+            if result:
+                try:
+                    await reconcile_product_availability_state(product_id)
+                except Exception as exc:
+                    # Visibility bookkeeping must never block a paid delivery.
+                    logger.warning(
+                        "Could not reconcile auto-hide state after reserving "
+                        "stock for order %s: %s",
+                        order_id,
+                        exc,
+                    )
+            return result
         except Exception as exc:
             last_exc = exc
             if not is_transient_db_connection_error(exc) or attempt == 2:
@@ -2617,7 +2965,14 @@ async def delete_stock_item(stock_id: int) -> None:
     invalidate_stats_cache()
     """Supprime un article du stock (uniquement si non vendu)."""
     db = await get_db()
+    product_id = None
     try:
+        product_cursor = await db.execute(
+            "SELECT product_id FROM stock_items WHERE id = ? AND is_sold = 0",
+            (stock_id,),
+        )
+        product_row = await product_cursor.fetchone()
+        product_id = int(product_row["product_id"]) if product_row else None
         await db.execute(
             "DELETE FROM stock_items WHERE id = ? AND is_sold = 0",
             (stock_id,),
@@ -2625,6 +2980,8 @@ async def delete_stock_item(stock_id: int) -> None:
         await db.commit()
     finally:
         await db.close()
+    if product_id is not None:
+        await reconcile_product_availability_state(product_id)
 
 
 # â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—

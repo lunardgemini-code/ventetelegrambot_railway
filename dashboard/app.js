@@ -9,6 +9,32 @@ function toggleActivationFields(type) {
         const container = $('edit-prod-act-msg-container');
         if (container) container.style.display = (val === 'activation') ? 'block' : 'none';
     }
+    syncAutoHideControls(type === 'add' ? 'prod' : 'edit-prod');
+}
+
+function syncAutoHideControls(prefix) {
+    const delivery = $(prefix === 'prod' ? 'prod-delivery-type' : 'edit-prod-delivery-type');
+    const enabled = $(`${prefix}-auto-hide-enabled`);
+    const delay = $(`${prefix}-auto-hide-delay`);
+    const panel = $(`${prefix}-auto-hide-panel`);
+    if (!enabled || !delay) return;
+    const activation = delivery?.value === 'activation';
+    if (activation) enabled.checked = false;
+    enabled.disabled = activation;
+    delay.disabled = activation || !enabled.checked;
+    panel?.classList.toggle('is-disabled', activation);
+}
+
+function collectAutoHideSettings(prefix) {
+    const enabled = Boolean($(`${prefix}-auto-hide-enabled`)?.checked);
+    const delay = Number($(`${prefix}-auto-hide-delay`)?.value || 60);
+    if (!Number.isInteger(delay) || delay < 5 || delay > 10080) {
+        throw new Error(t('auto_hide_delay_error'));
+    }
+    return {
+        auto_hide_out_of_stock: enabled,
+        auto_hide_delay_minutes: delay,
+    };
 }
 
 // dashboard/app.js — BatmanBot V2 Admin Dashboard with all features
@@ -615,6 +641,45 @@ ru: {
 }
 };
 Object.entries(MOBILE_PRODUCT_TRANSLATIONS).forEach(([language, strings]) => Object.assign(LANG[language], strings));
+const PRODUCT_AUTO_HIDE_TRANSLATIONS = {
+fr: {
+    auto_hide_title:"Masquer après une rupture prolongée", auto_hide_help:"Le produit reste visible pendant le délai, puis disparaît uniquement pour les clients.", auto_hide_delay:"Délai avant masquage", auto_hide_admin_visible:"Les administrateurs continuent toujours à voir le produit.", minutes:"minutes",
+    auto_hide_filter_label:"Filtrer la visibilité automatique", auto_hide_filter_all:"Tous les produits", auto_hide_filter_hidden:"Masqués automatiquement", auto_hide_filter_grace:"Délai en cours", auto_hide_filter_enabled:"Auto-hide activé", auto_hide_filter_disabled:"Auto-hide désactivé",
+    auto_hide_status_hidden:"Masqué aux clients", auto_hide_status_grace:"Masquage dans {time}", auto_hide_status_in_stock:"Auto-hide prêt", auto_hide_status_disabled:"Auto-hide désactivé", auto_hide_status_na:"Non applicable",
+    auto_hide_summary:"{enabled} activé(s) · {hidden} masqué(s) · {grace} en attente", auto_hide_subscribers:"{count} client(s) attendent le restock", auto_hide_reset:"Redémarrer le délai", auto_hide_reset_confirm:"Redémarrer maintenant le délai d’auto-hide pour {product} ?", auto_hide_reset_success:"Le délai d’auto-hide a redémarré.", auto_hide_saved:"Réglage auto-hide enregistré.", auto_hide_delay_error:"Le délai d’auto-hide doit être compris entre 5 minutes et 7 jours."
+},
+en: {
+    auto_hide_title:"Hide after an extended stockout", auto_hide_help:"The product remains visible during the delay, then disappears for customers only.", auto_hide_delay:"Delay before hiding", auto_hide_admin_visible:"Administrators always continue to see the product.", minutes:"minutes",
+    auto_hide_filter_label:"Filter automatic visibility", auto_hide_filter_all:"All products", auto_hide_filter_hidden:"Automatically hidden", auto_hide_filter_grace:"Grace period active", auto_hide_filter_enabled:"Auto-hide enabled", auto_hide_filter_disabled:"Auto-hide disabled",
+    auto_hide_status_hidden:"Hidden from customers", auto_hide_status_grace:"Hides in {time}", auto_hide_status_in_stock:"Auto-hide ready", auto_hide_status_disabled:"Auto-hide disabled", auto_hide_status_na:"Not applicable",
+    auto_hide_summary:"{enabled} enabled · {hidden} hidden · {grace} waiting", auto_hide_subscribers:"{count} customer(s) waiting for restock", auto_hide_reset:"Restart delay", auto_hide_reset_confirm:"Restart the auto-hide delay for {product} now?", auto_hide_reset_success:"The auto-hide delay was restarted.", auto_hide_saved:"Auto-hide setting saved.", auto_hide_delay_error:"The auto-hide delay must be between 5 minutes and 7 days."
+},
+ar: {
+    auto_hide_title:"الإخفاء بعد نفاد المخزون لفترة", auto_hide_help:"يبقى المنتج ظاهرًا خلال المهلة ثم يختفي للعملاء فقط.", auto_hide_delay:"المهلة قبل الإخفاء", auto_hide_admin_visible:"يستمر المسؤولون دائمًا في رؤية المنتج.", minutes:"دقائق",
+    auto_hide_filter_label:"تصفية الظهور التلقائي", auto_hide_filter_all:"كل المنتجات", auto_hide_filter_hidden:"مخفية تلقائيًا", auto_hide_filter_grace:"المهلة جارية", auto_hide_filter_enabled:"الإخفاء التلقائي مفعّل", auto_hide_filter_disabled:"الإخفاء التلقائي معطّل",
+    auto_hide_status_hidden:"مخفي عن العملاء", auto_hide_status_grace:"سيُخفى خلال {time}", auto_hide_status_in_stock:"الإخفاء التلقائي جاهز", auto_hide_status_disabled:"الإخفاء التلقائي معطّل", auto_hide_status_na:"غير مطبق",
+    auto_hide_summary:"{enabled} مفعّل · {hidden} مخفي · {grace} قيد الانتظار", auto_hide_subscribers:"{count} عميل ينتظر عودة المخزون", auto_hide_reset:"إعادة بدء المهلة", auto_hide_reset_confirm:"إعادة بدء مهلة الإخفاء التلقائي للمنتج {product} الآن؟", auto_hide_reset_success:"تمت إعادة بدء مهلة الإخفاء التلقائي.", auto_hide_saved:"تم حفظ إعداد الإخفاء التلقائي.", auto_hide_delay_error:"يجب أن تكون مهلة الإخفاء التلقائي بين 5 دقائق و7 أيام."
+},
+zh: {
+    auto_hide_title:"长时间缺货后隐藏", auto_hide_help:"产品在等待期内仍会显示，之后仅对客户隐藏。", auto_hide_delay:"隐藏前等待时间", auto_hide_admin_visible:"管理员始终可以看到该产品。", minutes:"分钟",
+    auto_hide_filter_label:"筛选自动显示状态", auto_hide_filter_all:"所有产品", auto_hide_filter_hidden:"已自动隐藏", auto_hide_filter_grace:"等待期中", auto_hide_filter_enabled:"已启用自动隐藏", auto_hide_filter_disabled:"已停用自动隐藏",
+    auto_hide_status_hidden:"已对客户隐藏", auto_hide_status_grace:"将在 {time} 后隐藏", auto_hide_status_in_stock:"自动隐藏已就绪", auto_hide_status_disabled:"自动隐藏已停用", auto_hide_status_na:"不适用",
+    auto_hide_summary:"已启用 {enabled} · 已隐藏 {hidden} · 等待中 {grace}", auto_hide_subscribers:"{count} 位客户等待补货", auto_hide_reset:"重新开始等待期", auto_hide_reset_confirm:"现在为 {product} 重新开始自动隐藏等待期吗？", auto_hide_reset_success:"自动隐藏等待期已重新开始。", auto_hide_saved:"自动隐藏设置已保存。", auto_hide_delay_error:"自动隐藏等待时间必须在 5 分钟到 7 天之间。"
+},
+vi: {
+    auto_hide_title:"Ẩn sau khi hết hàng kéo dài", auto_hide_help:"Sản phẩm vẫn hiển thị trong thời gian chờ, sau đó chỉ ẩn với khách hàng.", auto_hide_delay:"Thời gian chờ trước khi ẩn", auto_hide_admin_visible:"Quản trị viên luôn nhìn thấy sản phẩm.", minutes:"phút",
+    auto_hide_filter_label:"Lọc trạng thái hiển thị tự động", auto_hide_filter_all:"Tất cả sản phẩm", auto_hide_filter_hidden:"Đã tự động ẩn", auto_hide_filter_grace:"Đang trong thời gian chờ", auto_hide_filter_enabled:"Đã bật tự động ẩn", auto_hide_filter_disabled:"Đã tắt tự động ẩn",
+    auto_hide_status_hidden:"Đã ẩn với khách hàng", auto_hide_status_grace:"Ẩn sau {time}", auto_hide_status_in_stock:"Tự động ẩn đã sẵn sàng", auto_hide_status_disabled:"Tự động ẩn đã tắt", auto_hide_status_na:"Không áp dụng",
+    auto_hide_summary:"{enabled} đã bật · {hidden} đã ẩn · {grace} đang chờ", auto_hide_subscribers:"{count} khách đang chờ nhập hàng", auto_hide_reset:"Khởi động lại thời gian chờ", auto_hide_reset_confirm:"Khởi động lại thời gian tự động ẩn cho {product} ngay bây giờ?", auto_hide_reset_success:"Đã khởi động lại thời gian tự động ẩn.", auto_hide_saved:"Đã lưu cài đặt tự động ẩn.", auto_hide_delay_error:"Thời gian tự động ẩn phải từ 5 phút đến 7 ngày."
+},
+ru: {
+    auto_hide_title:"Скрывать после длительного отсутствия", auto_hide_help:"Товар остаётся видимым в течение задержки, затем скрывается только от клиентов.", auto_hide_delay:"Задержка перед скрытием", auto_hide_admin_visible:"Администраторы всегда продолжают видеть товар.", minutes:"минут",
+    auto_hide_filter_label:"Фильтр автоматической видимости", auto_hide_filter_all:"Все товары", auto_hide_filter_hidden:"Автоматически скрытые", auto_hide_filter_grace:"Идёт задержка", auto_hide_filter_enabled:"Автоскрытие включено", auto_hide_filter_disabled:"Автоскрытие выключено",
+    auto_hide_status_hidden:"Скрыт от клиентов", auto_hide_status_grace:"Скроется через {time}", auto_hide_status_in_stock:"Автоскрытие готово", auto_hide_status_disabled:"Автоскрытие выключено", auto_hide_status_na:"Не применяется",
+    auto_hide_summary:"{enabled} включено · {hidden} скрыто · {grace} ожидает", auto_hide_subscribers:"{count} клиент(ов) ждут пополнения", auto_hide_reset:"Перезапустить задержку", auto_hide_reset_confirm:"Перезапустить задержку автоскрытия для {product} сейчас?", auto_hide_reset_success:"Задержка автоскрытия перезапущена.", auto_hide_saved:"Настройка автоскрытия сохранена.", auto_hide_delay_error:"Задержка автоскрытия должна быть от 5 минут до 7 дней."
+}
+};
+Object.entries(PRODUCT_AUTO_HIDE_TRANSLATIONS).forEach(([language, strings]) => Object.assign(LANG[language], strings));
 const OPERATIONAL_SCREEN_TRANSLATIONS = {
 fr: {
     finance_title:"Gestion financière", finance_all_methods:"Toutes les méthodes", finance_internal_wallet:"Portefeuille interne", finance_withdraw:"Retirer", finance_adjust:"Ajuster", finance_topups_30:"Rechargements wallet (30 jours)", review_show_archived:"Afficher les dossiers classés", review_payment:"Paiement", review_loading_payments:"Chargement des paiements...", binance_add_account:"Ajouter un compte", binance_no_accounts:"Aucun compte Binance.",
@@ -842,7 +907,7 @@ const DOM = {
     autoscaleHistory:$('autoscale-history'),
     dashboardRange:$('dashboard-range'), pageContext:$('page-context'), toastRegion:$('toast-region'),
     badgeOrders:$('badge-orders'), badgePaymentReview:$('badge-payment-review'), badgeActivations:$('badge-activations'), badgeTickets:$('badge-tickets'), apiStatusBadge:$('api-status-badge'),
-    productsTableBody:$('products-table-body'),
+    productsTableBody:$('products-table-body'), productAutoHideFilter:$('product-auto-hide-filter'), productAutoHideSummary:$('product-auto-hide-summary'),
     statsProductsTableBody:$('stats-products-table-body'),
     statsProductSearch:$('stats-product-search'),
     statsKpiTopProduct:$('stats-kpi-top-product'),
@@ -1300,6 +1365,7 @@ function handleDelegatedDashboardClick(event) {
         case 'open-stock': if (id) return void openStockModal(id); break;
         case 'toggle-mobile-product-details': return toggleMobileProductRow(element);
         case 'toggle-product': if (id) return void toggleProductVisibility(id); break;
+        case 'reset-product-auto-hide': if (id) return void resetProductAutoHide(id); break;
         case 'edit-product': if (id) return void openEditProduct(id); break;
         case 'open-tiers': if (id) return void openTiersModal(id); break;
         case 'delete-product': if (id) return void deleteProduct(id); break;
@@ -1515,6 +1581,8 @@ function enhanceMobileProductRows(products) {
         activeLabel.textContent = t(product.is_active ? 'active' : 'inactive');
         activeState.append(dot, activeLabel);
         meta.append(activeState);
+        const autoHideBadge = cells[5].querySelector('.auto-hide-status-badge')?.cloneNode(true);
+        if (autoHideBadge) meta.append(autoHideBadge);
 
         const chevron = document.createElement('i');
         chevron.className = 'fa-solid fa-chevron-down mobile-product-chevron';
@@ -1676,7 +1744,9 @@ function setupEvents() {
         DOM.prodId.value=''; 
         setDynamicPricingForm('prod', {});
         if (DOM.prodDeliveryType) DOM.prodDeliveryType.value='stock';
-        toggleActivationFields('add'); 
+        if ($('prod-auto-hide-enabled')) $('prod-auto-hide-enabled').checked = false;
+        if ($('prod-auto-hide-delay')) $('prod-auto-hide-delay').value = '60';
+        toggleActivationFields('add');
         
         if ($('prod-act-msg')) $('prod-act-msg').value = "Your activation is complete.\n\nProduct: {product}\nOrder: #{order_id}";
         if ($('prod-act-msg-fr')) $('prod-act-msg-fr').value = "Votre activation est terminée.\n\nProduit : {product}\nCommande : #{order_id}";
@@ -1744,6 +1814,15 @@ function setupEvents() {
     if ($('edit-prod-delivery-type')) {
         $('edit-prod-delivery-type').addEventListener('change', () => toggleActivationFields('edit'));
     }
+    if (DOM.productAutoHideFilter) {
+        DOM.productAutoHideFilter.addEventListener('change', applyProductAutoHideFilter);
+    }
+    ['prod', 'edit-prod'].forEach(prefix => {
+        $(`${prefix}-auto-hide-enabled`)?.addEventListener(
+            'change',
+            () => syncAutoHideControls(prefix),
+        );
+    });
     setupDynamicPricingControls('prod');
     setupDynamicPricingControls('edit-prod');
     const recalculateDynamicButton = $('edit-prod-dynamic-recalculate');
@@ -3499,24 +3578,103 @@ function renderStatsTable() {
 
 // Categories removed — products shown directly
 
+function formatAutoHideDuration(seconds) {
+    const totalMinutes = Math.max(0, Math.ceil(Number(seconds || 0) / 60));
+    const days = Math.floor(totalMinutes / 1440);
+    const hours = Math.floor((totalMinutes % 1440) / 60);
+    const minutes = totalMinutes % 60;
+    if (days) return `${days}d ${hours}h`;
+    if (hours) return `${hours}h ${minutes}m`;
+    return `${minutes}m`;
+}
+
+function autoHideStatusBadge(product) {
+    const status = product.auto_hide_status || (
+        product.delivery_type === 'activation' ? 'not_applicable' : 'disabled'
+    );
+    if (status === 'hidden') {
+        return `<span class="status-badge error auto-hide-status-badge"><i class="fa-solid fa-eye-slash"></i> ${escapeHtml(t('auto_hide_status_hidden'))}</span>`;
+    }
+    if (status === 'grace') {
+        return `<span class="status-badge pending auto-hide-status-badge"><i class="fa-solid fa-hourglass-half"></i> ${escapeHtml(tf('auto_hide_status_grace', {time:formatAutoHideDuration(product.auto_hide_remaining_seconds)}))}</span>`;
+    }
+    if (status === 'in_stock') {
+        return `<span class="status-badge info auto-hide-status-badge"><i class="fa-solid fa-eye"></i> ${escapeHtml(t('auto_hide_status_in_stock'))}</span>`;
+    }
+    if (status === 'not_applicable') {
+        return `<span class="status-badge neutral auto-hide-status-badge">${escapeHtml(t('auto_hide_status_na'))}</span>`;
+    }
+    return `<span class="status-badge neutral auto-hide-status-badge">${escapeHtml(t('auto_hide_status_disabled'))}</span>`;
+}
+
+function applyProductAutoHideFilter() {
+    const filter = DOM.productAutoHideFilter?.value || 'all';
+    let visibleRows = 0;
+    DOM.productsTableBody?.querySelectorAll('tr[data-id]').forEach(row => {
+        const status = row.dataset.autoHideStatus || 'disabled';
+        const enabled = row.dataset.autoHideEnabled === 'true';
+        const visible = filter === 'all'
+            || (filter === 'enabled' && enabled)
+            || (filter === 'disabled' && !enabled)
+            || status === filter;
+        row.hidden = !visible;
+        if (visible) visibleRows += 1;
+    });
+    if (window.productsSortable) {
+        window.productsSortable.option('disabled', filter !== 'all');
+    }
+    DOM.productsTableBody?.closest('table')?.classList.toggle(
+        'has-empty-filter',
+        visibleRows === 0 && Boolean(state.products?.length),
+    );
+}
+
+function renderProductAutoHideSummary(products) {
+    if (!DOM.productAutoHideSummary) return;
+    const eligible = products.filter(product => product.delivery_type !== 'activation');
+    const enabled = eligible.filter(product => Boolean(product.auto_hide_out_of_stock)).length;
+    const hidden = eligible.filter(product => product.auto_hide_status === 'hidden').length;
+    const grace = eligible.filter(product => product.auto_hide_status === 'grace').length;
+    DOM.productAutoHideSummary.textContent = tf('auto_hide_summary', {enabled, hidden, grace});
+}
+
+async function resetProductAutoHide(productId) {
+    const product = state.products.find(item => Number(item.id) === Number(productId));
+    if (!product || !confirm(tf('auto_hide_reset_confirm', {product:product.name || `#${productId}`}))) return;
+    const reset = await runDashboardAction(
+        () => apiCall(`/api/products/${productId}/auto-hide/reset`, 'POST'),
+        t('auto_hide_reset_success'),
+    );
+    if (reset) await loadProducts();
+}
+
 async function loadProducts() {
     const prods = await apiCall('/api/products'); state.products = prods;
+    renderProductAutoHideSummary(prods);
     if (prods.length > 0) {
         DOM.productsTableBody.innerHTML = prods.map(p => {
             const supplierProduct = p.delivery_type === 'supplier_api';
+            const autoHideEnabled = Boolean(p.auto_hide_out_of_stock) && p.delivery_type !== 'activation';
+            const autoHideReset = autoHideEnabled && Number(p.stock || 0) <= 0
+                ? `<button class="btn-table-action auto-hide-reset-action" data-action="reset-product-auto-hide" data-id="${Number(p.id)}" title="${escapeHtml(t('auto_hide_reset'))}"><i class="fa-solid fa-clock-rotate-left"></i></button>`
+                : '';
+            const subscriberNote = Number(p.stock_alert_subscribers || 0) > 0
+                ? `<small class="stock-subscriber-note" title="${escapeHtml(tf('auto_hide_subscribers', {count:Number(p.stock_alert_subscribers || 0)}))}"><i class="fa-solid fa-bell"></i> ${Number(p.stock_alert_subscribers || 0)}</small>`
+                : '';
             const stockActions = supplierProduct
                 ? `<button class="btn-table-action" data-action="switch-tab" data-tab-target="supplier-bots-tab" title="${escapeHtml(t('product_manage_supplier'))}" style="color:#a78bfa"><i class="fa-solid fa-plug"></i></button>`
                 : `<button class="btn-table-action" data-action="view-product-stock" data-id="${Number(p.id)}" title="${escapeHtml(t('product_view_stock'))}" style="color:#f59e0b;"><i class="fa-solid fa-box-open"></i></button><button class="btn-table-action stock" data-action="open-stock" data-id="${Number(p.id)}" title="${escapeHtml(t('stock_manage'))}"><i class="fa-solid fa-warehouse"></i></button>`;
-            return `<tr data-id="${p.id}">
+            return `<tr data-id="${p.id}" data-auto-hide-status="${escapeHtml(p.auto_hide_status || 'disabled')}" data-auto-hide-enabled="${autoHideEnabled}">
             <td class="drag-handle" style="cursor: grab; text-align: center;"><i class="fas fa-bars" style="color:var(--color-primary);"></i></td>
             <td><div class="prod-badge"><span class="prod-emoji">${escapeHtml(p.emoji||'📦')}</span><strong>${escapeHtml(p.name)}</strong>${supplierProduct ? '<span class="status-badge info">API</span>' : ''}</div></td>
             <td><strong>$${parseFloat(p.price_usd).toFixed(2)}</strong>${p.dynamic_pricing_enabled ? `<span class="dynamic-price-badge" title="${escapeHtml(p.dynamic_pricing_mode === 'suggestion' ? t('product_dynamic_suggestion') : t('product_dynamic_auto'))}"><i class="fa-solid fa-wave-square"></i> ${escapeHtml(t('product_dynamic'))}</span>` : ''}</td><td>${p.warranty_days||0} ${t('days')}</td>
-            <td>${p.delivery_type === 'activation' ? `<span class="stock-count-badge ok">${escapeHtml(t('product_activation'))}</span>` : `<span class="stock-count-badge ${p.stock===0?'empty':p.stock<3?'low':'ok'}">${p.stock}${supplierProduct ? ' API' : ''}</span>`}</td>
-            <td><span class="status-dot ${p.is_active?'online':''}"></span> ${p.is_active?t('active'):t('inactive')}</td>
-            <td><button class="btn-table-action ops-intelligence-action" data-ops-open="product" data-id="${Number(p.id)}" title="${escapeHtml(t('ops_view_intelligence'))}"><i class="fa-solid fa-chart-line"></i></button><button class="btn-table-action" data-action="toggle-product" data-id="${Number(p.id)}" title="${escapeHtml(p.is_active ? t('product_disable') : t('product_enable'))}" style="color:${p.is_active ? '#ef4444' : '#22c55e'};"><i class="fa-solid ${p.is_active ? 'fa-xmark' : 'fa-check'}"></i></button><button class="btn-table-action" data-action="edit-product" data-id="${Number(p.id)}" title="${escapeHtml(t('product_edit'))}" style="color:#3b82f6;"><i class="fa-solid fa-pen"></i></button>${stockActions}<button class="btn-table-action" data-action="open-tiers" data-id="${Number(p.id)}" title="${escapeHtml(t('product_tiers'))}" style="color:#a78bfa;"><i class="fa-solid fa-tags"></i></button><button class="btn-table-action delete" data-action="delete-product" data-id="${Number(p.id)}" title="${escapeHtml(t('product_delete'))}"><i class="fa-solid fa-trash-can"></i></button></td>
+            <td>${p.delivery_type === 'activation' ? `<span class="stock-count-badge ok">${escapeHtml(t('product_activation'))}</span>` : `<span class="stock-count-badge ${p.stock===0?'empty':p.stock<3?'low':'ok'}">${p.stock}${supplierProduct ? ' API' : ''}</span>${subscriberNote}`}</td>
+            <td><span class="status-dot ${p.is_active?'online':''}"></span> ${p.is_active?t('active'):t('inactive')}<div class="product-auto-hide-state">${autoHideStatusBadge(p)}</div></td>
+            <td><button class="btn-table-action ops-intelligence-action" data-ops-open="product" data-id="${Number(p.id)}" title="${escapeHtml(t('ops_view_intelligence'))}"><i class="fa-solid fa-chart-line"></i></button><button class="btn-table-action" data-action="toggle-product" data-id="${Number(p.id)}" title="${escapeHtml(p.is_active ? t('product_disable') : t('product_enable'))}" style="color:${p.is_active ? '#ef4444' : '#22c55e'};"><i class="fa-solid ${p.is_active ? 'fa-xmark' : 'fa-check'}"></i></button><button class="btn-table-action" data-action="edit-product" data-id="${Number(p.id)}" title="${escapeHtml(t('product_edit'))}" style="color:#3b82f6;"><i class="fa-solid fa-pen"></i></button>${stockActions}${autoHideReset}<button class="btn-table-action" data-action="open-tiers" data-id="${Number(p.id)}" title="${escapeHtml(t('product_tiers'))}" style="color:#a78bfa;"><i class="fa-solid fa-tags"></i></button><button class="btn-table-action delete" data-action="delete-product" data-id="${Number(p.id)}" title="${escapeHtml(t('product_delete'))}"><i class="fa-solid fa-trash-can"></i></button></td>
         </tr>`;
         }).join('');
         enhanceMobileProductRows(prods);
+        applyProductAutoHideFilter();
         if (DOM.broadcastBtnProductId) {
             DOM.broadcastBtnProductId.innerHTML = prods.map(p => `<option value="${Number(p.id)}">${escapeHtml(p.emoji||'📦')} ${escapeHtml(p.name)}</option>`).join('');
         }
@@ -3540,6 +3698,7 @@ async function loadProducts() {
                 }
             });
         }
+        applyProductAutoHideFilter();
     } else {
         DOM.productsTableBody.innerHTML = `<tr><td colspan="7" class="empty-state">${t('no_products')}</td></tr>`;
         if (DOM.broadcastBtnProductId) {
@@ -5629,6 +5788,16 @@ window.openEditProduct = function(productId) {
     if ($('edit-prod-desc-ru')) $('edit-prod-desc-ru').value = p.description_ru || '';
     if ($('edit-prod-image-url')) $('edit-prod-image-url').value = p.image_url || '';
     if ($('edit-prod-custom-emoji-id')) $('edit-prod-custom-emoji-id').value = p.custom_emoji_id || '';
+    if ($('edit-prod-auto-hide-enabled')) {
+        $('edit-prod-auto-hide-enabled').checked = Boolean(p.auto_hide_out_of_stock);
+    }
+    if ($('edit-prod-auto-hide-delay')) {
+        $('edit-prod-auto-hide-delay').value = String(p.auto_hide_delay_minutes || 60);
+    }
+    if ($('edit-prod-auto-hide-live-status')) {
+        const subscribers = Number(p.stock_alert_subscribers || 0);
+        $('edit-prod-auto-hide-live-status').innerHTML = `${autoHideStatusBadge(p)}${subscribers > 0 ? `<small><i class="fa-solid fa-bell"></i> ${escapeHtml(tf('auto_hide_subscribers', {count:subscribers}))}</small>` : ''}`;
+    }
     if ($('edit-prod-delivery-type')) {
         const deliverySelect = $('edit-prod-delivery-type');
         deliverySelect.value = p.delivery_type || 'stock';
@@ -5692,6 +5861,7 @@ $('edit-prod-form').addEventListener('submit', async (e) => {
     };
     try {
         Object.assign(data, collectDynamicPricing('edit-prod'));
+        Object.assign(data, collectAutoHideSettings('edit-prod'));
     } catch (error) {
         showToast(error.message, 'error');
         return;
@@ -6204,6 +6374,13 @@ window.openEditProdModal = function(id) {
     if (DOM.prodImageUrl) DOM.prodImageUrl.value = p.image_url || '';
     if (DOM.prodBinanceAccount) DOM.prodBinanceAccount.value = p.binance_account_id || '';
     if (DOM.prodDeliveryType) DOM.prodDeliveryType.value = p.delivery_type || 'stock';
+    if ($('prod-auto-hide-enabled')) {
+        $('prod-auto-hide-enabled').checked = Boolean(p.auto_hide_out_of_stock);
+    }
+    if ($('prod-auto-hide-delay')) {
+        $('prod-auto-hide-delay').value = String(p.auto_hide_delay_minutes || 60);
+    }
+    syncAutoHideControls('prod');
     if ($('prod-act-msg')) $('prod-act-msg').value = p.activation_message || '';
     if ($('prod-act-msg-fr')) $('prod-act-msg-fr').value = p.activation_message_fr || '';
     if ($('prod-act-msg-ar')) $('prod-act-msg-ar').value = p.activation_message_ar || '';
@@ -6253,6 +6430,7 @@ async function handleAddProduct(e) {
     };
     try {
         Object.assign(payload, collectDynamicPricing('prod'));
+        Object.assign(payload, collectAutoHideSettings('prod'));
     } catch (error) {
         showLoading(false);
         showToast(error.message, 'error');

@@ -572,6 +572,11 @@ async def sync_supplier_products(
             await db.execute("BEGIN IMMEDIATE")
 
         local_product_rows: list[dict] = []
+        stock_product_ids: set[int] = {
+            int(row["local_product_id"])
+            for row in missing_rows
+            if row.get("local_product_id")
+        }
         inserted = 0
         stock_changed = bool(missing_rows)
         for existing, incoming, changed_fields in changes:
@@ -614,6 +619,11 @@ async def sync_supplier_products(
                 local_product_rows.append({**existing, **incoming})
             if "remote_stock" in changed_fields or "base_price" in changed_fields:
                 stock_changed = True
+                local_product_id = (
+                    existing.get("local_product_id") if existing else None
+                )
+                if local_product_id:
+                    stock_product_ids.add(int(local_product_id))
 
         if missing_rows:
             placeholders = ",".join("?" for _ in missing_rows)
@@ -663,6 +673,7 @@ async def sync_supplier_products(
             "selected": selected_count,
             "wrote": persist_sync_timestamp,
             "transaction_ms": transaction_ms,
+            "stock_product_ids": sorted(stock_product_ids),
         }
     except Exception:
         try:

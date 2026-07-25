@@ -89,6 +89,19 @@ async def deliver_order(order_id: int, product_id: int) -> list[dict] | None:
                     "Supplier order %d delivered %d item(s) via %s",
                     order_id, len(items), live_candidate.get("supplier_code"),
                 )
+                try:
+                    from database.models import (
+                        reconcile_product_availability_state,
+                    )
+
+                    await reconcile_product_availability_state(product_id)
+                except Exception as reconcile_exc:
+                    logger.warning(
+                        "Could not reconcile auto-hide state for supplier "
+                        "product %d: %s",
+                        product_id,
+                        reconcile_exc,
+                    )
                 return items
             except SupplierAPIError as exc:
                 await fail_supplier_order(

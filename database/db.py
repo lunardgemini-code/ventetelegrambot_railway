@@ -721,6 +721,11 @@ async def init_db() -> None:
                 dynamic_last_input_hash TEXT DEFAULT NULL,
                 dynamic_last_applied_hash TEXT DEFAULT NULL,
                 dynamic_last_confidence REAL DEFAULT NULL,
+                auto_hide_out_of_stock INTEGER NOT NULL DEFAULT 0,
+                auto_hide_delay_minutes INTEGER NOT NULL DEFAULT 60,
+                out_of_stock_since TIMESTAMP DEFAULT NULL,
+                auto_hidden_total_seconds INTEGER NOT NULL DEFAULT 0,
+                last_restocked_at TIMESTAMP DEFAULT NULL,
                 is_active INTEGER DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 is_deleted INTEGER DEFAULT 0,
@@ -1945,6 +1950,48 @@ async def init_db() -> None:
             )
             await db.commit()
             current_version = 20
+
+        if 20 <= current_version < 21:
+            products_table = await (
+                await db.execute(
+                    "SELECT 1 FROM sqlite_master "
+                    "WHERE type = 'table' AND name = 'products'"
+                )
+            ).fetchone()
+            if products_table:
+                products_columns = await _columns_for("products")
+                version_twenty_one_columns = {
+                    "auto_hide_out_of_stock": (
+                        "ALTER TABLE products ADD COLUMN "
+                        "auto_hide_out_of_stock INTEGER NOT NULL DEFAULT 0"
+                    ),
+                    "auto_hide_delay_minutes": (
+                        "ALTER TABLE products ADD COLUMN "
+                        "auto_hide_delay_minutes INTEGER NOT NULL DEFAULT 60"
+                    ),
+                    "out_of_stock_since": (
+                        "ALTER TABLE products ADD COLUMN "
+                        "out_of_stock_since TIMESTAMP DEFAULT NULL"
+                    ),
+                    "auto_hidden_total_seconds": (
+                        "ALTER TABLE products ADD COLUMN "
+                        "auto_hidden_total_seconds INTEGER NOT NULL DEFAULT 0"
+                    ),
+                    "last_restocked_at": (
+                        "ALTER TABLE products ADD COLUMN "
+                        "last_restocked_at TIMESTAMP DEFAULT NULL"
+                    ),
+                }
+                for column, statement in version_twenty_one_columns.items():
+                    if column not in products_columns:
+                        await db.execute(statement)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) "
+                "VALUES (21, ?)",
+                ("product_auto_hide",),
+            )
+            await db.commit()
+            current_version = 21
 
     finally:
         await db.close()

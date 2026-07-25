@@ -54,13 +54,24 @@ class DashboardMobileProductTests(unittest.TestCase):
             self.css,
         )
 
-    def test_pwa_cache_uses_the_mobile_product_asset_version(self):
-        version = "20260723-mobile-products-v2"
+    def test_pwa_cache_uses_the_auto_hide_asset_version(self):
+        version = "20260725-auto-hide-v2"
         self.assertIn(f"operations.css?v={version}", self.html)
         self.assertIn(f"app.js?v={version}", self.html)
         self.assertIn(f"ventebot-dashboard-shell-{version}", self.worker)
         self.assertIn(f"operations.css?v={version}", self.worker)
         self.assertIn(f"app.js?v={version}", self.worker)
+
+    def test_auto_hide_controls_are_responsive_and_fully_translated(self):
+        self.assertIn('id="product-auto-hide-filter"', self.html)
+        self.assertIn('id="prod-auto-hide-enabled"', self.html)
+        self.assertIn('id="edit-prod-auto-hide-enabled"', self.html)
+        self.assertIn("function applyProductAutoHideFilter()", self.app)
+        self.assertIn("function resetProductAutoHide(productId)", self.app)
+        self.assertIn(".auto-hide-panel", self.css)
+        self.assertIn("@media (max-width: 700px)", self.css)
+        self.assertEqual(self.app.count("auto_hide_filter_label:"), 6)
+        self.assertEqual(self.app.count("auto_hide_status_hidden:"), 6)
 
 
 if __name__ == "__main__":

@@ -2594,6 +2594,7 @@ async def _build_reseller_catalog(lang: str) -> dict:
         get_all_stock_counts,
         get_price_tiers_for_products,
         get_reseller_test_product,
+        product_is_customer_visible,
     )
 
     products = await get_all_products()
@@ -2601,6 +2602,10 @@ async def _build_reseller_catalog(lang: str) -> dict:
     active_products = [
         p for p in products
         if p.get("is_active", 1) and not p.get("is_deleted", 0)
+        and product_is_customer_visible(
+            p,
+            stock_counts.get(p["id"], 0),
+        )
     ]
     tiers_by_product = await get_price_tiers_for_products([p["id"] for p in active_products])
     result = []
@@ -3388,14 +3393,25 @@ async def api_dashboard_search(q: str = "", limit: int = 12):
 
 @api.get("/api/products", dependencies=[Depends(verify_api_key)])
 async def api_get_products():
-    from database.models import get_all_products, get_all_stock_counts
+    from database.models import (
+        get_all_products,
+        get_all_stock_counts,
+        get_pending_stock_alert_counts,
+        product_auto_hide_status,
+    )
     try:
-        products = await get_all_products()
-        stock_counts = await get_all_stock_counts()
+        products, stock_counts, alert_counts = await asyncio.gather(
+            get_all_products(),
+            get_all_stock_counts(),
+            get_pending_stock_alert_counts(),
+        )
         result = []
         for p in products:
             item = dict(p)
-            item["stock"] = stock_counts.get(p["id"], 0)
+            stock = stock_counts.get(p["id"], 0)
+            item["stock"] = stock
+            item["stock_alert_subscribers"] = alert_counts.get(p["id"], 0)
+            item.update(product_auto_hide_status(item, stock))
             result.append(item)
         return result
     except Exception as exc:
@@ -3596,6 +3612,47 @@ def _finite_float(value, field_name: str) -> float:
     return parsed
 
 
+def _validated_auto_hide_settings(
+    data: dict,
+    *,
+    existing: dict | None = None,
+    delivery_type: str = "stock",
+) -> dict | None:
+    if not {
+        "auto_hide_out_of_stock",
+        "auto_hide_delay_minutes",
+    }.intersection(data):
+        return None
+    existing = existing or {}
+    enabled = _as_bool(
+        data.get(
+            "auto_hide_out_of_stock",
+            existing.get("auto_hide_out_of_stock", False),
+        )
+    )
+    try:
+        delay = int(
+            data.get(
+                "auto_hide_delay_minutes",
+                existing.get("auto_hide_delay_minutes") or 60,
+            )
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Auto-hide delay must be a valid number of minutes",
+        ) from exc
+    if not 5 <= delay <= 10080:
+        raise HTTPException(
+            status_code=400,
+            detail="Auto-hide delay must be between 5 minutes and 7 days",
+        )
+    return {
+        "enabled": enabled and delivery_type != "activation",
+        "delay_minutes": delay,
+    }
+
+
 def _validated_dynamic_pricing_updates(data: dict, current_price: float, existing: dict | None = None) -> dict:
     if not any(field in data for field in _DYNAMIC_PRICING_FIELDS):
         return {}
@@ -3680,6 +3737,11 @@ async def api_create_product(data: dict):
         if warranty < 0:
             raise HTTPException(status_code=400, detail="Warranty days cannot be negative")
         dynamic_updates = _validated_dynamic_pricing_updates(data, price)
+        delivery_type = data.get("delivery_type", "stock")
+        auto_hide_settings = _validated_auto_hide_settings(
+            data,
+            delivery_type=delivery_type,
+        ) or {"enabled": False, "delay_minutes": 60}
 
         prod_id = await add_product(
             category_id=cat_id,
@@ -3696,7 +3758,9 @@ async def api_create_product(data: dict):
             description_zh=data.get("description_zh", ""),
             description_vi=data.get("description_vi", ""),
             description_ru=data.get("description_ru", ""),
-            delivery_type=data.get("delivery_type", "stock"),
+            delivery_type=delivery_type,
+            auto_hide_out_of_stock=auto_hide_settings["enabled"],
+            auto_hide_delay_minutes=auto_hide_settings["delay_minutes"],
             activation_message=data.get("activation_message", ""),
             activation_message_fr=data.get("activation_message_fr", ""),
             activation_message_ar=data.get("activation_message_ar", ""),
@@ -3781,7 +3845,11 @@ async def api_reorder_products(request: Request):
 
 @api.put("/api/products/{product_id}", dependencies=[Depends(verify_api_key)])
 async def api_update_product(product_id: int, data: dict):
-    from database.models import update_product, get_product
+    from database.models import (
+        get_product,
+        set_product_auto_hide_settings,
+        update_product,
+    )
     try:
         allowed = {"name", "price_usd", "emoji", "custom_emoji_id", "warranty_days", "description", "description_fr", "description_ar", "description_zh", "description_vi", "description_ru", "is_active", "binance_account_id", "image_url", "delivery_type", "activation_message", "activation_message_fr", "activation_message_ar", "activation_message_zh", "activation_message_vi", "activation_message_ru", "confirmation_message", "confirmation_message_fr", "confirmation_message_ar", "confirmation_message_zh", "confirmation_message_vi", "confirmation_message_ru"}
         updates = {k: v for k, v in data.items() if k in allowed}
@@ -3794,6 +3862,23 @@ async def api_update_product(product_id: int, data: dict):
 
             supplier_mapping = await get_supplier_mapping_by_local_product(product_id)
             updates["delivery_type"] = "supplier_api"
+        next_delivery_type = str(
+            updates.get("delivery_type", product.get("delivery_type") or "stock")
+        )
+        auto_hide_settings = _validated_auto_hide_settings(
+            data,
+            existing=product,
+            delivery_type=next_delivery_type,
+        )
+        if next_delivery_type == "activation" and bool(
+            product.get("auto_hide_out_of_stock")
+        ):
+            auto_hide_settings = {
+                "enabled": False,
+                "delay_minutes": int(
+                    product.get("auto_hide_delay_minutes") or 60
+                ),
+            }
         updated_price = _finite_float(
             updates.get("price_usd", product["price_usd"]),
             "Price",
@@ -3821,13 +3906,19 @@ async def api_update_product(product_id: int, data: dict):
                 "dynamic_last_applied_hash": None,
                 "dynamic_last_confidence": None,
             })
-        if not updates:
+        if not updates and auto_hide_settings is None:
             raise HTTPException(status_code=400, detail="No valid fields to update")
         if "price_usd" in updates:
             updates["price_usd"] = float(updates["price_usd"])
         if "warranty_days" in updates:
             updates["warranty_days"] = int(updates["warranty_days"])
-        await update_product(product_id, **updates)
+        if updates:
+            await update_product(product_id, **updates)
+        if auto_hide_settings is not None:
+            await set_product_auto_hide_settings(
+                product_id,
+                **auto_hide_settings,
+            )
         if supplier_mapping:
             from database.suppliers import update_supplier_product_descriptions
 
@@ -3883,6 +3974,38 @@ async def api_update_product(product_id: int, data: dict):
         raise
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post(
+    "/api/products/{product_id}/auto-hide/reset",
+    dependencies=[Depends(verify_api_key)],
+)
+async def api_reset_product_auto_hide(product_id: int):
+    from database.models import (
+        get_all_stock_counts,
+        product_auto_hide_status,
+        reset_product_auto_hide_timer,
+    )
+
+    try:
+        product = await reset_product_auto_hide_timer(product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        stock_counts = await get_all_stock_counts()
+        stock = int(stock_counts.get(product_id, 0) or 0)
+        return {
+            "status": "reset",
+            **product_auto_hide_status(product, stock),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "API product auto-hide reset error: %s",
+            exc,
+            exc_info=True,
+        )
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -5891,10 +6014,20 @@ async def post_init(application: Application) -> None:
     logger.info("✅ Database initialized")
 
     try:
-        from database.models import cleanup_product_views, recover_stale_processing_wallet_orders
+        from database.models import (
+            cleanup_product_views,
+            reconcile_product_availability_states,
+            recover_stale_processing_wallet_orders,
+        )
         recovered = await recover_stale_processing_wallet_orders(age_minutes=5)
         if any(recovered.values()):
             logger.warning("Recovered interrupted wallet orders: %s", recovered)
+        availability_changes = await reconcile_product_availability_states()
+        if availability_changes:
+            logger.info(
+                "Reconciled %d product auto-hide stock transition(s)",
+                availability_changes,
+            )
         deleted_views = await cleanup_product_views(retention_days=90)
         if deleted_views:
             logger.info("Deleted %d expired product analytics rows", deleted_views)

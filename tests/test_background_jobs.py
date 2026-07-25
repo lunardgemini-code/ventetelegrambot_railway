@@ -79,10 +79,14 @@ class PersistentBackgroundJobTests(unittest.IsolatedAsyncioTestCase):
             cryptopay_columns = {
                 str(row["name"]) for row in await cursor.fetchall()
             }
+            cursor = await db.execute("PRAGMA table_info(products)")
+            product_columns = {
+                str(row["name"]) for row in await cursor.fetchall()
+            }
         finally:
             await db.close()
 
-        self.assertEqual(versions, list(range(1, 21)))
+        self.assertEqual(versions, list(range(1, 22)))
         self.assertEqual(tables, [
             "background_jobs",
             "performance_action_hourly",
@@ -100,6 +104,16 @@ class PersistentBackgroundJobTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(
             {"provider_amount_usd", "fee_percent"} <= cryptopay_columns
+        )
+        self.assertTrue(
+            {
+                "auto_hide_out_of_stock",
+                "auto_hide_delay_minutes",
+                "out_of_stock_since",
+                "auto_hidden_total_seconds",
+                "last_restocked_at",
+            }
+            <= product_columns
         )
 
     async def test_webhook_autoscale_settings_and_decisions_are_persistent(self):

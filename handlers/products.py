@@ -18,9 +18,10 @@ from database.models import (
     get_stock_count,
     get_user_lang,
     get_all_stock_counts,
+    product_is_customer_visible,
     record_product_view,
 )
-from utils.helpers import format_price, escape_html, safe_format
+from utils.helpers import escape_html, format_price, is_admin, safe_format
 from utils.keyboards import (
     back_keyboard,
     product_detail_keyboard,
@@ -387,9 +388,14 @@ async def show_products_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         all_stocks = await get_all_stock_counts()
         stock_counts = {p["id"]: all_stocks.get(p["id"], 0) for p in products}
+        admin_view = is_admin(update.effective_user.id)
         products = [
             product for product in products
-            if product.get("delivery_type") != "supplier_api" or stock_counts.get(product["id"], 0) > 0
+            if product_is_customer_visible(
+                product,
+                stock_counts.get(product["id"], 0),
+                is_admin=admin_view,
+            )
         ]
         standard_products = products
         products = await apply_telegram_special_prices_to_products(
@@ -492,6 +498,17 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not product:
             await safe_edit_message_text(query, 
                 t("product_not_found", lang),
+                reply_markup=back_keyboard("back_products", lang),
+            )
+            return
+        if not product_is_customer_visible(
+            product,
+            stock,
+            is_admin=is_admin(update.effective_user.id),
+        ):
+            await safe_edit_message_text(
+                query,
+                t("product_temporarily_hidden", lang),
                 reply_markup=back_keyboard("back_products", lang),
             )
             return

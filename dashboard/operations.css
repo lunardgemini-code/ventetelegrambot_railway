@@ -981,6 +981,164 @@ body.ops-command-open {
     display: none;
 }
 
+.inventory-products-tools {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.compact-select {
+    min-height: 38px;
+    max-width: 240px;
+    padding: 0 34px 0 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-surface);
+    color: var(--color-text);
+}
+
+.product-auto-hide-summary {
+    min-height: 20px;
+    margin-top: 4px;
+    color: var(--color-text-muted);
+    font-size: 0.82rem;
+}
+
+.product-auto-hide-state {
+    margin-top: 5px;
+}
+
+#products-table-body tr[hidden] {
+    display: none !important;
+}
+
+.auto-hide-status-badge {
+    max-width: 100%;
+    white-space: normal;
+}
+
+.stock-subscriber-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-inline-start: 7px;
+    color: var(--color-warning);
+    font-weight: 700;
+}
+
+.auto-hide-reset-action {
+    color: var(--color-warning);
+}
+
+.auto-hide-panel {
+    display: grid;
+    gap: 12px;
+    margin: 14px 0;
+    padding: 14px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+}
+
+.auto-hide-panel.is-disabled {
+    opacity: 0.62;
+}
+
+.auto-hide-toggle-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    cursor: pointer;
+}
+
+.auto-hide-toggle-row input {
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    margin-top: 2px;
+    accent-color: var(--color-primary);
+}
+
+.auto-hide-toggle-row span {
+    display: grid;
+    gap: 3px;
+}
+
+.auto-hide-toggle-row small,
+.auto-hide-admin-note,
+.auto-hide-live-status small {
+    color: var(--color-text-muted);
+    font-size: 0.82rem;
+}
+
+.auto-hide-delay-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.auto-hide-delay-row > div {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.auto-hide-delay-row input {
+    width: 110px;
+}
+
+.auto-hide-admin-note {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0;
+}
+
+.auto-hide-live-status {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+html:is([data-appearance="liquid"], [data-appearance="auto"]) .auto-hide-panel {
+    border-color: var(--lg-border);
+    background: var(--lg-panel-soft);
+    box-shadow: inset 0 1px 0 var(--lg-highlight);
+}
+
+@media (max-width: 700px) {
+    .inventory-products-heading {
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    .inventory-products-tools {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        justify-content: stretch;
+        width: 100%;
+    }
+
+    .inventory-products-tools .compact-select {
+        grid-column: 1 / -1;
+        max-width: none;
+        width: 100%;
+    }
+
+    .auto-hide-delay-row {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .auto-hide-delay-row > div,
+    .auto-hide-delay-row input {
+        width: 100%;
+    }
+}
+
 /* Liquid surfaces are reserved for shell-level floating UI. Dense content
    remains more opaque so the operational data is always easy to scan. */
 html:is([data-appearance="liquid"], [data-appearance="auto"]) :is(

@@ -24,7 +24,7 @@
     <link rel="stylesheet" href="revamp.css?v=20260720-reseller-prices">
     <link rel="stylesheet" href="system.css?v=20260723-pwa-v8">
     <link rel="stylesheet" href="liquid-glass.css?v=20260723-liquid-v1">
-    <link rel="stylesheet" href="operations.css?v=20260723-mobile-products-v2">
+    <link rel="stylesheet" href="operations.css?v=20260725-auto-hide-v2">
 </head>
 <body>
     <a class="skip-link" href="#dashboard-workspace" data-i18n="skip_to_content">Aller au contenu</a>
@@ -519,9 +519,20 @@
                     </div>
                 </div>
                 <div id="prods-sub" class="sub-tab-content active">
-                    <div class="flex-justify mb-4">
-                        <h2 data-i18n="all_products">Tous les Produits</h2>
-                        <div style="display:flex; gap:10px;">
+                    <div class="flex-justify mb-4 inventory-products-heading">
+                        <div>
+                            <h2 data-i18n="all_products">Tous les Produits</h2>
+                            <div id="product-auto-hide-summary" class="product-auto-hide-summary"></div>
+                        </div>
+                        <div class="inventory-products-tools">
+                            <label class="sr-only" for="product-auto-hide-filter" data-i18n="auto_hide_filter_label">Filtrer la visibilité automatique</label>
+                            <select id="product-auto-hide-filter" class="compact-select" aria-label="Filtrer la visibilité automatique">
+                                <option value="all" data-i18n="auto_hide_filter_all">Tous les produits</option>
+                                <option value="hidden" data-i18n="auto_hide_filter_hidden">Masqués automatiquement</option>
+                                <option value="grace" data-i18n="auto_hide_filter_grace">Délai en cours</option>
+                                <option value="enabled" data-i18n="auto_hide_filter_enabled">Auto-hide activé</option>
+                                <option value="disabled" data-i18n="auto_hide_filter_disabled">Auto-hide désactivé</option>
+                            </select>
                             <button id="btn-mass-translate" class="btn-primary btn-sm" style="background-color: var(--color-primary);"><i class="fa-solid fa-wand-magic-sparkles"></i> <span>✨ Traduire tout</span></button>
                             <button id="btn-open-prod-modal" class="btn-primary btn-sm"><i class="fa-solid fa-plus"></i> <span data-i18n="btn_add_product">Ajouter</span></button>
                         </div>
@@ -1192,6 +1203,20 @@
                         <option value="activation" data-i18n="delivery_activation">Activation manuelle</option>
                     </select>
                 </div>
+                <div class="auto-hide-panel" id="prod-auto-hide-panel">
+                    <label class="auto-hide-toggle-row" for="prod-auto-hide-enabled">
+                        <input type="checkbox" id="prod-auto-hide-enabled">
+                        <span>
+                            <strong data-i18n="auto_hide_title">Masquer après une rupture prolongée</strong>
+                            <small data-i18n="auto_hide_help">Le produit reste visible pendant le délai, puis disparaît uniquement pour les clients.</small>
+                        </span>
+                    </label>
+                    <div class="auto-hide-delay-row">
+                        <label for="prod-auto-hide-delay" data-i18n="auto_hide_delay">Délai avant masquage</label>
+                        <div><input type="number" id="prod-auto-hide-delay" min="5" max="10080" step="5" value="60"><span data-i18n="minutes">minutes</span></div>
+                    </div>
+                    <p class="auto-hide-admin-note"><i class="fa-solid fa-shield-halved"></i> <span data-i18n="auto_hide_admin_visible">Les administrateurs continuent toujours à voir le produit.</span></p>
+                </div>
                 <div class="form-group">
                     <label>Compte Binance Pay <small>(optionnel)</small></label>
                     <select id="prod-binance-account" style="width:100%; padding:0.75rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:var(--color-text);">
@@ -1410,6 +1435,21 @@
                         <option value="activation" data-i18n="delivery_activation">Activation manuelle</option>
                         <option value="supplier_api">Fournisseur API (géré automatiquement)</option>
                     </select>
+                </div>
+                <div class="auto-hide-panel" id="edit-prod-auto-hide-panel">
+                    <label class="auto-hide-toggle-row" for="edit-prod-auto-hide-enabled">
+                        <input type="checkbox" id="edit-prod-auto-hide-enabled">
+                        <span>
+                            <strong data-i18n="auto_hide_title">Masquer après une rupture prolongée</strong>
+                            <small data-i18n="auto_hide_help">Le produit reste visible pendant le délai, puis disparaît uniquement pour les clients.</small>
+                        </span>
+                    </label>
+                    <div class="auto-hide-delay-row">
+                        <label for="edit-prod-auto-hide-delay" data-i18n="auto_hide_delay">Délai avant masquage</label>
+                        <div><input type="number" id="edit-prod-auto-hide-delay" min="5" max="10080" step="5" value="60"><span data-i18n="minutes">minutes</span></div>
+                    </div>
+                    <p class="auto-hide-admin-note"><i class="fa-solid fa-shield-halved"></i> <span data-i18n="auto_hide_admin_visible">Les administrateurs continuent toujours à voir le produit.</span></p>
+                    <div id="edit-prod-auto-hide-live-status" class="auto-hide-live-status"></div>
                 </div>
                 <div class="form-group"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;"><label style="margin:0;">Description Principale (Anglais)</label><button type="button" id="btn-translate-edit" style="padding:4px 8px; font-size:0.8rem; background:var(--color-primary); color:white; border:none; border-radius:4px; cursor:pointer; transition: opacity 0.2s;">✨ Traduire</button></div><textarea id="edit-prod-desc" rows="2" style="width:100%;resize:vertical;"></textarea></div>
                 <div class="form-group"><label>Description Française</label><textarea id="edit-prod-desc-fr" rows="2" style="width:100%;resize:vertical;" placeholder="Optionnel..."></textarea></div>
@@ -1756,7 +1796,7 @@
         <footer id="ops-drawer-actions" class="ops-drawer-actions"></footer>
     </aside>
 
-    <script defer src="app.js?v=20260723-mobile-products-v2"></script>
+    <script defer src="app.js?v=20260725-auto-hide-v2"></script>
     <script defer src="operations.js?v=20260723-ops-v2"></script>
     <!-- Mass Translation Progress Overlay -->
     <div id="mass-translate-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; flex-direction:column; justify-content:center; align-items:center; color:white;">

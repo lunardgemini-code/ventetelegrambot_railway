@@ -79,6 +79,24 @@ async def sync_supplier_catalog(
                 code,
                 refresh_disabled=False,
             )
+        stock_product_ids = {
+            int(product_id)
+            for product_id in result.get("stock_product_ids", [])
+            if product_id
+        }
+        if stock_product_ids:
+            try:
+                from database.models import (
+                    reconcile_product_availability_states,
+                )
+
+                await reconcile_product_availability_states(stock_product_ids)
+            except Exception as exc:
+                logger.warning(
+                    "Could not reconcile auto-hide state after %s sync: %s",
+                    code,
+                    exc,
+                )
         if refresh_balance:
             balance = await get_supplier_balance(
                 code,
