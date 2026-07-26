@@ -50,6 +50,11 @@ async def _client() -> httpx.AsyncClient:
         _CLIENT = httpx.AsyncClient(
             base_url=CANBOSO_API_BASE_URL,
             timeout=httpx.Timeout(20.0, connect=7.0),
+            limits=httpx.Limits(
+                max_connections=8,
+                max_keepalive_connections=4,
+                keepalive_expiry=120.0,
+            ),
             headers={
                 CANBOSO_API_AUTH_HEADER: CANBOSO_API_KEY,
                 "Accept": "application/json",

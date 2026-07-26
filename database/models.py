@@ -2771,41 +2771,16 @@ async def get_sold_count(product_id: int) -> int:
     finally:
         await db.close()
 async def get_stock_count(product_id: int) -> int:
-    """Retourne le nombre d'articles en stock non vendus et non rÃ©servÃ©s pour un produit."""
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            "SELECT supplier_code, remote_stock, base_price, margin_type, margin_value "
-            "FROM supplier_products WHERE local_product_id = ? AND enabled = 1 LIMIT 1",
-            (int(product_id),),
-        )
-        supplier_row = await cursor.fetchone()
-        if supplier_row:
-            from database.suppliers import get_supplier_available_stock
-            return await get_supplier_available_stock(product_id)
-        # 1. Stock total non vendu en base
-        cursor = await db.execute(
-            "SELECT COUNT(*) as cnt FROM stock_items WHERE product_id = ? AND is_sold = 0",
-            (product_id,),
-        )
-        row = await cursor.fetchone()
-        total_unsold = row["cnt"] if row else 0
+    """Available (unsold minus reserved) count for one product.
 
-        # 2. Stock rÃ©servÃ© (commandes PENDING ou AWAITING_PAYMENT crÃ©Ã©es il y a moins de 300 secondes / 5 minutes)
-        cursor = await db.execute(
-            """SELECT COALESCE(SUM(quantity), 0) as reserved
-               FROM orders
-               WHERE product_id = ?
-                 AND status IN ('PENDING', 'AWAITING_PAYMENT', 'PROCESSING')
-                 AND created_at >= datetime('now', '-300 seconds')""",
-            (product_id,),
-        )
-        row = await cursor.fetchone()
-        reserved = row["reserved"] if row else 0
-
-        return max(0, total_unsold - reserved)
-    finally:
-        await db.close()
+    Served from the get_all_stock_counts snapshot (10s TTL, invalidated on
+    stock writes): identical unsold-minus-reserved + supplier semantics, but
+    0 extra round trips on the purchase path instead of 3 sequential queries.
+    Money paths never rely on this - the wallet transaction re-checks stock
+    atomically before selling.
+    """
+    counts = await get_all_stock_counts()
+    return max(0, int(counts.get(int(product_id), 0) or 0))
 
 
 async def add_stock_items(product_id: int, items: list[str]) -> int:
@@ -3099,8 +3074,6 @@ async def create_order(
 ) -> dict:
     amount_usd = usd_float(amount_usd, places=4, allow_zero=False)
     quantity = max(1, int(quantity))
-    _clear_stock_cache()
-    invalidate_stats_cache()
     """CrÃ©e une nouvelle commande avec un merchant_trade_no unique et une quantitÃ©."""
     merchant_trade_no = uuid.uuid4().hex[:12].upper()
     db = await get_db()
@@ -3122,6 +3095,10 @@ async def create_order(
             (user_telegram_id, product_id, amount_usd, merchant_trade_no, quantity),
         )
         await db.commit()
+        # Invalidate after the commit so concurrent reads cannot re-cache the
+        # pre-write state for their full TTL.
+        _clear_stock_cache()
+        invalidate_stats_cache()
         order_id = cursor.lastrowid
         cursor = await db.execute("SELECT * FROM orders WHERE id = ?", (order_id,))
         row = await cursor.fetchone()
@@ -3254,8 +3231,6 @@ async def cleanup_product_views(retention_days: int = 90) -> int:
 
 async def purchase_order_with_wallet(order_id: int, user_telegram_id: int) -> dict:
     """Debit, reserve stock and finalize a wallet order in one transaction."""
-    _clear_stock_cache()
-    invalidate_stats_cache()
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
@@ -3352,6 +3327,8 @@ async def purchase_order_with_wallet(order_id: int, user_telegram_id: int) -> di
             )
 
         await db.commit()
+        _clear_stock_cache()
+        invalidate_stats_cache()
         order["status"] = next_status
         order["payment_method"] = "wallet"
         order["stock_item_id"] = first_stock_id
@@ -3373,8 +3350,6 @@ async def purchase_order_with_wallet(order_id: int, user_telegram_id: int) -> di
 
 async def cancel_order_if_allowed(order_id: int, allowed_statuses: tuple[str, ...] = ("PENDING", "AWAITING_PAYMENT")) -> dict | None:
     """Cancel only unpaid/payable orders. Returns the cancelled order or None."""
-    _clear_stock_cache()
-    invalidate_stats_cache()
     db = await get_db()
     try:
         await db.execute("BEGIN IMMEDIATE")
@@ -3402,6 +3377,8 @@ async def cancel_order_if_allowed(order_id: int, allowed_statuses: tuple[str, ..
             (int(order_id),),
         )
         await db.commit()
+        _clear_stock_cache()
+        invalidate_stats_cache()
         order["status"] = "CANCELLED"
         return order
     except Exception:
@@ -3532,11 +3509,13 @@ async def update_order_status(
     for attempt in range(3):
         try:
             async with _get_critical_db_semaphore():
+                # First attempt reuses the pool; only retries after a stream
+                # error pay for a brand-new TLS connection.
                 return await _update_order_status_once(
                     order_id,
                     status,
                     expected_statuses=expected_statuses,
-                    fresh_connection=True,
+                    fresh_connection=attempt > 0,
                     **kwargs,
                 )
         except Exception as exc:
@@ -3560,8 +3539,6 @@ async def _update_order_status_once(
     fresh_connection: bool = False,
     **kwargs,
 ) -> bool:
-    _clear_stock_cache()
-    invalidate_stats_cache()
     """Met Ã  jour le statut d'une commande avec des champs optionnels."""
     set_parts = ["status = ?"]
     values: list = [status]
@@ -3603,6 +3580,12 @@ async def _update_order_status_once(
             await _apply_completion_effects_tx(db, current_order, pay_method)
 
         await db.commit()
+        # Invalidate after the commit (a pre-write clear lets a concurrent read
+        # re-cache the old value) and only when the status actually changed —
+        # no-op updates must not evict every user's warm catalogue views.
+        if transitioned:
+            _clear_stock_cache()
+            invalidate_stats_cache()
         return transitioned
     except Exception:
         try:
@@ -4341,6 +4324,22 @@ async def expire_stale_cryptopay_invoices(
 ) -> list[str]:
     """Expire local active invoices and cancel only still-unpaid orders."""
     timeout = max(60, int(timeout_seconds))
+    # Cheap pooled probe first: the common case is "nothing to expire", which
+    # must not pay a fresh connection nor take the global writer lock.
+    probe = await get_db()
+    try:
+        cursor = await probe.execute(
+            """SELECT 1 FROM cryptopay_invoices
+               WHERE provider_status IN ('creating', 'active')
+                 AND processed_at IS NULL AND cancelled_at IS NULL
+                 AND created_at <= datetime('now', ?)
+               LIMIT 1""",
+            (f"-{timeout} seconds",),
+        )
+        if not await cursor.fetchone():
+            return []
+    finally:
+        await probe.close()
     for attempt in range(3):
         try:
             async with _get_critical_db_semaphore():
@@ -4474,11 +4473,34 @@ async def _expire_stale_nowpayments_payments_once(
 ) -> list[str]:
     """Cancel unpaid NOWPayments checkouts after the normal payment timeout."""
     timeout_seconds = max(60, int(timeout_seconds))
+    where_order = " AND o.id = ?" if order_id is not None else ""
+    probe_params: list = [f"-{timeout_seconds} seconds"]
+    if order_id is not None:
+        probe_params.append(int(order_id))
+    # Pooled read probe: skip the fresh connection + writer lock entirely when
+    # there is nothing to expire (the common case, every 180s).
+    probe = await get_db()
+    try:
+        cursor = await probe.execute(
+            f"""SELECT 1
+                FROM nowpayments_payments np
+                JOIN orders o ON o.id = np.order_id
+                WHERE np.provider_status IN ('creating', 'creation_unknown', 'waiting')
+                  AND COALESCE(np.actually_paid, 0) <= 0
+                  AND np.created_at <= datetime('now', ?)
+                  AND o.status IN ('PENDING', 'AWAITING_PAYMENT')
+                  {where_order}
+                LIMIT 1""",
+            probe_params,
+        )
+        if not await cursor.fetchone():
+            return []
+    finally:
+        await probe.close()
     async with _get_critical_db_semaphore():
         db = await get_db(fresh=True)
         try:
             await db.execute("BEGIN IMMEDIATE")
-            where_order = " AND o.id = ?" if order_id is not None else ""
             params: list = [f"-{timeout_seconds} seconds"]
             if order_id is not None:
                 params.append(int(order_id))
@@ -6601,6 +6623,21 @@ async def expire_stale_orders(
     which can distinguish an unpaid checkout from a payment being confirmed.
     """
     timeout_seconds = max(60, int(timeout_seconds))
+    # Pooled read probe so the every-60s cycle skips the writer lock entirely
+    # when no order is stale (the common case).
+    probe = await get_db()
+    try:
+        cursor = await probe.execute(
+            """SELECT 1 FROM orders
+               WHERE status IN ('PENDING', 'AWAITING_PAYMENT')
+                 AND created_at <= datetime('now', ?)
+               LIMIT 1""",
+            (f"-{timeout_seconds} seconds",),
+        )
+        if not await cursor.fetchone():
+            return []
+    finally:
+        await probe.close()
     last_exc: Exception | None = None
     for attempt in range(3):
         try:

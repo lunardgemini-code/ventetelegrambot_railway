@@ -55,13 +55,14 @@ class DashboardMobileProductTests(unittest.TestCase):
         )
 
     def test_pwa_cache_uses_the_auto_hide_asset_version(self):
-        version = "20260725-auto-hide-v2"
-        self.assertIn(f"operations.css?v={version}", self.html)
-        self.assertIn(f"app.js?v={version}", self.html)
-        # The SW cache tag now advances independently of asset versions.
-        self.assertIn("ventebot-dashboard-shell-20260726-cache-first-v1", self.worker)
-        self.assertIn(f"operations.css?v={version}", self.worker)
-        self.assertIn(f"app.js?v={version}", self.worker)
+        # operations.css still carries the auto-hide version; app.js was
+        # rebumped by the performance pass. The SW cache tag advances
+        # independently of individual asset versions.
+        self.assertIn("operations.css?v=20260725-auto-hide-v2", self.html)
+        self.assertIn("app.js?v=20260726-perf-v1", self.html)
+        self.assertIn("ventebot-dashboard-shell-20260726-perf-v1", self.worker)
+        self.assertIn("operations.css?v=20260725-auto-hide-v2", self.worker)
+        self.assertIn("app.js?v=20260726-perf-v1", self.worker)
 
     def test_auto_hide_controls_are_responsive_and_fully_translated(self):
         self.assertIn('id="product-auto-hide-filter"', self.html)

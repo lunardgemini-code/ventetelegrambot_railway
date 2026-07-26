@@ -563,22 +563,9 @@ async def _process_quantity(
     unit_price = float(pricing["unit_price"])
     total_price = round(unit_price * quantity, 2)
 
-    # ————————————————————————————— Prevent duplicate orders ——————————————————————
-    existing_order_id = context.user_data.get("pending_order_id")
-    if existing_order_id:
-        try:
-            existing = await get_order(existing_order_id)
-            if existing and existing.get("status") == "PENDING":
-                await update_order_status(
-                    existing_order_id,
-                    "CANCELLED",
-                    expected_statuses=("PENDING",),
-                )
-                logger.info("Auto-cancelled stale PENDING order #%d for user %d",
-                            existing_order_id, telegram_id)
-        except Exception:
-            pass
-
+    # Duplicate-order prevention lives inside create_order(): it cancels the
+    # user's stale PENDING orders in the same transaction, so no extra
+    # get_order/update_order_status round trips are needed here.
     order = await create_order(telegram_id, product_id, total_price, quantity)
 
     context.user_data["pending_order_id"] = order["id"]
@@ -610,7 +597,16 @@ async def show_payment_method_screen(
 ):
     """Helper to display the payment method selection screen for an order."""
     if not order:
-        order = await get_order(order_id)
+        if wallet_balance is None:
+            # Independent reads: fetch the order and the balance concurrently
+            # instead of paying two sequential DB round trips.
+            from database.models import get_wallet_balance
+            order, wallet_balance = await asyncio.gather(
+                get_order(order_id),
+                get_wallet_balance(update.effective_user.id),
+            )
+        else:
+            order = await get_order(order_id)
     if not order:
         msg = t("product_not_found", lang)
         if is_callback and update.callback_query:
@@ -983,14 +979,17 @@ async def pay_with_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             await safe_send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang, order_id)
 
-        await _notify_admins_sale(
+        # Admin notification is fire-and-forget: it costs one DB read plus one
+        # Telegram send per admin and must not delay the customer's delivery.
+        notify_task = asyncio.create_task(_notify_admins_sale(
             context,
             order_id,
             product_id,
             amount,
             payment_method="Wallet",
             user_id=telegram_id,
-        )
+        ))
+        notify_task.add_done_callback(_log_sale_notify_task)
 
         return ConversationHandler.END
 
@@ -1523,6 +1522,15 @@ def _sale_customer_label(user: dict | None, user_id: int | None) -> str:
     if resolved_id:
         return f"{escape_html(display_name)} (<code>{resolved_id}</code>)"
     return escape_html(display_name)
+
+
+def _log_sale_notify_task(task: asyncio.Task) -> None:
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        pass
+    except Exception:
+        logger.warning("Background admin sale notification failed", exc_info=True)
 
 
 async def _notify_admins_sale_with_bot(

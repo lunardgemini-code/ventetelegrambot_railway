@@ -41,6 +41,11 @@ async def _client() -> httpx.AsyncClient:
         _CLIENT = httpx.AsyncClient(
             base_url=FOOTBALL_DATA_BASE_URL,
             timeout=httpx.Timeout(15.0, connect=6.0),
+            limits=httpx.Limits(
+                max_connections=8,
+                max_keepalive_connections=4,
+                keepalive_expiry=120.0,
+            ),
             headers={
                 "X-Auth-Token": FOOTBALL_DATA_API_KEY,
                 "Accept": "application/json",

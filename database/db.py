@@ -302,6 +302,11 @@ _TURSO_POOL_VALIDATE_AFTER_IDLE_SECONDS = _env_float(
 _TURSO_CONNECT_CONCURRENCY = _env_int(
     "TURSO_CONNECT_CONCURRENCY", 4, 1, 10
 )
+# Sized for the webhook autoscaler ceiling (20 workers) so overflow
+# connections are not created and destroyed per request under load.
+_TURSO_POOL_MAX_SIZE = _env_int(
+    "TURSO_POOL_MAX_SIZE", 20, 4, 64
+)
 
 def get_pool_lock():
     global _pool_lock, _pool_lock_loop
@@ -506,7 +511,7 @@ class _PooledAsyncDB(_AsyncDB):
 
         close_overflow = False
         async with get_pool_lock():
-            if len(_libsql_pool) < 10:
+            if len(_libsql_pool) < _TURSO_POOL_MAX_SIZE:
                 _libsql_pool.append((self._conn, time.monotonic(), self.created_at))
             else:
                 close_overflow = True

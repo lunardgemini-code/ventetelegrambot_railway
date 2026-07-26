@@ -243,6 +243,7 @@ async def background_job_worker(bot) -> None:
     global _JOB_ENQUEUED_EVENT
     _JOB_ENQUEUED_EVENT = asyncio.Event()
     last_maintenance = 0.0
+    last_cleanup = 0.0
     while True:
         try:
             now = time.monotonic()
@@ -250,8 +251,11 @@ async def background_job_worker(bot) -> None:
                 recovered = await requeue_stale_background_jobs(_STALE_JOB_SECONDS)
                 if recovered:
                     logger.warning("Recovered %d interrupted background job(s)", recovered)
-                await cleanup_background_jobs(retention_days=7)
                 last_maintenance = now
+            # The retention DELETE always takes the writer lock; hourly is plenty.
+            if now - last_cleanup >= 3600.0:
+                await cleanup_background_jobs(retention_days=7)
+                last_cleanup = now
 
             job = await claim_next_background_job(
                 excluded_job_types={"supplier_ai_sync", "supplier_ai_analyze"}

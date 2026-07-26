@@ -383,6 +383,17 @@ async def requeue_stale_background_jobs(stale_seconds: int = 180) -> int:
     db = await get_db()
     try:
         modifier = f"-{max(30, int(stale_seconds))} seconds"
+        # Read-only probe first: the UPDATE takes the global Turso writer lock,
+        # and almost every 60s cycle has no stale running job.
+        cursor = await db.execute(
+            """SELECT 1 FROM background_jobs
+               WHERE status = 'running'
+                 AND COALESCE(updated_at, claimed_at) <= datetime('now', ?)
+               LIMIT 1""",
+            (modifier,),
+        )
+        if not await cursor.fetchone():
+            return 0
         cursor = await db.execute(
             """UPDATE background_jobs
                SET status = 'queued', claimed_at = NULL,

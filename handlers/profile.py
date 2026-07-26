@@ -4,6 +4,8 @@ Profile handler — display user information.
 
 import logging
 
+import asyncio
+
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -25,12 +27,13 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = await get_user_lang(telegram_id)
 
     try:
-        user = await get_user(telegram_id)
+        user, order_count = await asyncio.gather(
+            get_user(telegram_id),
+            get_user_order_count(telegram_id),
+        )
         if not user:
             await safe_edit_message_text(query, t("error_generic", lang))
             return
-
-        order_count = await get_user_order_count(telegram_id)
 
         text = (
             f"{t('profile_title', lang)}\n\n"

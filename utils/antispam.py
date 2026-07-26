@@ -31,9 +31,13 @@ _cooldown_warned: set[int] = set()
 def _cleanup(user_id: int, now: float) -> None:
     """Remove timestamps older than TIME_WINDOW."""
     cutoff = now - TIME_WINDOW
-    _user_timestamps[user_id] = [
-        ts for ts in _user_timestamps[user_id] if ts > cutoff
-    ]
+    fresh = [ts for ts in _user_timestamps[user_id] if ts > cutoff]
+    if fresh:
+        _user_timestamps[user_id] = fresh
+    else:
+        # Evict idle users entirely so the map does not grow forever.
+        _user_timestamps.pop(user_id, None)
+        _warned.discard(user_id)
 
 
 def is_spam(user_id: int) -> bool:

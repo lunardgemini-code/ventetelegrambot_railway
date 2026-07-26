@@ -10,7 +10,9 @@ from database.db import get_db
 async def insert_admin_audit_events(events: list[dict[str, Any]]) -> None:
     if not events:
         return
-    db = await get_db(fresh=True)
+    # Pooled connection: the caller (admin_audit_worker) already retries on
+    # transient stream errors, so paying a fresh TLS handshake per batch is waste.
+    db = await get_db()
     try:
         await db.executemany(
             """INSERT OR IGNORE INTO admin_audit_events

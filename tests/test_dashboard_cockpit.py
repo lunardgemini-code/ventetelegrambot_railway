@@ -96,12 +96,12 @@ class DashboardCockpitStaticTests(unittest.TestCase):
     def test_pwa_shell_versions_every_new_asset(self):
         for asset in (
             "operations.css?v=20260725-auto-hide-v2",
-            "app.js?v=20260725-auto-hide-v2",
-            "operations.js?v=20260723-ops-v2",
+            "app.js?v=20260726-perf-v1",
+            "operations.js?v=20260726-perf-v1",
         ):
             self.assertIn(asset, self.html)
             self.assertIn(asset, self.worker)
-        self.assertIn("ventebot-dashboard-shell-20260726-cache-first-v1", self.worker)
+        self.assertIn("ventebot-dashboard-shell-20260726-perf-v1", self.worker)
 
 
 class DashboardCockpitDataTests(unittest.IsolatedAsyncioTestCase):

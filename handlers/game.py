@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
+import asyncio
+
 from telegram import Update
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
@@ -107,8 +109,10 @@ def _format_leaderboard_entries(leaders: list[dict], lang: str) -> list[str]:
 
 
 async def _render_game_home(query, user_id: int, lang: str, notice: str = "") -> None:
-    wallet = await get_game_wallet(user_id)
-    matches = await list_open_game_matches()
+    wallet, matches = await asyncio.gather(
+        get_game_wallet(user_id),
+        list_open_game_matches(),
+    )
     lines = [
         t("game_title", lang),
         "",
@@ -200,8 +204,10 @@ async def choose_game_outcome(update: Update, context: ContextTypes.DEFAULT_TYPE
     lang = await get_user_lang(user_id)
     try:
         _, match_id_text, outcome = query.data.split(":", 2)
-        match = await get_game_match(int(match_id_text))
-        wallet = await get_game_wallet(user_id)
+        match, wallet = await asyncio.gather(
+            get_game_match(int(match_id_text)),
+            get_game_wallet(user_id),
+        )
         if not match or match.get("status") != "OPEN":
             raise GameError("closed", t("game_closed", lang))
         label = _outcome_label(match, outcome, lang)

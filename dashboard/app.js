@@ -171,7 +171,7 @@ LANG.ru = {...LANG.en,
     metric_revenue:'Выручка (30 дней)', metric_sales:'Продажи (30 дней)', metric_clients:'Клиенты', metric_initiated:'Заказы в ожидании', chart_revenue:'Выручка по дням ($)', chart_orders:'Заказы по дням', stock_status:'Состояние склада', no_products:'Нет товаров.',
     btn_add_product:'Добавить', filter_all:'Все', filter_pending:'В ожидании', filter_completed:'Завершенные', filter_cancelled:'Отмененные', no_orders:'Нет заказов.', no_users:'Нет пользователей.', no_tickets:'Нет открытых обращений.', btn_save:'Сохранить', btn_cancel:'Отмена'
 };
-LANG.ar = {...LANG.ar,
+LANG.ar = {...LANG.en,
     login_subtitle:'لوحة تحكم المسؤول', login_url_label:'رابط API', login_key_label:'مفتاح API للمسؤول', login_btn:'اتصال',
     nav_dashboard:'لوحة التحكم', nav_stats:'الإحصائيات', nav_inventory:'المنتجات والمخزون', nav_orders:'الطلبات', nav_activations:'التفعيلات', nav_resellers:'الموزعون', nav_users:'المستخدمون', nav_tickets:'الدعم', nav_wallet_history:'سجل المحفظة', nav_finance:'المالية', nav_binance:'حسابات Binance', nav_broadcast:'البث', nav_api_docs:'وثائق API', nav_settings:'الإعدادات',
     tab_dashboard:'لوحة التحكم', tab_stats:'التحليلات والإحصائيات', tab_inventory:'المنتجات والمخزون', tab_orders:'متابعة الطلبات', tab_users:'إدارة المستخدمين', tab_tickets:'تذاكر الدعم', tab_broadcast:'البث', tab_settings:'الإعدادات',
@@ -1004,6 +1004,75 @@ const DOM = {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //  i18n HELPERS
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// Poll paths rebuild whole tables with innerHTML. When the payload is
+// byte-identical to the previous tick the rebuild is pure waste: it destroys
+// every row node, forces a full relayout, and drops scroll/focus/:hover state.
+const _renderSignatures = new Map();
+
+function renderPayloadUnchanged(key, payload) {
+    let signature;
+    try {
+        signature = JSON.stringify(payload);
+    } catch (error) {
+        return false;
+    }
+    signature = `${state.currentLang}|${signature}`;
+    if (_renderSignatures.get(key) === signature) return true;
+    _renderSignatures.set(key, signature);
+    return false;
+}
+
+function invalidateRenderSignatures() {
+    _renderSignatures.clear();
+}
+
+// Export libraries are ~1.5 MB and only used by the finance export button,
+// so they are fetched on first use instead of on every page load.
+const EXPORT_LIBRARIES = {
+    excel: [{
+        src: 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+        integrity: 'sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw',
+        ready: () => typeof XLSX !== 'undefined',
+    }],
+    pdf: [{
+        src: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+        integrity: 'sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk',
+        ready: () => typeof window.jspdf !== 'undefined',
+    }, {
+        src: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js',
+        integrity: 'sha384-vuyrTV5nkscLp1knFvt+FIHfKKzmROBq5reruhMRslauj54mW+l2B8b6szMN6lCL',
+        ready: () => typeof window.jspdf?.jsPDF?.API?.autoTable !== 'undefined',
+    }],
+};
+const _loadedExportScripts = new Map();
+
+function loadExternalScript({src, integrity}) {
+    if (_loadedExportScripts.has(src)) return _loadedExportScripts.get(src);
+    const pending = new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.integrity = integrity;
+        script.crossOrigin = 'anonymous';
+        script.async = true;
+        script.addEventListener('load', () => resolve(), {once:true});
+        script.addEventListener('error', () => {
+            _loadedExportScripts.delete(src);
+            reject(new Error(`Could not load ${src}`));
+        }, {once:true});
+        document.head.appendChild(script);
+    });
+    _loadedExportScripts.set(src, pending);
+    return pending;
+}
+
+async function loadExportLibraries(format) {
+    for (const library of (EXPORT_LIBRARIES[format] || [])) {
+        if (library.ready()) continue;
+        await loadExternalScript(library);
+    }
+}
+
+
 function t(key) { return LANG[state.currentLang]?.[key] || LANG.fr[key] || key; }
 
 function tf(key, values={}) {
@@ -1074,6 +1143,7 @@ function applyTranslations() {
 function setLang(lang) {
     state.currentLang = lang;
     localStorage.setItem('vb_lang', lang);
+    invalidateRenderSignatures();
     applyTranslations();
     document.querySelector('.menu-item.active[data-tab]')?.setAttribute('aria-current', 'page');
     updateCurrentTabLabels();
@@ -2907,18 +2977,9 @@ async function loadDashboardOverview() {
         </button>`).join('');
     DOM.actionCenterList.querySelectorAll('[data-go-tab]').forEach(button => button.addEventListener('click', () => switchTab(button.dataset.goTab)));
 
-    const recentOrders = Array.isArray(data.recent_orders) ? data.recent_orders : [];
-    DOM.recentOrdersList.innerHTML = recentOrders.length ? recentOrders.map(order => {
-        const customer = order.username ? `@${order.username}` : (order.user_first_name || order.user_telegram_id || t('generic_customer'));
-        const product = `${order.product_emoji || ''} ${order.product_name || tf('generic_order', {id:order.id})}`.trim();
-        const date = order.created_at ? parseUTCDate(order.created_at).toLocaleString([], {dateStyle:'short', timeStyle:'short'}) : '';
-        return `<button type="button" class="recent-order-item" data-go-tab="orders-tab">
-            <span class="recent-order-meta"><strong>${escapeHtml(product)}</strong><span>${escapeHtml(customer)} · ${escapeHtml(date)}</span></span>
-            <span class="status-badge status-${escapeHtml(String(order.status || '').toLowerCase())}">${escapeHtml(order.status || '')}</span>
-            <span class="recent-order-amount">$${Number(order.amount_usd || 0).toFixed(2)}</span>
-        </button>`;
-    }).join('') : `<p class="empty-state">${t('recent_orders_empty')}</p>`;
-    DOM.recentOrdersList.querySelectorAll('[data-go-tab]').forEach(button => button.addEventListener('click', () => switchTab(button.dataset.goTab)));
+    // #recent-orders-list is owned by renderActivityCenter() in operations.js,
+    // which emitDashboardData('overview', ...) triggers below. Rendering it here
+    // too meant building and discarding the whole list on every 60s poll.
 
     const pendingOrders = Number(actions.pending_payments || 0) + Number(actions.delivery_issues || 0);
     DOM.badgeOrders.textContent = pendingOrders;
@@ -3451,6 +3512,7 @@ async function loadPaymentReview() {
 }
 
 function renderPaymentReview(data) {
+    if (renderPayloadUnchanged('payment-review', data)) return;
     const summary = data.summary || {};
     if (DOM.paymentReviewTotal) DOM.paymentReviewTotal.textContent = Number(summary.all || 0);
     if (DOM.paymentReviewUnderpaid) DOM.paymentReviewUnderpaid.textContent = Number(summary.underpaid || 0);
@@ -6248,6 +6310,8 @@ $('exportForm').addEventListener('submit', async (e) => {
             'Identifiant': ''
         };
         rows.push(totalRow);
+
+        await loadExportLibraries(format);
 
         if (format === 'excel') {
             const wb = XLSX.utils.book_new();

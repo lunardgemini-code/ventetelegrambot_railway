@@ -367,6 +367,13 @@ async def show_products_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Handle 'menu_buy' / 'back_products' / 'refresh_prods' / 'cat:{id}' — list products directly."""
     lang = await get_user_lang(update.effective_user.id)
     query = update.callback_query
+    # Acknowledge the tap immediately: on a cold stock cache the DB work below
+    # can take long enough for the client spinner to stall or the query to expire.
+    if query:
+        try:
+            await query.answer()
+        except Exception:
+            pass
 
     category_id = None
     if query and query.data.startswith("cat:"):
@@ -420,10 +427,6 @@ async def show_products_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if not products:
             text = t("no_categories", lang)
             if update.callback_query:
-                try:
-                    await update.callback_query.answer()
-                except Exception:
-                    pass
                 await safe_edit_message_text(update.callback_query,
                     text, reply_markup=back_keyboard("back_main", lang)
                 )
@@ -443,10 +446,6 @@ async def show_products_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
             markup = products_keyboard(products, stock_counts, lang, show_stack_separator=(stack_mode == "stack"))
 
         if update.callback_query:
-            try:
-                await update.callback_query.answer()
-            except Exception:
-                pass
             try:
                 await safe_edit_message_text(update.callback_query,
                     text, parse_mode="HTML", reply_markup=markup

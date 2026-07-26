@@ -386,7 +386,9 @@ class DatabaseResilienceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(result)
         self.assertEqual(operation.await_count, 2)
-        self.assertTrue(operation.await_args_list[0].kwargs["fresh_connection"])
+        # First attempt reuses the pool; only the retry after a stream error
+        # pays for a fresh TLS connection.
+        self.assertFalse(operation.await_args_list[0].kwargs["fresh_connection"])
         self.assertTrue(operation.await_args_list[1].kwargs["fresh_connection"])
 
     async def test_stock_reservation_retries_stale_hrana_stream(self):

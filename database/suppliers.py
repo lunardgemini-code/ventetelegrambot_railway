@@ -579,8 +579,44 @@ async def sync_supplier_products(
         }
         inserted = 0
         stock_changed = bool(missing_rows)
+        upsert_params: list[tuple] = []
         for existing, incoming, changed_fields in changes:
-            await db.execute(
+            upsert_params.append(
+                (
+                    supplier_code,
+                    incoming["external_product_id"],
+                    incoming["name"],
+                    incoming["description"],
+                    incoming["base_price"],
+                    incoming["source_price"],
+                    incoming["source_currency"],
+                    incoming["remote_stock"],
+                    incoming["warranty_days"],
+                    incoming["image_url"],
+                    incoming["emoji"],
+                    incoming["raw_payload"],
+                )
+            )
+            if existing is None:
+                inserted += 1
+            elif bool(existing.get("enabled")) and (
+                changed_fields & _SUPPLIER_LOCAL_PRODUCT_FIELDS
+            ):
+                local_product_rows.append({**existing, **incoming})
+            if "remote_stock" in changed_fields or "base_price" in changed_fields:
+                stock_changed = True
+                local_product_id = (
+                    existing.get("local_product_id") if existing else None
+                )
+                if local_product_id:
+                    stock_product_ids.add(int(local_product_id))
+
+        if upsert_params:
+            # One batched round trip for the whole catalogue delta. The old
+            # per-product execute loop held the global Turso writer lock for
+            # ~1s per sync cycle (one network hop per changed product),
+            # stalling every order/wallet write in the process.
+            await db.executemany(
                 """INSERT INTO supplier_products
                    (supplier_code, external_product_id, name, description,
                     base_price, source_price, source_currency, remote_stock,
@@ -596,34 +632,8 @@ async def sync_supplier_products(
                     image_url = excluded.image_url, emoji = excluded.emoji,
                     raw_payload = excluded.raw_payload,
                     last_synced_at = CURRENT_TIMESTAMP""",
-                (
-                    supplier_code,
-                    incoming["external_product_id"],
-                    incoming["name"],
-                    incoming["description"],
-                    incoming["base_price"],
-                    incoming["source_price"],
-                    incoming["source_currency"],
-                    incoming["remote_stock"],
-                    incoming["warranty_days"],
-                    incoming["image_url"],
-                    incoming["emoji"],
-                    incoming["raw_payload"],
-                ),
+                upsert_params,
             )
-            if existing is None:
-                inserted += 1
-            elif bool(existing.get("enabled")) and (
-                changed_fields & _SUPPLIER_LOCAL_PRODUCT_FIELDS
-            ):
-                local_product_rows.append({**existing, **incoming})
-            if "remote_stock" in changed_fields or "base_price" in changed_fields:
-                stock_changed = True
-                local_product_id = (
-                    existing.get("local_product_id") if existing else None
-                )
-                if local_product_id:
-                    stock_product_ids.add(int(local_product_id))
 
         if missing_rows:
             placeholders = ",".join("?" for _ in missing_rows)

@@ -349,7 +349,9 @@ ADMIN_SESSION_REVOKED_BEFORE = _env_int("ADMIN_SESSION_REVOKED_BEFORE", 0, minim
 RESELLER_API_RATE_LIMIT = _env_int("RESELLER_API_RATE_LIMIT", 60)
 RESELLER_API_RATE_WINDOW = _env_int("RESELLER_API_RATE_WINDOW", 60)
 RESELLER_CATALOG_CACHE_SECONDS = _env_int("RESELLER_CATALOG_CACHE_SECONDS", 15)
-THREAD_WORKERS = _env_int("THREAD_WORKERS", 32, minimum=4)
+# Every libSQL call rides a thread; they are all I/O-blocked, so a bigger
+# default prevents a Turso slowdown from pinning the whole executor.
+THREAD_WORKERS = _env_int("THREAD_WORKERS", 64, minimum=4)
 HEALTHCHECK_REQUIRE_BOT = _env_bool("HEALTHCHECK_REQUIRE_BOT", True)
 _reseller_rate_buckets: dict[str, dict[str, int]] = {}
 _reseller_rate_last_cleanup = 0
@@ -5723,6 +5725,34 @@ async def _db_keepalive_worker() -> None:
             logger.debug("Database keepalive ping failed: %s", exc)
 
 
+PRODUCT_WARM_CACHE_SECONDS = _env_int("PRODUCT_WARM_CACHE_SECONDS", 10, minimum=0)
+
+
+async def _product_warm_cache_worker() -> None:
+    """Re-warm catalogue caches in the background after each invalidation.
+
+    Every sale bumps the catalogue generation and cold caches used to be
+    repaid by the next customer's tap; this worker pays that cost off the
+    user path instead.
+    """
+    from database.models import get_catalog_cache_generation
+    from services.product_warm_cache import preload_active_products
+
+    last_generation = -1
+    while True:
+        try:
+            await asyncio.sleep(PRODUCT_WARM_CACHE_SECONDS)
+            generation = get_catalog_cache_generation()
+            if generation == last_generation:
+                continue
+            await preload_active_products()
+            last_generation = generation
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.debug("Product warm preload cycle failed: %s", exc)
+
+
 def _metrics_percentile(values: list[float], percentile: float) -> float:
     if not values:
         return 0.0
@@ -5776,6 +5806,9 @@ def _release_webhook_dedupe(update: Update, *, completed: bool = True) -> None:
     if update_id is not None:
         _webhook_active_update_ids.discard(update_id)
         if completed:
+            # Pop-then-set keeps the dict strictly completion-ordered even if
+            # the same update id completes twice within the dedupe window.
+            _webhook_recent_update_ids.pop(update_id, None)
             _webhook_recent_update_ids[update_id] = time.monotonic()
 
 
@@ -6378,6 +6411,17 @@ async def post_init(application: Application) -> None:
                 TURSO_KEEPALIVE_SECONDS,
             )
 
+    if PRODUCT_WARM_CACHE_SECONDS > 0:
+        task = application.bot_data.get("product_warm_preload_task")
+        if not task or task.done():
+            application.bot_data["product_warm_preload_task"] = asyncio.create_task(
+                _product_warm_cache_worker()
+            )
+            logger.info(
+                "Product warm cache worker started (check every %ds)",
+                PRODUCT_WARM_CACHE_SECONDS,
+            )
+
     task = application.bot_data.get("background_job_task")
     if not task or task.done():
         from services.background_jobs import background_job_worker
@@ -6637,9 +6681,14 @@ async def telegram_webhook(request: StarletteRequest):
                     return {"ok": True, "deduplicated": True}
                 if len(_webhook_recent_update_ids) > 5000:
                     cutoff = now - WEBHOOK_UPDATE_DEDUPE_SECONDS
-                    for recent_id, completed_at in list(_webhook_recent_update_ids.items()):
-                        if completed_at < cutoff:
-                            _webhook_recent_update_ids.pop(recent_id, None)
+                    # Insertion order equals completion order, so expired
+                    # entries sit at the front: pop until the first fresh one
+                    # instead of copying and scanning the whole map per request.
+                    while _webhook_recent_update_ids:
+                        oldest_id = next(iter(_webhook_recent_update_ids))
+                        if _webhook_recent_update_ids[oldest_id] >= cutoff:
+                            break
+                        _webhook_recent_update_ids.pop(oldest_id, None)
                 _webhook_active_update_ids.add(update_id)
                 _webhook_update_id_by_object[id(update)] = update_id
             lock_key = _webhook_lock_key(update)

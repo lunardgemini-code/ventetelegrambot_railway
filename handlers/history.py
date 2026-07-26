@@ -4,6 +4,8 @@ History handler — paginated order history + order detail with account data re-
 
 import logging
 
+import asyncio
+
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -38,11 +40,12 @@ async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if "hist_page:" in query.data:
             page = max(0, int(query.data.split(":")[1]))
 
-        total = await get_user_order_count(telegram_id)
-        total_pages = max(1, (total + ORDERS_PER_PAGE - 1) // ORDERS_PER_PAGE)
         offset = page * ORDERS_PER_PAGE
-
-        orders = await get_user_orders(telegram_id, limit=ORDERS_PER_PAGE, offset=offset)
+        total, orders = await asyncio.gather(
+            get_user_order_count(telegram_id),
+            get_user_orders(telegram_id, limit=ORDERS_PER_PAGE, offset=offset),
+        )
+        total_pages = max(1, (total + ORDERS_PER_PAGE - 1) // ORDERS_PER_PAGE)
 
         if not orders:
             await safe_edit_message_text(query, 

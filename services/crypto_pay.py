@@ -113,7 +113,7 @@ async def _client() -> httpx.AsyncClient:
                 "Crypto-Pay-API-Token": CRYPTO_PAY_API_TOKEN,
                 "Accept": "application/json",
             },
-            limits=httpx.Limits(max_connections=8, max_keepalive_connections=4),
+            limits=httpx.Limits(max_connections=8, max_keepalive_connections=4, keepalive_expiry=120.0),
         )
     return _HTTP_CLIENT
 

@@ -125,6 +125,11 @@ async def _client() -> httpx.AsyncClient:
         _HTTP_CLIENT = httpx.AsyncClient(
             base_url=NOWPAYMENTS_BASE_URL,
             timeout=httpx.Timeout(12.0, connect=5.0),
+            limits=httpx.Limits(
+                max_connections=8,
+                max_keepalive_connections=4,
+                keepalive_expiry=120.0,
+            ),
             headers={
                 "x-api-key": NOWPAYMENTS_API_KEY,
                 "Content-Type": "application/json",

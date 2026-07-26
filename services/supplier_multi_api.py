@@ -42,6 +42,11 @@ async def _client(provider: dict) -> httpx.AsyncClient:
         client = httpx.AsyncClient(
             base_url=str(provider["base_url"]).rstrip("/"),
             timeout=httpx.Timeout(25.0, connect=7.0),
+            limits=httpx.Limits(
+                max_connections=8,
+                max_keepalive_connections=4,
+                keepalive_expiry=120.0,
+            ),
             headers=_auth_headers(provider),
         )
         _CLIENTS[code] = client
