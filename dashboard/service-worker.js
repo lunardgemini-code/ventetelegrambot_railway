@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ventebot-dashboard-shell-20260725-auto-hide-v2';
+const CACHE_NAME = 'ventebot-dashboard-shell-20260726-cache-first-v1';
 const APP_SHELL = [
     './',
     './index.html',
@@ -57,6 +57,20 @@ async function networkFirst(request) {
     }
 }
 
+// ?v= assets never change under a given URL, so a cached copy is always
+// correct - skip the network round trip entirely on repeat visits.
+function isVersionedAsset(url) {
+    return STATIC_ASSET_PATTERN.test(url.pathname) && url.searchParams.has('v');
+}
+
+async function cacheFirst(request) {
+    const cached = await caches.match(request);
+    if (cached) return cached;
+    const response = await fetch(request);
+    await storeResponse(request, response);
+    return response;
+}
+
 self.addEventListener('install', event => {
     event.waitUntil(
         caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL))
@@ -80,5 +94,5 @@ self.addEventListener('fetch', event => {
     const url = new URL(request.url);
     if (!isDashboardRequest(request, url)) return;
     if (url.pathname.endsWith('/service-worker.js')) return;
-    event.respondWith(networkFirst(request));
+    event.respondWith(isVersionedAsset(url) ? cacheFirst(request) : networkFirst(request));
 });

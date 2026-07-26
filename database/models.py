@@ -98,11 +98,11 @@ _TELEGRAM_SPECIAL_PRICE_USERS_CACHE_TTL = max(
 _TELEGRAM_SPECIAL_PRICE_USERS_CACHE_LOCK = None
 _TELEGRAM_SPECIAL_PRICE_USERS_CACHE_LOCK_LOOP = None
 _GET_STATS_CACHE = {}
-_GET_STATS_CACHE_TTL = 30
+_GET_STATS_CACHE_TTL = 60
 _DASHBOARD_OVERVIEW_CACHE: tuple[float, int, dict] | None = None
 _DASHBOARD_OVERVIEW_CACHE_TTL = max(
     5.0,
-    float(os.environ.get("DASHBOARD_OVERVIEW_CACHE_SECONDS", "15")),
+    float(os.environ.get("DASHBOARD_OVERVIEW_CACHE_SECONDS", "45")),
 )
 _DASHBOARD_OVERVIEW_CACHE_GENERATION = 0
 _DASHBOARD_OVERVIEW_SINGLEFLIGHT: AsyncSingleFlight[int, dict] = AsyncSingleFlight()
@@ -443,16 +443,12 @@ async def get_all_users() -> list[dict]:
 
 
 async def _get_all_users_once() -> list[dict]:
-    """Retourne la liste de tous les utilisateurs enregistrés avec leur nombre de filleuls."""
+    """Retourne les colonnes minimales nécessaires au broadcast pour chaque utilisateur."""
     db = await get_db()
     try:
-        cursor = await db.execute("""
-            SELECT u.*, COUNT(f.telegram_id) as referrals_count
-            FROM users u
-            LEFT JOIN users f ON f.referred_by = u.telegram_id
-            GROUP BY u.id
-            ORDER BY u.created_at DESC
-        """)
+        cursor = await db.execute(
+            "SELECT id, telegram_id, COALESCE(is_banned, 0) AS is_banned FROM users"
+        )
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
     finally:
@@ -756,6 +752,112 @@ async def get_stock_forecast(days: int = 7) -> dict[int, dict]:
         return result
     finally:
         await db.close()
+
+
+# Product view/click analytics are buffered in memory and flushed in batches so
+# catalogue browsing never serializes against money writes on the Turso writer lock.
+_PRODUCT_VIEW_WINDOW_SECONDS = 6 * 3600.0
+_PRODUCT_CLICK_WINDOW_SECONDS = 10 * 60.0
+_PRODUCT_ENGAGEMENT_RECENT_MAX = 50_000
+_PRODUCT_VIEW_BUFFER: dict[tuple[int, int], float] = {}
+_PRODUCT_CLICK_BUFFER: dict[tuple[int, int], float] = {}
+_PRODUCT_VIEW_RECENT: dict[tuple[int, int], float] = {}
+_PRODUCT_CLICK_RECENT: dict[tuple[int, int], float] = {}
+
+
+def _queue_product_engagement(
+    buffer: dict[tuple[int, int], float],
+    recent: dict[tuple[int, int], float],
+    window_seconds: float,
+    product_id: int,
+    user_telegram_id: int,
+) -> None:
+    key = (int(product_id), int(user_telegram_id))
+    now = time.time()
+    last = recent.get(key)
+    if last is not None and now - last < window_seconds:
+        return
+    if len(recent) >= _PRODUCT_ENGAGEMENT_RECENT_MAX:
+        cutoff = now - window_seconds
+        for stale_key in [k for k, ts in recent.items() if ts < cutoff]:
+            recent.pop(stale_key, None)
+    recent[key] = now
+    buffer[key] = now
+
+
+def queue_product_view(product_id: int, user_telegram_id: int) -> None:
+    """Buffer a product view; flush_product_engagement persists it in batch."""
+    _queue_product_engagement(
+        _PRODUCT_VIEW_BUFFER,
+        _PRODUCT_VIEW_RECENT,
+        _PRODUCT_VIEW_WINDOW_SECONDS,
+        product_id,
+        user_telegram_id,
+    )
+
+
+def queue_product_buy_click(product_id: int, user_telegram_id: int) -> None:
+    """Buffer a buy click; flush_product_engagement persists it in batch."""
+    _queue_product_engagement(
+        _PRODUCT_CLICK_BUFFER,
+        _PRODUCT_CLICK_RECENT,
+        _PRODUCT_CLICK_WINDOW_SECONDS,
+        product_id,
+        user_telegram_id,
+    )
+
+
+async def flush_product_engagement() -> int:
+    """Persist buffered views/clicks in one transaction; returns rows attempted."""
+    if not _PRODUCT_VIEW_BUFFER and not _PRODUCT_CLICK_BUFFER:
+        return 0
+    views = list(_PRODUCT_VIEW_BUFFER.keys())
+    clicks = list(_PRODUCT_CLICK_BUFFER.keys())
+    _PRODUCT_VIEW_BUFFER.clear()
+    _PRODUCT_CLICK_BUFFER.clear()
+    try:
+        db = await get_db()
+    except Exception as exc:
+        logger.debug("Could not open DB for engagement flush: %s", exc)
+        return 0
+    try:
+        for product_id, user_id in views:
+            await db.execute(
+                """INSERT INTO product_views (product_id, user_telegram_id)
+                   SELECT ?, ?
+                   WHERE NOT EXISTS (
+                       SELECT 1 FROM product_views
+                       WHERE product_id = ? AND user_telegram_id = ?
+                         AND viewed_at >= datetime('now', '-6 hours')
+                   )""",
+                (product_id, user_id, product_id, user_id),
+            )
+        for product_id, user_id in clicks:
+            await db.execute(
+                """INSERT INTO product_buy_clicks (product_id, user_telegram_id)
+                   SELECT ?, ?
+                   WHERE NOT EXISTS (
+                       SELECT 1 FROM product_buy_clicks
+                       WHERE product_id = ? AND user_telegram_id = ?
+                         AND clicked_at >= datetime('now', '-10 minutes')
+                   )""",
+                (product_id, user_id, product_id, user_id),
+            )
+        await db.commit()
+    except Exception as exc:
+        logger.debug("Product engagement flush failed; re-queuing batch: %s", exc)
+        now = time.time()
+        for key in views:
+            _PRODUCT_VIEW_BUFFER.setdefault(key, now)
+        for key in clicks:
+            _PRODUCT_CLICK_BUFFER.setdefault(key, now)
+        return 0
+    finally:
+        try:
+            await db.close()
+        except Exception:
+            pass
+    return len(views) + len(clicks)
 
 
 async def record_product_view(product_id: int, user_telegram_id: int) -> None:
@@ -8606,6 +8708,8 @@ async def get_daily_stats(days: int = 30) -> list[dict]:
 async def ban_user(telegram_id: int) -> None:
     """Bannit un utilisateur."""
     _USER_BANNED_CACHE[telegram_id] = True
+    # A banned reseller must lose API access immediately, not after the 30s auth cache TTL.
+    _RESELLER_AUTH_CACHE.clear()
     db = await get_db()
     try:
         await db.execute(
@@ -8620,6 +8724,7 @@ async def ban_user(telegram_id: int) -> None:
 async def unban_user(telegram_id: int) -> None:
     """DÃ©bannit un utilisateur."""
     _USER_BANNED_CACHE[telegram_id] = False
+    _RESELLER_AUTH_CACHE.clear()
     db = await get_db()
     try:
         await db.execute(

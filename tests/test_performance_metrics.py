@@ -401,7 +401,7 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(shell.status_code, 200)
         self.assertEqual(shell.headers["cache-control"], "no-cache, must-revalidate")
         self.assertEqual(asset.status_code, 200)
-        self.assertIn("max-age=3600", asset.headers["cache-control"])
+        self.assertIn("immutable", asset.headers["cache-control"])
         self.assertEqual(asset.headers.get("content-encoding"), "gzip")
         script = (Path(__file__).resolve().parents[1] / "dashboard" / "app.js").read_text(
             encoding="utf-8"

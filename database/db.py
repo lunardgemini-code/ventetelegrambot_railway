@@ -286,11 +286,15 @@ _turso_connect_semaphore_loop = None
 _turso_writer_lock = None
 _turso_writer_lock_loop = None
 _sqlite_wal_configured = False
+# Idle/lifetime generous enough that the keepalive ping (see keepalive_db_pool)
+# keeps at least one warm connection between bursts instead of paying a full
+# TCP+TLS handshake on the user-facing path; validate-after-idle still guards
+# against expired Hrana streams.
 _TURSO_POOL_MAX_IDLE_SECONDS = _env_float(
-    "TURSO_POOL_MAX_IDLE_SECONDS", 5.0, 1.0
+    "TURSO_POOL_MAX_IDLE_SECONDS", 90.0, 1.0
 )
 _TURSO_POOL_MAX_LIFETIME_SECONDS = _env_float(
-    "TURSO_POOL_MAX_LIFETIME_SECONDS", 30.0, 5.0
+    "TURSO_POOL_MAX_LIFETIME_SECONDS", 300.0, 5.0
 )
 _TURSO_POOL_VALIDATE_AFTER_IDLE_SECONDS = _env_float(
     "TURSO_POOL_VALIDATE_AFTER_IDLE_SECONDS", 1.0, 0.1
@@ -640,6 +644,24 @@ async def get_db(*, fresh: bool = False):
         await db.execute("PRAGMA busy_timeout = 5000")
         await db.execute("PRAGMA foreign_keys = ON")
         return db
+
+
+async def keepalive_db_pool() -> bool:
+    """Run a trivial read so at least one pooled Turso connection stays warm.
+
+    Returning the connection refreshes its idle timestamp, keeping the pool
+    from paying a fresh TCP+TLS handshake on the next user-facing request.
+    No-op without Turso (local SQLite connections are cheap).
+    """
+    if not TURSO_URL:
+        return False
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT 1")
+        await cursor.fetchone()
+        return True
+    finally:
+        await db.close()
 
 
 # ══════════════════════════════════════════════
@@ -1113,6 +1135,8 @@ async def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_nowpayments_topups_status ON nowpayments_wallet_topups(provider_status, updated_at)",
             "ALTER TABLE nowpayments_payments ADD COLUMN notification_claimed_at TIMESTAMP",
             "CREATE INDEX IF NOT EXISTS idx_wallet_tx_type_created ON wallet_transactions(type, created_at)",
+            "CREATE INDEX IF NOT EXISTS idx_wallet_tx_created ON wallet_transactions(created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_users_created ON users(created_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_support_tickets_status ON support_tickets(status, created_at)",
             "ALTER TABLE categories ADD COLUMN is_deleted INTEGER DEFAULT 0",
             "ALTER TABLE products ADD COLUMN is_deleted INTEGER DEFAULT 0",

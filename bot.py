@@ -44,7 +44,9 @@ if __name__ == "__main__":
     sys.modules.setdefault("bot", sys.modules[__name__])
 
 _stats_cache = {}
-_stats_cache_ttl = 10
+# Aligned just under the dashboard's 60s auto-refresh so polls actually hit the
+# cache; mutations clear it via _clear_api_stats_cache, so staleness is bounded.
+_stats_cache_ttl = 45
 
 from telegram import Update
 from telegram.ext import (
@@ -231,7 +233,11 @@ async def configure_dashboard_cache(request: Request, call_next):
     if path in revalidated_files:
         response.headers["Cache-Control"] = "no-cache, must-revalidate"
     elif path.startswith("/dashboard/"):
-        response.headers["Cache-Control"] = "public, max-age=3600, stale-while-revalidate=604800"
+        if "v" in request.query_params:
+            # ?v= assets are content-addressed: same URL never changes content.
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "public, max-age=3600, stale-while-revalidate=604800"
     if path == "/dashboard/service-worker.js":
         response.headers["Service-Worker-Allowed"] = "/dashboard/"
     return response
@@ -278,27 +284,46 @@ ADMIN_SESSION_SECRET = (
 )
 
 
-def _new_admin_session_token() -> str:
+def _new_admin_session_token(issued_at: int | None = None) -> str:
+    issued = int(issued_at if issued_at is not None else time.time())
     payload = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii").rstrip("=")
+    signed_part = f"v2.{issued}.{payload}"
     signature = hmac.new(
         ADMIN_SESSION_SECRET.encode("utf-8"),
-        payload.encode("ascii"),
+        signed_part.encode("ascii"),
         hashlib.sha256,
     ).hexdigest()
-    return f"{payload}.{signature}"
+    return f"{signed_part}.{signature}"
 
 
 def _valid_admin_session_token(token: str) -> bool:
-    try:
-        payload, supplied_signature = str(token or "").rsplit(".", 1)
-    except ValueError:
+    # v2 tokens carry a signed issued-at so the server can expire and revoke
+    # them; legacy unsigned-timestamp tokens are rejected (one forced re-login).
+    parts = str(token or "").split(".")
+    if len(parts) != 4 or parts[0] != "v2":
         return False
+    _, issued_raw, payload, supplied_signature = parts
+    if not payload or not issued_raw.isdigit():
+        return False
+    signed_part = f"v2.{issued_raw}.{payload}"
     expected_signature = hmac.new(
         ADMIN_SESSION_SECRET.encode("utf-8"),
-        payload.encode("ascii"),
+        signed_part.encode("ascii"),
         hashlib.sha256,
     ).hexdigest()
-    return bool(payload) and hmac.compare_digest(supplied_signature, expected_signature)
+    if not hmac.compare_digest(supplied_signature, expected_signature):
+        return False
+    issued = int(issued_raw)
+    now = int(time.time())
+    if issued > now + 300:  # reject forged future timestamps beyond clock skew
+        return False
+    if now - issued > ADMIN_SESSION_MAX_AGE:
+        return False
+    # Bump ADMIN_SESSION_REVOKED_BEFORE (unix ts) to invalidate every session
+    # issued before it, e.g. after a suspected token leak.
+    if issued < ADMIN_SESSION_REVOKED_BEFORE:
+        return False
+    return True
 
 
 def _clear_api_stats_cache() -> None:
@@ -319,7 +344,8 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-ADMIN_SESSION_MAX_AGE = _env_int("ADMIN_SESSION_MAX_AGE", 10 * 365 * 24 * 60 * 60)
+ADMIN_SESSION_MAX_AGE = _env_int("ADMIN_SESSION_MAX_AGE", 30 * 24 * 60 * 60)
+ADMIN_SESSION_REVOKED_BEFORE = _env_int("ADMIN_SESSION_REVOKED_BEFORE", 0, minimum=0)
 RESELLER_API_RATE_LIMIT = _env_int("RESELLER_API_RATE_LIMIT", 60)
 RESELLER_API_RATE_WINDOW = _env_int("RESELLER_API_RATE_WINDOW", 60)
 RESELLER_CATALOG_CACHE_SECONDS = _env_int("RESELLER_CATALOG_CACHE_SECONDS", 15)
@@ -476,6 +502,60 @@ def _check_reseller_rate_limit(bucket_key: str) -> dict:
     return headers
 
 
+# ── Failed-authentication throttling ─────────────────────────────
+# Successful credentials are never throttled; only failures count, so a valid
+# admin session keeps working even if someone floods the login from the same IP.
+AUTH_FAIL_MAX_ATTEMPTS = _env_int("AUTH_FAIL_MAX_ATTEMPTS", 10)
+AUTH_FAIL_WINDOW_SECONDS = _env_int("AUTH_FAIL_WINDOW_SECONDS", 900)
+_auth_fail_buckets: dict[tuple[str, str], dict[str, float]] = {}
+_auth_fail_last_cleanup = 0.0
+
+
+def _auth_throttle_client_ip(request: Request) -> str:
+    from services.reseller_security import request_client_ip
+
+    return request_client_ip(request) or "unknown"
+
+
+def _auth_failure_retry_after(scope: str, client_ip: str) -> int:
+    """Seconds the caller must wait, or 0 while attempts are still allowed."""
+    bucket = _auth_fail_buckets.get((scope, client_ip))
+    if not bucket:
+        return 0
+    now = time.time()
+    if now >= bucket["reset_at"]:
+        _auth_fail_buckets.pop((scope, client_ip), None)
+        return 0
+    if bucket["count"] < AUTH_FAIL_MAX_ATTEMPTS:
+        return 0
+    return max(1, int(bucket["reset_at"] - now))
+
+
+def _register_auth_failure(scope: str, client_ip: str) -> None:
+    global _auth_fail_last_cleanup
+    now = time.time()
+    if now - _auth_fail_last_cleanup >= 60:
+        for key in [k for k, v in _auth_fail_buckets.items() if now >= v["reset_at"]]:
+            _auth_fail_buckets.pop(key, None)
+        _auth_fail_last_cleanup = now
+    bucket = _auth_fail_buckets.get((scope, client_ip))
+    if not bucket or now >= bucket["reset_at"]:
+        bucket = {"count": 0, "reset_at": now + AUTH_FAIL_WINDOW_SECONDS}
+        _auth_fail_buckets[(scope, client_ip)] = bucket
+    bucket["count"] += 1
+    if bucket["count"] == AUTH_FAIL_MAX_ATTEMPTS:
+        logger.warning(
+            "Authentication throttle engaged: scope=%s failures=%d window=%ds",
+            scope,
+            int(bucket["count"]),
+            AUTH_FAIL_WINDOW_SECONDS,
+        )
+
+
+def _clear_auth_failures(scope: str, client_ip: str) -> None:
+    _auth_fail_buckets.pop((scope, client_ip), None)
+
+
 @api.exception_handler(HTTPException)
 async def api_http_exception_handler(request: Request, exc: HTTPException):
     if _is_reseller_api_path(request.url.path):
@@ -508,6 +588,15 @@ async def verify_api_key(request: Request, x_api_key: str = Header(None)):
         request.cookies.get(ADMIN_SESSION_COOKIE, "")
     )
     if not header_valid and not session_valid:
+        client_ip = _auth_throttle_client_ip(request)
+        retry_after = _auth_failure_retry_after("admin", client_ip)
+        if retry_after:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many failed authentication attempts",
+                headers={"Retry-After": str(retry_after)},
+            )
+        _register_auth_failure("admin", client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API Key"
@@ -522,11 +611,21 @@ async def create_admin_session(
     x_api_key: str = Header(None),
 ):
     """Exchange the admin key for a same-origin, script-inaccessible session."""
+    client_ip = _auth_throttle_client_ip(request)
     if not x_api_key or not hmac.compare_digest(x_api_key, ADMIN_API_KEY):
+        retry_after = _auth_failure_retry_after("admin", client_ip)
+        if retry_after:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many failed authentication attempts",
+                headers={"Retry-After": str(retry_after)},
+            )
+        _register_auth_failure("admin", client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API Key",
         )
+    _clear_auth_failures("admin", client_ip)
     response.set_cookie(
         key=ADMIN_SESSION_COOKIE,
         value=_new_admin_session_token(),
@@ -561,11 +660,12 @@ async def delete_admin_session(response: Response):
 
 def _should_audit_admin_request(request: Request) -> bool:
     path = request.url.path
+    # /api/admin/session is audited too: failed logins must be visible.
+    # The audit event never contains the submitted key, only method/path/status.
     return (
         request.method.upper() in {"POST", "PUT", "PATCH", "DELETE"}
         and path.startswith("/api/")
         and not path.startswith("/api/reseller/")
-        and path != "/api/admin/session"
     )
 
 
@@ -621,7 +721,23 @@ async def verify_reseller_key(
 ):
     """Authenticate reseller API calls with a limited reseller key."""
     reseller_key = x_reseller_key or x_api_key
+    from services.reseller_security import ip_is_allowed, request_client_ip
+
+    # Throttle failed authentication BEFORE the database lookup: invalid keys
+    # must not be able to brute-force credentials or flood Turso with lookups.
+    client_ip = request_client_ip(request)
+    throttle_ip = client_ip or "unknown"
+    throttle_retry_after = _auth_failure_retry_after("reseller", throttle_ip)
+    if throttle_retry_after:
+        _raise_reseller_error(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "TOO_MANY_AUTH_FAILURES",
+            f"Too many failed authentication attempts. Try again in {throttle_retry_after} seconds.",
+            headers={"Retry-After": str(throttle_retry_after)},
+            retry_after=throttle_retry_after,
+        )
     if not reseller_key:
+        _register_auth_failure("reseller", throttle_ip)
         _raise_reseller_error(status.HTTP_401_UNAUTHORIZED, "MISSING_API_KEY", "Missing reseller API key")
     from database.models import get_reseller_by_api_key
     try:
@@ -635,21 +751,21 @@ async def verify_reseller_key(
             headers={"Retry-After": "3"},
         )
     if not reseller:
+        _register_auth_failure("reseller", throttle_ip)
         _raise_reseller_error(status.HTTP_401_UNAUTHORIZED, "INVALID_API_KEY", "Invalid reseller API key")
-    from services.reseller_security import ip_is_allowed, request_client_ip
-
-    client_ip = request_client_ip(request)
     if not ip_is_allowed(client_ip, reseller.get("ip_allowlist")):
         logger.warning(
             "Rejected reseller key %s from non-allowlisted IP %s",
             reseller.get("key_prefix"),
             client_ip,
         )
+        _register_auth_failure("reseller", throttle_ip)
         _raise_reseller_error(
             status.HTTP_403_FORBIDDEN,
             "IP_NOT_ALLOWED",
             "This IP address is not allowed for the reseller API key.",
         )
+    _clear_auth_failures("reseller", throttle_ip)
     rate_headers = _check_reseller_rate_limit(str(reseller.get("id") or reseller.get("key_prefix") or reseller["user_telegram_id"]))
     for key, value in rate_headers.items():
         response.headers[key] = value
@@ -858,9 +974,24 @@ async def deployment_readiness_check():
     return payload
 
 
+_HEALTH_CACHE_TTL_SECONDS = 5.0
+_health_check_cache: dict = {"time": 0.0, "status": 200, "payload": None}
+
+
 @api.get("/health")
 async def health_check():
     """Readiness check for Railway and the dashboard."""
+    # Unauthenticated and DB-touching: serve a short-lived cached result so
+    # anonymous callers cannot amplify requests into database load.
+    now_monotonic = time.monotonic()
+    if (
+        _health_check_cache["payload"] is not None
+        and now_monotonic - _health_check_cache["time"] < _HEALTH_CACHE_TTL_SECONDS
+    ):
+        if _health_check_cache["status"] != 200:
+            return JSONResponse(status_code=503, content=_health_check_cache["payload"])
+        return _health_check_cache["payload"]
+
     db_ready = False
     last_db_error = None
     from database.db import get_db
@@ -898,6 +1029,9 @@ async def health_check():
         "database": "ok" if db_ready else "unavailable",
         "webhook_queue": queue_size,
     }
+    _health_check_cache["time"] = time.monotonic()
+    _health_check_cache["payload"] = payload
+    _health_check_cache["status"] = 200 if payload["status"] == "ok" else 503
     if payload["status"] != "ok":
         return JSONResponse(status_code=503, content=payload)
     return payload
@@ -907,13 +1041,24 @@ async def health_check():
 async def api_performance_metrics():
     """Return rolling worker, queue, latency, and database diagnostics."""
     snapshot = _webhook_performance_snapshot()
-    try:
-        from database.jobs import get_performance_action_history
+    # The in-memory snapshot stays live; only the two DB-backed history reads
+    # are cached (the underlying hourly buckets change once per hour anyway).
+    current_time = time.time()
+    history_cached = _stats_cache.get("performance_history_24h")
+    if history_cached and current_time - history_cached["time"] < _stats_cache_ttl:
+        snapshot["history_24h"] = history_cached["data"]
+    else:
+        try:
+            from database.jobs import get_performance_action_history
 
-        snapshot["history_24h"] = await get_performance_action_history(24)
-    except Exception as exc:
-        logger.debug("Performance history is temporarily unavailable: %s", exc)
-        snapshot["history_24h"] = {"hours": 24, "actions": [], "available": False}
+            snapshot["history_24h"] = await get_performance_action_history(24)
+            _stats_cache["performance_history_24h"] = {
+                "time": current_time,
+                "data": snapshot["history_24h"],
+            }
+        except Exception as exc:
+            logger.debug("Performance history is temporarily unavailable: %s", exc)
+            snapshot["history_24h"] = {"hours": 24, "actions": [], "available": False}
     if webhook_worker_manager is not None:
         snapshot["autoscaling"] = webhook_worker_manager.status()
     else:
@@ -929,13 +1074,21 @@ async def api_performance_metrics():
             "proposed_workers": WEBHOOK_WORKERS,
             "timeline": [],
         }
-    try:
-        from database.jobs import list_webhook_autoscale_decisions
+    decisions_cached = _stats_cache.get("autoscale_decisions_30")
+    if decisions_cached and current_time - decisions_cached["time"] < _stats_cache_ttl:
+        snapshot["autoscaling"]["decisions"] = decisions_cached["data"]
+    else:
+        try:
+            from database.jobs import list_webhook_autoscale_decisions
 
-        snapshot["autoscaling"]["decisions"] = await list_webhook_autoscale_decisions(30)
-    except Exception as exc:
-        logger.debug("Autoscaling history is temporarily unavailable: %s", exc)
-        snapshot["autoscaling"]["decisions"] = []
+            snapshot["autoscaling"]["decisions"] = await list_webhook_autoscale_decisions(30)
+            _stats_cache["autoscale_decisions_30"] = {
+                "time": current_time,
+                "data": snapshot["autoscaling"]["decisions"],
+            }
+        except Exception as exc:
+            logger.debug("Autoscaling history is temporarily unavailable: %s", exc)
+            snapshot["autoscaling"]["decisions"] = []
     return snapshot
 
 
@@ -4784,10 +4937,16 @@ async def api_get_order_timeline(order_id: int):
 
 @api.get("/api/stats/daily", dependencies=[Depends(verify_api_key)])
 async def api_get_daily_stats(days: int = 30):
+    days = max(1, min(days, 365))  # Cap between 1-365
+    cache_key = f"daily_stats_{days}"
+    current_time = time.time()
+    if cache_key in _stats_cache and current_time - _stats_cache[cache_key]["time"] < _stats_cache_ttl:
+        return _stats_cache[cache_key]["data"]
+
     from database.models import get_daily_stats
     try:
-        days = max(1, min(days, 365))  # Cap between 1-365
         data = await get_daily_stats(days=days)
+        _stats_cache[cache_key] = {"time": current_time, "data": data}
         return data
     except Exception as exc:
         logger.error("API error: %s", exc, exc_info=True)
@@ -4857,13 +5016,23 @@ async def api_get_payment_review(
     allowed = {"all", "underpaid", "expired", "confirming", "late_after_cancel", "validation_error", "accepted"}
     if category not in allowed:
         raise HTTPException(status_code=422, detail="Unsupported payment review category")
+    # Polled every 60s per dashboard tab and expensive to build; review actions
+    # invalidate through _clear_api_stats_cache so admins still see their own
+    # changes immediately.
+    cache_key = f"payment_review_{category}_{include_resolved}_{limit}"
+    current_time = time.time()
+    cached = _stats_cache.get(cache_key)
+    if cached and current_time - cached["time"] < _stats_cache_ttl:
+        return cached["data"]
     from database.models import get_payment_review_items
     try:
-        return await get_payment_review_items(
+        data = await get_payment_review_items(
             category=category,
             include_resolved=include_resolved,
             limit=limit,
         )
+        _stats_cache[cache_key] = {"time": current_time, "data": data}
+        return data
     except Exception as exc:
         logger.error("API payment review error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Could not load payment review")
@@ -4902,6 +5071,7 @@ async def api_payment_review_action(
         audit = await record_payment_review_action(
             payment_kind, payment_id, "dismiss", note=payload.note, actor=actor,
         )
+        _clear_api_stats_cache()
         return {"status": "dismissed", "audit": audit}
     if payload.action == "reopen":
         if payment.get("processed_at") is not None:
@@ -4909,6 +5079,7 @@ async def api_payment_review_action(
         audit = await record_payment_review_action(
             payment_kind, payment_id, "reopen", note=payload.note, actor=actor,
         )
+        _clear_api_stats_cache()
         return {"status": "reopened", "audit": audit}
 
     if payload.action == "accept":
@@ -4935,6 +5106,7 @@ async def api_payment_review_action(
             payment_kind, payment_id, "recheck", note=payload.note,
             actor=actor, result_action=result_action,
         )
+        _clear_api_stats_cache()
         return {"status": "rechecked", "provider_status": result_action, "audit": audit}
 
     if str(payment.get("provider_status") or "").lower() != "finished":
@@ -5517,6 +5689,38 @@ async def _performance_history_worker() -> None:
             raise
         except Exception as exc:
             logger.warning("Could not persist performance metrics: %s", exc)
+
+
+PRODUCT_ENGAGEMENT_FLUSH_SECONDS = _env_int("PRODUCT_ENGAGEMENT_FLUSH_SECONDS", 20, minimum=5)
+TURSO_KEEPALIVE_SECONDS = _env_int("TURSO_KEEPALIVE_SECONDS", 25, minimum=0)
+
+
+async def _product_engagement_worker() -> None:
+    """Persist buffered product view/click analytics in batches."""
+    from database.models import flush_product_engagement
+
+    while True:
+        try:
+            await asyncio.sleep(PRODUCT_ENGAGEMENT_FLUSH_SECONDS)
+            await flush_product_engagement()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.debug("Product engagement flush failed: %s", exc)
+
+
+async def _db_keepalive_worker() -> None:
+    """Keep at least one pooled Turso connection warm between traffic bursts."""
+    from database.db import keepalive_db_pool
+
+    while True:
+        try:
+            await asyncio.sleep(TURSO_KEEPALIVE_SECONDS)
+            await asyncio.wait_for(keepalive_db_pool(), timeout=10)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.debug("Database keepalive ping failed: %s", exc)
 
 
 def _metrics_percentile(values: list[float], percentile: float) -> float:
@@ -6152,6 +6356,28 @@ async def post_init(application: Application) -> None:
         application.bot_data["dynamic_pricing_task"] = asyncio.create_task(_dynamic_pricing_worker())
         logger.info("Dynamic pricing worker started (check every %ds)", DYNAMIC_PRICING_CHECK_SECONDS)
 
+    task = application.bot_data.get("product_engagement_task")
+    if not task or task.done():
+        application.bot_data["product_engagement_task"] = asyncio.create_task(
+            _product_engagement_worker()
+        )
+        logger.info(
+            "Product engagement flush worker started (every %ds)",
+            PRODUCT_ENGAGEMENT_FLUSH_SECONDS,
+        )
+
+    from database.db import TURSO_URL as _turso_url_configured
+    if TURSO_KEEPALIVE_SECONDS > 0 and _turso_url_configured:
+        task = application.bot_data.get("db_keepalive_task")
+        if not task or task.done():
+            application.bot_data["db_keepalive_task"] = asyncio.create_task(
+                _db_keepalive_worker()
+            )
+            logger.info(
+                "Turso pool keepalive started (ping every %ds)",
+                TURSO_KEEPALIVE_SECONDS,
+            )
+
     task = application.bot_data.get("background_job_task")
     if not task or task.done():
         from services.background_jobs import background_job_worker
@@ -6289,6 +6515,8 @@ async def post_shutdown(application: Application) -> None:
         application.bot_data.pop("supplier_ai_auto_cycle_task", None),
         application.bot_data.pop("runtime_health_task", None),
         application.bot_data.pop("product_warm_preload_task", None),
+        application.bot_data.pop("product_engagement_task", None),
+        application.bot_data.pop("db_keepalive_task", None),
     ]
     for task in tasks:
         if task and not task.done():
@@ -6298,6 +6526,12 @@ async def post_shutdown(application: Application) -> None:
         await _flush_performance_metrics()
     except Exception as exc:
         logger.warning("Final performance metric flush failed: %s", exc)
+    try:
+        from database.models import flush_product_engagement
+
+        await flush_product_engagement()
+    except Exception as exc:
+        logger.warning("Final product engagement flush failed: %s", exc)
     from services.http_pool import close_http_pools
     await close_http_pools()
     from services.nowpayments import close_nowpayments_client

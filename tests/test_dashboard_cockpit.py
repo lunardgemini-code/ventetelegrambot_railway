@@ -101,7 +101,7 @@ class DashboardCockpitStaticTests(unittest.TestCase):
         ):
             self.assertIn(asset, self.html)
             self.assertIn(asset, self.worker)
-        self.assertIn("ventebot-dashboard-shell-20260725-auto-hide-v2", self.worker)
+        self.assertIn("ventebot-dashboard-shell-20260726-cache-first-v1", self.worker)
 
 
 class DashboardCockpitDataTests(unittest.IsolatedAsyncioTestCase):

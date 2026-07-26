@@ -19,7 +19,7 @@ from database.models import (
     get_user_lang,
     get_all_stock_counts,
     product_is_customer_visible,
-    record_product_view,
+    queue_product_view,
 )
 from utils.helpers import escape_html, format_price, is_admin, safe_format
 from utils.keyboards import (
@@ -543,9 +543,8 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
         if product.get("pricing_type") == "reseller_special":
             tiers = []
 
-        # Analytics is deliberately off the response path.
-        view_task = asyncio.create_task(record_product_view(product_id, update.effective_user.id))
-        view_task.add_done_callback(_log_background_task)
+        # Analytics is buffered in memory and flushed in batches off the response path.
+        queue_product_view(product_id, update.effective_user.id)
 
         can_buy = product.get("delivery_type") == "activation" or (stock or 0) > 0
         chat_id = query.message.chat_id

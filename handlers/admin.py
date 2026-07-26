@@ -35,7 +35,7 @@ from database.models import (
     close_ticket,
     delete_product,
     get_all_products,
-    get_all_users,
+    get_total_users_count,
     get_activation_orders,
     get_categories,
     get_category,
@@ -732,12 +732,12 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         stats = await get_stats(days=30)
-        all_users = await get_all_users()
+        total_users = await get_total_users_count()
 
         text = (
             "📊 <b>Statistiques (30 derniers jours)</b>\n"
             "\n"
-            f"👥 <b>Utilisateurs :</b> {len(all_users)}\n"
+            f"👥 <b>Utilisateurs :</b> {total_users}\n"
             f"📦 <b>Commandes totales :</b> {stats.get('total_orders', 0)}\n"
             f"✅ <b>Commandes complétées :</b> {stats.get('completed_orders', 0)}\n"
             f"⏳ <b>Commandes en attente :</b> {stats.get('pending_orders', 0)}\n"

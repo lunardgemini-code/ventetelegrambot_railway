@@ -69,7 +69,7 @@ class DashboardPwaTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("operations.css?v=20260725-auto-hide-v2", self.worker)
         self.assertIn("app.js?v=20260725-auto-hide-v2", self.worker)
         self.assertIn("operations.js?v=20260723-ops-v2", self.worker)
-        self.assertIn("ventebot-dashboard-shell-20260725-auto-hide-v2", self.worker)
+        self.assertIn("ventebot-dashboard-shell-20260726-cache-first-v1", self.worker)
 
     def test_pwa_strings_are_available_in_all_dashboard_languages(self):
         shell = self.app.split("const SHELL_TRANSLATIONS = {", 1)[1].split(

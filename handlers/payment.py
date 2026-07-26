@@ -38,7 +38,7 @@ from database.models import (
     get_telegram_order_pricing,
     get_user_lang,
     purchase_order_with_wallet,
-    record_product_buy_click,
+    queue_product_buy_click,
     submit_activation_identifier,
     update_order_status,
 )
@@ -351,7 +351,7 @@ async def initiate_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return ConversationHandler.END
 
-        asyncio.create_task(record_product_buy_click(product_id, update.effective_user.id))
+        queue_product_buy_click(product_id, update.effective_user.id)
 
         is_activation = _is_activation_product(product)
         try:

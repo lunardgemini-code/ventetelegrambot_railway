@@ -58,7 +58,8 @@ class DashboardMobileProductTests(unittest.TestCase):
         version = "20260725-auto-hide-v2"
         self.assertIn(f"operations.css?v={version}", self.html)
         self.assertIn(f"app.js?v={version}", self.html)
-        self.assertIn(f"ventebot-dashboard-shell-{version}", self.worker)
+        # The SW cache tag now advances independently of asset versions.
+        self.assertIn("ventebot-dashboard-shell-20260726-cache-first-v1", self.worker)
         self.assertIn(f"operations.css?v={version}", self.worker)
         self.assertIn(f"app.js?v={version}", self.worker)
 
