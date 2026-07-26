@@ -94,8 +94,17 @@ async def enqueue_broadcast_job(
     source: str = "dashboard",
     status_chat_id: int | None = None,
     status_message_id: int | None = None,
+    recipient_ids: list[int] | None = None,
 ) -> dict:
-    window = await get_broadcast_recipient_window()
+    targeted = recipient_ids is not None
+    ordered_ids = sorted({int(value) for value in (recipient_ids or [])})
+    if targeted and not ordered_ids:
+        raise ValueError("NO_BROADCAST_RECIPIENTS")
+    # A targeted send has a fixed audience, so it needs neither the recipient
+    # window nor the max_user_id snapshot that bounds an all-users broadcast.
+    window = {"max_user_id": 0, "total": len(ordered_ids)}
+    if not targeted:
+        window = await get_broadcast_recipient_window()
     payload = {
         "text": str(text or ""),
         "photo": str(photo or "").strip() or None,
@@ -104,6 +113,7 @@ async def enqueue_broadcast_job(
         "max_user_id": int(window["max_user_id"]),
         "status_chat_id": int(status_chat_id) if status_chat_id is not None else None,
         "status_message_id": int(status_message_id) if status_message_id is not None else None,
+        "recipient_ids": ordered_ids if targeted else None,
     }
     job = await create_background_job(
         secrets.token_urlsafe(12),
@@ -169,6 +179,12 @@ async def _run_broadcast_job(job: dict, bot) -> None:
                 f"Broadcast en cours...\n\nEnvoye : {sent}/{total}\nEchoue : {failed}",
             )
 
+    raw_recipients = payload.get("recipient_ids")
+    recipient_ids = (
+        [int(value) for value in raw_recipients]
+        if isinstance(raw_recipients, list) and raw_recipients
+        else None
+    )
     sent, failed, total = await execute_broadcast(
         bot,
         str(payload.get("text") or ""),
@@ -179,6 +195,7 @@ async def _run_broadcast_job(job: dict, bot) -> None:
         max_user_id=int(payload.get("max_user_id") or 0),
         initial_sent=int(job.get("progress_done") or 0),
         initial_failed=int(job.get("progress_failed") or 0),
+        recipient_ids=recipient_ids,
     )
     await complete_background_job(
         job_id,

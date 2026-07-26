@@ -855,6 +855,100 @@ ru: {
 }
 };
 Object.entries(ACTION_FEEDBACK_TRANSLATIONS).forEach(([language, strings]) => Object.assign(LANG[language], strings));
+const TARGETED_BROADCAST_TRANSLATIONS = {
+fr: {
+    broadcast_audience_label:"Destinataires :",
+    broadcast_audience_all:"Tous les utilisateurs",
+    broadcast_audience_targeted:"Personnes spécifiques",
+    broadcast_recipients_label:"Identifiants Telegram ou @pseudos (un par ligne) :",
+    broadcast_check_recipients:"Vérifier",
+    broadcast_include_banned:"Inclure les utilisateurs bannis",
+    broadcast_recipients_matched:"{matched} destinataire(s) sur {requested}",
+    broadcast_recipients_banned:"{count} banni(s) ignoré(s)",
+    broadcast_recipients_unknown:"Inconnus : {list}",
+    broadcast_recipients_required:"Indiquez au moins un identifiant ou @pseudo.",
+    broadcast_confirm_all:"Envoyer ce message à tous les utilisateurs ?",
+    broadcast_confirm_targeted:"Envoyer ce message uniquement aux destinataires indiqués ?",
+    btn_send_broadcast_targeted:"Envoyer aux destinataires",
+},
+en: {
+    broadcast_audience_label:"Recipients:",
+    broadcast_audience_all:"All users",
+    broadcast_audience_targeted:"Specific people",
+    broadcast_recipients_label:"Telegram IDs or @usernames (one per line):",
+    broadcast_check_recipients:"Check",
+    broadcast_include_banned:"Include banned users",
+    broadcast_recipients_matched:"{matched} of {requested} recipient(s) found",
+    broadcast_recipients_banned:"{count} banned skipped",
+    broadcast_recipients_unknown:"Unknown: {list}",
+    broadcast_recipients_required:"Enter at least one ID or @username.",
+    broadcast_confirm_all:"Send this message to all users?",
+    broadcast_confirm_targeted:"Send this message only to the listed recipients?",
+    btn_send_broadcast_targeted:"Send to recipients",
+},
+ar: {
+    broadcast_audience_label:"المستلمون:",
+    broadcast_audience_all:"جميع المستخدمين",
+    broadcast_audience_targeted:"أشخاص محددون",
+    broadcast_recipients_label:"معرفات Telegram أو @أسماء المستخدمين (واحد في كل سطر):",
+    broadcast_check_recipients:"تحقق",
+    broadcast_include_banned:"تضمين المستخدمين المحظورين",
+    broadcast_recipients_matched:"تم العثور على {matched} من {requested} مستلم",
+    broadcast_recipients_banned:"تم تجاهل {count} محظور",
+    broadcast_recipients_unknown:"غير معروف: {list}",
+    broadcast_recipients_required:"أدخل معرفًا واحدًا أو @اسم مستخدم على الأقل.",
+    broadcast_confirm_all:"إرسال هذه الرسالة إلى جميع المستخدمين؟",
+    broadcast_confirm_targeted:"إرسال هذه الرسالة إلى المستلمين المحددين فقط؟",
+    btn_send_broadcast_targeted:"إرسال إلى المستلمين",
+},
+zh: {
+    broadcast_audience_label:"接收者：",
+    broadcast_audience_all:"所有用户",
+    broadcast_audience_targeted:"指定人员",
+    broadcast_recipients_label:"Telegram ID 或 @用户名（每行一个）：",
+    broadcast_check_recipients:"检查",
+    broadcast_include_banned:"包含被封禁用户",
+    broadcast_recipients_matched:"已找到 {requested} 位中的 {matched} 位接收者",
+    broadcast_recipients_banned:"已跳过 {count} 位被封禁用户",
+    broadcast_recipients_unknown:"未知：{list}",
+    broadcast_recipients_required:"请至少输入一个 ID 或 @用户名。",
+    broadcast_confirm_all:"向所有用户发送此消息？",
+    broadcast_confirm_targeted:"仅向列出的接收者发送此消息？",
+    btn_send_broadcast_targeted:"发送给接收者",
+},
+vi: {
+    broadcast_audience_label:"Người nhận:",
+    broadcast_audience_all:"Tất cả người dùng",
+    broadcast_audience_targeted:"Người cụ thể",
+    broadcast_recipients_label:"ID Telegram hoặc @tên người dùng (mỗi dòng một):",
+    broadcast_check_recipients:"Kiểm tra",
+    broadcast_include_banned:"Bao gồm người dùng bị chặn",
+    broadcast_recipients_matched:"Đã tìm thấy {matched} trong {requested} người nhận",
+    broadcast_recipients_banned:"Đã bỏ qua {count} người bị chặn",
+    broadcast_recipients_unknown:"Không rõ: {list}",
+    broadcast_recipients_required:"Nhập ít nhất một ID hoặc @tên người dùng.",
+    broadcast_confirm_all:"Gửi tin nhắn này tới tất cả người dùng?",
+    broadcast_confirm_targeted:"Chỉ gửi tin nhắn này tới những người nhận đã liệt kê?",
+    btn_send_broadcast_targeted:"Gửi tới người nhận",
+},
+ru: {
+    broadcast_audience_label:"Получатели:",
+    broadcast_audience_all:"Все пользователи",
+    broadcast_audience_targeted:"Конкретные люди",
+    broadcast_recipients_label:"Telegram ID или @имена пользователей (по одному в строке):",
+    broadcast_check_recipients:"Проверить",
+    broadcast_include_banned:"Включить заблокированных пользователей",
+    broadcast_recipients_matched:"Найдено получателей: {matched} из {requested}",
+    broadcast_recipients_banned:"Пропущено заблокированных: {count}",
+    broadcast_recipients_unknown:"Неизвестные: {list}",
+    broadcast_recipients_required:"Укажите хотя бы один ID или @имя пользователя.",
+    broadcast_confirm_all:"Отправить это сообщение всем пользователям?",
+    broadcast_confirm_targeted:"Отправить это сообщение только указанным получателям?",
+    btn_send_broadcast_targeted:"Отправить получателям",
+},
+};
+Object.entries(TARGETED_BROADCAST_TRANSLATIONS).forEach(([language, strings]) => Object.assign(LANG[language], strings));
+
 
 const state = {
     botUrl:'', apiKey:'', currentLang:'fr', currentTab:'dashboard-tab',
@@ -974,6 +1068,7 @@ const DOM = {
     gameMarketType:$('game-market-type'), gameLockMinutes:$('game-lock-minutes'), gameMinStake:$('game-min-stake'),
     gameMaxStake:$('game-max-stake'), gameFeePercent:$('game-fee-percent'), gamePublishNow:$('game-publish-now'),
     broadcastTextarea:$('broadcast-textarea'), broadcastResult:$('broadcast-result'), btnSendBroadcast:$('btn-send-broadcast'),
+    broadcastAudience:$('broadcast-audience'), broadcastRecipients:$('broadcast-recipients'), broadcastRecipientsGroup:$('broadcast-recipients-group'), broadcastRecipientsHint:$('broadcast-recipients-hint'), broadcastIncludeBanned:$('broadcast-include-banned'), btnCheckRecipients:$('btn-check-recipients'),
     broadcastPhotoUrl:$('broadcast-photo-url'), broadcastBtnType:$('broadcast-btn-type'), broadcastBtnProductId:$('broadcast-btn-product-id'),
     broadcastBtnText:$('broadcast-btn-text'), broadcastBtnUrl:$('broadcast-btn-url'),
     stockBroadcastCheckbox:$('stock-broadcast-checkbox'),
@@ -1145,6 +1240,7 @@ function setLang(lang) {
     localStorage.setItem('vb_lang', lang);
     invalidateRenderSignatures();
     applyTranslations();
+    updateBroadcastAudienceUi();
     document.querySelector('.menu-item.active[data-tab]')?.setAttribute('aria-current', 'page');
     updateCurrentTabLabels();
     rerenderAiSupplierContent();
@@ -2046,6 +2142,8 @@ function setupEvents() {
     DOM.btnAddStock.addEventListener('click', handleAddStock);
     DOM.stockFileInput.addEventListener('change', handleFileImport);
     DOM.btnSendBroadcast.addEventListener('click', handleBroadcast);
+    if (DOM.broadcastAudience) DOM.broadcastAudience.addEventListener('change', updateBroadcastAudienceUi);
+    if (DOM.btnCheckRecipients) DOM.btnCheckRecipients.addEventListener('click', handleCheckRecipients);
     DOM.broadcastBtnType.addEventListener('change', (e) => {
         const type = e.target.value;
         $('broadcast-buy-group').classList.toggle('hidden', type !== 'buy');
@@ -6079,6 +6177,45 @@ function handleFileImport(e) {
 }
 
 // Broadcast
+function broadcastIsTargeted() {
+    return DOM.broadcastAudience && DOM.broadcastAudience.value === 'targeted';
+}
+
+function updateBroadcastAudienceUi() {
+    const targeted = broadcastIsTargeted();
+    if (DOM.broadcastRecipientsGroup) DOM.broadcastRecipientsGroup.classList.toggle('hidden', !targeted);
+    const label = $('btn-send-broadcast')?.querySelector('[data-i18n]');
+    if (label) {
+        const key = targeted ? 'btn_send_broadcast_targeted' : 'btn_send_broadcast';
+        label.setAttribute('data-i18n', key);
+        label.textContent = t(key);
+    }
+    if (!targeted && DOM.broadcastRecipientsHint) DOM.broadcastRecipientsHint.textContent = '';
+}
+
+function describeResolvedRecipients(data) {
+    const parts = [tf('broadcast_recipients_matched', {matched:Number(data.matched || 0), requested:Number(data.requested || 0)})];
+    if (Number(data.banned || 0) > 0) parts.push(tf('broadcast_recipients_banned', {count:Number(data.banned)}));
+    const unknown = Array.isArray(data.unknown) ? data.unknown : [];
+    if (unknown.length) parts.push(tf('broadcast_recipients_unknown', {list:unknown.slice(0, 8).join(', ')}));
+    return parts.join(' · ');
+}
+
+async function handleCheckRecipients() {
+    if (!DOM.broadcastRecipients || !DOM.broadcastRecipientsHint) return;
+    const raw = DOM.broadcastRecipients.value.trim();
+    if (!raw) {
+        DOM.broadcastRecipientsHint.textContent = t('broadcast_recipients_required');
+        return;
+    }
+    try {
+        const data = await apiCall('/api/broadcast/recipients', 'POST', {recipients: raw});
+        DOM.broadcastRecipientsHint.textContent = describeResolvedRecipients(data);
+    } catch (error) {
+        DOM.broadcastRecipientsHint.textContent = `❌ ${error.message}`;
+    }
+}
+
 async function handleBroadcast() {
     const msg = DOM.broadcastTextarea.value.trim();
     const photoUrl = DOM.broadcastPhotoUrl ? DOM.broadcastPhotoUrl.value.trim() : '';
@@ -6091,17 +6228,34 @@ async function handleBroadcast() {
         alert('Veuillez entrer un message ou une URL de photo.');
         return;
     }
-    if (!confirm(`Envoyer ce message à tous les utilisateurs ?`)) return;
+    const targeted = broadcastIsTargeted();
+    const recipientsRaw = targeted && DOM.broadcastRecipients ? DOM.broadcastRecipients.value.trim() : '';
+    if (targeted && !recipientsRaw) {
+        DOM.broadcastResult.textContent = t('broadcast_recipients_required');
+        return;
+    }
+    if (!confirm(targeted ? t('broadcast_confirm_targeted') : t('broadcast_confirm_all'))) return;
     showLoading(true); DOM.broadcastResult.textContent = '';
     try {
-        const r = await apiCall('/api/broadcast','POST',{
+        const payload = {
             message: msg,
             photo_url: photoUrl,
             btn_type: btnType,
             btn_prod_id: btnType === 'buy' ? btnProdId : null,
             btn_text: btnType === 'url' ? btnText : '',
             btn_url: btnType === 'url' ? btnUrl : ''
-        });
+        };
+        if (targeted) {
+            payload.recipients = recipientsRaw;
+            payload.include_banned = !!(DOM.broadcastIncludeBanned && DOM.broadcastIncludeBanned.checked);
+        }
+        const r = await apiCall('/api/broadcast','POST',payload);
+        if (r.targeted && DOM.broadcastRecipientsHint) {
+            DOM.broadcastRecipientsHint.textContent = describeResolvedRecipients({
+                matched: r.matched, requested: r.matched + (r.unknown || []).length,
+                banned: r.skipped_banned, unknown: r.unknown,
+            });
+        }
         DOM.broadcastResult.textContent = `✅ ${t('broadcast_sent').replace('{sent}',r.sent).replace('{total}',r.total)} | ${t('broadcast_failed').replace('{failed}',r.failed)}`;
         
         let result = r;
@@ -6118,6 +6272,7 @@ async function handleBroadcast() {
 
         // Reset inputs
         DOM.broadcastTextarea.value = '';
+        if (DOM.broadcastRecipients) DOM.broadcastRecipients.value = '';
         if (DOM.broadcastPhotoUrl) DOM.broadcastPhotoUrl.value = '';
         if (DOM.broadcastBtnType) DOM.broadcastBtnType.value = 'none';
         $('broadcast-buy-group').classList.add('hidden');

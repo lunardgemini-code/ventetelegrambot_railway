@@ -177,18 +177,29 @@ async def execute_broadcast(
     max_user_id: int | None = None,
     initial_sent: int = 0,
     initial_failed: int = 0,
+    recipient_ids: list[int] | None = None,
 ) -> tuple[int, int, int]:
-    """Send a rate-controlled broadcast through an isolated Telegram pool."""
+    """Send a rate-controlled broadcast through an isolated Telegram pool.
+
+    With recipient_ids the message goes only to that explicit list, sorted for
+    a stable resume cursor. The max_user_id snapshot does not apply there: it
+    exists to keep an all-users broadcast from reaching accounts created after
+    it was queued, which is meaningless for a hand-picked audience.
+    """
     text = str(text or "")
     photo = str(photo or "").strip() or None
     validate_broadcast_content(text, photo)
-    users = [user for user in await get_all_users() if not user.get("is_banned")]
-    users.sort(key=lambda user: int(user.get("id") or user.get("telegram_id") or 0))
-    if max_user_id is not None:
-        users = [
-            user for user in users
-            if int(user.get("id") or user.get("telegram_id") or 0) <= int(max_user_id)
-        ]
+    if recipient_ids is not None:
+        ordered_ids = sorted({int(value) for value in recipient_ids})
+        users = [{"telegram_id": telegram_id} for telegram_id in ordered_ids]
+    else:
+        users = [user for user in await get_all_users() if not user.get("is_banned")]
+        users.sort(key=lambda user: int(user.get("id") or user.get("telegram_id") or 0))
+        if max_user_id is not None:
+            users = [
+                user for user in users
+                if int(user.get("id") or user.get("telegram_id") or 0) <= int(max_user_id)
+            ]
     total = len(users)
     start_offset = min(total, max(0, int(start_offset)))
     sent = max(0, int(initial_sent))

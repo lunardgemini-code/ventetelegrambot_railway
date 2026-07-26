@@ -11,6 +11,7 @@ import secrets
 import uuid
 import logging
 import os
+import re
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -453,6 +454,92 @@ async def _get_all_users_once() -> list[dict]:
         return [dict(r) for r in rows]
     finally:
         await db.close()
+
+
+BROADCAST_RECIPIENT_MAX = 500
+
+
+def parse_broadcast_recipient_entries(raw) -> list[str]:
+    """Split a pasted recipient blob into normalized, de-duplicated entries.
+
+    Accepts newlines, commas, semicolons and spaces as separators, with or
+    without a leading @ on usernames.
+    """
+    if isinstance(raw, (list, tuple, set)):
+        candidates = [str(item or "") for item in raw]
+    else:
+        candidates = re.split(r"[\s,;]+", str(raw or ""))
+    entries: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        entry = candidate.strip().lstrip("@").strip()
+        if not entry:
+            continue
+        key = entry.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        entries.append(entry)
+    return entries
+
+
+async def resolve_broadcast_recipients(raw) -> dict:
+    """Resolve pasted Telegram IDs / usernames against the users table.
+
+    Returns matched recipients plus the entries that matched nothing, so the
+    admin sees exactly who will be reached before a message is queued instead
+    of discovering silent failures in the delivery counters.
+    """
+    entries = parse_broadcast_recipient_entries(raw)
+    if not entries:
+        return {"recipients": [], "unknown": [], "requested": 0}
+    if len(entries) > BROADCAST_RECIPIENT_MAX:
+        raise ValueError("TOO_MANY_RECIPIENTS")
+
+    numeric_ids = {int(entry) for entry in entries if entry.lstrip("-").isdigit()}
+    usernames = {entry.lower() for entry in entries if not entry.lstrip("-").isdigit()}
+
+    rows: list[dict] = []
+    db = await get_db()
+    try:
+        if numeric_ids:
+            placeholders = ",".join("?" for _ in numeric_ids)
+            cursor = await db.execute(
+                f"""SELECT telegram_id, username, first_name,
+                           COALESCE(is_banned, 0) AS is_banned
+                    FROM users WHERE telegram_id IN ({placeholders})""",
+                [int(value) for value in numeric_ids],
+            )
+            rows.extend(dict(row) for row in await cursor.fetchall())
+        if usernames:
+            placeholders = ",".join("?" for _ in usernames)
+            cursor = await db.execute(
+                f"""SELECT telegram_id, username, first_name,
+                           COALESCE(is_banned, 0) AS is_banned
+                    FROM users WHERE LOWER(username) IN ({placeholders})""",
+                list(usernames),
+            )
+            rows.extend(dict(row) for row in await cursor.fetchall())
+    finally:
+        await db.close()
+
+    matched: dict[int, dict] = {}
+    matched_keys: set[str] = set()
+    for row in rows:
+        telegram_id = int(row["telegram_id"])
+        matched[telegram_id] = {
+            "telegram_id": telegram_id,
+            "username": row.get("username") or None,
+            "first_name": row.get("first_name") or None,
+            "is_banned": bool(row.get("is_banned")),
+        }
+        matched_keys.add(str(telegram_id))
+        if row.get("username"):
+            matched_keys.add(str(row["username"]).lower())
+
+    unknown = [entry for entry in entries if entry.lower() not in matched_keys]
+    recipients = sorted(matched.values(), key=lambda item: item["telegram_id"])
+    return {"recipients": recipients, "unknown": unknown, "requested": len(entries)}
 
 
 async def get_users_paginated(limit: int = 20, offset: int = 0, search: str = "", sort: str = "joined", order: str = "desc") -> tuple[list[dict], int]:

@@ -5254,6 +5254,32 @@ async def api_broadcast_status(job_id: str):
     return job
 
 
+@api.post("/api/broadcast/recipients", dependencies=[Depends(verify_api_key)])
+async def api_resolve_broadcast_recipients(data: dict):
+    """Preview which pasted IDs / @usernames map to real bot users."""
+    from database.models import resolve_broadcast_recipients
+
+    try:
+        resolved = await resolve_broadcast_recipients(data.get("recipients"))
+    except ValueError as exc:
+        if str(exc) == "TOO_MANY_RECIPIENTS":
+            raise HTTPException(
+                status_code=400,
+                detail="Too many recipients (maximum 500 per targeted broadcast)",
+            ) from exc
+        raise HTTPException(status_code=400, detail="Invalid recipient list") from exc
+    except Exception as exc:
+        logger.error("Recipient resolution error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Could not resolve recipients")
+    recipients = resolved["recipients"]
+    return {
+        "requested": resolved["requested"],
+        "matched": len(recipients),
+        "banned": sum(1 for item in recipients if item["is_banned"]),
+        "unknown": resolved["unknown"],
+        "recipients": recipients,
+    }
+
 @api.post("/api/broadcast", dependencies=[Depends(verify_api_key)], status_code=202)
 async def api_broadcast(data: dict):
     from services.background_jobs import enqueue_broadcast_job
@@ -5289,12 +5315,52 @@ async def api_broadcast(data: dict):
         if not tg_app or not tg_app.bot:
             raise HTTPException(status_code=503, detail="Bot not initialized")
 
-        return await enqueue_broadcast_job(
+        # Targeted mode: only the resolved recipients receive the message.
+        raw_recipients = data.get("recipients")
+        if raw_recipients in (None, "", [], {}):
+            return await enqueue_broadcast_job(
+                message,
+                photo=photo_url,
+                reply_markup=reply_markup,
+                source="dashboard",
+            )
+
+        from database.models import resolve_broadcast_recipients
+
+        try:
+            resolved = await resolve_broadcast_recipients(raw_recipients)
+        except ValueError as exc:
+            if str(exc) == "TOO_MANY_RECIPIENTS":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Too many recipients (maximum 500 per targeted broadcast)",
+                ) from exc
+            raise HTTPException(status_code=400, detail="Invalid recipient list") from exc
+
+        include_banned = bool(data.get("include_banned"))
+        eligible = [
+            item for item in resolved["recipients"]
+            if include_banned or not item["is_banned"]
+        ]
+        skipped_banned = len(resolved["recipients"]) - len(eligible)
+        if not eligible:
+            raise HTTPException(
+                status_code=400,
+                detail="No known recipient matched the provided list",
+            )
+
+        job = await enqueue_broadcast_job(
             message,
             photo=photo_url,
             reply_markup=reply_markup,
-            source="dashboard",
+            source="dashboard-targeted",
+            recipient_ids=[item["telegram_id"] for item in eligible],
         )
+        job["targeted"] = True
+        job["matched"] = len(eligible)
+        job["skipped_banned"] = skipped_banned
+        job["unknown"] = resolved["unknown"]
+        return job
     except HTTPException:
         raise
     except Exception as exc:
