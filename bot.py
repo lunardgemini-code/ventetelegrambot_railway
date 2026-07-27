@@ -5828,7 +5828,7 @@ async def _db_keepalive_worker() -> None:
             logger.debug("Database keepalive ping failed: %s", exc)
 
 
-PRODUCT_WARM_CACHE_SECONDS = _env_int("PRODUCT_WARM_CACHE_SECONDS", 10, minimum=0)
+PRODUCT_WARM_CACHE_SECONDS = _env_int("PRODUCT_WARM_CACHE_SECONDS", 90, minimum=60)
 
 
 async def _product_warm_cache_worker() -> None:

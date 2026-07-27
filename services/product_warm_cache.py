@@ -20,7 +20,7 @@ _LAST_PRELOAD_TIME: float = 0.0
 
 
 async def preload_active_products(limit: int = 15) -> int:
-    """Preload top active product details into in-memory hot cache."""
+    """Preload top active product details into in-memory hot cache safely using Semaphore(2)."""
     global _WARM_PRELOAD_COMPLETED, _LAST_PRELOAD_TIME
     start_time = time.monotonic()
     try:
@@ -36,8 +36,17 @@ async def preload_active_products(limit: int = 15) -> int:
         # Load all stock counts once
         await get_all_stock_counts()
 
-        # Concurrently warm up product full details
-        tasks = [get_product_full_details(p["id"]) for p in active]
+        # Moderate concurrency: max 2 concurrent product details requests at a time
+        # to prevent Turso connection saturation and give priority to Telegram user clicks.
+        sem = asyncio.Semaphore(2)
+
+        async def _warm_one(product_id: int):
+            async with sem:
+                res = await get_product_full_details(product_id)
+                await asyncio.sleep(0.02)  # Yield loop control to user tasks
+                return res
+
+        tasks = [_warm_one(p["id"]) for p in active]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         warmed = sum(1 for r in results if not isinstance(r, Exception))
 
