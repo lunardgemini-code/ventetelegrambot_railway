@@ -2865,6 +2865,43 @@ async def _personalized_catalog_response(
     )
 
 
+@api.get("/api/reseller/products/{product_id}/stock")
+async def api_reseller_product_stock_check(
+    product_id: int,
+    reseller: dict = Depends(verify_reseller_key),
+):
+    from database.models import get_product, get_all_stock_counts, get_db
+    product = await get_product(product_id)
+    if not product or not product.get("is_active", 1) or product.get("is_deleted", 0):
+        _raise_reseller_error(404, "PRODUCT_NOT_FOUND", f"Product #{product_id} not found or inactive")
+
+    delivery_type = product.get("delivery_type") or "stock"
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT COUNT(*) as total, SUM(CASE WHEN is_sold = 0 THEN 1 ELSE 0 END) as unsold FROM stock_items WHERE product_id = ?",
+            (int(product_id),),
+        )
+        row = await cursor.fetchone()
+        total_items = int(row["total"] or 0) if row else 0
+        unsold_items = int(row["unsold"] or 0) if row else 0
+    finally:
+        await db.close()
+
+    stock_counts = await get_all_stock_counts()
+    available_stock = stock_counts.get(int(product_id), 0)
+
+    return _reseller_success(
+        product_id=int(product_id),
+        name=product.get("name"),
+        delivery_type=delivery_type,
+        is_active=bool(product.get("is_active", 1)),
+        total_stock_items=total_items,
+        unsold_stock_items=unsold_items,
+        available_stock=available_stock,
+    )
+
+
 @api.get("/api/reseller/products")
 async def api_reseller_products(
     request: Request,

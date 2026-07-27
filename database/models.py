@@ -8497,7 +8497,7 @@ async def create_reseller_order(
 
         available = await refresh_supplier_product_stock(product_id)
         if quantity > int(available or 0):
-            raise ValueError("Insufficient stock")
+            raise ValueError(f"Insufficient stock for product #{product_id} (requested {quantity}, available {int(available or 0)})")
 
     preflight_pricing = await get_reseller_order_pricing(
         reseller_user_telegram_id, product_id, quantity
@@ -8573,7 +8573,7 @@ async def create_reseller_order(
             stock_items = [dict(r) for r in await cursor.fetchall()]
             if len(stock_items) < quantity:
                 await db.rollback()
-                raise ValueError("Insufficient stock")
+                raise ValueError(f"Insufficient stock for product #{product_id} (requested {quantity}, available {len(stock_items)})")
 
         merchant_trade_no = uuid.uuid4().hex[:12].upper()
         cursor = await db.execute(
