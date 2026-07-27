@@ -131,12 +131,31 @@ _TURSO_WRITE_LOCK_TIMEOUT_SECONDS = _env_float(
 #  Async wrappers pour libsql (sync → async)
 # ══════════════════════════════════════════════
 
-async def _run_turso_call(func, *args, timeout: float | None = None):
-    """Run one native SDK call without letting an await hang indefinitely."""
-    return await asyncio.wait_for(
-        asyncio.to_thread(func, *args),
-        timeout=timeout or _TURSO_OPERATION_TIMEOUT_SECONDS,
+def _is_turso_connection_reset_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return (
+        "connection reset by peer" in msg
+        or "os error 104" in msg
+        or "hrana: http error" in msg
+        or "broken pipe" in msg
+        or "connection closed" in msg
     )
+
+
+async def _run_turso_call(func, *args, timeout: float | None = None):
+    """Run one native SDK call without letting an await hang indefinitely, with automatic retry on connection reset."""
+    max_retries = 2
+    for attempt in range(max_retries + 1):
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(func, *args),
+                timeout=timeout or _TURSO_OPERATION_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:
+            if attempt < max_retries and _is_turso_connection_reset_error(exc):
+                await asyncio.sleep(0.05 * (attempt + 1))
+                continue
+            raise
 
 
 class _DictRow(dict):
@@ -630,7 +649,14 @@ async def get_db(*, fresh: bool = False):
                     _record_connection_event("fresh")
                     wrapper = _PooledAsyncDB(conn, return_to_pool=not fresh)
                     try:
-                        await asyncio.wait_for(wrapper.execute("PRAGMA foreign_keys = ON"), timeout=3)
+                        try:
+                            await asyncio.wait_for(wrapper.execute("PRAGMA foreign_keys = ON"), timeout=6)
+                        except Exception as init_exc:
+                            if _is_turso_connection_reset_error(init_exc):
+                                await asyncio.sleep(0.05)
+                                await asyncio.wait_for(wrapper.execute("PRAGMA foreign_keys = ON"), timeout=6)
+                            else:
+                                raise init_exc
                     except Exception as exc:
                         wrapper.has_error = True
                         await wrapper.close()
