@@ -95,7 +95,7 @@ async def pixel_topup_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         buttons.append([InlineKeyboardButton(label, callback_data=f"pixel_topup_buy:{pid}")])
 
     buttons.append([InlineKeyboardButton(t("pixel_new_btn", lang), callback_data="pixel_activation_start")])
-    buttons.append([make_button("btn_back", lang, callback_data="back_main")])
+    buttons.append([make_button("btn_back", lang, callback_data="pixel_activation_start")])
 
     markup = InlineKeyboardMarkup(buttons)
     await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=markup)
@@ -123,7 +123,7 @@ async def pixel_topup_buy_pack(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         markup = InlineKeyboardMarkup([
             [InlineKeyboardButton(t("pixel_new_btn", lang), callback_data="pixel_activation_start")],
-            [make_button("btn_back", lang, callback_data="back_main")],
+            [make_button("btn_back", lang, callback_data="pixel_activation_start")],
         ])
     else:
         text = t("pixel_topup_wallet_fail", lang).format(
@@ -133,7 +133,7 @@ async def pixel_topup_buy_pack(update: Update, context: ContextTypes.DEFAULT_TYP
         markup = InlineKeyboardMarkup([
             [make_button("btn_wallet", lang, callback_data="menu_wallet")],
             [InlineKeyboardButton(t("btn_pixel_topup", lang), callback_data="pixel_topup_start")],
-            [make_button("btn_back", lang, callback_data="back_main")],
+            [make_button("btn_back", lang, callback_data="pixel_activation_start")],
         ])
 
     await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=markup)
@@ -163,7 +163,7 @@ async def pixel_mode_selected(update: Update, context: ContextTypes.DEFAULT_TYPE
         markup = InlineKeyboardMarkup([
             [InlineKeyboardButton(t("btn_pixel_topup", lang), callback_data="pixel_topup_start")],
             [InlineKeyboardButton(t("btn_change_mode", lang) if t("btn_change_mode", lang) != "btn_change_mode" else "🔄 Change Mode", callback_data="pixel_activation_start")],
-            [make_button("btn_back", lang, callback_data="back_main")],
+            [make_button("btn_back", lang, callback_data="pixel_activation_start")],
         ])
         await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=markup)
         return
@@ -183,7 +183,7 @@ async def pixel_mode_selected(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     markup = InlineKeyboardMarkup([
         [InlineKeyboardButton(change_mode_lbl, callback_data="pixel_activation_start")],
-        [make_button("btn_cancel", lang, callback_data="back_main")],
+        [make_button("btn_cancel", lang, callback_data="pixel_activation_start")],
     ])
 
     await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=markup)
@@ -230,7 +230,7 @@ async def receive_pixel_credentials(update: Update, context: ContextTypes.DEFAUL
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton(t("btn_pixel_topup", lang), callback_data="pixel_topup_start")],
-                    [make_button("btn_back", lang, callback_data="back_main")],
+                    [make_button("btn_back", lang, callback_data="pixel_activation_start")],
                 ])
             )
             return True
@@ -252,7 +252,7 @@ async def receive_pixel_credentials(update: Update, context: ContextTypes.DEFAUL
         markup = InlineKeyboardMarkup([
             [InlineKeyboardButton(t("pixel_query_btn", lang), callback_data=f"pixel_query:{task_id}")],
             [InlineKeyboardButton(t("pixel_new_btn", lang), callback_data="pixel_activation_start")],
-            [make_button("btn_back", lang, callback_data="back_main")],
+            [make_button("btn_back", lang, callback_data="pixel_activation_start")],
         ])
 
         await loading_msg.edit_text(success_text, parse_mode="HTML", reply_markup=markup)
@@ -271,7 +271,7 @@ async def receive_pixel_credentials(update: Update, context: ContextTypes.DEFAUL
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton(t("pixel_new_btn", lang), callback_data="pixel_activation_start")],
-                [make_button("btn_back", lang, callback_data="back_main")],
+                [make_button("btn_back", lang, callback_data="pixel_activation_start")],
             ]),
         )
         return True
@@ -322,7 +322,7 @@ async def pixel_query_status(update: Update, context: ContextTypes.DEFAULT_TYPE)
         markup = InlineKeyboardMarkup([
             [InlineKeyboardButton(t("pixel_refresh_btn", lang), callback_data=f"pixel_query:{task_id_str}")],
             [InlineKeyboardButton(t("pixel_new_btn", lang), callback_data="pixel_activation_start")],
-            [make_button("btn_back", lang, callback_data="back_main")],
+            [make_button("btn_back", lang, callback_data="pixel_activation_start")],
         ])
 
         await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=markup)
@@ -334,7 +334,7 @@ async def pixel_query_status(update: Update, context: ContextTypes.DEFAULT_TYPE)
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton(t("pixel_refresh_btn", lang), callback_data=f"pixel_query:{task_id_str}")],
-                [make_button("btn_back", lang, callback_data="back_main")],
+                [make_button("btn_back", lang, callback_data="pixel_activation_start")],
             ]),
         )
 
@@ -386,7 +386,7 @@ async def pixel_my_activations(update: Update, context: ContextTypes.DEFAULT_TYP
     markup = InlineKeyboardMarkup([
         [InlineKeyboardButton(refresh_lbl, callback_data="pixel_my_activations")],
         [InlineKeyboardButton(new_lbl, callback_data="pixel_activation_start")],
-        [make_button("btn_back", lang, callback_data="back_main")],
+        [make_button("btn_back", lang, callback_data="pixel_activation_start")],
     ])
 
     if query:
