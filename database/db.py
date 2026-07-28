@@ -2077,5 +2077,34 @@ async def init_db() -> None:
             await db.commit()
             current_version = 21
 
+    
+        if 21 <= current_version < 22:
+            version_twenty_two_statements = [
+                "CREATE TABLE IF NOT EXISTS pixel_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER UNIQUE NOT NULL, user_id INTEGER NOT NULL, email TEXT NOT NULL, task_mode TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', result_link TEXT DEFAULT '', error_message TEXT DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+                "CREATE INDEX IF NOT EXISTS idx_pixel_tasks_status ON pixel_tasks(status)",
+                "CREATE TABLE IF NOT EXISTS pixel_point_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, amount_points REAL NOT NULL, amount_usd REAL NOT NULL, type TEXT NOT NULL, reference_id TEXT DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+                "CREATE TABLE IF NOT EXISTS pixel_point_packs (id INTEGER PRIMARY KEY AUTOINCREMENT, points INTEGER NOT NULL, price_usd REAL NOT NULL, discount_percent REAL NOT NULL DEFAULT 0, is_active INTEGER NOT NULL DEFAULT 1, sort_order INTEGER NOT NULL DEFAULT 0)",
+                "CREATE TABLE IF NOT EXISTS pixel_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+                "CREATE INDEX IF NOT EXISTS idx_pixel_transactions_user ON pixel_point_transactions(user_id)",
+            ]
+            for sql in version_twenty_two_statements:
+                await db.execute(sql)
+            
+            users_table = await (
+                await db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'users'"
+                )
+            ).fetchone()
+            if users_table:
+                users_columns = await _columns_for("users")
+                if "pixel_points" not in users_columns:
+                    await db.execute("ALTER TABLE users ADD COLUMN pixel_points REAL DEFAULT 0")
+
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (22, ?)",
+                ("pixel_gemini_tables",),
+            )
+            await db.commit()
+            current_version = 22
     finally:
         await db.close()
