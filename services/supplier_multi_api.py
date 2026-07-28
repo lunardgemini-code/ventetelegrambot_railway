@@ -428,6 +428,41 @@ async def list_products(provider: dict, units_per_usd: float) -> list[dict]:
     if adapter == "akunding":
         payload = await _request(provider, "GET", "/api/v1/products")
         return _normalize_akunding_products(payload, provider)
+    if adapter == "pixel":
+        return [
+            {
+                "id": "extract_link_fast",
+                "name": "Pixel Gemini - Extract Link (Fast)",
+                "price": 6.0,
+                "stock": 999,
+                "delivery_type": "activation",
+                "raw_payload": {"task_mode": "extract_link", "channel": "fast"},
+            },
+            {
+                "id": "extract_link_normal",
+                "name": "Pixel Gemini - Extract Link (Normal)",
+                "price": 5.0,
+                "stock": 999,
+                "delivery_type": "activation",
+                "raw_payload": {"task_mode": "extract_link", "channel": "normal"},
+            },
+            {
+                "id": "direct_subscription_fast",
+                "name": "Pixel Gemini - Direct Subscription (Fast)",
+                "price": 6.0,
+                "stock": 999,
+                "delivery_type": "activation",
+                "raw_payload": {"task_mode": "direct_subscription", "channel": "fast"},
+            },
+            {
+                "id": "direct_subscription_normal",
+                "name": "Pixel Gemini - Direct Subscription (Normal)",
+                "price": 5.0,
+                "stock": 999,
+                "delivery_type": "activation",
+                "raw_payload": {"task_mode": "direct_subscription", "channel": "normal"},
+            },
+        ]
     if adapter == "pixverify":
         payload = await _request(provider, "GET", "/api/v1/shop/categories")
         return _normalize_pixverify_products(payload, provider)
@@ -479,10 +514,19 @@ def _normalize_balance(payload: Any, adapter: str, units_per_usd: float) -> dict
     if adapter == "akunding":
         balance = _number(payload.get("balance"))
         return {"balance": balance, "currency": "USD", "balance_text": f"{balance:.2f} USD", **identity}
-    if adapter == "pixverify":
+    if adapter in {"pixverify", "pixel"}:
         profile = payload.get("profile") if isinstance(payload.get("profile"), dict) else payload
-        balance = _number(profile.get("api_usable_balance") or profile.get("topup_credit_balance"))
-        return {"balance": balance, "currency": "USD", "balance_text": f"{balance:.2f} USD", **identity}
+        bal_obj = payload.get("balance") if isinstance(payload.get("balance"), dict) else {}
+        raw_bal = (
+            bal_obj.get("balance_points")
+            if bal_obj.get("balance_points") is not None
+            else (profile.get("api_usable_balance") or profile.get("topup_credit_balance") or profile.get("balance"))
+        )
+        balance = _number(raw_bal)
+        unit = "PTS" if adapter == "pixel" or "balance_points" in bal_obj else "USD"
+        res = {"balance": balance, "currency": unit, "balance_text": f"{balance:.1f} {unit}"}
+        res.update(identity)
+        return res
     if adapter == "safwan":
         balance = _number(payload.get("balance") or payload.get("wallet_balance"))
         return {"balance": balance, "currency": "USD", "balance_text": f"{balance:.2f} USD", **identity}
@@ -519,6 +563,7 @@ async def get_balance(
             "canboso": "/api/telegram-buyer/balance",
             "tunvn": "/api/balance",
             "akunding": "/api/v1/me",
+            "pixel": "/api/v1/balance",
             "pixverify": "/api/v1/profile",
             "safwan": "/api/balance",
             "roboticvn": "/api/v2/wallet/balance",
@@ -735,6 +780,46 @@ async def purchase(
                 "Supplier purchase response did not contain all delivery items",
                 outcome_unknown=True,
             )
+    elif adapter == "pixel":
+        email, password, twofa_url = "", "", ""
+        if buyer_info:
+            try:
+                info_data = json.loads(buyer_info)
+                email = str(info_data.get("email") or "").strip()
+                password = str(info_data.get("password") or "").strip()
+                twofa_url = str(info_data.get("twofa_url") or info_data.get("twofa") or "").strip()
+            except Exception:
+                parts = [p.strip() for p in str(buyer_info).replace("|", "\n").splitlines() if p.strip()]
+                if len(parts) >= 1: email = parts[0]
+                if len(parts) >= 2: password = parts[1]
+                if len(parts) >= 3: twofa_url = parts[2]
+
+        task_mode = "extract_link"
+        channel = "fast"
+        if "direct_subscription" in str(product_id):
+            task_mode = "direct_subscription"
+        if "normal" in str(product_id):
+            channel = "normal"
+
+        payload = await _request(
+            provider,
+            "POST",
+            "/api/v1/submit",
+            json={
+                "email": email,
+                "password": password,
+                "twofa_url": twofa_url,
+                "task_mode": task_mode,
+                "channel": channel,
+            },
+        )
+        task_data = payload.get("task") if isinstance(payload.get("task"), dict) else payload
+        task_id = str(task_data.get("id") or task_data.get("backend_task_id") or "1")
+        result = {
+            "order_id": task_id,
+            "items": [{"code": f"Task #{task_id} ({task_mode}/{channel})", "task_id": task_id}],
+            "raw_payload": payload,
+        }
     elif adapter == "roboticvn":
         result = await _purchase_roboticvn(provider, product_id, quantity)
     else:

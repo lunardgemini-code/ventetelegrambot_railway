@@ -31,6 +31,20 @@ _PUBLIC_FIELDS = {
 }
 
 _PROVIDER_CONFIGS = {
+    "pixel": {
+        "code": "pixel",
+        "name": "Pixel Gemini",
+        "base_url": "https://pixel.wxie.de",
+        "source_currency": "PTS",
+        "default_units_per_usd": 1.0,
+        "credential_env": "PIXEL_API_KEY",
+        "adapter": "pixel",
+        "api_key": "pg_live_3AIOwAP2nBFWO2KsHDojS1Lnj61N4zC-K5KmP0LVtd8",
+        "auth_mode": "header",
+        "auth_header": "Authorization",
+        "auth_prefix": "Bearer ",
+        "docs_url": "https://pixel.wxie.de/api/v1/",
+    },
     "canboso": {
         "code": "canboso",
         "name": "Canboso",
@@ -75,7 +89,7 @@ def _load_dynamic_providers() -> None:
             adapter = str(account.get("adapter") or "canboso").strip().lower()
             base_url = str(account.get("base_url") or "").strip().rstrip("/")
             if not code or code in _PROVIDER_CONFIGS or adapter not in {
-                "canboso", "tunvn", "akunding", "pixverify", "safwan",
+                "canboso", "tunvn", "akunding", "pixverify", "pixel", "safwan",
                 "roboticvn", "zoom", "cat_ai", "goldfish",
             } or not base_url.startswith("https://"):
                 continue
