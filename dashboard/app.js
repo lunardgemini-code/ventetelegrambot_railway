@@ -2763,12 +2763,13 @@ const tabRefreshLoaders = {
     'wallet-history-tab': [loadWalletHistory],
     'finance-tab': [loadFinance],
     'binance-tab': [loadBinanceAccounts],
+    'pixel-tab': [loadPixelTab],
 };
 
 const fullRefreshLoaders = [
     loadDashboardOverview, loadPerformanceMetrics, loadFinance, loadProducts, loadAllOrders, loadActivations, loadResellers, loadSupplierBot, loadAiSupplierStatus, loadAiSupplierGroups,
     loadTickets, loadUsers, loadPromos, loadWalletHistory, loadBinanceAccounts,
-    loadPaymentSettings, loadStatsBundle, loadPaymentReview
+    loadPaymentSettings, loadStatsBundle, loadPaymentReview, loadPixelTab
 ];
 
 const TAB_CACHE_TTLS = {
@@ -2776,6 +2777,7 @@ const TAB_CACHE_TTLS = {
     'inventory-tab':60000, 'users-tab':60000, 'tickets-tab':60000, 'wallet-history-tab':60000,
     'finance-tab':60000, 'resellers-tab':120000, 'game-tab':120000, 'binance-tab':120000,
     'supplier-bots-tab':180000, 'ai-bot-tab':180000, 'stats-tab':120000, 'settings-tab':300000,
+    'pixel-tab': 60000,
 };
 
 function tabDataIsFresh(tabId) {
