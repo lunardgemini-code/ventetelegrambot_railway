@@ -7515,6 +7515,8 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(set_language, pattern=r"^lang:"))
     app.add_handler(CallbackQueryHandler(show_products_list, pattern=r"^menu_buy$"))
     app.add_handler(CallbackQueryHandler(show_products_list, pattern=r"^back_products$"))
+    app.add_handler(CallbackQueryHandler(show_products_list, pattern=r"^back_cats$"))
+    app.add_handler(CallbackQueryHandler(show_products_list, pattern=r"^back_prods"))
     app.add_handler(CallbackQueryHandler(show_product_detail, pattern=r"^prod:"))
     app.add_handler(CallbackQueryHandler(notify_product_restock, pattern=r"^notify_stock:"))
     app.add_handler(CallbackQueryHandler(show_profile, pattern=r"^menu_profile$"))

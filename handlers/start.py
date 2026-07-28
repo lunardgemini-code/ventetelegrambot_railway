@@ -122,20 +122,37 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle 'back_main' callback — return to main menu."""
     query = update.callback_query
-    await query.answer()
+    if query:
+        try:
+            await query.answer()
+        except Exception:
+            pass
     user_id = update.effective_user.id
     context.user_data.pop("pixel_awaiting_creds", None)
     lang = await get_user_lang(user_id)
 
     text = t("welcome", lang) or t("welcome", "fr")
-    try:
-        await safe_edit_message_text(query,
-            text,
-            parse_mode="HTML",
-            reply_markup=main_menu_keyboard(lang, user_id),
-        )
-    except Exception:
-        pass  # Message already shows this content
+    markup = main_menu_keyboard(lang, user_id)
+    if query:
+        try:
+            await safe_edit_message_text(query,
+                text,
+                parse_mode="HTML",
+                reply_markup=markup,
+            )
+        except Exception:
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=text,
+                parse_mode="HTML",
+                reply_markup=markup,
+            )
+    else:
+        await update.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
 
 
 async def callback_check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):

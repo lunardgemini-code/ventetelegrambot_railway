@@ -20,6 +20,8 @@ _UNEDITABLE_ERRORS = (
     "message can't be edited",
     "message can not be edited",
     "there is no text in the message to edit",
+    "message is not text",
+    "message to edit has no text",
 )
 _FALLBACK_DEDUPE_SECONDS = 10.0
 _FALLBACK_SENT: dict[tuple[int, int, str], float] = {}
@@ -76,6 +78,11 @@ async def safe_edit_message_text(
             raise
 
         message = getattr(query, "message", None)
+        if message is not None:
+            try:
+                await message.delete()
+            except Exception:
+                pass
         reply_text = getattr(message, "reply_text", None)
         if not callable(reply_text):
             raise

@@ -347,7 +347,7 @@ async def initiate_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
                 text=t("product_not_found", lang),
-                reply_markup=back_keyboard("back_cats", lang),
+                reply_markup=back_keyboard("back_products", lang),
             )
             return ConversationHandler.END
 
@@ -367,7 +367,7 @@ async def initiate_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 t("pay_error", lang),
                 parse_mode="HTML",
                 reply_markup=back_keyboard(
-                    f"back_prods:{product['category_id']}", lang
+                    "back_products", lang
                 ),
             )
             return ConversationHandler.END
@@ -384,7 +384,7 @@ async def initiate_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     + t("out_of_stock", lang)
                 ),
                 parse_mode="HTML",
-                reply_markup=back_keyboard(f"back_prods:{product['category_id']}", lang),
+                reply_markup=back_keyboard("back_products", lang),
             )
             return ConversationHandler.END
 
@@ -548,14 +548,14 @@ async def _process_quantity(
                 update.callback_query,
                 msg,
                 reply_markup=back_keyboard(
-                    f"back_prods:{product['category_id']}", lang
+                    "back_products", lang
                 ),
             )
         else:
             await update.message.reply_text(
                 msg,
                 reply_markup=back_keyboard(
-                    f"back_prods:{product['category_id']}", lang
+                    "back_products", lang
 )
             )
         return ConversationHandler.END
