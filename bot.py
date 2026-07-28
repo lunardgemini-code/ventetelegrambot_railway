@@ -7754,8 +7754,6 @@ async def api_export_transactions(start_date: str, end_date: str):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-if __name__ == "__main__":
-    main()
 
 
 
@@ -7805,3 +7803,6 @@ async def api_delete_pixel_pack(pack_id: int):
     from database.models import delete_pixel_point_pack
     await delete_pixel_point_pack(pack_id)
     return {"status": "ok", "message": "Pack deleted"}
+
+if __name__ == "__main__":
+    main()
