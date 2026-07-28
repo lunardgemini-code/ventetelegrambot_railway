@@ -21,8 +21,6 @@ logger = logging.getLogger(__name__)
 MODE_LABELS = {
     "extract_link_fast": "⚡ Extract Link (Fast — 6 PTS)",
     "extract_link_normal": "🐢 Extract Link (Normal — 5 PTS)",
-    "direct_subscription_fast": "⚡ Direct Subscription (Fast — 6 PTS)",
-    "direct_subscription_normal": "🐢 Direct Subscription (Normal — 5 PTS)",
 }
 
 
@@ -46,8 +44,6 @@ async def pixel_activation_start(update: Update, context: ContextTypes.DEFAULT_T
     markup = InlineKeyboardMarkup([
         [InlineKeyboardButton("⚡ Extract Link (Fast - 6 PTS)", callback_data="pixel_mode:extract_link_fast")],
         [InlineKeyboardButton("🐢 Extract Link (Normal - 5 PTS)", callback_data="pixel_mode:extract_link_normal")],
-        [InlineKeyboardButton("⚡ Direct Subscription (Fast - 6 PTS)", callback_data="pixel_mode:direct_subscription_fast")],
-        [InlineKeyboardButton("🐢 Direct Subscription (Normal - 5 PTS)", callback_data="pixel_mode:direct_subscription_normal")],
         [InlineKeyboardButton("↩️ Retour Menu Principal", callback_data="back_main")],
     ])
 

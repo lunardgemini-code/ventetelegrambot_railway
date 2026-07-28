@@ -31,10 +31,10 @@ class PixelGeminiSupplierTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_list_products_returns_pixel_task_modes(self):
         prods = await supplier_registry.list_supplier_products("pixel", units_per_usd=1.0)
-        self.assertEqual(len(prods), 4)
+        self.assertEqual(len(prods), 2)
         ids = [p["id"] for p in prods]
         self.assertIn("extract_link_fast", ids)
-        self.assertIn("direct_subscription_fast", ids)
+        self.assertIn("extract_link_normal", ids)
 
     async def test_purchase_submits_task_payload(self):
         fake_submit_resp = {

@@ -446,22 +446,6 @@ async def list_products(provider: dict, units_per_usd: float) -> list[dict]:
                 "delivery_type": "activation",
                 "raw_payload": {"task_mode": "extract_link", "channel": "normal"},
             },
-            {
-                "id": "direct_subscription_fast",
-                "name": "Pixel Gemini - Direct Subscription (Fast)",
-                "price": 6.0,
-                "stock": 999,
-                "delivery_type": "activation",
-                "raw_payload": {"task_mode": "direct_subscription", "channel": "fast"},
-            },
-            {
-                "id": "direct_subscription_normal",
-                "name": "Pixel Gemini - Direct Subscription (Normal)",
-                "price": 5.0,
-                "stock": 999,
-                "delivery_type": "activation",
-                "raw_payload": {"task_mode": "direct_subscription", "channel": "normal"},
-            },
         ]
     if adapter == "pixverify":
         payload = await _request(provider, "GET", "/api/v1/shop/categories")
