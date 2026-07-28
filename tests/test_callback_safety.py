@@ -97,7 +97,7 @@ class CallbackSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(game_button.callback_data, "menu_game")
         self.assertEqual(game_button.icon_custom_emoji_id, "5375312095346704820")
         self.assertEqual(game_button.text, "Game · Who Wins?")
-        # style check removed for InlineKeyboardButton
+        self.assertEqual(game_button.style, KeyboardButtonStyle.DANGER)
 
     async def test_start_sends_persistent_reply_keyboard_only_once_per_session(self):
         message = SimpleNamespace(reply_text=AsyncMock())
