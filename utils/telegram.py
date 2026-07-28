@@ -72,11 +72,10 @@ async def safe_edit_message_text(
         error_text = str(exc).lower()
         if any(marker in error_text for marker in _UNCHANGED_ERRORS):
             return None
-        if not fallback_to_new_message or not any(
-            marker in error_text for marker in _UNEDITABLE_ERRORS
-        ):
+        if not fallback_to_new_message:
             raise
 
+        logger.warning("safe_edit_message_text failed (%s), deleting old and falling back to new message", exc)
         message = getattr(query, "message", None)
         if message is not None:
             try:
@@ -84,15 +83,18 @@ async def safe_edit_message_text(
             except Exception:
                 pass
         reply_text = getattr(message, "reply_text", None)
-        if not callable(reply_text):
-            raise
+        chat_id = getattr(message, "chat_id", None)
+        bot = getattr(query, "bot", None)
 
         fallback_key = _fallback_key(query, text)
         if not _claim_fallback(fallback_key):
             return None
-        logger.debug("Callback message could not be edited; sending a fresh message")
         try:
-            return await reply_text(text, **kwargs)
+            if callable(reply_text):
+                return await reply_text(text, **kwargs)
+            elif bot is not None and chat_id is not None:
+                return await bot.send_message(chat_id=chat_id, text=text, **kwargs)
+            raise
         except Exception:
             _FALLBACK_SENT.pop(fallback_key, None)
             raise

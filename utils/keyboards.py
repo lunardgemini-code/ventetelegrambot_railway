@@ -45,8 +45,6 @@ def make_button(text_key: str, lang: str = "fr", callback_data: str | None = Non
     if emoji_id:
         btn_kwargs["icon_custom_emoji_id"] = emoji_id
         label = clean_standard_emoji(label)
-    if style is not None:
-        btn_kwargs["style"] = style
     if callback_data is not None:
         return InlineKeyboardButton(label, callback_data=callback_data, **btn_kwargs)
     elif url is not None:
@@ -126,7 +124,7 @@ def main_menu_keyboard(lang: str = "fr", user_id: int | None = None) -> InlineKe
     record_cache_access("keyboard", hit=False)
 
     rows = [
-        [make_button("btn_buy", lang, callback_data="menu_buy", style=KeyboardButtonStyle.SUCCESS)],
+        [make_button("btn_buy", lang, callback_data="menu_buy")],
     ]
 
     if admin_flag:
@@ -136,7 +134,7 @@ def main_menu_keyboard(lang: str = "fr", user_id: int | None = None) -> InlineKe
 
     rows.extend([
         [make_button("btn_wallet", lang, callback_data="menu_wallet")],
-        [make_button("btn_game", lang, callback_data="menu_game", style=KeyboardButtonStyle.DANGER)],
+        [make_button("btn_game", lang, callback_data="menu_game")],
         [
             make_button("btn_profile", lang, callback_data="menu_profile"),
             make_button("btn_history", lang, callback_data="menu_history"),
@@ -377,11 +375,6 @@ def products_keyboard(products: list[dict], stock_counts: dict, lang: str = "fr"
         if custom_id:
             btn_kwargs["icon_custom_emoji_id"] = custom_id
 
-        if is_activation or stock > 0:
-            btn_kwargs["style"] = KeyboardButtonStyle.SUCCESS
-        else:
-            btn_kwargs["style"] = KeyboardButtonStyle.DANGER
-
         # Telegram button text max ~64 chars
         if len(label) > 64:
             label = label[:61] + "…"
@@ -399,7 +392,7 @@ def product_detail_keyboard(product_id: int, lang: str = "fr", can_buy: bool = T
     """Buy/notify + back to product list."""
     buttons = []
     if can_buy:
-        buttons.append([make_button("btn_buy_now", lang, callback_data=f"buy:{product_id}", style=KeyboardButtonStyle.SUCCESS)])
+        buttons.append([make_button("btn_buy_now", lang, callback_data=f"buy:{product_id}")])
     else:
         buttons.append([make_button("btn_notify_restock", lang, callback_data=f"notify_stock:{product_id}")])
     buttons.append([make_button("btn_back", lang, callback_data="back_products")])
