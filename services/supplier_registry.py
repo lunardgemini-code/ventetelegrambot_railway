@@ -40,7 +40,7 @@ _PROVIDER_CONFIGS = {
         "credential_env": "PIXEL_API_KEY",
         "adapter": "pixel",
         "api_key": "pg_live_3AIOwAP2nBFWO2KsHDojS1Lnj61N4zC-K5KmP0LVtd8",
-        "auth_mode": "header",
+        "auth_mode": "bearer",
         "auth_header": "Authorization",
         "auth_prefix": "Bearer ",
         "docs_url": "https://pixel.wxie.de/api/v1/",
@@ -125,7 +125,12 @@ def _provider_config(supplier_code: str) -> dict:
     provider = _PROVIDER_CONFIGS.get(code)
     if not provider:
         raise ValueError("SUPPLIER_NOT_FOUND")
-    return dict(provider)
+    res = dict(provider)
+    if res.get("credential_env"):
+        env_val = os.environ.get(res["credential_env"], "").strip()
+        if env_val:
+            res["api_key"] = env_val
+    return res
 
 
 def get_supplier_provider(supplier_code: str) -> dict:
