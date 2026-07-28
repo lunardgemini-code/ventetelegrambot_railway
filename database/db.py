@@ -1264,6 +1264,8 @@ async def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_supplier_products_local ON supplier_products(local_product_id)",
             "CREATE INDEX IF NOT EXISTS idx_supplier_products_enabled ON supplier_products(supplier_code, enabled)",
             "CREATE INDEX IF NOT EXISTS idx_supplier_orders_status ON supplier_orders(status, updated_at)",
+            "CREATE TABLE IF NOT EXISTS pixel_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER UNIQUE NOT NULL, user_id INTEGER NOT NULL, email TEXT NOT NULL, task_mode TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', result_link TEXT DEFAULT '', error_message TEXT DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+            "CREATE INDEX IF NOT EXISTS idx_pixel_tasks_status ON pixel_tasks(status)",
         ]
         table_columns: dict[str, set[str]] = {}
         migration_errors: list[tuple[str, Exception]] = []

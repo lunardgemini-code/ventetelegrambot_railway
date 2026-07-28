@@ -15,12 +15,13 @@ from utils.helpers import escape_html
 from utils.helpers import is_admin
 from utils.keyboards import main_menu_keyboard
 from utils.telegram import safe_edit_message_text
+from services.pixel_worker import record_pixel_task
 
 logger = logging.getLogger(__name__)
 
 MODE_LABELS = {
-    "extract_link_fast": "⚡ Extract Link (Fast — 6 PTS)",
-    "extract_link_normal": "🐢 Extract Link (Normal — 5 PTS)",
+    "extract_link_fast": "⚡ Extract Link (Fast — 6 PTS) [⏱️ Quelques min à qqs h]",
+    "extract_link_normal": "🐢 Extract Link (Normal — 5 PTS) [⏱️ Jusqu'à 24h]",
 }
 
 
@@ -42,8 +43,8 @@ async def pixel_activation_start(update: Update, context: ContextTypes.DEFAULT_T
     )
 
     markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚡ Extract Link (Fast - 6 PTS)", callback_data="pixel_mode:extract_link_fast")],
-        [InlineKeyboardButton("🐢 Extract Link (Normal - 5 PTS)", callback_data="pixel_mode:extract_link_normal")],
+        [InlineKeyboardButton("⚡ Fast (6 PTS) — min/heures", callback_data="pixel_mode:extract_link_fast")],
+        [InlineKeyboardButton("🐢 Normal (5 PTS) — jusqu'à 24h", callback_data="pixel_mode:extract_link_normal")],
         [InlineKeyboardButton("↩️ Retour Menu Principal", callback_data="back_main")],
     ])
 
@@ -119,6 +120,10 @@ async def receive_pixel_credentials(update: Update, context: ContextTypes.DEFAUL
         buyer_info = f"{email}|{password}|{twofa_secret}"
         result = await purchase_supplier_product("pixel", mode_id, 1, buyer_info=buyer_info)
         task_id = str(result.get("order_id") or "1")
+        try:
+            await record_pixel_task(int(task_id), user_id, email, mode_id)
+        except Exception:
+            pass
 
         success_text = (
             f"✅ <b>Tâche d'Activation Soumise avec Succès !</b>\n\n"

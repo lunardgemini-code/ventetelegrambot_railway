@@ -2004,6 +2004,49 @@ async def api_admin_delete_reseller_special_price(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+
+@api.get("/api/pixel/pricing", dependencies=[Depends(verify_api_key)])
+async def api_get_pixel_pricing():
+    """Get Pixel Gemini activation cost points & custom selling prices."""
+    from database.db import get_setting
+    fast_price = await get_setting("pixel_price_extract_link_fast", "6.00")
+    normal_price = await get_setting("pixel_price_extract_link_normal", "5.00")
+    return {
+        "modes": [
+            {
+                "id": "extract_link_fast",
+                "name": "Extract Link (Fast)",
+                "cost_points": 6.0,
+                "selling_price": float(fast_price or 6.0),
+                "delay_estimate": "Quelques minutes à quelques heures",
+            },
+            {
+                "id": "extract_link_normal",
+                "name": "Extract Link (Normal)",
+                "cost_points": 5.0,
+                "selling_price": float(normal_price or 5.0),
+                "delay_estimate": "Jusqu'à 24 heures",
+            },
+        ]
+    }
+
+
+@api.post("/api/pixel/pricing", dependencies=[Depends(verify_api_key)])
+async def api_update_pixel_pricing(request: Request):
+    """Update Pixel Gemini activation selling prices."""
+    from database.db import set_setting
+    body = await request.json()
+    fast_price = body.get("extract_link_fast")
+    normal_price = body.get("extract_link_normal")
+
+    if fast_price is not None:
+        await set_setting("pixel_price_extract_link_fast", str(float(fast_price)))
+    if normal_price is not None:
+        await set_setting("pixel_price_extract_link_normal", str(float(normal_price)))
+
+    return {"status": "ok", "message": "Pixel Gemini pricing updated successfully"}
+
+
 @api.get("/api/supplier-bots", dependencies=[Depends(verify_api_key)])
 async def api_list_supplier_bots():
     from collections import Counter
@@ -6566,6 +6609,16 @@ async def post_init(application: Application) -> None:
             _performance_history_worker()
         )
         logger.info("Persistent performance history worker started")
+
+    task = application.bot_data.get("pixel_task_worker")
+    if not task or task.done():
+        from services.pixel_worker import pixel_task_worker
+
+        application.bot_data["pixel_task_worker"] = asyncio.create_task(
+            pixel_task_worker(application.bot),
+            name="pixel-task-worker",
+        )
+        logger.info("Persistent Pixel Gemini activation notification worker started")
 
     task = application.bot_data.get("game_sync_task")
     if not task or task.done():
