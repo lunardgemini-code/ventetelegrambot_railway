@@ -6318,7 +6318,7 @@ async function handleSaveCryptoSettings(e) {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // Category select removed — not needed
 
-const tabKeys = { 'dashboard-tab':'tab_dashboard','stats-tab':'tab_stats','inventory-tab':'tab_inventory','orders-tab':'tab_orders','payment-review-tab':'payment_review_title','activations-tab':'nav_activations','resellers-tab':'nav_resellers','supplier-bots-tab':'nav_supplier_bots','ai-bot-tab':'nav_ai_bot','game-tab':'tab_game','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
+const tabKeys = { 'dashboard-tab':'tab_dashboard','stats-tab':'tab_stats','inventory-tab':'tab_inventory','orders-tab':'tab_orders','payment-review-tab':'payment_review_title','activations-tab':'nav_activations','resellers-tab':'nav_resellers','supplier-bots-tab':'nav_supplier_bots', 'pixel-tab':'nav_pixel','ai-bot-tab':'nav_ai_bot','game-tab':'tab_game','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
 const tabContextKeys = {
     'dashboard-tab':'context_dashboard', 'stats-tab':'context_stats', 'inventory-tab':'context_inventory',
     'orders-tab':'context_orders', 'payment-review-tab':'context_payment_review', 'activations-tab':'context_activations',
@@ -6870,3 +6870,179 @@ if(methodFilterEl) {
         loadFinance();
     });
 }
+
+
+// ── PIXEL GEMINI ACTIVATION TAB LOGIC ──────────────────────────────────────────
+
+let pixelState = {
+    settings: { point_usd_price: 1.0, fast_mode_points: 6.0, normal_mode_points: 5.0 },
+    packs: []
+};
+
+async function loadPixelTab() {
+    try {
+        const resp = await apiFetch("/api/pixel/settings");
+        if (resp && resp.status === "ok") {
+            pixelState.settings = resp.settings || pixelState.settings;
+            pixelState.packs = resp.packs || [];
+
+            // Populate settings form
+            const priceInput = document.getElementById("pixel-point-usd-price");
+            const fastInput = document.getElementById("pixel-fast-cost");
+            const normalInput = document.getElementById("pixel-normal-cost");
+
+            if (priceInput) priceInput.value = pixelState.settings.point_usd_price;
+            if (fastInput) fastInput.value = pixelState.settings.fast_mode_points;
+            if (normalInput) normalInput.value = pixelState.settings.normal_mode_points;
+
+            renderPixelPacksTable();
+        }
+    } catch (err) {
+        console.error("Failed to load Pixel settings:", err);
+        showNotification("Erreur lors du chargement des paramètres Pixel", "error");
+    }
+}
+
+function renderPixelPacksTable() {
+    const tbody = document.getElementById("pixel-packs-table-body");
+    if (!tbody) return;
+
+    if (!pixelState.packs || pixelState.packs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">Aucun pack configuré. Cliquez sur "+ Ajouter un Pack" pour en créer un.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = pixelState.packs.map(pack => {
+        const unitPrice = pack.points > 0 ? (pack.price_usd / pack.points).toFixed(2) : "0.00";
+        const statusBadge = pack.is_active 
+            ? '<span class="status-badge success">Actif</span>' 
+            : '<span class="status-badge danger">Masqué</span>';
+        const discBadge = pack.discount_percent > 0 
+            ? `<span class="status-badge warning">${pack.discount_percent}% OFF🔥</span>` 
+            : '<span class="status-badge neutral">Prix standard</span>';
+
+        return `
+            <tr>
+                <td><strong>🎁 ${pack.points} PTS</strong></td>
+                <td>$${Number(pack.price_usd).toFixed(2)} USD</td>
+                <td><small class="text-muted">$${unitPrice} / point</small></td>
+                <td>${discBadge}</td>
+                <td>${statusBadge}</td>
+                <td>
+                    <div style="display:flex; gap:6px;">
+                        <button type="button" class="btn-secondary btn-sm" onclick="editPixelPack(${pack.id})"><i class="fa-solid fa-pen"></i></button>
+                        <button type="button" class="btn-danger btn-sm" onclick="deletePixelPack(${pack.id})"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join("");
+}
+
+// Global scope helpers for table button handlers
+window.editPixelPack = function(id) {
+    const pack = pixelState.packs.find(p => p.id === id);
+    if (!pack) return;
+
+    document.getElementById("pixel-pack-id").value = pack.id;
+    document.getElementById("pixel-pack-points").value = pack.points;
+    document.getElementById("pixel-pack-price").value = pack.price_usd;
+    document.getElementById("pixel-pack-discount").value = pack.discount_percent;
+    document.getElementById("pixel-pack-active").value = pack.is_active;
+
+    document.getElementById("pixel-pack-form-title").textContent = `Modifier le Pack #${pack.id} (${pack.points} PTS)`;
+    document.getElementById("pixel-pack-form-container").classList.remove("hidden");
+};
+
+window.deletePixelPack = async function(id) {
+    if (!confirm("Voulez-vous vraiment supprimer ce Pack de points ?")) return;
+    try {
+        const resp = await apiFetch(`/api/pixel/packs/${id}`, { method: "DELETE" });
+        if (resp && resp.status === "ok") {
+            showNotification("Pack supprimé avec succès", "success");
+            await loadPixelTab();
+        }
+    } catch (err) {
+        showNotification("Erreur lors de la suppression du pack", "error");
+    }
+};
+
+// DOM Event Listeners initialization for Pixel Tab
+document.addEventListener("DOMContentLoaded", () => {
+    // Settings Form Submit
+    const settingsForm = document.getElementById("pixel-settings-form");
+    if (settingsForm) {
+        settingsForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const body = {
+                point_usd_price: parseFloat(document.getElementById("pixel-point-usd-price").value),
+                fast_mode_points: parseFloat(document.getElementById("pixel-fast-cost").value),
+                normal_mode_points: parseFloat(document.getElementById("pixel-normal-cost").value)
+            };
+            try {
+                const resp = await apiFetch("/api/pixel/settings", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body)
+                });
+                if (resp && resp.status === "ok") {
+                    showNotification("Paramètres Pixel enregistrés avec succès !", "success");
+                    await loadPixelTab();
+                }
+            } catch (err) {
+                showNotification("Erreur lors de l'enregistrement", "error");
+            }
+        });
+    }
+
+    // Toggle Add Pack Form
+    const btnAddPack = document.getElementById("btn-add-pixel-pack");
+    const packFormContainer = document.getElementById("pixel-pack-form-container");
+    const btnCancelPack = document.getElementById("btn-cancel-pixel-pack");
+
+    if (btnAddPack && packFormContainer) {
+        btnAddPack.addEventListener("click", () => {
+            document.getElementById("pixel-pack-id").value = "";
+            document.getElementById("pixel-pack-form").reset();
+            document.getElementById("pixel-pack-form-title").textContent = "Ajouter un nouveau Pack de Points";
+            packFormContainer.classList.remove("hidden");
+        });
+    }
+
+    if (btnCancelPack && packFormContainer) {
+        btnCancelPack.addEventListener("click", () => {
+            packFormContainer.classList.add("hidden");
+        });
+    }
+
+    // Pack Form Submit
+    const packForm = document.getElementById("pixel-pack-form");
+    if (packForm) {
+        packForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const packId = document.getElementById("pixel-pack-id").value;
+            const body = {
+                id: packId ? parseInt(packId) : null,
+                points: parseInt(document.getElementById("pixel-pack-points").value),
+                price_usd: parseFloat(document.getElementById("pixel-pack-price").value),
+                discount_percent: parseFloat(document.getElementById("pixel-pack-discount").value),
+                is_active: parseInt(document.getElementById("pixel-pack-active").value)
+            };
+
+            try {
+                const resp = await apiFetch("/api/pixel/packs", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body)
+                });
+                if (resp && resp.status === "ok") {
+                    showNotification("Pack de points enregistré !", "success");
+                    packFormContainer.classList.add("hidden");
+                    await loadPixelTab();
+                }
+            } catch (err) {
+                showNotification("Erreur lors de l'enregistrement du pack", "error");
+            }
+        });
+    }
+});
