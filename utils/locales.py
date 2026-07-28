@@ -22,6 +22,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     #  ENGLISH
     # ═══════════════════════════════════════════
     "en": {
+        "pixel_balance_header": "🪙 <b>Your Points Balance:</b> <code>{points} PTS</code>",
+        "btn_pixel_topup": "➕ Top-Up Points",
+        "pixel_topup_title": "🪙 <b>Top-Up Pixel Points</b>\n\nChoose a Point Pack to purchase using your Wallet balance:",
+        "pixel_insufficient_points": "⚠️ <b>Insufficient Pixel Points!</b>\n\nThis task requires <b>{required} PTS</b>, but you only have <b>{current} PTS</b>.\n\nPlease top-up your points to continue.",
+        "pixel_topup_success": "✅ <b>Points Top-Up Successful!</b>\n\nCredited: <b>+{points} PTS</b>\nCost: <b>${cost} USD</b>\nNew Balance: <b>{new_balance} PTS</b>",
+        "pixel_topup_wallet_fail": "❌ <b>Wallet Top-Up Failed:</b>\n\nRequired: <b>${cost} USD</b>\nYour Wallet Balance: <b>${current} USD</b>\n\nPlease top up your wallet balance first.",
         "pixel_my_activations_btn": "📋 My Activations",
         "pixel_my_activations_empty": "📋 <b>Pixel Gemini Activations</b>\n\nYou have no recent or active activation tasks.",
         "pixel_my_activations_title": "📋 <b>Your Pixel Gemini Activations</b>\n\n",
@@ -303,6 +309,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     #  FRANÇAIS
     # ═══════════════════════════════════════════
     "fr": {
+        "pixel_balance_header": "🪙 <b>Votre Solde de Points :</b> <code>{points} PTS</code>",
+        "btn_pixel_topup": "➕ Recharger des Points",
+        "pixel_topup_title": "🪙 <b>Recharger des Points Pixel</b>\n\nChoisissez un Pack de Points à acheter via votre Solde Wallet :",
+        "pixel_insufficient_points": "⚠️ <b>Points Pixel insuffisants !</b>\n\nCette tâche nécessite <b>{required} PTS</b>, mais vous ne disposez que de <b>{current} PTS</b>.\n\nVeuillez recharger vos points pour continuer.",
+        "pixel_topup_success": "✅ <b>Rechargement de Points Réussi !</b>\n\nCrédité : <b>+{points} PTS</b>\nCoût : <b>${cost} USD</b>\nNouveau Solde : <b>{new_balance} PTS</b>",
+        "pixel_topup_wallet_fail": "❌ <b>Échec du rechargement Wallet :</b>\n\nRequis : <b>${cost} USD</b>\nVotre Solde Wallet : <b>${current} USD</b>\n\nVeuillez d'abord recharger votre solde wallet.",
         "pixel_my_activations_btn": "📋 Mes Activations",
         "pixel_my_activations_empty": "📋 <b>Activations Pixel Gemini</b>\n\nVous n'avez aucune tâche d'activation récente ou en cours.",
         "pixel_my_activations_title": "📋 <b>Vos Activations Pixel Gemini</b>\n\n",
@@ -574,6 +586,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     #  العربية
     # ═══════════════════════════════════════════
     "ar": {
+        "pixel_balance_header": "🪙 <b>رصيد النقاط الخاص بك:</b> <code>{points} PTS</code>",
+        "btn_pixel_topup": "➕ إعادة شحن النقاط",
+        "pixel_topup_title": "🪙 <b>شحن نقاط بيكسل</b>\n\nاختر باقة نقاط للشراء عبر رصيد المحفظة:",
+        "pixel_insufficient_points": "⚠️ <b>نقاط بيكسل غير كافية!</b>\n\nتتطلب هذه المهمة <b>{required} PTS</b>، بينما لديك فقط <b>{current} PTS</b>.\n\nيرجى إعادة شحن نقاطك للمتابعة.",
+        "pixel_topup_success": "✅ <b>تم شحن النقاط بنجاح!</b>\n\nتمت إضافة: <b>+{points} PTS</b>\nالتكلفة: <b>${cost} USD</b>\nالرصيد الجديد: <b>{new_balance} PTS</b>",
+        "pixel_topup_wallet_fail": "❌ <b>فشل شحن النقاط عبر المحفظة:</b>\n\nالمطلوب: <b>${cost} USD</b>\nرصيد محفظتك: <b>${current} USD</b>",
         "pixel_my_activations_btn": "📋 تفعيلاتي",
         "pixel_my_activations_empty": "📋 <b>تفعيلات بيكسل جيميني</b>\n\nليس لديك أي مهام تفعيل حالية أو حديثة.",
         "pixel_my_activations_title": "📋 <b>تفعيلات بيكسل جيميني الخاصة بك</b>\n\n",
@@ -845,6 +863,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     #  CHINESE
     # ═══════════════════════════════════════════
     "zh": {
+        "pixel_balance_header": "🪙 <b>您的积分余额：</b> <code>{points} PTS</code>",
+        "btn_pixel_topup": "➕ 充值积分",
+        "pixel_topup_title": "🪙 <b>充值 Pixel 积分</b>\n\n选择要通过钱包余额购买的积分包：",
+        "pixel_insufficient_points": "⚠️ <b>Pixel 积分不足！</b>\n\n该任务需要 <b>{required} PTS</b>，但您只有 <b>{current} PTS</b>。\n\n请充值积分以继续。",
+        "pixel_topup_success": "✅ <b>积分充值成功！</b>\n\n已到账：<b>+{points} PTS</b>\n费用：<b>${cost} USD</b>\n最新余额：<b>{new_balance} PTS</b>",
+        "pixel_topup_wallet_fail": "❌ <b>钱包支付失败：</b>\n\n所需金额：<b>${cost} USD</b>\n您的钱包余额：<b>${current} USD</b>",
         "pixel_my_activations_btn": "📋 我的激活",
         "pixel_my_activations_empty": "📋 <b>Pixel Gemini 激活记录</b>\n\n您没有最近或正在进行的激活任务。",
         "pixel_my_activations_title": "📋 <b>您的 Pixel Gemini 激活任务</b>\n\n",

@@ -7504,6 +7504,8 @@ def main() -> None:
         receive_pixel_credentials,
         pixel_query_status,
         pixel_my_activations,
+        pixel_topup_start,
+        pixel_topup_buy_pack,
     )
     app.add_handler(CallbackQueryHandler(pixel_activation_start, pattern=r"^pixel_activation_start$"))
     app.add_handler(CallbackQueryHandler(pixel_mode_selected, pattern=r"^pixel_mode:"))
@@ -7753,3 +7755,48 @@ if __name__ == "__main__":
 
 
 
+
+
+@api.get("/api/pixel/settings", dependencies=[Depends(verify_api_key)])
+async def api_get_pixel_settings():
+    """Fetch Pixel Gemini settings and point packages."""
+    from database.models import get_pixel_settings, get_pixel_point_packs
+    settings = await get_pixel_settings()
+    packs = await get_pixel_point_packs()
+    return {
+        "status": "ok",
+        "settings": settings,
+        "packs": packs,
+    }
+
+
+@api.post("/api/pixel/settings", dependencies=[Depends(verify_api_key)])
+async def api_save_pixel_settings(request: Request):
+    """Save Pixel Gemini pricing settings."""
+    from database.models import save_pixel_settings
+    body = await request.json()
+    await save_pixel_settings(body)
+    return {"status": "ok", "message": "Settings saved successfully"}
+
+
+@api.post("/api/pixel/packs", dependencies=[Depends(verify_api_key)])
+async def api_save_pixel_pack(request: Request):
+    """Add or update a Pixel Point Pack with discount."""
+    from database.models import save_pixel_point_pack
+    body = await request.json()
+    pack_id = body.get("id")
+    points = int(body.get("points", 5))
+    price_usd = float(body.get("price_usd", 5.0))
+    discount_percent = float(body.get("discount_percent", 0.0))
+    is_active = int(body.get("is_active", 1))
+
+    res = await save_pixel_point_pack(pack_id, points, price_usd, discount_percent, is_active)
+    return {"status": "ok", "pack": res}
+
+
+@api.delete("/api/pixel/packs/{pack_id}", dependencies=[Depends(verify_api_key)])
+async def api_delete_pixel_pack(pack_id: int):
+    """Delete a Pixel Point Pack."""
+    from database.models import delete_pixel_point_pack
+    await delete_pixel_point_pack(pack_id)
+    return {"status": "ok", "message": "Pack deleted"}

@@ -728,7 +728,29 @@ async def init_db() -> None:
                 total_spent REAL DEFAULT 0,
                 total_orders INTEGER DEFAULT 0,
                 is_banned INTEGER DEFAULT 0,
+                pixel_points REAL DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )""",
+            """CREATE TABLE IF NOT EXISTS pixel_point_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                amount_points REAL NOT NULL,
+                amount_usd REAL NOT NULL,
+                type TEXT NOT NULL,
+                reference_id TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )""",
+            """CREATE TABLE IF NOT EXISTS pixel_point_packs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                points INTEGER NOT NULL,
+                price_usd REAL NOT NULL,
+                discount_percent REAL NOT NULL DEFAULT 0,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                sort_order INTEGER NOT NULL DEFAULT 0
+            )""",
+            """CREATE TABLE IF NOT EXISTS pixel_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
             )""",
             """CREATE TABLE IF NOT EXISTS categories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1266,6 +1288,11 @@ async def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_supplier_orders_status ON supplier_orders(status, updated_at)",
             "CREATE TABLE IF NOT EXISTS pixel_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER UNIQUE NOT NULL, user_id INTEGER NOT NULL, email TEXT NOT NULL, task_mode TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', result_link TEXT DEFAULT '', error_message TEXT DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
             "CREATE INDEX IF NOT EXISTS idx_pixel_tasks_status ON pixel_tasks(status)",
+            "ALTER TABLE users ADD COLUMN pixel_points REAL DEFAULT 0",
+            "CREATE TABLE IF NOT EXISTS pixel_point_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, amount_points REAL NOT NULL, amount_usd REAL NOT NULL, type TEXT NOT NULL, reference_id TEXT DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+            "CREATE TABLE IF NOT EXISTS pixel_point_packs (id INTEGER PRIMARY KEY AUTOINCREMENT, points INTEGER NOT NULL, price_usd REAL NOT NULL, discount_percent REAL NOT NULL DEFAULT 0, is_active INTEGER NOT NULL DEFAULT 1, sort_order INTEGER NOT NULL DEFAULT 0)",
+            "CREATE TABLE IF NOT EXISTS pixel_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+            "CREATE INDEX IF NOT EXISTS idx_pixel_transactions_user ON pixel_point_transactions(user_id)",
         ]
         table_columns: dict[str, set[str]] = {}
         migration_errors: list[tuple[str, Exception]] = []

@@ -55,6 +55,7 @@ class PixelActivationFlowTests(unittest.IsolatedAsyncioTestCase):
         fake_result = {"order_id": "888", "items": []}
 
         with patch("handlers.pixel_activation.is_admin", return_value=True), \
+             patch("handlers.pixel_activation.deduct_user_pixel_points", AsyncMock(return_value=True)), \
              patch("handlers.pixel_activation.purchase_supplier_product", AsyncMock(return_value=fake_result)) as mock_purchase:
             handled = await pixel_activation.receive_pixel_credentials(update, context)
             self.assertTrue(handled)

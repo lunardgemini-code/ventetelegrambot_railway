@@ -8,7 +8,14 @@ import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from database.models import get_user_lang
+from database.models import (
+    get_user_lang,
+    get_user_pixel_points,
+    deduct_user_pixel_points,
+    get_pixel_point_packs,
+    get_pixel_settings,
+)
+from services.pixel_payment import topup_pixel_points_via_wallet
 from services.supplier_registry import purchase_supplier_product, _provider_config
 from services.supplier_multi_api import _request
 from utils.helpers import escape_html, is_admin
@@ -38,12 +45,15 @@ async def pixel_activation_start(update: Update, context: ContextTypes.DEFAULT_T
 
     context.user_data.pop("pixel_awaiting_creds", None)
     lang = await _get_lang(user_id)
+    user_points = await get_user_pixel_points(user_id)
 
-    text = t("pixel_title", lang)
+    balance_text = t("pixel_balance_header", lang).format(points=user_points)
+    text = f"{balance_text}\n\n" + t("pixel_title", lang)
 
     markup = InlineKeyboardMarkup([
         [make_button("pixel_mode_fast_sub", lang, callback_data="pixel_mode:extract_link_fast")],
         [make_button("pixel_mode_normal_sub", lang, callback_data="pixel_mode:extract_link_normal")],
+        [InlineKeyboardButton(t("btn_pixel_topup", lang), callback_data="pixel_topup_start")],
         [InlineKeyboardButton(t("pixel_my_activations_btn", lang), callback_data="pixel_my_activations")],
         [make_button("btn_back", lang, callback_data="back_main")],
     ])
@@ -52,6 +62,81 @@ async def pixel_activation_start(update: Update, context: ContextTypes.DEFAULT_T
         await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=markup)
     else:
         await update.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
+
+
+async def pixel_topup_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle 'pixel_topup_start' callback — display available Point Packs for purchase."""
+    query = update.callback_query
+    if query:
+        await query.answer()
+
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        return
+
+    lang = await _get_lang(user_id)
+    user_points = await get_user_pixel_points(user_id)
+    packs = await get_pixel_point_packs()
+
+    text = t("pixel_balance_header", lang).format(points=user_points) + "\n\n" + t("pixel_topup_title", lang)
+
+    buttons = []
+    for pack in packs:
+        if not pack.get("is_active", 1):
+            continue
+        pid = pack["id"]
+        pts = pack["points"]
+        price = pack["price_usd"]
+        disc = pack.get("discount_percent", 0)
+
+        label = f"🎁 {pts} PTS — ${price:.2f} USD"
+        if disc > 0:
+            label += f" ({disc:.0f}% OFF🔥)"
+        buttons.append([InlineKeyboardButton(label, callback_data=f"pixel_topup_buy:{pid}")])
+
+    buttons.append([InlineKeyboardButton(t("pixel_new_btn", lang), callback_data="pixel_activation_start")])
+    buttons.append([make_button("btn_back", lang, callback_data="back_main")])
+
+    markup = InlineKeyboardMarkup(buttons)
+    await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=markup)
+
+
+async def pixel_topup_buy_pack(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle 'pixel_topup_buy:{pack_id}' callback — execute wallet top-up."""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        return
+
+    lang = await _get_lang(user_id)
+    pack_id_str = query.data.split(":", 1)[1]
+    pack_id = int(pack_id_str)
+
+    res = await topup_pixel_points_via_wallet(user_id, pack_id)
+    if res["success"]:
+        text = t("pixel_topup_success", lang).format(
+            points=res["points_added"],
+            cost=f"{res['cost_usd']:.2f}",
+            new_balance=res["new_points_balance"],
+        )
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton(t("pixel_new_btn", lang), callback_data="pixel_activation_start")],
+            [make_button("btn_back", lang, callback_data="back_main")],
+        ])
+    else:
+        text = t("pixel_topup_wallet_fail", lang).format(
+            cost=f"{res.get('cost_usd', 0):.2f}",
+            current=f"{res.get('current_balance', 0):.2f}",
+        )
+        markup = InlineKeyboardMarkup([
+            [make_button("btn_wallet", lang, callback_data="menu_wallet")],
+            [InlineKeyboardButton(t("btn_pixel_topup", lang), callback_data="pixel_topup_start")],
+            [make_button("btn_back", lang, callback_data="back_main")],
+        ])
+
+    await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=markup)
 
 
 async def pixel_mode_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -65,13 +150,32 @@ async def pixel_mode_selected(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     lang = await _get_lang(user_id)
     mode_id = query.data.split(":", 1)[1]
+
+    settings = await get_pixel_settings()
+    required_points = settings["fast_mode_points"] if mode_id == "extract_link_fast" else settings["normal_mode_points"]
+    user_points = await get_user_pixel_points(user_id)
+
+    if user_points < required_points:
+        text = t("pixel_insufficient_points", lang).format(
+            required=required_points,
+            current=user_points,
+        )
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton(t("btn_pixel_topup", lang), callback_data="pixel_topup_start")],
+            [InlineKeyboardButton(t("btn_change_mode", lang) if t("btn_change_mode", lang) != "btn_change_mode" else "🔄 Change Mode", callback_data="pixel_activation_start")],
+            [make_button("btn_back", lang, callback_data="back_main")],
+        ])
+        await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=markup)
+        return
+
     context.user_data["pixel_selected_mode"] = mode_id
     context.user_data["pixel_awaiting_creds"] = True
 
     mode_key = "pixel_mode_fast_sub" if mode_id == "extract_link_fast" else "pixel_mode_normal_sub"
     mode_title = t(mode_key, lang)
 
-    text = t("pixel_prompt_creds", lang).format(mode=escape_html(mode_title))
+    balance_hdr = t("pixel_balance_header", lang).format(points=user_points)
+    text = f"{balance_hdr}\n\n" + t("pixel_prompt_creds", lang).format(mode=escape_html(mode_title))
 
     change_mode_lbl = t("btn_change_mode", lang)
     if change_mode_lbl == "btn_change_mode":
@@ -115,6 +219,22 @@ async def receive_pixel_credentials(update: Update, context: ContextTypes.DEFAUL
     )
 
     try:
+        settings = await get_pixel_settings()
+        cost_points = settings["fast_mode_points"] if mode_id == "extract_link_fast" else settings["normal_mode_points"]
+
+        deducted = await deduct_user_pixel_points(user_id, cost_points, ref_id="task_submit")
+        if not deducted:
+            user_pts = await get_user_pixel_points(user_id)
+            await loading_msg.edit_text(
+                t("pixel_insufficient_points", lang).format(required=cost_points, current=user_pts),
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(t("btn_pixel_topup", lang), callback_data="pixel_topup_start")],
+                    [make_button("btn_back", lang, callback_data="back_main")],
+                ])
+            )
+            return True
+
         buyer_info = f"{email}|{password}|{twofa_secret}"
         result = await purchase_supplier_product("pixel", mode_id, 1, buyer_info=buyer_info)
         task_id = str(result.get("order_id") or "1")

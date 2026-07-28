@@ -10002,3 +10002,216 @@ async def get_products_by_category(category_id: int) -> list[dict]:
         return [dict(r) for r in rows]
     finally:
         await db.close()
+
+
+# ── Pixel Points System Models ───────────────────────────────────
+
+async def _init_pixel_tables():
+    """Ensure pixel tables exist in database."""
+    try:
+        db = await get_db()
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pixel_point_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                amount_points REAL NOT NULL,
+                amount_usd REAL NOT NULL,
+                type TEXT NOT NULL,
+                reference_id TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pixel_point_packs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                points INTEGER NOT NULL,
+                price_usd REAL NOT NULL,
+                discount_percent REAL NOT NULL DEFAULT 0,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                sort_order INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pixel_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        await db.commit()
+    except Exception as exc:
+        logger.warning("Failed to init pixel tables: %s", exc)
+
+
+async def get_user_pixel_points(user_id: int) -> float:
+    """Fetch user's Pixel Points balance."""
+    try:
+        await _init_pixel_tables()
+        db = await get_db()
+        cursor = await db.execute("SELECT pixel_points FROM users WHERE telegram_id = ?", (user_id,))
+        row = await cursor.fetchone()
+        if row and row[0] is not None:
+            return float(row[0])
+        return 0.0
+    except Exception as exc:
+        logger.error("Failed to get pixel_points for %s: %s", user_id, exc)
+        return 0.0
+
+
+async def add_user_pixel_points(user_id: int, points: float, usd_cost: float, transaction_type: str, ref_id: str = "") -> float:
+    """Credit Pixel Points to user and record transaction."""
+    try:
+        await _init_pixel_tables()
+        db = await get_db()
+        await db.execute("INSERT OR IGNORE INTO users (telegram_id) VALUES (?)", (int(user_id),))
+        await db.execute(
+            "UPDATE users SET pixel_points = COALESCE(pixel_points, 0) + ? WHERE telegram_id = ?",
+            (float(points), int(user_id))
+        )
+        await db.execute(
+            """
+            INSERT INTO pixel_point_transactions (user_id, amount_points, amount_usd, type, reference_id)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (int(user_id), float(points), float(usd_cost), str(transaction_type), str(ref_id))
+        )
+        await db.commit()
+        return await get_user_pixel_points(user_id)
+    except Exception as exc:
+        logger.error("Failed to add pixel points for %s: %s", user_id, exc)
+        return 0.0
+
+
+async def deduct_user_pixel_points(user_id: int, points: float, ref_id: str = "") -> bool:
+    """Deduct Pixel Points from user if balance is sufficient."""
+    try:
+        await _init_pixel_tables()
+        db = await get_db()
+        current = await get_user_pixel_points(user_id)
+        if current < points:
+            return False
+        await db.execute(
+            "UPDATE users SET pixel_points = pixel_points - ? WHERE telegram_id = ?",
+            (float(points), int(user_id))
+        )
+        await db.execute(
+            """
+            INSERT INTO pixel_point_transactions (user_id, amount_points, amount_usd, type, reference_id)
+            VALUES (?, ?, 0, 'spend_task', ?)
+            """,
+            (int(user_id), -float(points), str(ref_id))
+        )
+        await db.commit()
+        return True
+    except Exception as exc:
+        logger.error("Failed to deduct pixel points for %s: %s", user_id, exc)
+        return False
+
+
+async def get_pixel_point_packs() -> list[dict]:
+    """Fetch active Point Packs with discounts."""
+    try:
+        await _init_pixel_tables()
+        db = await get_db()
+        cursor = await db.execute(
+            """
+            SELECT id, points, price_usd, discount_percent, is_active, sort_order
+            FROM pixel_point_packs
+            ORDER BY sort_order ASC, points ASC
+            """
+        )
+        rows = await cursor.fetchall()
+        if not rows:
+            # Seed default point packs if table is empty
+            defaults = [
+                (5, 5.0, 0.0, 1, 1),
+                (10, 9.5, 5.0, 1, 2),
+                (25, 21.25, 15.0, 1, 3),
+                (50, 37.5, 25.0, 1, 4),
+            ]
+            for points, price, disc, active, order in defaults:
+                await db.execute(
+                    "INSERT INTO pixel_point_packs (points, price_usd, discount_percent, is_active, sort_order) VALUES (?, ?, ?, ?, ?)",
+                    (points, price, disc, active, order)
+                )
+            await db.commit()
+            return await get_pixel_point_packs()
+        return [
+            {
+                "id": r[0],
+                "points": r[1],
+                "price_usd": r[2],
+                "discount_percent": r[3],
+                "is_active": r[4],
+                "sort_order": r[5],
+            }
+            for r in rows
+        ]
+    except Exception as exc:
+        logger.error("Failed to get pixel_point_packs: %s", exc)
+        return []
+
+
+async def save_pixel_point_pack(pack_id: int | None, points: int, price_usd: float, discount_percent: float, is_active: int = 1) -> dict:
+    """Add or update a Pixel Point Pack."""
+    db = await get_db()
+    if pack_id:
+        await db.execute(
+            """
+            UPDATE pixel_point_packs
+            SET points = ?, price_usd = ?, discount_percent = ?, is_active = ?
+            WHERE id = ?
+            """,
+            (int(points), float(price_usd), float(discount_percent), int(is_active), int(pack_id))
+        )
+    else:
+        cursor = await db.execute(
+            """
+            INSERT INTO pixel_point_packs (points, price_usd, discount_percent, is_active)
+            VALUES (?, ?, ?, ?)
+            """,
+            (int(points), float(price_usd), float(discount_percent), int(is_active))
+        )
+        pack_id = cursor.lastrowid
+    await db.commit()
+    return {"id": pack_id, "points": points, "price_usd": price_usd, "discount_percent": discount_percent, "is_active": is_active}
+
+
+async def delete_pixel_point_pack(pack_id: int):
+    """Delete a Pixel Point Pack."""
+    db = await get_db()
+    await db.execute("DELETE FROM pixel_point_packs WHERE id = ?", (int(pack_id),))
+    await db.commit()
+
+
+async def get_pixel_settings() -> dict:
+    """Fetch Pixel pricing and mode cost settings."""
+    try:
+        db = await get_db()
+        cursor = await db.execute("SELECT key, value FROM pixel_settings")
+        rows = await cursor.fetchall()
+        settings = {r[0]: r[1] for r in rows}
+        return {
+            "point_usd_price": float(settings.get("point_usd_price", 1.0)),
+            "fast_mode_points": float(settings.get("fast_mode_points", 6.0)),
+            "normal_mode_points": float(settings.get("normal_mode_points", 5.0)),
+        }
+    except Exception as exc:
+        logger.error("Failed to get_pixel_settings: %s", exc)
+        return {"point_usd_price": 1.0, "fast_mode_points": 6.0, "normal_mode_points": 5.0}
+
+
+async def save_pixel_settings(settings: dict):
+    """Save Pixel pricing and mode cost settings."""
+    db = await get_db()
+    for k, v in settings.items():
+        await db.execute(
+            "INSERT OR REPLACE INTO pixel_settings (key, value) VALUES (?, ?)",
+            (str(k), str(v))
+        )
+    await db.commit()
