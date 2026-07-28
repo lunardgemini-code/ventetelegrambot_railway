@@ -7505,14 +7505,16 @@ def main() -> None:
         pixel_query_status,
         pixel_my_activations,
         pixel_topup_start,
-        pixel_topup_buy_pack,
+        pixel_topup_select_pack,
+        pixel_topup_execute_wallet,
     )
     app.add_handler(CallbackQueryHandler(pixel_activation_start, pattern=r"^pixel_activation_start$"))
     app.add_handler(CallbackQueryHandler(pixel_mode_selected, pattern=r"^pixel_mode:"))
     app.add_handler(CallbackQueryHandler(pixel_query_status, pattern=r"^pixel_query:"))
     app.add_handler(CallbackQueryHandler(pixel_my_activations, pattern=r"^pixel_my_activations$"))
     app.add_handler(CallbackQueryHandler(pixel_topup_start, pattern=r"^pixel_topup_start$"))
-    app.add_handler(CallbackQueryHandler(pixel_topup_buy_pack, pattern=r"^pixel_topup_buy:"))
+    app.add_handler(CallbackQueryHandler(pixel_topup_select_pack,
+        pixel_topup_execute_wallet, pattern=r"^pixel_topup_buy:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_pixel_credentials), group=1)
     app.add_handler(CallbackQueryHandler(callback_check_sub, pattern=r"^check_sub$"))
     app.add_handler(CallbackQueryHandler(download_txt_delivery, pattern=r"^dl_txt:"))

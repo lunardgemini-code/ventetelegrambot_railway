@@ -101,8 +101,57 @@ async def pixel_topup_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=markup)
 
 
-async def pixel_topup_buy_pack(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle 'pixel_topup_buy:{pack_id}' callback — execute wallet top-up."""
+async def pixel_topup_select_pack(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle 'pixel_topup_buy:{pack_id}' callback — show confirmation and payment method choice."""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        return
+
+    lang = await _get_lang(user_id)
+    pack_id_str = query.data.split(":", 1)[1]
+    pack_id = int(pack_id_str)
+
+    packs = await get_pixel_point_packs()
+    pack = next((p for p in packs if p["id"] == pack_id), None)
+    if not pack:
+        await safe_edit_message_text(query, "Pack introuvable.", parse_mode="HTML")
+        return
+
+    from database.db import get_db
+    db = await get_db()
+    cursor = await db.execute("SELECT wallet_balance FROM users WHERE telegram_id = ?", (int(user_id),))
+    row = await cursor.fetchone()
+    wallet_bal = float(row[0] or 0) if row else 0.0
+
+    cost_usd = float(pack["price_usd"])
+    points = int(pack["points"])
+
+    text = (
+        f"🎁 <b>Pack Sélectionné : {points} PTS</b>\n"
+        f"💵 <b>Prix :</b> ${cost_usd:.2f} USD\n\n"
+        f"💼 <b>Votre Solde Wallet :</b> ${wallet_bal:.2f} USD\n\n"
+    )
+
+    if wallet_bal >= cost_usd:
+        text += "✅ Vous avez suffisamment de fonds. Veuillez confirmer l'achat avec votre Wallet :"
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("💳 Confirmer l'achat (Wallet)", callback_data=f"pixel_topup_exec:{pack_id}")],
+            [make_button("btn_back", lang, callback_data="pixel_topup_start")],
+        ])
+    else:
+        text += "⚠️ <b>Solde insuffisant.</b>\nVous devez d'abord recharger votre Wallet via Binance ou Crypto Pay pour acheter ce pack."
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄 Recharger mon Wallet (Binance/Crypto)", callback_data="menu_wallet")],
+            [make_button("btn_back", lang, callback_data="pixel_topup_start")],
+        ])
+
+    await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=markup)
+
+async def pixel_topup_execute_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle 'pixel_topup_exec:{pack_id}' callback — execute wallet top-up."""
     query = update.callback_query
     await query.answer()
 
@@ -137,7 +186,6 @@ async def pixel_topup_buy_pack(update: Update, context: ContextTypes.DEFAULT_TYP
         ])
 
     await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=markup)
-
 
 async def pixel_mode_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle 'pixel_mode:{mode}' callback — set selected mode and prompt for credentials."""
