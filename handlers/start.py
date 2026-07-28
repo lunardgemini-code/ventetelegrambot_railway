@@ -123,7 +123,9 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Handle 'back_main' callback — return to main menu."""
     query = update.callback_query
     await query.answer()
-    lang = await get_user_lang(update.effective_user.id)
+    user_id = update.effective_user.id
+    context.user_data.pop("pixel_awaiting_creds", None)
+    lang = await get_user_lang(user_id)
 
     text = t("welcome", lang) or t("welcome", "fr")
     try:

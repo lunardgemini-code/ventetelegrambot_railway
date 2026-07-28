@@ -5,25 +5,26 @@ selecting a task mode and submitting Google account credentials (email, password
 """
 
 import logging
-import json
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
+from database.models import get_user_lang
 from services.supplier_registry import purchase_supplier_product, _provider_config
 from services.supplier_multi_api import _request
-from utils.helpers import escape_html
-from utils.helpers import is_admin
-from utils.keyboards import main_menu_keyboard
+from utils.helpers import escape_html, is_admin
+from utils.keyboards import make_button
+from utils.locales import t
 from utils.telegram import safe_edit_message_text
 from services.pixel_worker import record_pixel_task
 
 logger = logging.getLogger(__name__)
 
-MODE_LABELS = {
-    "extract_link_fast": "⚡ Extract Link (Fast — 6 PTS) [⏱️ Quelques min à qqs h]",
-    "extract_link_normal": "🐢 Extract Link (Normal — 5 PTS) [⏱️ Jusqu'à 24h]",
-}
 
+async def _get_lang(user_id: int) -> str:
+    try:
+        return await get_user_lang(user_id) or "fr"
+    except Exception:
+        return "fr"
 
 async def pixel_activation_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle 'pixel_activation_start' callback — prompt admin to choose activation mode."""
@@ -36,16 +37,14 @@ async def pixel_activation_start(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     context.user_data.pop("pixel_awaiting_creds", None)
+    lang = await _get_lang(user_id)
 
-    text = (
-        "✨ <b>Outil d'Activation Pixel Gemini v1 (Admin)</b>\n\n"
-        "Choisissez le mode de tâche à exécuter pour l'activation du compte Google :"
-    )
+    text = t("pixel_title", lang)
 
     markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚡ Fast (6 PTS) — min/heures", callback_data="pixel_mode:extract_link_fast")],
-        [InlineKeyboardButton("🐢 Normal (5 PTS) — jusqu'à 24h", callback_data="pixel_mode:extract_link_normal")],
-        [InlineKeyboardButton("↩️ Retour Menu Principal", callback_data="back_main")],
+        [make_button("pixel_mode_fast_sub", lang, callback_data="pixel_mode:extract_link_fast")],
+        [make_button("pixel_mode_normal_sub", lang, callback_data="pixel_mode:extract_link_normal")],
+        [make_button("btn_back", lang, callback_data="back_main")],
     ])
 
     if query:
@@ -63,24 +62,23 @@ async def pixel_mode_selected(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not is_admin(user_id):
         return
 
+    lang = await _get_lang(user_id)
     mode_id = query.data.split(":", 1)[1]
     context.user_data["pixel_selected_mode"] = mode_id
     context.user_data["pixel_awaiting_creds"] = True
 
-    mode_title = MODE_LABELS.get(mode_id, mode_id)
+    mode_key = "pixel_mode_fast_sub" if mode_id == "extract_link_fast" else "pixel_mode_normal_sub"
+    mode_title = t(mode_key, lang)
 
-    text = (
-        f"✨ <b>Activation Pixel Gemini</b>\n"
-        f"⚙️ <b>Mode Sélectionné :</b> <code>{escape_html(mode_title)}</code>\n\n"
-        f"Veuillez envoyer les identifiants du compte Google sous le format :\n\n"
-        f"<code>email|mot_de_passe|secret_2FA_32_caracteres</code>\n\n"
-        f"<i>Exemple :</i>\n"
-        f"<code>testuser@gmail.com|monmotdepasse123|JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP</code>"
-    )
+    text = t("pixel_prompt_creds", lang).format(mode=escape_html(mode_title))
+
+    change_mode_lbl = t("btn_change_mode", lang)
+    if change_mode_lbl == "btn_change_mode":
+        change_mode_lbl = "🔄 Change Mode"
 
     markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Changer de Mode", callback_data="pixel_activation_start")],
-        [InlineKeyboardButton("↩️ Annuler", callback_data="back_main")],
+        [InlineKeyboardButton(change_mode_lbl, callback_data="pixel_activation_start")],
+        [make_button("btn_cancel", lang, callback_data="back_main")],
     ])
 
     await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=markup)
@@ -95,14 +93,13 @@ async def receive_pixel_credentials(update: Update, context: ContextTypes.DEFAUL
     if not context.user_data.get("pixel_awaiting_creds"):
         return False
 
+    lang = await _get_lang(user_id)
     raw_text = (update.message.text or "").strip()
     parts = [p.strip() for p in raw_text.replace("|", "\n").splitlines() if p.strip()]
 
     if len(parts) < 3 or "@" not in parts[0]:
         await update.message.reply_text(
-            "⚠️ <b>Format d'identifiants invalide.</b>\n\n"
-            "Veuillez envoyer sous le format exact :\n"
-            "<code>email|mot_de_passe|secret_2FA_32_caracteres</code>",
+            t("pixel_invalid_format", lang),
             parse_mode="HTML",
         )
         return True
@@ -112,7 +109,7 @@ async def receive_pixel_credentials(update: Update, context: ContextTypes.DEFAUL
     context.user_data.pop("pixel_awaiting_creds", None)
 
     loading_msg = await update.message.reply_text(
-        "⏳ <b>Soumission de l'activation Pixel Gemini en cours...</b>",
+        t("pixel_submitting", lang),
         parse_mode="HTML",
     )
 
@@ -125,32 +122,29 @@ async def receive_pixel_credentials(update: Update, context: ContextTypes.DEFAUL
         except Exception:
             pass
 
-        success_text = (
-            f"✅ <b>Tâche d'Activation Soumise avec Succès !</b>\n\n"
-            f"⚡ <b>ID Tâche :</b> <code>#{escape_html(task_id)}</code>\n"
-            f"📧 <b>Compte :</b> <code>{escape_html(email)}</code>\n"
-            f"⚙️ <b>Mode :</b> <code>{escape_html(mode_id)}</code>\n"
-            f"📊 <b>Statut Initial :</b> <code>pending</code>\n\n"
-            f"<i>La promotion est en cours d'activation sur le bot Pixel Gemini.</i>"
+        success_text = t("pixel_submit_success", lang).format(
+            task_id=escape_html(task_id),
+            email=escape_html(email),
+            mode_id=escape_html(mode_id),
         )
 
         markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔍 Vérifier le Statut (Query)", callback_data=f"pixel_query:{task_id}")],
-            [InlineKeyboardButton("✨ Nouvelle Activation", callback_data="pixel_activation_start")],
-            [InlineKeyboardButton("↩️ Menu Principal", callback_data="back_main")],
+            [InlineKeyboardButton(t("pixel_query_btn", lang), callback_data=f"pixel_query:{task_id}")],
+            [InlineKeyboardButton(t("pixel_new_btn", lang), callback_data="pixel_activation_start")],
+            [make_button("btn_back", lang, callback_data="back_main")],
         ])
 
         await loading_msg.edit_text(success_text, parse_mode="HTML", reply_markup=markup)
         return True
     except Exception as exc:
         logger.error("Pixel activation submission failed: %s", exc, exc_info=True)
+        err_text = t("pixel_submit_error", lang).format(error=escape_html(str(exc)))
         await loading_msg.edit_text(
-            f"❌ <b>Échec de la soumission de l'activation Pixel :</b>\n\n"
-            f"<code>{escape_html(str(exc))}</code>",
+            err_text,
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔄 Réessayer", callback_data="pixel_activation_start")],
-                [InlineKeyboardButton("↩️ Menu Principal", callback_data="back_main")],
+                [InlineKeyboardButton(t("pixel_new_btn", lang), callback_data="pixel_activation_start")],
+                [make_button("btn_back", lang, callback_data="back_main")],
             ]),
         )
         return True
@@ -165,6 +159,7 @@ async def pixel_query_status(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not is_admin(user_id):
         return
 
+    lang = await _get_lang(user_id)
     task_id_str = query.data.split(":", 1)[1]
     try:
         provider = _provider_config("pixel")
@@ -186,19 +181,21 @@ async def pixel_query_status(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         status_emoji = "✅" if status == "success" else ("❌" if status in ("failed", "error") else "⏳")
 
-        text = (
-            f"{status_emoji} <b>Statut Tâche Pixel Gemini {escape_html(display_id)}</b>\n\n"
-            f"📊 <b>Statut :</b> <code>{escape_html(status.upper())}</code>\n"
-        )
+        text = t("pixel_status_title", lang).format(
+            emoji=status_emoji,
+            display_id=escape_html(display_id),
+            status=escape_html(status.upper()),
+        ) + "\n"
+
         if result_link:
-            text += f"🔗 <b>Lien Résultat :</b> <code>{escape_html(result_link)}</code>\n"
+            text += f"🔗 <b>Link:</b> <code>{escape_html(result_link)}</code>\n"
         if error_msg:
-            text += f"⚠️ <b>Erreur :</b> <code>{escape_html(error_msg)}</code>\n"
+            text += f"⚠️ <b>Error:</b> <code>{escape_html(error_msg)}</code>\n"
 
         markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 Rafraîchir le Statut", callback_data=f"pixel_query:{task_id_str}")],
-            [InlineKeyboardButton("✨ Nouvelle Activation", callback_data="pixel_activation_start")],
-            [InlineKeyboardButton("↩️ Menu Principal", callback_data="back_main")],
+            [InlineKeyboardButton(t("pixel_refresh_btn", lang), callback_data=f"pixel_query:{task_id_str}")],
+            [InlineKeyboardButton(t("pixel_new_btn", lang), callback_data="pixel_activation_start")],
+            [make_button("btn_back", lang, callback_data="back_main")],
         ])
 
         await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=markup)
@@ -206,11 +203,10 @@ async def pixel_query_status(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.error("Pixel task query failed: %s", exc)
         await safe_edit_message_text(
             query,
-            f"⚠️ <b>Impossible de récupérer le statut de la tâche #{escape_html(task_id_str)} :</b>\n"
-            f"<code>{escape_html(str(exc))}</code>",
+            f"⚠️ <b>Error querying #{escape_html(task_id_str)}:</b>\n<code>{escape_html(str(exc))}</code>",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔄 Réessayer", callback_data=f"pixel_query:{task_id_str}")],
-                [InlineKeyboardButton("↩️ Menu Principal", callback_data="back_main")],
+                [InlineKeyboardButton(t("pixel_refresh_btn", lang), callback_data=f"pixel_query:{task_id_str}")],
+                [make_button("btn_back", lang, callback_data="back_main")],
             ]),
         )
