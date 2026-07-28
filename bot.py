@@ -7445,6 +7445,16 @@ def main() -> None:
     app.add_handler(CommandHandler("getemoji", get_emoji_command))
 
     # ── Callback query handlers ──────────────────────────────────
+    from handlers.pixel_activation import (
+        pixel_activation_start,
+        pixel_mode_selected,
+        receive_pixel_credentials,
+        pixel_query_status,
+    )
+    app.add_handler(CallbackQueryHandler(pixel_activation_start, pattern=r"^pixel_activation_start$"))
+    app.add_handler(CallbackQueryHandler(pixel_mode_selected, pattern=r"^pixel_mode:"))
+    app.add_handler(CallbackQueryHandler(pixel_query_status, pattern=r"^pixel_query:"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_pixel_credentials), group=1)
     app.add_handler(CallbackQueryHandler(callback_check_sub, pattern=r"^check_sub$"))
     app.add_handler(CallbackQueryHandler(download_txt_delivery, pattern=r"^dl_txt:"))
     app.add_handler(CallbackQueryHandler(main_menu_callback, pattern=r"^back_main$"))

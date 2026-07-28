@@ -61,7 +61,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         t("welcome", lang),
         parse_mode="HTML",
-        reply_markup=main_menu_keyboard(lang),
+        reply_markup=main_menu_keyboard(lang, update.effective_user.id),
     )
     # Activate the persistent reply keyboard
     if context.user_data.get("_reply_menu_sent"):
@@ -115,7 +115,7 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await safe_edit_message_text(query,
         t("language_set", lang_code) + "\n\n" + t("welcome", lang_code),
         parse_mode="HTML",
-        reply_markup=main_menu_keyboard(lang_code),
+        reply_markup=main_menu_keyboard(lang_code, telegram_id),
     )
 
 
@@ -130,7 +130,7 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await safe_edit_message_text(query,
             text,
             parse_mode="HTML",
-            reply_markup=main_menu_keyboard(lang),
+            reply_markup=main_menu_keyboard(lang, user_id),
         )
     except Exception:
         pass  # Message already shows this content
@@ -177,7 +177,7 @@ async def callback_check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.message.reply_text(
             t("welcome", lang),
             parse_mode="HTML",
-            reply_markup=main_menu_keyboard(lang),
+            reply_markup=main_menu_keyboard(lang, user_id),
         )
         try:
             await query.message.reply_text(

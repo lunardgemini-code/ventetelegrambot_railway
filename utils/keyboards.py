@@ -103,8 +103,10 @@ def language_keyboard() -> InlineKeyboardMarkup:
 #  Main / Navigation keyboards
 # ──────────────────────────────────────────────
 
-def main_menu_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
+def main_menu_keyboard(lang: str = "fr", user_id: int | None = None) -> InlineKeyboardMarkup:
     """Main menu shown after /start and on 'back_main'."""
+    from utils.helpers import is_admin
+
     channel = str(REQUIRED_CHANNEL or "").strip()
     if channel.startswith("@"):
         channel_url = f"https://t.me/{channel[1:]}"
@@ -115,14 +117,24 @@ def main_menu_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
     else:
         channel_url = "https://t.me/Batmanstore2"
 
-    cache_key = f"main_menu_keyboard:{lang}:{channel_url}"
+    admin_flag = bool(user_id and is_admin(user_id))
+    cache_key = f"main_menu_keyboard:{lang}:{channel_url}:{admin_flag}"
     cached = _KEYBOARD_CACHE.get(cache_key)
     if cached is not None:
         record_cache_access("keyboard", hit=True)
         return cached
     record_cache_access("keyboard", hit=False)
-    markup = InlineKeyboardMarkup([
+
+    rows = [
         [make_button("btn_buy", lang, callback_data="menu_buy", style=KeyboardButtonStyle.SUCCESS)],
+    ]
+
+    if admin_flag:
+        rows.append([
+            InlineKeyboardButton("✨ Activation Pixel (Admin)", callback_data="pixel_activation_start")
+        ])
+
+    rows.extend([
         [make_button("btn_wallet", lang, callback_data="menu_wallet")],
         [make_button("btn_game", lang, callback_data="menu_game", style=KeyboardButtonStyle.DANGER)],
         [
@@ -137,6 +149,8 @@ def main_menu_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
         [make_button("btn_channel", lang, url=channel_url)],
         [make_button("btn_language", lang, callback_data="change_lang")],
     ])
+
+    markup = InlineKeyboardMarkup(rows)
     _KEYBOARD_CACHE[cache_key] = markup
     return markup
 
