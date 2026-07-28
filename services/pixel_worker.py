@@ -191,11 +191,22 @@ async def pixel_task_worker(bot: Optional[Bot] = None, interval_seconds: float =
                                         f"<i>Merci pour votre confiance !</i>"
                                     )
                                 else:
+                                    refund_note = ""
+                                    try:
+                                        from database.models import add_user_pixel_points, get_pixel_settings
+                                        settings = await get_pixel_settings()
+                                        refund_pts = settings.get("fast_mode_points", 6.0) if mode == "extract_link_fast" else settings.get("normal_mode_points", 5.0)
+                                        await add_user_pixel_points(user_id, refund_pts, 0, "refund_task", f"refund_task_{tid}")
+                                        refund_note = f"\n\n🪙 <b>{refund_pts} points</b> ont été automatiquement remboursés sur votre solde !"
+                                    except Exception as ref_err:
+                                        logger.error("Failed auto-refund for task #%s: %s", tid, ref_err)
+
                                     msg_text = (
                                         f"❌ <b>Échec de l'Activation Pixel Gemini</b>\n\n"
                                         f"⚡ <b>Tâche :</b> <code>#{tid}</code>\n"
                                         f"📧 <b>Compte :</b> <code>{escape_html(email)}</code>\n"
                                         f"⚠️ <b>Raison :</b> <code>{escape_html(error_msg or 'Erreur lors du traitement')}</code>"
+                                        f"{refund_note}"
                                     )
 
                                 try:

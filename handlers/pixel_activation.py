@@ -259,6 +259,12 @@ async def receive_pixel_credentials(update: Update, context: ContextTypes.DEFAUL
         return True
     except Exception as exc:
         logger.error("Pixel activation submission failed: %s", exc, exc_info=True)
+        if 'cost_points' in locals() and 'deducted' in locals() and deducted:
+            try:
+                from database.models import add_user_pixel_points
+                await add_user_pixel_points(user_id, cost_points, 0, "refund_submit_fail", "submit_failed")
+            except Exception as ref_exc:
+                logger.error("Failed to refund points on submission error: %s", ref_exc)
         err_text = t("pixel_submit_error", lang).format(error=escape_html(str(exc)))
         await loading_msg.edit_text(
             err_text,
