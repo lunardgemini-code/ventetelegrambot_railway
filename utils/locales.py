@@ -22,6 +22,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     #  ENGLISH
     # ═══════════════════════════════════════════
     "en": {
+        "btn_pixel_activation": "✨ Pixel Activation (Admin)",
+        "pixel_title": "✨ <b>Pixel Gemini v1 Activation Tool (Admin)</b>\n\nChoose the task mode to run for Google account activation:",
+        "pixel_mode_fast": "⚡ Extract Link (Fast — 6 PTS) [⏱️ Mins to hours]",
+        "pixel_mode_normal": "🐢 Extract Link (Normal — 5 PTS) [⏱️ Up to 24h]",
+        "pixel_mode_fast_sub": "⚡ Fast (6 PTS) — mins/hours",
+        "pixel_mode_normal_sub": "🐢 Normal (5 PTS) — up to 24h",
+        "pixel_query_btn": "🔍 Check Status (Query)",
+        "pixel_new_btn": "✨ New Activation",
         # ── Start / Menu ──
         "choose_language": "🌐 Choose your language:",
         "language_set": "✅ Language set to English!",
@@ -276,6 +284,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     #  FRANÇAIS
     # ═══════════════════════════════════════════
     "fr": {
+        "btn_pixel_activation": "✨ Activation Pixel (Admin)",
+        "pixel_title": "✨ <b>Outil d'Activation Pixel Gemini v1 (Admin)</b>\n\nChoisissez le mode de tâche à exécuter pour l'activation du compte Google :",
+        "pixel_mode_fast": "⚡ Extract Link (Fast — 6 PTS) [⏱️ Min/heures]",
+        "pixel_mode_normal": "🐢 Extract Link (Normal — 5 PTS) [⏱️ Jusqu'à 24h]",
+        "pixel_mode_fast_sub": "⚡ Fast (6 PTS) — min/heures",
+        "pixel_mode_normal_sub": "🐢 Normal (5 PTS) — jusqu'à 24h",
+        "pixel_query_btn": "🔍 Vérifier le Statut (Query)",
+        "pixel_new_btn": "✨ Nouvelle Activation",
         "choose_language": "🌐 Choisissez votre langue :",
         "language_set": "✅ Langue définie sur Français !",
         "welcome": (
@@ -520,6 +536,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     #  العربية
     # ═══════════════════════════════════════════
     "ar": {
+        "btn_pixel_activation": "✨ تفعيل بيكسل (مسؤول)",
+        "pixel_title": "✨ <b>أداة تفعيل بيكسل جيميني (مسؤول)</b>\n\nاختر وضع المهمة لتفعيل حساب جوجل:",
+        "pixel_mode_fast": "⚡ Extract Link (Fast — 6 PTS) [⏱️ دقائق إلى ساعات]",
+        "pixel_mode_normal": "🐢 Extract Link (Normal — 5 PTS) [⏱️ حتى 24 ساعة]",
+        "pixel_mode_fast_sub": "⚡ سريع (6 PTS) — دقائق/ساعات",
+        "pixel_mode_normal_sub": "🐢 عادي (5 PTS) — حتى 24 ساعة",
+        "pixel_query_btn": "🔍 التحقق من الحالة",
+        "pixel_new_btn": "✨ تفعيل جديد",
         "choose_language": "🌐 اختر لغتك:",
         "language_set": "✅ تم تعيين اللغة إلى العربية!",
         "welcome": (
@@ -764,6 +788,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     #  CHINESE
     # ═══════════════════════════════════════════
     "zh": {
+        "btn_pixel_activation": "✨ Pixel 激活 (管理员)",
+        "pixel_title": "✨ <b>Pixel Gemini 激活工具 (管理员)</b>\n\n请选择用于 Google 账号激活的任务模式：",
+        "pixel_mode_fast": "⚡ 提取链接 (Fast — 6 PTS) [⏱️ 几分钟至数小时]",
+        "pixel_mode_normal": "🐢 提取链接 (Normal — 5 PTS) [⏱️ 最多24小时]",
+        "pixel_mode_fast_sub": "⚡ 快速 (6 PTS) — 几分钟至数小时",
+        "pixel_mode_normal_sub": "🐢 普通 (5 PTS) — 最多24小时",
+        "pixel_query_btn": "🔍 查询状态",
+        "pixel_new_btn": "✨ 新建激活",
         "choose_language": "🌐 选择您的语言：",
         "language_set": "✅ 语言已设为中文！",
         "welcome": (

@@ -131,7 +131,7 @@ def main_menu_keyboard(lang: str = "fr", user_id: int | None = None) -> InlineKe
 
     if admin_flag:
         rows.append([
-            InlineKeyboardButton("✨ Activation Pixel (Admin)", callback_data="pixel_activation_start")
+            make_button("btn_pixel_activation", lang, callback_data="pixel_activation_start")
         ])
 
     rows.extend([

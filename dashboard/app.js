@@ -43,7 +43,7 @@ function collectAutoHideSettings(prefix) {
 //  i18n TRANSLATIONS
 // —————————————————————————————————————————————————————
 const LANG = {
-fr: {
+fr: {nav_pixel:"Activation Pixel",pixel_pricing_title:"Gestion des Prix d'Activation Pixel Gemini",pixel_pricing_desc:"Ajustez vos prix de vente (€ / $) pour les activations Pixel Gemini",pixel_cost:"Coût Fournisseur",pixel_selling_price:"Prix de Vente",pixel_save_prices:"Enregistrer les Prix",pixel_prices_saved:"Prix d'activation mis à jour avec succès !",
     login_subtitle:"Console de Gestion Administrateur",login_url_label:"URL de l'API",login_url_hint:"Laissez vide si vous êtes déjà sur /dashboard du bot ; sinon collez l'URL Railway",login_key_label:"Clé d'API Administrateur",login_btn:"Se connecter",
     nav_dashboard:"Dashboard",nav_stats:"Statistiques",nav_inventory:"Catalogue & Stock",nav_orders:"Commandes",nav_users:"Utilisateurs",nav_tickets:"Tickets",nav_broadcast:"Broadcast",nav_settings:"Paramètres",
     admin_title:"Administrateur",status_connected:"Connecté",btn_logout:"Déconnexion",
@@ -77,7 +77,7 @@ fr: {
     activation_waiting_client:"En attente du client",activation_ready:"À activer",activation_waiting_id:"Attend ID client",activation_mark_done:"Marquer activé",activation_confirm_prompt:"Marquer la commande #{id} comme activée ?",delivery_activation:"Activation manuelle",
     nav_resellers:"Revendeurs",nav_api_docs:"Documentation API",resellers_title:"Revendeurs",no_resellers:"Aucun revendeur.",reseller_user_id:"ID Telegram du revendeur",reseller_key_name:"Nom de la clé",btn_create_reseller_key:"Créer la clé",reseller_key_created:"Clé créée, à copier maintenant :",reseller_revoke:"Révoquer"
 },
-en: {
+en: {nav_pixel:"Pixel Activation",pixel_pricing_title:"Pixel Gemini Activation Pricing Management",pixel_pricing_desc:"Adjust your selling prices (€ / $) for Pixel Gemini activations",pixel_cost:"Supplier Cost",pixel_selling_price:"Selling Price",pixel_save_prices:"Save Prices",pixel_prices_saved:"Activation prices updated successfully!",
     login_subtitle:"Admin Management Console",login_url_label:"API URL",login_url_hint:"Leave empty if already on the bot /dashboard; otherwise paste your Railway URL",login_key_label:"Admin API Key",login_btn:"Connect",
     nav_dashboard:"Dashboard",nav_stats:"Statistics",nav_inventory:"Catalog & Stock",nav_orders:"Orders",nav_users:"Users",nav_tickets:"Tickets",nav_broadcast:"Broadcast",nav_settings:"Settings",
     admin_title:"Administrator",status_connected:"Connected",btn_logout:"Logout",
@@ -111,7 +111,7 @@ en: {
     activation_waiting_client:"Waiting for customer",activation_ready:"To activate",activation_waiting_id:"Waiting for customer ID",activation_mark_done:"Mark activated",activation_confirm_prompt:"Mark order #{id} as activated?",delivery_activation:"Manual activation",
     nav_resellers:"Resellers",nav_api_docs:"API Documentation",resellers_title:"Resellers",no_resellers:"No resellers.",reseller_user_id:"Reseller Telegram ID",reseller_key_name:"Key name",btn_create_reseller_key:"Create key",reseller_key_created:"Key created, copy it now:",reseller_revoke:"Revoke"
 },
-ar: {
+ar: {nav_pixel:"تفعيل بيكسل",pixel_pricing_title:"إدارة أسعار تفعيل بيكسل جيميني",pixel_pricing_desc:"تعديل أسعار البيع لتفعيلات بيكسل جيميني",pixel_cost:"تكلفة المورد",pixel_selling_price:"سعر البيع",pixel_save_prices:"حفظ الأسعار",pixel_prices_saved:"تم تحديث أسعار التفعيل بنجاح!",
     login_subtitle:"Ù„Ùˆحة إدارة Ø§Ù„Ù…Ø´Ø±Ù",login_url_label:"رابط API (اختياري)",login_url_hint:"Ø§ØªØ±Ùƒه ÙØ§Ø±ØºØ§Ù‹ Ù„Ø¨Ø±ÙˆÙƒسي Netlify",login_key_label:"Ù…ÙØªØ§Ø­ API Ù„Ù„Ù…Ø´Ø±Ù",login_btn:"اتصال",
     nav_dashboard:"Ù„Ùˆحة Ø§Ù„ØªØ­Ùƒم",nav_inventory:"Ø§Ù„ÙƒØªØ§Ù„Ùˆج ÙˆØ§Ù„Ù…Ø®Ø²Ùˆن",nav_orders:"الطلبات",nav_users:"المستخدمين",nav_tickets:"Ø§Ù„ØªØ°Ø§Ùƒر",nav_broadcast:"البث",nav_settings:"الإعدادات",
     admin_title:"Ø§Ù„Ù…Ø´Ø±Ù",status_connected:"متصل",btn_logout:"Ø®Ø±Ùˆج",
@@ -279,7 +279,7 @@ ar: {
     ai_reason_compliant:"مطابق للفلاتر", ai_reason_reliability:"الموثوقية {percent}%", ai_reason_affordable:"الوحدات القابلة للشراء: {count}", ai_reason_unfunded:"رصيد المورد غير كافٍ",
     ai_error_default:"حدث خطأ في بوت الذكاء الاصطناعي.", ai_error_query_required:"أدخل منتجًا للبحث عنه.", ai_error_duration:"المدة المحددة غير صالحة.", ai_error_filter:"أحد فلاتر البحث غير صالح.", ai_error_no_suppliers:"لا يوجد بوت مورد نشط ومهيأ.", ai_error_analysis_running:"يوجد تحليل جارٍ بالفعل.", ai_error_sync_running:"توجد مزامنة جارية بالفعل.", ai_error_job_missing:"مهمة التحليل هذه لم تعد موجودة.", ai_error_sync_missing:"مهمة المزامنة هذه لم تعد موجودة.", ai_error_server:"واجه خادم بوت الذكاء الاصطناعي خطأً مؤقتًا."
 },
-zh: {
+zh: {nav_pixel:"Pixel 激活",pixel_pricing_title:"Pixel Gemini 激活定价管理",pixel_pricing_desc:"调整 Pixel Gemini 激活服务的销售价格",pixel_cost:"供应商成本",pixel_selling_price:"销售价格",pixel_save_prices:"保存价格",pixel_prices_saved:"激活价格已成功更新！",
     nav_ai_bot:"AI 智能选品", ai_context:"严格搜索所有供应商目录",
     ai_eyebrow:"多供应商比较", ai_intro:"使用 AI 对整个目录分类，然后按产品和时长比较报价。",
     ai_sync_all:"同步所有机器人", ai_analyze:"AI 分析", ai_bots_configured:"已配置机器人", ai_products_indexed:"已索引产品", ai_last_analysis:"上次分析", ai_state:"状态", ai_never:"从未",
@@ -297,7 +297,7 @@ zh: {
     ai_reason_compliant:"符合筛选条件", ai_reason_reliability:"可靠性 {percent}%", ai_reason_affordable:"可购买数量：{count}", ai_reason_unfunded:"供应商余额不足",
     ai_error_default:"AI 智能选品发生错误。", ai_error_query_required:"请输入要搜索的产品。", ai_error_duration:"所选时长无效。", ai_error_filter:"某个搜索筛选条件无效。", ai_error_no_suppliers:"没有已启用并配置的供应商机器人。", ai_error_analysis_running:"已有 AI 分析正在运行。", ai_error_sync_running:"已有同步任务正在运行。", ai_error_job_missing:"此 AI 任务已不存在。", ai_error_sync_missing:"此同步任务已不存在。", ai_error_server:"AI 智能选品服务器遇到临时错误。"
 },
-vi: {
+vi: {nav_pixel:"Kích hoạt Pixel",pixel_pricing_title:"Quản lý Giá Kích hoạt Pixel Gemini",pixel_pricing_desc:"Điều chỉnh giá bán (€ / $) cho dịch vụ kích hoạt Pixel Gemini",pixel_cost:"Chi phí Nhà cung cấp",pixel_selling_price:"Giá bán",pixel_save_prices:"Lưu giá",pixel_prices_saved:"Cập nhật giá kích hoạt thành công!",
     nav_ai_bot:"AI Bot", ai_context:"Tìm kiếm chính xác trong toàn bộ danh mục nhà cung cấp",
     ai_eyebrow:"So sánh nhiều nhà cung cấp", ai_intro:"Phân loại toàn bộ danh mục bằng AI, sau đó so sánh ưu đãi theo sản phẩm và thời hạn.",
     ai_sync_all:"Đồng bộ tất cả bot", ai_analyze:"Phân tích AI", ai_bots_configured:"Bot đã cấu hình", ai_products_indexed:"Sản phẩm đã lập chỉ mục", ai_last_analysis:"Lần phân tích gần nhất", ai_state:"Trạng thái", ai_never:"Chưa bao giờ",
@@ -315,7 +315,7 @@ vi: {
     ai_reason_compliant:"Phù hợp bộ lọc", ai_reason_reliability:"Độ tin cậy {percent}%", ai_reason_affordable:"Số lượng có thể mua: {count}", ai_reason_unfunded:"Số dư nhà cung cấp không đủ",
     ai_error_default:"Đã xảy ra lỗi trong AI Bot.", ai_error_query_required:"Nhập sản phẩm cần tìm.", ai_error_duration:"Thời hạn đã chọn không hợp lệ.", ai_error_filter:"Một bộ lọc tìm kiếm không hợp lệ.", ai_error_no_suppliers:"Không có bot nhà cung cấp nào đang hoạt động và được cấu hình.", ai_error_analysis_running:"Một phiên phân tích AI đang chạy.", ai_error_sync_running:"Một phiên đồng bộ đang chạy.", ai_error_job_missing:"Tác vụ AI này không còn tồn tại.", ai_error_sync_missing:"Tác vụ đồng bộ này không còn tồn tại.", ai_error_server:"Máy chủ AI Bot gặp lỗi tạm thời."
 },
-ru: {
+ru: {nav_pixel:"Активация Pixel",pixel_pricing_title:"Управление Ценами Активации Pixel Gemini",pixel_pricing_desc:"Настройте цены продажи (€ / $) для активаций Pixel Gemini",pixel_cost:"Стоимость поставщика",pixel_selling_price:"Цена продажи",pixel_save_prices:"Сохранить цены",pixel_prices_saved:"Цены активации успешно обновлены!",
     nav_ai_bot:"ИИ-бот", ai_context:"Точный поиск по всем каталогам поставщиков",
     ai_eyebrow:"Сравнение поставщиков", ai_intro:"Классифицируйте весь каталог с помощью ИИ и сравнивайте предложения по продукту и сроку.",
     ai_sync_all:"Синхронизировать всех ботов", ai_analyze:"Анализ ИИ", ai_bots_configured:"Настроенные боты", ai_products_indexed:"Проиндексированные товары", ai_last_analysis:"Последний анализ", ai_state:"Состояние", ai_never:"Никогда",
