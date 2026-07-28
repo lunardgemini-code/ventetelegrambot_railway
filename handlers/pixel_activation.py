@@ -15,7 +15,7 @@ from utils.helpers import escape_html, is_admin
 from utils.keyboards import make_button
 from utils.locales import t
 from utils.telegram import safe_edit_message_text
-from services.pixel_worker import record_pixel_task
+from services.pixel_worker import record_pixel_task, get_user_pixel_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,7 @@ async def pixel_activation_start(update: Update, context: ContextTypes.DEFAULT_T
     markup = InlineKeyboardMarkup([
         [make_button("pixel_mode_fast_sub", lang, callback_data="pixel_mode:extract_link_fast")],
         [make_button("pixel_mode_normal_sub", lang, callback_data="pixel_mode:extract_link_normal")],
+        [InlineKeyboardButton(t("pixel_my_activations_btn", lang), callback_data="pixel_my_activations")],
         [make_button("btn_back", lang, callback_data="back_main")],
     ])
 
@@ -210,3 +211,59 @@ async def pixel_query_status(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 [make_button("btn_back", lang, callback_data="back_main")],
             ]),
         )
+
+async def pixel_my_activations(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle 'pixel_my_activations' callback — show user's recent/active activation tasks."""
+    query = update.callback_query
+    if query:
+        await query.answer()
+
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        return
+
+    lang = await _get_lang(user_id)
+    tasks = await get_user_pixel_tasks(user_id)
+
+    if not tasks:
+        text = t("pixel_my_activations_empty", lang)
+    else:
+        text = t("pixel_my_activations_title", lang)
+        for task in tasks:
+            task_id = task["task_id"]
+            email = task["email"]
+            mode = task["task_mode"]
+            status = (task["status"] or "pending").lower()
+            status_emoji = "✅" if status == "success" else ("❌" if status in ("failed", "error") else "⏳")
+            link = task.get("result_link", "")
+            err = task.get("error_message", "")
+
+            text += (
+                f"⚡ <b>Tâche #{task_id}</b>\n"
+                f"📧 <b>Account:</b> <code>{escape_html(email)}</code>\n"
+                f"⚙️ <b>Mode:</b> <code>{escape_html(mode)}</code>\n"
+                f"📊 <b>Status:</b> {status_emoji} <code>{escape_html(status.upper())}</code>\n"
+            )
+            if link:
+                text += f"🔗 <b>Link:</b> <code>{escape_html(link)}</code>\n"
+            if err:
+                text += f"⚠️ <b>Error:</b> <code>{escape_html(err)}</code>\n"
+            text += "\n"
+
+    refresh_lbl = t("pixel_refresh_btn", lang)
+    if refresh_lbl == "pixel_refresh_btn":
+        refresh_lbl = "🔄 Refresh"
+    new_lbl = t("pixel_new_btn", lang)
+    if new_lbl == "pixel_new_btn":
+        new_lbl = "✨ New Activation"
+
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton(refresh_lbl, callback_data="pixel_my_activations")],
+        [InlineKeyboardButton(new_lbl, callback_data="pixel_activation_start")],
+        [make_button("btn_back", lang, callback_data="back_main")],
+    ])
+
+    if query:
+        await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=markup)
+    else:
+        await update.message.reply_text(text, parse_mode="HTML", reply_markup=markup)

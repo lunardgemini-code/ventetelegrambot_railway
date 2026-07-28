@@ -67,6 +67,35 @@ class PixelActivationFlowTests(unittest.IsolatedAsyncioTestCase):
             loading_msg.edit_text.assert_called_once()
             self.assertIn("#888", loading_msg.edit_text.call_args[0][0])
 
+    async def test_pixel_my_activations_renders_user_tasks(self):
+        update = MagicMock(spec=Update)
+        update.effective_user = User(id=9999, is_bot=False, first_name="Admin")
+        query = MagicMock(spec=CallbackQuery)
+        query.answer = AsyncMock()
+        update.callback_query = query
+
+        context = MagicMock()
+        context.user_data = {}
+
+        fake_tasks = [
+            {
+                "task_id": 999,
+                "email": "user@gmail.com",
+                "task_mode": "extract_link_fast",
+                "status": "pending",
+                "result_link": "",
+                "error_message": "",
+            }
+        ]
+
+        with patch("handlers.pixel_activation.is_admin", return_value=True), \
+             patch("handlers.pixel_activation.get_user_pixel_tasks", AsyncMock(return_value=fake_tasks)), \
+             patch("handlers.pixel_activation.safe_edit_message_text", AsyncMock()) as mock_edit:
+            await pixel_activation.pixel_my_activations(update, context)
+            mock_edit.assert_called_once()
+            self.assertIn("#999", mock_edit.call_args[0][1])
+
 
 if __name__ == "__main__":
     unittest.main()
+

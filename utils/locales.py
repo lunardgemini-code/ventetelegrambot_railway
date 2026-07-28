@@ -22,6 +22,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     #  ENGLISH
     # ═══════════════════════════════════════════
     "en": {
+        "pixel_my_activations_btn": "📋 My Activations",
+        "pixel_my_activations_empty": "📋 <b>Pixel Gemini Activations</b>\n\nYou have no recent or active activation tasks.",
+        "pixel_my_activations_title": "📋 <b>Your Pixel Gemini Activations</b>\n\n",
         "btn_pixel_activation": "✨ Pixel Activation (Admin)",
         "pixel_title": "✨ <b>Pixel Gemini v1 Activation Tool (Admin)</b>\n\nChoose the task mode to run for Google account activation:",
         "pixel_mode_fast": "⚡ Extract Link (Fast — 6 PTS)",
@@ -300,6 +303,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     #  FRANÇAIS
     # ═══════════════════════════════════════════
     "fr": {
+        "pixel_my_activations_btn": "📋 Mes Activations",
+        "pixel_my_activations_empty": "📋 <b>Activations Pixel Gemini</b>\n\nVous n'avez aucune tâche d'activation récente ou en cours.",
+        "pixel_my_activations_title": "📋 <b>Vos Activations Pixel Gemini</b>\n\n",
         "btn_pixel_activation": "✨ Activation Pixel (Admin)",
         "pixel_title": "✨ <b>Outil d'Activation Pixel Gemini v1 (Admin)</b>\n\nChoisissez le mode de tâche à exécuter pour l'activation du compte Google :",
         "pixel_mode_fast": "⚡ Extract Link (Fast — 6 PTS)",
@@ -568,6 +574,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     #  العربية
     # ═══════════════════════════════════════════
     "ar": {
+        "pixel_my_activations_btn": "📋 تفعيلاتي",
+        "pixel_my_activations_empty": "📋 <b>تفعيلات بيكسل جيميني</b>\n\nليس لديك أي مهام تفعيل حالية أو حديثة.",
+        "pixel_my_activations_title": "📋 <b>تفعيلات بيكسل جيميني الخاصة بك</b>\n\n",
         "btn_pixel_activation": "✨ تفعيل بيكسل (مسؤول)",
         "pixel_title": "✨ <b>أداة تفعيل بيكسل جيميني (مسؤول)</b>\n\nاختر وضع المهمة لتفعيل حساب جوجل:",
         "pixel_mode_fast": "⚡ Extract Link (Fast — 6 PTS)",
@@ -836,6 +845,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     #  CHINESE
     # ═══════════════════════════════════════════
     "zh": {
+        "pixel_my_activations_btn": "📋 我的激活",
+        "pixel_my_activations_empty": "📋 <b>Pixel Gemini 激活记录</b>\n\n您没有最近或正在进行的激活任务。",
+        "pixel_my_activations_title": "📋 <b>您的 Pixel Gemini 激活任务</b>\n\n",
         "btn_pixel_activation": "✨ Pixel 激活 (管理员)",
         "pixel_title": "✨ <b>Pixel Gemini 激活工具 (管理员)</b>\n\n请选择用于 Google 账号激活的任务模式：",
         "pixel_mode_fast": "⚡ 提取链接 (Fast — 6 PTS)",

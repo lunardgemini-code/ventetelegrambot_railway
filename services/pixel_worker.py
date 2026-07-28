@@ -213,3 +213,38 @@ async def pixel_task_worker(bot: Optional[Bot] = None, interval_seconds: float =
             logger.error("Error in pixel_task_worker loop: %s", exc, exc_info=True)
 
         await asyncio.sleep(interval_seconds)
+
+async def get_user_pixel_tasks(user_id: int) -> list[dict]:
+    """Fetch recent/active pixel tasks for a specific user."""
+    try:
+        await init_pixel_tasks_table()
+        db = await _get_pixel_db()
+        cursor = await db.execute(
+            """
+            SELECT id, task_id, user_id, email, task_mode, status, result_link, error_message, created_at, updated_at
+            FROM pixel_tasks
+            WHERE user_id = ?
+            ORDER BY id DESC
+            LIMIT 10
+            """,
+            (int(user_id),)
+        )
+        rows = await cursor.fetchall()
+        return [
+            {
+                "id": row[0],
+                "task_id": row[1],
+                "user_id": row[2],
+                "email": row[3],
+                "task_mode": row[4],
+                "status": row[5],
+                "result_link": row[6] or "",
+                "error_message": row[7] or "",
+                "created_at": row[8],
+                "updated_at": row[9],
+            }
+            for row in rows
+        ]
+    except Exception as exc:
+        logger.error("Failed to fetch user pixel tasks for %s: %s", user_id, exc)
+        return []

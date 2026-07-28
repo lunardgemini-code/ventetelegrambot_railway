@@ -7503,6 +7503,7 @@ def main() -> None:
         pixel_mode_selected,
         receive_pixel_credentials,
         pixel_query_status,
+        pixel_my_activations,
     )
     app.add_handler(CallbackQueryHandler(pixel_activation_start, pattern=r"^pixel_activation_start$"))
     app.add_handler(CallbackQueryHandler(pixel_mode_selected, pattern=r"^pixel_mode:"))
