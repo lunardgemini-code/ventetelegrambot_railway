@@ -15,6 +15,18 @@ from utils.telegram import safe_edit_message_text
 logger = logging.getLogger(__name__)
 
 
+async def _main_menu_for_user(lang: str, user_id: int):
+    """Only expose Pixel from /start after the server-side admin check."""
+    include_pixel = False
+    try:
+        from handlers.pixel_activation import pixel_activation_available_for_user
+        include_pixel = await pixel_activation_available_for_user(int(user_id))
+    except Exception as exc:
+        # A disabled or misconfigured optional module must never block /start.
+        logger.debug("Pixel menu eligibility unavailable: %s", exc)
+    return main_menu_keyboard(lang, include_pixel=include_pixel)
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start — cancel everything, reset state, show fresh main menu."""
     user = update.effective_user
@@ -61,7 +73,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         t("welcome", lang),
         parse_mode="HTML",
-        reply_markup=main_menu_keyboard(lang),
+        reply_markup=await _main_menu_for_user(lang, user.id),
     )
     # Activate the persistent reply keyboard
     if context.user_data.get("_reply_menu_sent"):
@@ -115,7 +127,7 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await safe_edit_message_text(query,
         t("language_set", lang_code) + "\n\n" + t("welcome", lang_code),
         parse_mode="HTML",
-        reply_markup=main_menu_keyboard(lang_code),
+        reply_markup=await _main_menu_for_user(lang_code, telegram_id),
     )
 
 
@@ -130,7 +142,7 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await safe_edit_message_text(query,
             text,
             parse_mode="HTML",
-            reply_markup=main_menu_keyboard(lang),
+            reply_markup=await _main_menu_for_user(lang, update.effective_user.id),
         )
     except Exception:
         pass  # Message already shows this content
@@ -177,7 +189,7 @@ async def callback_check_sub(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.message.reply_text(
             t("welcome", lang),
             parse_mode="HTML",
-            reply_markup=main_menu_keyboard(lang),
+            reply_markup=await _main_menu_for_user(lang, user_id),
         )
         try:
             await query.message.reply_text(

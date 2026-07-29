@@ -10002,3 +10002,1016 @@ async def get_products_by_category(category_id: int) -> list[dict]:
         return [dict(r) for r in rows]
     finally:
         await db.close()
+
+
+# ---------------------------------------------------------------------------
+# Pixel activation V2
+# ---------------------------------------------------------------------------
+
+_PIXEL_DEFAULT_SETTINGS = {
+    "is_enabled": False,
+    "admin_only": True,
+    "credit_usd_price": 1.0,
+    "fast_credits": 6,
+    "normal_credits": 5,
+    "min_supplier_points": 0.0,
+    "credential_retention_days": 90,
+}
+_PIXEL_FINAL_STATUSES = {"SUCCESS", "REFUNDED", "SUBMISSION_UNKNOWN"}
+_PIXEL_FAILURE_STATUSES = {"failed", "error", "cancelled", "canceled", "rejected"}
+
+
+def _pixel_public_task(task: dict | None) -> dict | None:
+    """Return a task safe for Telegram, the dashboard and admin APIs."""
+    if not task:
+        return None
+    data = dict(task)
+    for field in (
+        "password_encrypted",
+        "twofa_secret_encrypted",
+        "callback_token_encrypted",
+        "callback_token_hash",
+    ):
+        data.pop(field, None)
+    for field in ("credits_reserved", "supplier_task_id", "poll_attempts"):
+        if data.get(field) is not None:
+            try:
+                data[field] = int(data[field])
+            except (TypeError, ValueError):
+                pass
+    for field in ("credit_usd_price", "supplier_points_cost"):
+        if data.get(field) is not None:
+            try:
+                data[field] = float(data[field])
+            except (TypeError, ValueError):
+                pass
+    return data
+
+
+def _pixel_dashboard_task(task: dict) -> dict:
+    """Further minimize a task returned to the browser dashboard."""
+    data = _pixel_public_task(task) or {}
+    data["result_available"] = bool(data.get("result_link"))
+    # A result URL may itself grant access. The customer receives it directly
+    # in Telegram; the dashboard needs the audit state, not a bearer link.
+    data.pop("result_link", None)
+    # Supplier messages are useful to the owning customer in Telegram, but
+    # do not need to be retained in a browser response.
+    data.pop("error_message", None)
+    return data
+
+
+def _pixel_settings_from_row(row: dict | None) -> dict:
+    settings = dict(_PIXEL_DEFAULT_SETTINGS)
+    if row:
+        settings.update({
+            "is_enabled": bool(row.get("is_enabled")),
+            "admin_only": bool(row.get("admin_only")),
+            "credit_usd_price": float(row.get("credit_usd_price") or 1.0),
+            "fast_credits": int(row.get("fast_credits") or 6),
+            "normal_credits": int(row.get("normal_credits") or 5),
+            "min_supplier_points": float(row.get("min_supplier_points") or 0.0),
+            "credential_retention_days": int(row.get("credential_retention_days") or 0),
+            "updated_at": row.get("updated_at"),
+        })
+    return settings
+
+
+def _pixel_bool(value, default: bool) -> bool:
+    if value is None:
+        return bool(default)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+async def get_pixel_activation_settings() -> dict:
+    db = await get_db()
+    try:
+        row = await (await db.execute(
+            "SELECT * FROM pixel_activation_settings WHERE id = 1"
+        )).fetchone()
+        return _pixel_settings_from_row(dict(row) if row else None)
+    finally:
+        await db.close()
+
+
+async def update_pixel_activation_settings(values: dict) -> dict:
+    """Update bounded, server-side Pixel settings without exposing secrets."""
+    current = await get_pixel_activation_settings()
+    try:
+        price = usd_float(values.get("credit_usd_price", current["credit_usd_price"]), places=4, allow_zero=False)
+        fast = int(values.get("fast_credits", current["fast_credits"]))
+        normal = int(values.get("normal_credits", current["normal_credits"]))
+        supplier_min = float(values.get("min_supplier_points", current["min_supplier_points"]))
+        retention = int(values.get("credential_retention_days", current["credential_retention_days"]))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Invalid Pixel activation settings") from exc
+    if fast < 1 or normal < 1 or fast > 100000 or normal > 100000:
+        raise ValueError("Activation credit cost must be between 1 and 100000")
+    if supplier_min < 0 or supplier_min > 1_000_000_000:
+        raise ValueError("Invalid minimum supplier balance")
+    if retention < 0 or retention > 3650:
+        raise ValueError("Credential retention must be between 0 and 3650 days")
+
+    enabled = int(_pixel_bool(values.get("is_enabled"), current["is_enabled"]))
+    admin_only = int(_pixel_bool(values.get("admin_only"), current["admin_only"]))
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        await db.execute(
+            """INSERT INTO pixel_activation_settings
+                   (id, is_enabled, admin_only, credit_usd_price, fast_credits,
+                    normal_credits, min_supplier_points, credential_retention_days, updated_at)
+               VALUES (1, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(id) DO UPDATE SET
+                   is_enabled = excluded.is_enabled,
+                   admin_only = excluded.admin_only,
+                   credit_usd_price = excluded.credit_usd_price,
+                   fast_credits = excluded.fast_credits,
+                   normal_credits = excluded.normal_credits,
+                   min_supplier_points = excluded.min_supplier_points,
+                   credential_retention_days = excluded.credential_retention_days,
+                   updated_at = CURRENT_TIMESTAMP""",
+            (enabled, admin_only, price, fast, normal, supplier_min, retention),
+        )
+        # Credit packs are quantities, not independent prices. Keeping their
+        # displayed price derived from the shared point value avoids a stale
+        # pack becoming cheaper or more expensive than the configured rate.
+        await db.execute(
+            "UPDATE pixel_credit_packs SET price_usd = ROUND(credits * ?, 4), updated_at = CURRENT_TIMESTAMP",
+            (price,),
+        )
+        await db.commit()
+        return await get_pixel_activation_settings()
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def get_pixel_credit_packs(*, active_only: bool = False) -> list[dict]:
+    db = await get_db()
+    try:
+        where = "WHERE is_active = 1" if active_only else ""
+        rows = await (await db.execute(
+            f"SELECT * FROM pixel_credit_packs {where} ORDER BY sort_order ASC, id ASC"
+        )).fetchall()
+        return [
+            {
+                **dict(row),
+                "credits": int(row["credits"]),
+                "price_usd": float(row["price_usd"]),
+                "is_active": bool(row["is_active"]),
+            }
+            for row in rows
+        ]
+    finally:
+        await db.close()
+
+
+async def upsert_pixel_credit_pack(values: dict) -> dict:
+    try:
+        pack_id = int(values["id"]) if values.get("id") else None
+        credits = int(values["credits"])
+        sort_order = int(values.get("sort_order") or 0)
+    except (TypeError, ValueError, KeyError) as exc:
+        raise ValueError("Invalid credit pack") from exc
+    if credits < 1 or credits > 1_000_000:
+        raise ValueError("Credits must be between 1 and 1000000")
+    label = str(values.get("label") or "").strip()[:80]
+    is_active = int(_pixel_bool(values.get("is_active"), True))
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        settings_row = await (await db.execute(
+            "SELECT * FROM pixel_activation_settings WHERE id = 1"
+        )).fetchone()
+        settings = _pixel_settings_from_row(dict(settings_row) if settings_row else None)
+        price_usd = usd_float(
+            credits * float(settings["credit_usd_price"]),
+            places=4,
+            allow_zero=False,
+        )
+        if pack_id:
+            cursor = await db.execute(
+                """UPDATE pixel_credit_packs
+                   SET label = ?, credits = ?, price_usd = ?, is_active = ?,
+                       sort_order = ?, updated_at = CURRENT_TIMESTAMP
+                   WHERE id = ? RETURNING *""",
+                (label, credits, price_usd, is_active, sort_order, pack_id),
+            )
+        else:
+            cursor = await db.execute(
+                """INSERT INTO pixel_credit_packs
+                   (label, credits, price_usd, is_active, sort_order)
+                   VALUES (?, ?, ?, ?, ?) RETURNING *""",
+                (label, credits, price_usd, is_active, sort_order),
+            )
+        row = await cursor.fetchone()
+        if not row:
+            raise ValueError("Credit pack not found")
+        await db.commit()
+        result = dict(row)
+        result.update({
+            "credits": int(result["credits"]),
+            "price_usd": float(result["price_usd"]),
+            "is_active": bool(result["is_active"]),
+        })
+        return result
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def delete_pixel_credit_pack(pack_id: int) -> bool:
+    db = await get_db()
+    try:
+        cursor = await db.execute("DELETE FROM pixel_credit_packs WHERE id = ?", (int(pack_id),))
+        await db.commit()
+        return cursor.rowcount != 0
+    finally:
+        await db.close()
+
+
+async def get_pixel_credit_balance(user_telegram_id: int) -> int:
+    db = await get_db()
+    try:
+        row = await (await db.execute(
+            "SELECT balance_credits FROM pixel_credit_accounts WHERE user_telegram_id = ?",
+            (int(user_telegram_id),),
+        )).fetchone()
+        return max(0, int(row["balance_credits"])) if row else 0
+    finally:
+        await db.close()
+
+
+async def purchase_pixel_credit_pack(
+    user_telegram_id: int,
+    pack_id: int,
+    *,
+    reference_key: str,
+) -> dict:
+    """Debit wallet and credit activation credits in exactly one transaction."""
+    reference_key = str(reference_key or "").strip()
+    if not reference_key or len(reference_key) > 160:
+        raise ValueError("Invalid Pixel credit purchase reference")
+    user_id = int(user_telegram_id)
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        prior = await (await db.execute(
+            "SELECT * FROM pixel_credit_ledger WHERE reference_key = ?",
+            (reference_key,),
+        )).fetchone()
+        if prior:
+            wallet = await (await db.execute(
+                "SELECT wallet_balance FROM users WHERE telegram_id = ?", (user_id,)
+            )).fetchone()
+            await db.commit()
+            return {
+                "idempotent": True,
+                "credits_added": int(prior["amount_credits"]),
+                "credit_balance": int(prior["balance_after"]),
+                "wallet_balance": float(wallet["wallet_balance"] or 0) if wallet else 0.0,
+                "price_usd": float(prior["amount_usd"] or 0),
+            }
+
+        pack = await (await db.execute(
+            "SELECT * FROM pixel_credit_packs WHERE id = ? AND is_active = 1",
+            (int(pack_id),),
+        )).fetchone()
+        if not pack:
+            raise ValueError("Pixel credit pack is unavailable")
+        credits = int(pack["credits"])
+        price_usd = usd_float(pack["price_usd"], places=4, allow_zero=False)
+
+        cursor = await db.execute(
+            """UPDATE users
+               SET wallet_balance = ROUND(MAX(0.0, COALESCE(wallet_balance, 0) - ?), 4)
+               WHERE telegram_id = ? AND COALESCE(wallet_balance, 0) >= ?
+               RETURNING wallet_balance""",
+            (price_usd, user_id, price_usd - 1e-5),
+        )
+        wallet = await cursor.fetchone()
+        if not wallet:
+            raise ValueError("INSUFFICIENT_WALLET_BALANCE")
+        wallet_balance = float(wallet["wallet_balance"])
+
+        cursor = await db.execute(
+            """INSERT INTO pixel_credit_accounts (user_telegram_id, balance_credits, updated_at)
+               VALUES (?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(user_telegram_id) DO UPDATE SET
+                   balance_credits = pixel_credit_accounts.balance_credits + excluded.balance_credits,
+                   updated_at = CURRENT_TIMESTAMP
+               RETURNING balance_credits""",
+            (user_id, credits),
+        )
+        account = await cursor.fetchone()
+        credit_balance = int(account["balance_credits"])
+        await db.execute(
+            """INSERT INTO pixel_credit_ledger
+               (user_telegram_id, amount_credits, balance_after, amount_usd,
+                event_type, reference_key, description)
+               VALUES (?, ?, ?, ?, 'WALLET_TOPUP', ?, ?)""",
+            (user_id, credits, credit_balance, price_usd, reference_key, f"Pixel credits pack #{int(pack_id)}"),
+        )
+        await db.execute(
+            """INSERT INTO wallet_transactions
+               (user_telegram_id, type, amount, balance_after, description)
+               VALUES (?, 'purchase', ?, ?, ?)""",
+            (user_id, price_usd, wallet_balance, f"Pixel credits pack #{int(pack_id)}"),
+        )
+        await db.commit()
+        invalidate_stats_cache()
+        return {
+            "idempotent": False,
+            "credits_added": credits,
+            "credit_balance": credit_balance,
+            "wallet_balance": wallet_balance,
+            "price_usd": price_usd,
+        }
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+def _pixel_task_status_for_channel(channel: str, settings: dict) -> int:
+    return int(settings["fast_credits"] if channel == "fast" else settings["normal_credits"])
+
+
+async def create_pixel_activation_draft(
+    *,
+    user_telegram_id: int,
+    user_display_name: str,
+    email: str,
+    password: str,
+    twofa_secret: str,
+    channel: str,
+    request_key: str,
+) -> dict:
+    """Persist a traceable encrypted draft before the user confirms payment."""
+    if not secret_store_configured():
+        raise RuntimeError("Credential encryption is not configured")
+    email = str(email or "").strip().lower()
+    password = str(password or "").strip()
+    twofa_secret = str(twofa_secret or "").strip()
+    channel = "fast" if channel == "fast" else "normal"
+    request_key = str(request_key or "").strip()
+    if "@" not in email or len(email) > 254 or not password or not twofa_secret:
+        raise ValueError("Invalid Pixel credentials")
+    if not request_key or len(request_key) > 160:
+        raise ValueError("Invalid Pixel draft reference")
+
+    user_id = int(user_telegram_id)
+    public_id = secrets.token_urlsafe(12)
+    callback_token = secrets.token_urlsafe(32)
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        row = await (await db.execute(
+            "SELECT * FROM pixel_activation_tasks WHERE request_key = ?",
+            (request_key,),
+        )).fetchone()
+        if row:
+            await db.commit()
+            return _pixel_public_task(dict(row)) or {}
+        await db.execute(
+            """INSERT INTO pixel_activation_tasks
+               (public_id, request_key, user_telegram_id, user_display_name, email,
+                password_encrypted, twofa_secret_encrypted, callback_token_hash,
+                callback_token_encrypted, task_mode, channel, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'extract_link', ?, 'DRAFT')""",
+            (
+                public_id,
+                request_key,
+                user_id,
+                str(user_display_name or "").strip()[:120],
+                email,
+                encrypt_secret(password),
+                encrypt_secret(twofa_secret),
+                hashlib.sha256(callback_token.encode("utf-8")).hexdigest(),
+                encrypt_secret(callback_token),
+                channel,
+            ),
+        )
+        row = await (await db.execute(
+            "SELECT * FROM pixel_activation_tasks WHERE public_id = ?", (public_id,)
+        )).fetchone()
+        await db.commit()
+        return _pixel_public_task(dict(row)) or {}
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def reserve_pixel_activation_task(public_id: str, user_telegram_id: int) -> dict:
+    """Atomically reserve customer credits for one confirmed activation task."""
+    user_id = int(user_telegram_id)
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        row = await (await db.execute(
+            "SELECT * FROM pixel_activation_tasks WHERE public_id = ? AND user_telegram_id = ?",
+            (str(public_id), user_id),
+        )).fetchone()
+        if not row:
+            raise ValueError("PIXEL_TASK_NOT_FOUND")
+        task = dict(row)
+        if task["status"] != "DRAFT":
+            await db.commit()
+            return _pixel_public_task(task) or {}
+
+        settings_row = await (await db.execute(
+            "SELECT * FROM pixel_activation_settings WHERE id = 1"
+        )).fetchone()
+        settings = _pixel_settings_from_row(dict(settings_row) if settings_row else None)
+        credits = _pixel_task_status_for_channel(str(task["channel"]), settings)
+        reference_key = f"pixel-reserve:{task['public_id']}"
+
+        cursor = await db.execute(
+            """UPDATE pixel_credit_accounts
+               SET balance_credits = balance_credits - ?, updated_at = CURRENT_TIMESTAMP
+               WHERE user_telegram_id = ? AND balance_credits >= ?
+               RETURNING balance_credits""",
+            (credits, user_id, credits),
+        )
+        account = await cursor.fetchone()
+        if not account:
+            raise ValueError("INSUFFICIENT_PIXEL_CREDITS")
+        balance_after = int(account["balance_credits"])
+        await db.execute(
+            """INSERT INTO pixel_credit_ledger
+               (user_telegram_id, task_public_id, amount_credits, balance_after,
+                amount_usd, event_type, reference_key, description)
+               VALUES (?, ?, ?, ?, 0, 'TASK_RESERVE', ?, ?)""",
+            (user_id, task["public_id"], -credits, balance_after, reference_key, "Pixel activation credit reservation"),
+        )
+        await db.execute(
+            """UPDATE pixel_activation_tasks
+               SET status = 'RESERVED', credits_reserved = ?, credit_usd_price = ?,
+                   next_check_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+               WHERE public_id = ?""",
+            (credits, settings["credit_usd_price"], task["public_id"]),
+        )
+        row = await (await db.execute(
+            "SELECT * FROM pixel_activation_tasks WHERE public_id = ?", (task["public_id"],)
+        )).fetchone()
+        await db.commit()
+        return _pixel_public_task(dict(row)) or {}
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def get_pixel_activation_task(public_id: str, *, user_telegram_id: int | None = None) -> dict | None:
+    db = await get_db()
+    try:
+        if user_telegram_id is None:
+            cursor = await db.execute(
+                "SELECT * FROM pixel_activation_tasks WHERE public_id = ?", (str(public_id),)
+            )
+        else:
+            cursor = await db.execute(
+                "SELECT * FROM pixel_activation_tasks WHERE public_id = ? AND user_telegram_id = ?",
+                (str(public_id), int(user_telegram_id)),
+            )
+        row = await cursor.fetchone()
+        return _pixel_public_task(dict(row)) if row else None
+    finally:
+        await db.close()
+
+
+async def get_pixel_task_submission_payload(public_id: str) -> dict | None:
+    """Read encrypted values only for a claimed server-side submission."""
+    db = await get_db()
+    try:
+        row = await (await db.execute(
+            "SELECT * FROM pixel_activation_tasks WHERE public_id = ? AND status = 'SUBMITTING'",
+            (str(public_id),),
+        )).fetchone()
+        if not row:
+            return None
+        task = dict(row)
+        return {
+            "public_id": task["public_id"],
+            "email": task["email"],
+            "password": decrypt_secret(task["password_encrypted"]),
+            "twofa_secret": decrypt_secret(task["twofa_secret_encrypted"]),
+            "callback_token": decrypt_secret(task["callback_token_encrypted"]),
+            "task_mode": task["task_mode"],
+            "channel": task["channel"],
+        }
+    finally:
+        await db.close()
+
+
+async def claim_pixel_submissions(limit: int = 4) -> list[dict]:
+    """Claim only never-submitted reservations; ambiguous POSTs are never retried."""
+    limit = max(1, min(int(limit), 20))
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        rows = await (await db.execute(
+            """SELECT public_id FROM pixel_activation_tasks
+               WHERE status = 'RESERVED' AND submission_claimed_at IS NULL
+               ORDER BY created_at ASC LIMIT ?""",
+            (limit,),
+        )).fetchall()
+        public_ids = [str(row["public_id"]) for row in rows]
+        if public_ids:
+            placeholders = ",".join("?" for _ in public_ids)
+            await db.execute(
+                f"""UPDATE pixel_activation_tasks
+                    SET status = 'SUBMITTING', submission_claimed_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE public_id IN ({placeholders}) AND status = 'RESERVED'""",
+                public_ids,
+            )
+        await db.commit()
+        return [{"public_id": public_id} for public_id in public_ids]
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def release_pixel_submission_claim(public_id: str) -> bool:
+    """Return a pre-submit task to the queue after a safe local failure."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """UPDATE pixel_activation_tasks
+               SET status = 'RESERVED', submission_claimed_at = NULL,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE public_id = ? AND status = 'SUBMITTING'""",
+            (str(public_id),),
+        )
+        await db.commit()
+        return cursor.rowcount != 0
+    finally:
+        await db.close()
+
+
+async def mark_pixel_submission_pending(public_id: str, provider_task: dict) -> dict | None:
+    try:
+        supplier_task_id = int(provider_task["id"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("Provider task id is invalid") from exc
+    if supplier_task_id <= 0:
+        raise ValueError("Provider task id is invalid")
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        row = await (await db.execute(
+            "SELECT * FROM pixel_activation_tasks WHERE public_id = ?", (str(public_id),)
+        )).fetchone()
+        if not row:
+            await db.rollback()
+            return None
+        task = dict(row)
+        if task["status"] not in {"SUBMITTING", "PENDING"}:
+            await db.commit()
+            return _pixel_public_task(task)
+        await db.execute(
+            """UPDATE pixel_activation_tasks
+               SET status = 'PENDING', supplier_task_id = ?,
+                   supplier_backend_task_id = ?, supplier_points_cost = ?,
+                   supplier_status = ?, submission_claimed_at = NULL,
+                   next_check_at = datetime('now', '+45 seconds'),
+                   submitted_at = COALESCE(submitted_at, CURRENT_TIMESTAMP),
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE public_id = ?""",
+            (
+                supplier_task_id,
+                provider_task.get("backend_task_id"),
+                provider_task.get("points_cost"),
+                str(provider_task.get("status") or "pending").lower(),
+                task["public_id"],
+            ),
+        )
+        row = await (await db.execute(
+            "SELECT * FROM pixel_activation_tasks WHERE public_id = ?", (task["public_id"],)
+        )).fetchone()
+        await db.commit()
+        return _pixel_public_task(dict(row)) if row else None
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def mark_pixel_submission_unknown(public_id: str, error_message: str) -> None:
+    """Preserve a charge reservation when provider POST outcome is ambiguous."""
+    db = await get_db()
+    try:
+        await db.execute(
+            """UPDATE pixel_activation_tasks
+               SET status = 'SUBMISSION_UNKNOWN', submission_claimed_at = NULL,
+                   error_message = ?, finished_at = CURRENT_TIMESTAMP,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE public_id = ? AND status = 'SUBMITTING'""",
+            (str(error_message or "Submission outcome is unknown")[:500], str(public_id)),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def _refund_pixel_task_tx(db, task: dict, *, error_message: str, supplier_status: str) -> dict:
+    if task["status"] == "REFUNDED":
+        return task
+    if task["status"] == "SUCCESS":
+        return task
+    credits = max(0, int(task.get("credits_reserved") or 0))
+    if credits:
+        cursor = await db.execute(
+            """UPDATE pixel_credit_accounts
+               SET balance_credits = balance_credits + ?, updated_at = CURRENT_TIMESTAMP
+               WHERE user_telegram_id = ? RETURNING balance_credits""",
+            (credits, int(task["user_telegram_id"])),
+        )
+        account = await cursor.fetchone()
+        if not account:
+            raise RuntimeError("Pixel credit account is missing for a reserved task")
+        await db.execute(
+            """INSERT INTO pixel_credit_ledger
+               (user_telegram_id, task_public_id, amount_credits, balance_after,
+                amount_usd, event_type, reference_key, description)
+               VALUES (?, ?, ?, ?, 0, 'TASK_REFUND', ?, ?)""",
+            (
+                int(task["user_telegram_id"]),
+                task["public_id"],
+                credits,
+                int(account["balance_credits"]),
+                f"pixel-refund:{task['public_id']}",
+                "Pixel activation refunded",
+            ),
+        )
+    await db.execute(
+        """UPDATE pixel_activation_tasks
+           SET status = 'REFUNDED', supplier_status = ?, error_message = ?,
+               reconcile_claimed_at = NULL, finished_at = CURRENT_TIMESTAMP,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE public_id = ?""",
+        (supplier_status[:80], str(error_message or "")[:500], task["public_id"]),
+    )
+    row = await (await db.execute(
+        "SELECT * FROM pixel_activation_tasks WHERE public_id = ?", (task["public_id"],)
+    )).fetchone()
+    return dict(row) if row else task
+
+
+async def refund_pixel_activation_task(public_id: str, *, error_message: str, supplier_status: str = "failed") -> dict | None:
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        row = await (await db.execute(
+            "SELECT * FROM pixel_activation_tasks WHERE public_id = ?", (str(public_id),)
+        )).fetchone()
+        if not row:
+            await db.rollback()
+            return None
+        task = dict(row)
+        result = await _refund_pixel_task_tx(
+            db, task, error_message=error_message, supplier_status=supplier_status
+        )
+        await db.commit()
+        return _pixel_public_task(result)
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def apply_pixel_provider_task(public_id: str, provider_task: dict) -> dict | None:
+    """Apply a verified provider status; callbacks never change a task directly."""
+    status = str(provider_task.get("status") or "pending").strip().lower()
+    supplier_status = status[:80] or "pending"
+    result_link = str(provider_task.get("result_link") or "")[:2000]
+    error_message = str(provider_task.get("error_message") or "")[:500]
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        row = await (await db.execute(
+            "SELECT * FROM pixel_activation_tasks WHERE public_id = ?", (str(public_id),)
+        )).fetchone()
+        if not row:
+            await db.rollback()
+            return None
+        task = dict(row)
+        if task["status"] in _PIXEL_FINAL_STATUSES:
+            await db.commit()
+            return _pixel_public_task(task)
+        if status == "success":
+            await db.execute(
+                """UPDATE pixel_activation_tasks
+                   SET status = 'SUCCESS', supplier_status = ?, result_link = ?,
+                       error_message = '', reconcile_claimed_at = NULL,
+                       finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                   WHERE public_id = ?""",
+                (supplier_status, result_link, task["public_id"]),
+            )
+            row = await (await db.execute(
+                "SELECT * FROM pixel_activation_tasks WHERE public_id = ?", (task["public_id"],)
+            )).fetchone()
+            await db.commit()
+            return _pixel_public_task(dict(row)) if row else None
+        if status in _PIXEL_FAILURE_STATUSES:
+            result = await _refund_pixel_task_tx(
+                db,
+                task,
+                error_message=error_message or "Pixel activation failed",
+                supplier_status=supplier_status,
+            )
+            await db.commit()
+            return _pixel_public_task(result)
+
+        await db.execute(
+            """UPDATE pixel_activation_tasks
+               SET status = 'PENDING', supplier_status = ?, result_link = ?,
+                   error_message = ?, reconcile_claimed_at = NULL,
+                   poll_attempts = poll_attempts + 1,
+                   next_check_at = datetime('now', '+90 seconds'),
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE public_id = ?""",
+            (supplier_status, result_link, error_message, task["public_id"]),
+        )
+        row = await (await db.execute(
+            "SELECT * FROM pixel_activation_tasks WHERE public_id = ?", (task["public_id"],)
+        )).fetchone()
+        await db.commit()
+        return _pixel_public_task(dict(row)) if row else None
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def claim_due_pixel_reconciliations(limit: int = 12) -> list[dict]:
+    limit = max(1, min(int(limit), 40))
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        rows = await (await db.execute(
+            """SELECT public_id, supplier_task_id
+               FROM pixel_activation_tasks
+               WHERE status = 'PENDING'
+                 AND supplier_task_id IS NOT NULL
+                 AND (next_check_at IS NULL OR next_check_at <= CURRENT_TIMESTAMP)
+                 AND (reconcile_claimed_at IS NULL
+                      OR reconcile_claimed_at < datetime('now', '-5 minutes'))
+               ORDER BY next_check_at ASC, id ASC LIMIT ?""",
+            (limit,),
+        )).fetchall()
+        tasks = [dict(row) for row in rows]
+        if tasks:
+            public_ids = [str(task["public_id"]) for task in tasks]
+            placeholders = ",".join("?" for _ in public_ids)
+            await db.execute(
+                f"""UPDATE pixel_activation_tasks
+                    SET reconcile_claimed_at = CURRENT_TIMESTAMP,
+                        next_check_at = datetime('now', '+90 seconds'),
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE public_id IN ({placeholders})""",
+                public_ids,
+            )
+        await db.commit()
+        return tasks
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def release_pixel_reconciliation_claims(public_ids: list[str], *, retry_after_seconds: int = 180) -> None:
+    values = [str(value) for value in public_ids if value]
+    if not values:
+        return
+    seconds = max(30, min(int(retry_after_seconds), 3600))
+    db = await get_db()
+    try:
+        placeholders = ",".join("?" for _ in values)
+        await db.execute(
+            f"""UPDATE pixel_activation_tasks
+                SET reconcile_claimed_at = NULL,
+                    next_check_at = datetime('now', ?), updated_at = CURRENT_TIMESTAMP
+                WHERE public_id IN ({placeholders}) AND status = 'PENDING'""",
+            [f"+{seconds} seconds", *values],
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def validate_pixel_callback(public_id: str, callback_token: str) -> dict | None:
+    """Validate the opaque callback token without trusting its payload."""
+    token_hash = hashlib.sha256(str(callback_token).encode("utf-8")).hexdigest()
+    db = await get_db()
+    try:
+        row = await (await db.execute(
+            "SELECT * FROM pixel_activation_tasks WHERE public_id = ?", (str(public_id),)
+        )).fetchone()
+        if not row:
+            return None
+        task = dict(row)
+        if not hmac.compare_digest(str(task.get("callback_token_hash") or ""), token_hash):
+            return None
+        return _pixel_public_task(task)
+    finally:
+        await db.close()
+
+
+async def signal_pixel_reconciliation(public_id: str) -> bool:
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """UPDATE pixel_activation_tasks
+               SET next_check_at = CURRENT_TIMESTAMP, reconcile_claimed_at = NULL,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE public_id = ? AND status = 'PENDING'""",
+            (str(public_id),),
+        )
+        await db.commit()
+        return cursor.rowcount != 0
+    finally:
+        await db.close()
+
+
+async def claim_pixel_task_notification(public_id: str) -> dict | None:
+    """Claim one final-task notification so worker retries cannot duplicate it."""
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute(
+            """UPDATE pixel_activation_tasks
+               SET notified_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+               WHERE public_id = ? AND notified_at IS NULL
+                 AND status IN ('SUCCESS', 'REFUNDED', 'SUBMISSION_UNKNOWN')
+               RETURNING *""",
+            (str(public_id),),
+        )
+        row = await cursor.fetchone()
+        await db.commit()
+        return _pixel_public_task(dict(row)) if row else None
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def list_pixel_activation_tasks(
+    *,
+    user_telegram_id: int | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    limit = max(1, min(int(limit), 200))
+    db = await get_db()
+    try:
+        if user_telegram_id is None:
+            cursor = await db.execute(
+                "SELECT * FROM pixel_activation_tasks ORDER BY id DESC LIMIT ?", (limit,)
+            )
+        else:
+            cursor = await db.execute(
+                """SELECT * FROM pixel_activation_tasks
+                   WHERE user_telegram_id = ? ORDER BY id DESC LIMIT ?""",
+                (int(user_telegram_id), limit),
+            )
+        return [
+            _pixel_public_task(dict(row)) or {}
+            for row in await cursor.fetchall()
+        ]
+    finally:
+        await db.close()
+
+
+async def get_pixel_dashboard_snapshot() -> dict:
+    db = await get_db()
+    try:
+        settings_row = await (await db.execute(
+            "SELECT * FROM pixel_activation_settings WHERE id = 1"
+        )).fetchone()
+        packs = await (await db.execute(
+            "SELECT * FROM pixel_credit_packs ORDER BY sort_order ASC, id ASC"
+        )).fetchall()
+        tasks = await (await db.execute(
+            "SELECT * FROM pixel_activation_tasks ORDER BY id DESC LIMIT 100"
+        )).fetchall()
+        stats_rows = await (await db.execute(
+            "SELECT status, COUNT(*) AS count FROM pixel_activation_tasks GROUP BY status"
+        )).fetchall()
+        ledger_rows = await (await db.execute(
+            """SELECT COALESCE(SUM(CASE WHEN event_type = 'WALLET_TOPUP' THEN amount_usd ELSE 0 END), 0) AS credits_revenue,
+                      COALESCE(SUM(CASE WHEN event_type = 'TASK_RESERVE' THEN -amount_credits ELSE 0 END), 0) AS credits_spent
+               FROM pixel_credit_ledger"""
+        )).fetchone()
+        return {
+            "settings": _pixel_settings_from_row(dict(settings_row) if settings_row else None),
+            "packs": [
+                {**dict(row), "credits": int(row["credits"]), "price_usd": float(row["price_usd"]), "is_active": bool(row["is_active"])}
+                for row in packs
+            ],
+            "tasks": [_pixel_dashboard_task(dict(row)) for row in tasks],
+            "stats": {
+                "by_status": {str(row["status"]): int(row["count"]) for row in stats_rows},
+                "credit_revenue_usd": float(ledger_rows["credits_revenue"] or 0) if ledger_rows else 0.0,
+                "credits_spent": int(ledger_rows["credits_spent"] or 0) if ledger_rows else 0,
+            },
+        }
+    finally:
+        await db.close()
+
+
+async def purge_expired_pixel_credentials() -> int:
+    settings = await get_pixel_activation_settings()
+    retention = int(settings.get("credential_retention_days") or 0)
+    if retention <= 0:
+        return 0
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """UPDATE pixel_activation_tasks
+               SET password_encrypted = '', twofa_secret_encrypted = '',
+                   callback_token_encrypted = '', credentials_purged_at = CURRENT_TIMESTAMP,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE credentials_purged_at IS NULL
+                 AND status IN ('SUCCESS', 'REFUNDED', 'SUBMISSION_UNKNOWN')
+                 AND finished_at IS NOT NULL
+                 AND finished_at < datetime('now', ?)""",
+            (f"-{retention} days",),
+        )
+        await db.commit()
+        return max(0, int(cursor.rowcount)) if cursor.rowcount != -1 else 0
+    finally:
+        await db.close()
+
+
+async def expire_stale_pixel_drafts(*, max_age_hours: int = 24) -> int:
+    """Purge credentials from unconfirmed drafts while retaining audit identity."""
+    hours = max(1, min(int(max_age_hours), 24 * 30))
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """UPDATE pixel_activation_tasks
+               SET status = 'CANCELLED', password_encrypted = '',
+                   twofa_secret_encrypted = '', callback_token_encrypted = '',
+                   credentials_purged_at = CURRENT_TIMESTAMP,
+                   error_message = 'Unconfirmed draft expired',
+                   finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+               WHERE status = 'DRAFT' AND credentials_purged_at IS NULL
+                 AND created_at < datetime('now', ?)""",
+            (f'-{hours} hours',),
+        )
+        await db.commit()
+        return max(0, int(cursor.rowcount)) if cursor.rowcount != -1 else 0
+    finally:
+        await db.close()

@@ -88,6 +88,15 @@ from handlers.products import (
     show_products_list,
 )
 from handlers.profile import show_profile, show_referrals, view_referrals_list
+from handlers.pixel_activation import (
+    pixel_activation_conversation_handler,
+    pixel_activation_menu,
+    pixel_credit_pack_confirm,
+    pixel_credit_pack_purchase,
+    pixel_credit_packs_menu,
+    pixel_task_view,
+    pixel_tasks_menu,
+)
 from handlers.reseller_api import confirm_generate_reseller_api_key, generate_reseller_api_key, reseller_api_menu
 from handlers.start import (
     callback_check_sub,
@@ -1882,6 +1891,152 @@ async def api_admin_list_resellers():
     except Exception as exc:
         logger.error("API error list resellers: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# Pixel activation administration is deliberately separate from the reseller
+# API. The dashboard receives task metadata only; credential ciphertext never
+# leaves Turso through an HTTP response.
+@api.get("/api/pixel", dependencies=[Depends(verify_api_key)])
+async def api_get_pixel_activation_dashboard():
+    from database.models import get_pixel_dashboard_snapshot
+    from services.pixel_api import PixelAPIError, get_pixel_balance, is_pixel_configured
+    from utils.secret_store import validate_secret_store_configuration
+
+    try:
+        validate_secret_store_configuration()
+        encryption_ready = True
+    except RuntimeError:
+        encryption_ready = False
+
+    try:
+        result = await get_pixel_dashboard_snapshot()
+        configured = is_pixel_configured()
+        result["runtime"] = {
+            "configured": configured,
+            "credential_encryption_ready": encryption_ready,
+            "supplier_balance": None,
+            "supplier_error": None,
+        }
+        if configured:
+            try:
+                result["runtime"]["supplier_balance"] = await get_pixel_balance()
+            except PixelAPIError as exc:
+                result["runtime"]["supplier_error"] = str(exc)[:300]
+        return result
+    except Exception as exc:
+        logger.error("API pixel dashboard error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/pixel/settings", dependencies=[Depends(verify_api_key)])
+async def api_update_pixel_activation_settings(data: dict):
+    from database.models import update_pixel_activation_settings
+    from services.pixel_api import is_pixel_configured
+    from utils.secret_store import validate_secret_store_configuration
+
+    wants_enabled = data.get("is_enabled")
+    if isinstance(wants_enabled, str):
+        wants_enabled = wants_enabled.strip().lower() in {"1", "true", "yes", "on"}
+    if wants_enabled is True and not is_pixel_configured():
+        raise HTTPException(
+            status_code=409,
+            detail="Pixel is not configured on the server. Set PIXEL_ENABLED and PIXEL_API_KEY first.",
+        )
+    if wants_enabled is True:
+        try:
+            validate_secret_store_configuration()
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail="Credential encryption is not configured on the server.",
+            ) from exc
+    try:
+        settings = await update_pixel_activation_settings(data)
+        return {"status": "updated", "settings": settings}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("API pixel settings error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/pixel/packs", dependencies=[Depends(verify_api_key)])
+async def api_upsert_pixel_credit_pack(data: dict):
+    from database.models import upsert_pixel_credit_pack
+
+    try:
+        return {"status": "saved", "pack": await upsert_pixel_credit_pack(data)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("API pixel credit pack error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.delete("/api/pixel/packs/{pack_id}", dependencies=[Depends(verify_api_key)])
+async def api_delete_pixel_credit_pack(pack_id: int):
+    from database.models import delete_pixel_credit_pack
+
+    try:
+        if not await delete_pixel_credit_pack(pack_id):
+            raise HTTPException(status_code=404, detail="Pixel credit pack not found")
+        return {"status": "deleted"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("API pixel credit pack deletion error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/pixel/reconcile", dependencies=[Depends(verify_api_key)], status_code=202)
+async def api_reconcile_pixel_tasks():
+    from services.pixel_api import is_pixel_configured
+    from services.pixel_worker import process_pixel_activation_cycle
+
+    if not is_pixel_configured():
+        raise HTTPException(status_code=409, detail="Pixel is not configured on the server")
+    if not tg_app or not tg_app.bot:
+        raise HTTPException(status_code=503, detail="Telegram application is not ready")
+    tg_app.create_task(
+        process_pixel_activation_cycle(tg_app.bot, busy=False),
+        name="pixel-dashboard-reconcile",
+    )
+    return {"status": "queued"}
+
+
+@api.post("/api/pixel/callback/{public_id}/{callback_token}", status_code=202, include_in_schema=False)
+async def api_pixel_provider_callback(public_id: str, callback_token: str, request: Request):
+    """Accept a provider hint, then verify status server-to-server.
+
+    Pixel does not document a signed webhook. The opaque per-task path token is
+    only an acceleration signal; it never authorizes a status transition.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9_-]{8,32}", public_id) or not re.fullmatch(
+        r"[A-Za-z0-9_-]{32,128}", callback_token
+    ):
+        # Avoid an unnecessary database read for malformed public paths while
+        # keeping the response indistinguishable from an unknown task.
+        raise HTTPException(status_code=404, detail="Unknown Pixel callback")
+    content_length = request.headers.get("content-length")
+    try:
+        if content_length and int(content_length) > 8 * 1024:
+            raise HTTPException(status_code=413, detail="Callback body too large")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid callback content length")
+
+    from database.models import signal_pixel_reconciliation, validate_pixel_callback
+    from services.pixel_worker import process_pixel_activation_cycle
+
+    task = await validate_pixel_callback(public_id, callback_token)
+    if not task:
+        raise HTTPException(status_code=404, detail="Unknown Pixel callback")
+    await signal_pixel_reconciliation(public_id)
+    if tg_app and tg_app.bot:
+        tg_app.create_task(
+            process_pixel_activation_cycle(tg_app.bot, busy=False),
+            name="pixel-provider-callback",
+        )
+    return {"status": "accepted"}
 
 
 @api.post("/api/resellers/keys", dependencies=[Depends(verify_api_key)])
@@ -6645,12 +6800,31 @@ async def post_init(application: Application) -> None:
                 CRYPTOPAY_RECONCILE_SECONDS,
             )
 
+    from services.pixel_api import is_pixel_configured
+    if is_pixel_configured():
+        task = application.bot_data.get("pixel_activation_task")
+        if not task or task.done():
+            from services.pixel_worker import pixel_activation_worker
+
+            application.bot_data["pixel_activation_task"] = asyncio.create_task(
+                pixel_activation_worker(
+                    application.bot,
+                    busy_check=lambda: (
+                        _current_webhook_backlog() > 0
+                        or _webhook_active_workers >= max(1, _configured_webhook_workers() * 0.75)
+                    ),
+                ),
+                name="pixel-activation-worker",
+            )
+            logger.info("Pixel activation worker started (low priority)")
+
 
 async def post_shutdown(application: Application) -> None:
     tasks = [
         application.bot_data.pop("dynamic_pricing_task", None),
         application.bot_data.pop("nowpayments_task", None),
         application.bot_data.pop("cryptopay_task", None),
+        application.bot_data.pop("pixel_activation_task", None),
         application.bot_data.pop("stale_order_task", None),
         application.bot_data.pop("background_job_task", None),
         application.bot_data.pop("admin_audit_task", None),
@@ -6685,6 +6859,8 @@ async def post_shutdown(application: Application) -> None:
     await close_nowpayments_client()
     from services.crypto_pay import close_crypto_pay_client
     await close_crypto_pay_client()
+    from services.pixel_api import close_pixel_api_client
+    await close_pixel_api_client()
     from services.reseller_webhooks import close_reseller_webhook_client
     await close_reseller_webhook_client()
     from services.supplier_registry import close_supplier_clients
@@ -7432,6 +7608,7 @@ def main() -> None:
     app.add_handler(get_payment_conversation_handler(), group=1)
     app.add_handler(get_support_conversation_handler(), group=2)
     app.add_handler(wallet_conversation_handler(), group=3)
+    app.add_handler(pixel_activation_conversation_handler(), group=4)
 
     # ── Command handlers ─────────────────────────────────────────
     app.add_handler(CommandHandler("start", start_command))
@@ -7480,6 +7657,12 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(confirm_game_bet, pattern=r"^game_confirm:"))
     app.add_handler(CallbackQueryHandler(show_my_game_bets, pattern=r"^game_my_bets$"))
     app.add_handler(CallbackQueryHandler(show_game_leaderboard, pattern=r"^game_leaderboard$"))
+    app.add_handler(CallbackQueryHandler(pixel_activation_menu, pattern=r"^pixel:menu$"))
+    app.add_handler(CallbackQueryHandler(pixel_credit_packs_menu, pattern=r"^pixel:credits$"))
+    app.add_handler(CallbackQueryHandler(pixel_credit_pack_confirm, pattern=r"^pixel:credit-pack:\d+$"))
+    app.add_handler(CallbackQueryHandler(pixel_credit_pack_purchase, pattern=r"^pixel:credit-buy:\d+$"))
+    app.add_handler(CallbackQueryHandler(pixel_tasks_menu, pattern=r"^pixel:tasks$"))
+    app.add_handler(CallbackQueryHandler(pixel_task_view, pattern=r"^pixel:task:[A-Za-z0-9_-]{8,32}$"))
 
     # ── Reply keyboard text handlers ─────────────────────────────
     app.add_handler(MessageHandler(filters.Regex(r"(?i)(Produits|Products|المنتجات|产品)"), show_products_list))
@@ -7487,7 +7670,7 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.Regex(r"(?i)(Commencer|Start|ابدأ|开始)"), start_command))
     app.add_handler(MessageHandler(filters.Regex(r"(?i)(Langue|Language|اللغة|语言)"), change_language))
 
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_activation_identifier), group=4)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_activation_identifier), group=5)
 
     # ── Decide: Webhook (production) or Polling (local dev) ──────
     port = int(os.environ.get("PORT", 8000))

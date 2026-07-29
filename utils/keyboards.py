@@ -103,7 +103,7 @@ def language_keyboard() -> InlineKeyboardMarkup:
 #  Main / Navigation keyboards
 # ──────────────────────────────────────────────
 
-def main_menu_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
+def main_menu_keyboard(lang: str = "fr", *, include_pixel: bool = False) -> InlineKeyboardMarkup:
     """Main menu shown after /start and on 'back_main'."""
     channel = str(REQUIRED_CHANNEL or "").strip()
     if channel.startswith("@"):
@@ -115,14 +115,18 @@ def main_menu_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
     else:
         channel_url = "https://t.me/Batmanstore2"
 
-    cache_key = f"main_menu_keyboard:{lang}:{channel_url}"
+    cache_key = f"main_menu_keyboard:{lang}:{channel_url}:{int(include_pixel)}"
     cached = _KEYBOARD_CACHE.get(cache_key)
     if cached is not None:
         record_cache_access("keyboard", hit=True)
         return cached
     record_cache_access("keyboard", hit=False)
-    markup = InlineKeyboardMarkup([
+    rows = [
         [make_button("btn_buy", lang, callback_data="menu_buy", style=KeyboardButtonStyle.SUCCESS)],
+    ]
+    if include_pixel:
+        rows.append([make_button("btn_pixel_activation", lang, callback_data="pixel:menu")])
+    rows.extend([
         [make_button("btn_wallet", lang, callback_data="menu_wallet")],
         [make_button("btn_game", lang, callback_data="menu_game", style=KeyboardButtonStyle.DANGER)],
         [
@@ -137,6 +141,7 @@ def main_menu_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
         [make_button("btn_channel", lang, url=channel_url)],
         [make_button("btn_language", lang, callback_data="change_lang")],
     ])
+    markup = InlineKeyboardMarkup(rows)
     _KEYBOARD_CACHE[cache_key] = markup
     return markup
 

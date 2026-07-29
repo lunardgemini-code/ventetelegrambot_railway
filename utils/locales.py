@@ -1484,6 +1484,108 @@ TRANSLATIONS["ru"].update({
 })
 
 
+# Pixel activation is intentionally a standalone flow. These strings avoid
+# echoing credentials and are kept here so all six bot languages remain
+# usable when the feature is enabled.
+_PIXEL_TRANSLATIONS = {
+    "en": {
+        "btn_pixel_activation": "Pixel activation",
+        "pixel_unavailable": "Pixel activation is not available for this account.",
+        "pixel_mode_fast": "Fast activation",
+        "pixel_mode_normal": "Standard activation",
+        "pixel_buy_credits": "Buy Pixel credits",
+        "pixel_my_tasks": "My activation tasks",
+        "pixel_menu": "<b>Pixel activation</b>\n\nAvailable credits: <b>{credits}</b>\nFast activation: {fast_credits} credits\nStandard activation: {normal_credits} credits\n\nChoose an activation mode or buy credits.",
+        "pixel_credits_short": "credits",
+        "pixel_credit_pack": "{credits} credit pack",
+        "pixel_no_credit_packs": "No credit packs are available",
+        "pixel_back_activation": "Back to Pixel activation",
+        "pixel_credit_packs": "<b>Buy Pixel credits</b>\n\nCurrent balance: <b>{credits}</b> credits\n\nSelect a pack. Payment is taken from your wallet.",
+        "pixel_pack_unavailable": "This credit pack is no longer available.",
+        "pixel_credit_confirm": "<b>Confirm credit purchase</b>\n\nYou will receive: <b>{credits}</b> credits\nWallet cost: <b>${price}</b>\nWallet balance: <b>${wallet}</b>",
+        "pixel_confirm_credit_purchase": "Confirm purchase",
+        "pixel_wallet_insufficient": "Your wallet balance is insufficient for this purchase.",
+        "pixel_credit_purchase_failed": "The credit purchase could not be completed. No credit was added.",
+        "pixel_credit_purchase_success": "<b>Credits added</b>\n\nAdded: <b>{credits}</b> credits\nNew Pixel balance: <b>{balance}</b> credits\nWallet balance: <b>${wallet}</b>",
+        "pixel_channel_fast": "Fast",
+        "pixel_channel_normal": "Standard",
+        "pixel_credentials_prompt": "<b>{channel} Pixel activation</b>\n\nCost: <b>{credits}</b> credits\n\nSend these three lines in one message:\n<code>email</code>\n<code>password</code>\n<code>2FA URL or secret</code>\n\nYour message will be deleted after it is encrypted for the activation trace.",
+        "pixel_credentials_invalid": "Send email, password, and 2FA URL/secret on three separate lines.",
+        "pixel_credentials_store_failed": "Your encrypted activation trace could not be saved. Nothing was charged.",
+        "pixel_task_confirm": "<b>Confirm Pixel activation</b>\n\nEmail: <code>{email}</code>\nMode: <b>{channel}</b>\nCost: <b>{credits}</b> credits\n\nYour credentials are encrypted at rest and are never shown in this chat again.",
+        "pixel_confirm_task": "Confirm activation",
+        "pixel_credits_insufficient": "You do not have enough Pixel credits for this activation.",
+        "pixel_task_not_found": "This activation task was not found or is no longer available.",
+        "pixel_task_queued": "<b>Activation queued</b>\n\nTask: <code>{task_id}</code>\nYour credits were reserved. We will notify you when Pixel finishes.",
+        "pixel_view_task": "View task",
+        "pixel_cancelled": "Pixel activation cancelled.",
+        "pixel_tasks_empty": "You do not have any Pixel activation tasks yet.",
+        "pixel_tasks_title": "<b>My Pixel activation tasks</b>",
+        "pixel_task_line": "<code>{task_id}</code>\n{email}\nStatus: <b>{status}</b> | Credits: {credits}",
+        "pixel_refresh_tasks": "Refresh",
+        "pixel_task_detail": "<b>Pixel activation task</b>\n\nTask: <code>{task_id}</code>\nEmail: <code>{email}</code>\nStatus: <b>{status}</b>\nReserved credits: <b>{credits}</b>\nResult: {result_link}\nInfo: {error}",
+        "pixel_task_success": "<b>Pixel activation completed</b>\n\nTask: <code>{task_id}</code>\nResult: {result_link}",
+        "pixel_task_refunded": "<b>Pixel activation refunded</b>\n\nTask: <code>{task_id}</code>\nYour reserved credits were returned.\nInfo: {error}",
+        "pixel_task_manual_review": "<b>Pixel activation needs review</b>\n\nTask: <code>{task_id}</code>\nThe provider response was ambiguous, so no automatic retry was made.",
+    },
+    "fr": {
+        "btn_pixel_activation": "Activation Pixel",
+        "pixel_unavailable": "L'activation Pixel n'est pas disponible pour ce compte.",
+        "pixel_mode_fast": "Activation rapide",
+        "pixel_mode_normal": "Activation standard",
+        "pixel_buy_credits": "Acheter des credits Pixel",
+        "pixel_my_tasks": "Mes activations",
+        "pixel_menu": "<b>Activation Pixel</b>\n\nCredits disponibles : <b>{credits}</b>\nActivation rapide : {fast_credits} credits\nActivation standard : {normal_credits} credits\n\nChoisissez un mode ou achetez des credits.",
+        "pixel_credits_short": "credits",
+        "pixel_credit_pack": "Pack de {credits} credits",
+        "pixel_no_credit_packs": "Aucun pack de credits disponible",
+        "pixel_back_activation": "Retour a Pixel",
+        "pixel_credit_packs": "<b>Acheter des credits Pixel</b>\n\nSolde actuel : <b>{credits}</b> credits\n\nChoisissez un pack. Le paiement est preleve du wallet.",
+        "pixel_pack_unavailable": "Ce pack de credits n'est plus disponible.",
+        "pixel_credit_confirm": "<b>Confirmer l'achat de credits</b>\n\nVous recevez : <b>{credits}</b> credits\nCout wallet : <b>${price}</b>\nSolde wallet : <b>${wallet}</b>",
+        "pixel_confirm_credit_purchase": "Confirmer l'achat",
+        "pixel_wallet_insufficient": "Votre solde wallet est insuffisant pour cet achat.",
+        "pixel_credit_purchase_failed": "L'achat de credits a echoue. Aucun credit n'a ete ajoute.",
+        "pixel_credit_purchase_success": "<b>Credits ajoutes</b>\n\nAjoutes : <b>{credits}</b> credits\nNouveau solde Pixel : <b>{balance}</b> credits\nSolde wallet : <b>${wallet}</b>",
+        "pixel_channel_fast": "Rapide",
+        "pixel_channel_normal": "Standard",
+        "pixel_credentials_prompt": "<b>Activation Pixel {channel}</b>\n\nCout : <b>{credits}</b> credits\n\nEnvoyez ces trois lignes dans un seul message :\n<code>email</code>\n<code>mot de passe</code>\n<code>URL ou secret 2FA</code>\n\nVotre message sera supprime apres chiffrement pour la tracabilite de l'activation.",
+        "pixel_credentials_invalid": "Envoyez l'email, le mot de passe et l'URL/secret 2FA sur trois lignes distinctes.",
+        "pixel_credentials_store_failed": "La trace chiffree n'a pas pu etre enregistree. Aucun credit n'a ete debite.",
+        "pixel_task_confirm": "<b>Confirmer l'activation Pixel</b>\n\nEmail : <code>{email}</code>\nMode : <b>{channel}</b>\nCout : <b>{credits}</b> credits\n\nVos identifiants sont chiffres au repos et ne seront plus affiches dans ce chat.",
+        "pixel_confirm_task": "Confirmer l'activation",
+        "pixel_credits_insufficient": "Vous n'avez pas assez de credits Pixel pour cette activation.",
+        "pixel_task_not_found": "Cette activation est introuvable ou n'est plus disponible.",
+        "pixel_task_queued": "<b>Activation en attente</b>\n\nTache : <code>{task_id}</code>\nVos credits sont reserves. Vous recevrez un message quand Pixel aura termine.",
+        "pixel_view_task": "Voir la tache",
+        "pixel_cancelled": "Activation Pixel annulee.",
+        "pixel_tasks_empty": "Vous n'avez encore aucune activation Pixel.",
+        "pixel_tasks_title": "<b>Mes activations Pixel</b>",
+        "pixel_task_line": "<code>{task_id}</code>\n{email}\nStatut : <b>{status}</b> | Credits : {credits}",
+        "pixel_refresh_tasks": "Actualiser",
+        "pixel_task_detail": "<b>Tache d'activation Pixel</b>\n\nTache : <code>{task_id}</code>\nEmail : <code>{email}</code>\nStatut : <b>{status}</b>\nCredits reserves : <b>{credits}</b>\nResultat : {result_link}\nInfo : {error}",
+        "pixel_task_success": "<b>Activation Pixel terminee</b>\n\nTache : <code>{task_id}</code>\nResultat : {result_link}",
+        "pixel_task_refunded": "<b>Activation Pixel rembourse</b>\n\nTache : <code>{task_id}</code>\nVos credits reserves ont ete rendus.\nInfo : {error}",
+        "pixel_task_manual_review": "<b>Activation Pixel a verifier</b>\n\nTache : <code>{task_id}</code>\nLa reponse fournisseur est ambiguë, donc aucune nouvelle tentative automatique n'a ete faite.",
+    },
+    "ar": {
+        "btn_pixel_activation": "تفعيل Pixel", "pixel_unavailable": "تفعيل Pixel غير متاح لهذا الحساب.", "pixel_mode_fast": "تفعيل سريع", "pixel_mode_normal": "تفعيل عادي", "pixel_buy_credits": "شراء رصيد Pixel", "pixel_my_tasks": "مهامي", "pixel_menu": "<b>تفعيل Pixel</b>\n\nالرصيد: <b>{credits}</b>\nالسريع: {fast_credits} رصيد\nالعادي: {normal_credits} رصيد", "pixel_credits_short": "رصيد", "pixel_credit_pack": "حزمة {credits} رصيد", "pixel_no_credit_packs": "لا توجد حزم رصيد", "pixel_back_activation": "العودة إلى Pixel", "pixel_credit_packs": "<b>شراء رصيد Pixel</b>\n\nالرصيد الحالي: <b>{credits}</b>\nاختر حزمة. سيتم الدفع من المحفظة.", "pixel_pack_unavailable": "هذه الحزمة لم تعد متاحة.", "pixel_credit_confirm": "<b>تأكيد الشراء</b>\n\nالرصيد: <b>{credits}</b>\nالسعر: <b>${price}</b>\nالمحفظة: <b>${wallet}</b>", "pixel_confirm_credit_purchase": "تأكيد الشراء", "pixel_wallet_insufficient": "رصيد المحفظة غير كاف.", "pixel_credit_purchase_failed": "تعذر شراء الرصيد. لم تتم إضافة أي رصيد.", "pixel_credit_purchase_success": "<b>تمت إضافة الرصيد</b>\n\nتمت الإضافة: <b>{credits}</b>\nرصيد Pixel: <b>{balance}</b>\nالمحفظة: <b>${wallet}</b>", "pixel_channel_fast": "سريع", "pixel_channel_normal": "عادي", "pixel_credentials_prompt": "<b>تفعيل Pixel {channel}</b>\n\nالتكلفة: <b>{credits}</b> رصيد\n\nأرسل في ثلاث سطور:\n<code>email</code>\n<code>password</code>\n<code>2FA URL or secret</code>\n\nستحذف رسالتك بعد تشفيرها للتتبع.", "pixel_credentials_invalid": "أرسل البريد وكلمة المرور و2FA في ثلاثة أسطر.", "pixel_credentials_store_failed": "تعذر حفظ البيانات المشفرة. لم يتم خصم رصيد.", "pixel_task_confirm": "<b>تأكيد تفعيل Pixel</b>\n\nالبريد: <code>{email}</code>\nالوضع: <b>{channel}</b>\nالتكلفة: <b>{credits}</b> رصيد", "pixel_confirm_task": "تأكيد التفعيل", "pixel_credits_insufficient": "رصيد Pixel غير كاف.", "pixel_task_not_found": "المهمة غير موجودة أو لم تعد متاحة.", "pixel_task_queued": "<b>تم وضع التفعيل في الانتظار</b>\n\nالمهمة: <code>{task_id}</code>\nتم حجز الرصيد.", "pixel_view_task": "عرض المهمة", "pixel_cancelled": "تم إلغاء تفعيل Pixel.", "pixel_tasks_empty": "لا توجد مهام Pixel بعد.", "pixel_tasks_title": "<b>مهام Pixel</b>", "pixel_task_line": "<code>{task_id}</code>\n{email}\nالحالة: <b>{status}</b> | الرصيد: {credits}", "pixel_refresh_tasks": "تحديث", "pixel_task_detail": "<b>مهمة Pixel</b>\n\nالمهمة: <code>{task_id}</code>\nالبريد: <code>{email}</code>\nالحالة: <b>{status}</b>\nالرصيد المحجوز: <b>{credits}</b>\nالنتيجة: {result_link}\nمعلومات: {error}", "pixel_task_success": "<b>اكتمل تفعيل Pixel</b>\n\nالمهمة: <code>{task_id}</code>\nالنتيجة: {result_link}", "pixel_task_refunded": "<b>تم استرداد رصيد Pixel</b>\n\nالمهمة: <code>{task_id}</code>\nتمت إعادة الرصيد.\nمعلومات: {error}", "pixel_task_manual_review": "<b>مهمة Pixel تحتاج مراجعة</b>\n\nالمهمة: <code>{task_id}</code>",
+    },
+    "zh": {
+        "btn_pixel_activation": "Pixel 激活", "pixel_unavailable": "此账户无法使用 Pixel 激活。", "pixel_mode_fast": "快速激活", "pixel_mode_normal": "标准激活", "pixel_buy_credits": "购买 Pixel 积分", "pixel_my_tasks": "我的任务", "pixel_menu": "<b>Pixel 激活</b>\n\n可用积分：<b>{credits}</b>\n快速：{fast_credits} 积分\n标准：{normal_credits} 积分", "pixel_credits_short": "积分", "pixel_credit_pack": "{credits} 积分包", "pixel_no_credit_packs": "暂无积分包", "pixel_back_activation": "返回 Pixel", "pixel_credit_packs": "<b>购买 Pixel 积分</b>\n\n当前余额：<b>{credits}</b> 积分\n选择积分包，将从钱包扣款。", "pixel_pack_unavailable": "该积分包已不可用。", "pixel_credit_confirm": "<b>确认购买</b>\n\n获得：<b>{credits}</b> 积分\n钱包费用：<b>${price}</b>\n钱包余额：<b>${wallet}</b>", "pixel_confirm_credit_purchase": "确认购买", "pixel_wallet_insufficient": "钱包余额不足。", "pixel_credit_purchase_failed": "积分购买失败，未添加积分。", "pixel_credit_purchase_success": "<b>积分已添加</b>\n\n新增：<b>{credits}</b> 积分\nPixel 余额：<b>{balance}</b>\n钱包余额：<b>${wallet}</b>", "pixel_channel_fast": "快速", "pixel_channel_normal": "标准", "pixel_credentials_prompt": "<b>Pixel {channel} 激活</b>\n\n费用：<b>{credits}</b> 积分\n\n请在一条消息中发送三行：\n<code>email</code>\n<code>password</code>\n<code>2FA URL or secret</code>\n\n消息会在加密存档后删除。", "pixel_credentials_invalid": "请用三行分别发送邮箱、密码和 2FA。", "pixel_credentials_store_failed": "无法保存加密记录，未扣除积分。", "pixel_task_confirm": "<b>确认 Pixel 激活</b>\n\n邮箱：<code>{email}</code>\n模式：<b>{channel}</b>\n费用：<b>{credits}</b> 积分", "pixel_confirm_task": "确认激活", "pixel_credits_insufficient": "Pixel 积分不足。", "pixel_task_not_found": "未找到该任务或任务已不可用。", "pixel_task_queued": "<b>激活已排队</b>\n\n任务：<code>{task_id}</code>\n积分已预留。", "pixel_view_task": "查看任务", "pixel_cancelled": "Pixel 激活已取消。", "pixel_tasks_empty": "暂无 Pixel 激活任务。", "pixel_tasks_title": "<b>我的 Pixel 任务</b>", "pixel_task_line": "<code>{task_id}</code>\n{email}\n状态：<b>{status}</b> | 积分：{credits}", "pixel_refresh_tasks": "刷新", "pixel_task_detail": "<b>Pixel 任务</b>\n\n任务：<code>{task_id}</code>\n邮箱：<code>{email}</code>\n状态：<b>{status}</b>\n预留积分：<b>{credits}</b>\n结果：{result_link}\n信息：{error}", "pixel_task_success": "<b>Pixel 激活完成</b>\n\n任务：<code>{task_id}</code>\n结果：{result_link}", "pixel_task_refunded": "<b>Pixel 激活已退款</b>\n\n任务：<code>{task_id}</code>\n积分已退回。\n信息：{error}", "pixel_task_manual_review": "<b>Pixel 任务需要人工检查</b>\n\n任务：<code>{task_id}</code>",
+    },
+    "vi": {
+        "btn_pixel_activation": "Kich hoat Pixel", "pixel_unavailable": "Kich hoat Pixel khong kha dung cho tai khoan nay.", "pixel_mode_fast": "Kich hoat nhanh", "pixel_mode_normal": "Kich hoat tieu chuan", "pixel_buy_credits": "Mua diem Pixel", "pixel_my_tasks": "Tac vu cua toi", "pixel_menu": "<b>Kich hoat Pixel</b>\n\nDiem hien co: <b>{credits}</b>\nNhanh: {fast_credits} diem\nTieu chuan: {normal_credits} diem", "pixel_credits_short": "diem", "pixel_credit_pack": "Goi {credits} diem", "pixel_no_credit_packs": "Chua co goi diem", "pixel_back_activation": "Quay lai Pixel", "pixel_credit_packs": "<b>Mua diem Pixel</b>\n\nSo du: <b>{credits}</b> diem\nChon goi, thanh toan tu vi.", "pixel_pack_unavailable": "Goi diem nay khong con kha dung.", "pixel_credit_confirm": "<b>Xac nhan mua</b>\n\nNhan: <b>{credits}</b> diem\nGia: <b>${price}</b>\nVi: <b>${wallet}</b>", "pixel_confirm_credit_purchase": "Xac nhan mua", "pixel_wallet_insufficient": "So du vi khong du.", "pixel_credit_purchase_failed": "Khong the mua diem. Khong co diem nao duoc them.", "pixel_credit_purchase_success": "<b>Da them diem</b>\n\nDa them: <b>{credits}</b> diem\nSo du Pixel: <b>{balance}</b>\nVi: <b>${wallet}</b>", "pixel_channel_fast": "Nhanh", "pixel_channel_normal": "Tieu chuan", "pixel_credentials_prompt": "<b>Kich hoat Pixel {channel}</b>\n\nGia: <b>{credits}</b> diem\n\nGui ba dong trong mot tin nhan:\n<code>email</code>\n<code>password</code>\n<code>2FA URL or secret</code>\n\nTin nhan se duoc xoa sau khi ma hoa.", "pixel_credentials_invalid": "Gui email, mat khau va 2FA tren ba dong.", "pixel_credentials_store_failed": "Khong the luu ban ghi ma hoa. Khong bi tru diem.", "pixel_task_confirm": "<b>Xac nhan kich hoat Pixel</b>\n\nEmail: <code>{email}</code>\nChe do: <b>{channel}</b>\nGia: <b>{credits}</b> diem", "pixel_confirm_task": "Xac nhan kich hoat", "pixel_credits_insufficient": "Khong du diem Pixel.", "pixel_task_not_found": "Khong tim thay tac vu nay.", "pixel_task_queued": "<b>Da xep hang kich hoat</b>\n\nTac vu: <code>{task_id}</code>\nDiem da duoc giu.", "pixel_view_task": "Xem tac vu", "pixel_cancelled": "Da huy kich hoat Pixel.", "pixel_tasks_empty": "Chua co tac vu Pixel.", "pixel_tasks_title": "<b>Tac vu Pixel cua toi</b>", "pixel_task_line": "<code>{task_id}</code>\n{email}\nTrang thai: <b>{status}</b> | Diem: {credits}", "pixel_refresh_tasks": "Lam moi", "pixel_task_detail": "<b>Tac vu Pixel</b>\n\nTac vu: <code>{task_id}</code>\nEmail: <code>{email}</code>\nTrang thai: <b>{status}</b>\nDiem da giu: <b>{credits}</b>\nKet qua: {result_link}\nThong tin: {error}", "pixel_task_success": "<b>Kich hoat Pixel hoan tat</b>\n\nTac vu: <code>{task_id}</code>\nKet qua: {result_link}", "pixel_task_refunded": "<b>Da hoan diem Pixel</b>\n\nTac vu: <code>{task_id}</code>\nDiem da duoc tra lai.\nThong tin: {error}", "pixel_task_manual_review": "<b>Tac vu Pixel can kiem tra</b>\n\nTac vu: <code>{task_id}</code>",
+    },
+    "ru": {
+        "btn_pixel_activation": "Pixel activation", "pixel_unavailable": "Pixel activation nedostupna dlya etogo akkaunta.", "pixel_mode_fast": "Bystraya aktivatsiya", "pixel_mode_normal": "Standartnaya aktivatsiya", "pixel_buy_credits": "Kupit Pixel credits", "pixel_my_tasks": "Moi zadachi", "pixel_menu": "<b>Pixel activation</b>\n\nDostupno: <b>{credits}</b> credits\nBystraya: {fast_credits}\nStandartnaya: {normal_credits}", "pixel_credits_short": "credits", "pixel_credit_pack": "Paket {credits} credits", "pixel_no_credit_packs": "Net dostupnykh paketov", "pixel_back_activation": "Nazad k Pixel", "pixel_credit_packs": "<b>Kupit Pixel credits</b>\n\nBalans: <b>{credits}</b> credits\nVyberite paket, oplata iz wallet.", "pixel_pack_unavailable": "Etot paket bolshe nedostupen.", "pixel_credit_confirm": "<b>Podtverdit pokupku</b>\n\nPoluchite: <b>{credits}</b> credits\nStoimost: <b>${price}</b>\nWallet: <b>${wallet}</b>", "pixel_confirm_credit_purchase": "Podtverdit", "pixel_wallet_insufficient": "Nedostatochno sredstv v wallet.", "pixel_credit_purchase_failed": "Ne udalos kupit credits. Credits ne dobavleny.", "pixel_credit_purchase_success": "<b>Credits dobavleny</b>\n\nDobavleno: <b>{credits}</b>\nBalans Pixel: <b>{balance}</b>\nWallet: <b>${wallet}</b>", "pixel_channel_fast": "Bystryy", "pixel_channel_normal": "Standartnyy", "pixel_credentials_prompt": "<b>Pixel {channel}</b>\n\nStoimost: <b>{credits}</b> credits\n\nOtpravte tri stroki v odnom soobshchenii:\n<code>email</code>\n<code>password</code>\n<code>2FA URL or secret</code>\n\nSoobshchenie budet udaleno posle shifrovaniya.", "pixel_credentials_invalid": "Otpravte email, parol i 2FA v trekh strokakh.", "pixel_credentials_store_failed": "Ne udalos sokhranit zashifrovannuyu zapis. Credits ne spisany.", "pixel_task_confirm": "<b>Podtverdit Pixel</b>\n\nEmail: <code>{email}</code>\nRezhim: <b>{channel}</b>\nStoimost: <b>{credits}</b> credits", "pixel_confirm_task": "Podtverdit aktivatsiyu", "pixel_credits_insufficient": "Nedostatochno Pixel credits.", "pixel_task_not_found": "Zadacha ne naydena.", "pixel_task_queued": "<b>Aktivatsiya v ocheredi</b>\n\nZadacha: <code>{task_id}</code>\nCredits zarezervirovany.", "pixel_view_task": "Otkryt zadachu", "pixel_cancelled": "Pixel activation otmenena.", "pixel_tasks_empty": "Poka net zadach Pixel.", "pixel_tasks_title": "<b>Moi zadachi Pixel</b>", "pixel_task_line": "<code>{task_id}</code>\n{email}\nStatus: <b>{status}</b> | Credits: {credits}", "pixel_refresh_tasks": "Obnovit", "pixel_task_detail": "<b>Zadacha Pixel</b>\n\nZadacha: <code>{task_id}</code>\nEmail: <code>{email}</code>\nStatus: <b>{status}</b>\nZarezervirovano: <b>{credits}</b>\nRezultat: {result_link}\nInfo: {error}", "pixel_task_success": "<b>Pixel activation zavershena</b>\n\nZadacha: <code>{task_id}</code>\nRezultat: {result_link}", "pixel_task_refunded": "<b>Pixel credits vozvrashcheny</b>\n\nZadacha: <code>{task_id}</code>\nCredits vozvrashcheny.\nInfo: {error}", "pixel_task_manual_review": "<b>Zadacha Pixel trebuet proverki</b>\n\nZadacha: <code>{task_id}</code>",
+    },
+}
+
+for _pixel_lang, _pixel_strings in _PIXEL_TRANSLATIONS.items():
+    TRANSLATIONS.setdefault(_pixel_lang, {}).update(_pixel_strings)
+
+
 TRANSLATIONS["en"].update({
     "btn_pay_cryptopay": "CryptoBot ({fee}%)",
     "btn_open_cryptopay": "Open CryptoBot invoice",

@@ -950,6 +950,28 @@ ru: {
 Object.entries(TARGETED_BROADCAST_TRANSLATIONS).forEach(([language, strings]) => Object.assign(LANG[language], strings));
 
 
+const PIXEL_DASHBOARD_TRANSLATIONS = {
+    en: {
+        nav_pixel:'Pixel Activation', context_pixel:'Manage secure Pixel activations and point credits.', pixel_eyebrow:'Secure activation workflow', pixel_title:'Pixel Activation', pixel_intro:'Configure points, monitor supplier capacity, and review activation traces without exposing credentials.', pixel_reconcile:'Check pending tasks', pixel_runtime:'Runtime', pixel_supplier_balance:'Supplier points', pixel_pending_tasks:'Pending tasks', pixel_credits_sold:'Credits sold', pixel_runtime_active:'Active', pixel_runtime_ready:'Ready', pixel_runtime_setup:'Setup required', pixel_runtime_missing_config:'Set PIXEL_ENABLED and PIXEL_API_KEY on the server before enabling Pixel.', pixel_runtime_missing_encryption:'Configure CREDENTIAL_ENCRYPTION_KEY before collecting any credentials.', pixel_supplier_unreachable:'Supplier check unavailable', pixel_supplier_summary:'Supplier: {pending} pending task(s), {today} completed today.', pixel_supplier_waiting:'Supplier balance will appear after the first successful check.', pixel_settings_title:'Activation settings', pixel_settings_desc:'A point price is applied automatically to every credit pack.', pixel_enabled:'Enable Pixel activation', pixel_enabled_hint:'The button stays hidden until this is enabled and the server is configured.', pixel_admin_only:'Admins only', pixel_admin_only_hint:'Keep the activation mini-app restricted while you validate it.', pixel_point_value:'Point value (USD)', pixel_fast_cost:'Fast activation cost', pixel_normal_cost:'Standard activation cost', pixel_supplier_min:'Supplier safety minimum', pixel_retention:'Credential retention (days)', pixel_retention_hint:'0 keeps encrypted credentials until you remove them manually.', pixel_security_note:'Names and emails are visible for traceability. Passwords and 2FA are encrypted in Turso and are never sent to this dashboard.', pixel_packs_title:'Credit packs', pixel_packs_desc:'Pack prices follow the point value above.', pixel_pack_label:'Label', pixel_pack_label_placeholder:'Starter', pixel_pack_credits:'Credits', pixel_pack_order:'Display order', pixel_pack_active:'Available for purchase', pixel_pack_add:'Add pack', pixel_pack_save:'Save pack', pixel_pack_edit:'Edit pack', pixel_pack_default_label:'{credits} credit pack', pixel_packs_empty:'No credit packs yet.', pixel_pack_delete_confirm:'Delete this credit pack?', pixel_pack_deleted:'Credit pack deleted.', pixel_pack_saved:'Credit pack saved.', pixel_tasks_title:'Activation trace', pixel_tasks_desc:'Names and emails are retained for audit. Credentials never appear here.', pixel_col_task:'Task', pixel_col_customer:'Customer', pixel_col_email:'Email', pixel_col_mode:'Mode', pixel_col_credits:'Credits', pixel_col_supplier:'Supplier', pixel_col_status:'Status', pixel_col_date:'Created', pixel_tasks_empty:'No Pixel activation has been created.', pixel_mode_fast:'Fast', pixel_mode_normal:'Standard', pixel_credits_short:'credits', pixel_status_draft:'Draft', pixel_status_reserved:'Reserved', pixel_status_submitting:'Submitting', pixel_status_pending:'Pending', pixel_status_success:'Completed', pixel_status_refunded:'Refunded', pixel_status_submission_unknown:'Manual review', pixel_status_cancelled:'Cancelled', pixel_settings_saved:'Pixel settings saved.', pixel_settings_failed:'Pixel update failed.', pixel_reconcile_queued:'Pixel reconciliation queued.'
+    },
+    fr: {
+        nav_pixel:'Activation Pixel', context_pixel:'Gerez les activations Pixel securisees et les credits.', pixel_eyebrow:'Flux d activation securise', pixel_title:'Activation Pixel', pixel_intro:'Configurez les points, surveillez le fournisseur et consultez les traces sans exposer les identifiants.', pixel_reconcile:'Verifier les taches en attente', pixel_runtime:'Service', pixel_supplier_balance:'Points fournisseur', pixel_pending_tasks:'Taches en attente', pixel_credits_sold:'Credits vendus', pixel_runtime_active:'Actif', pixel_runtime_ready:'Pret', pixel_runtime_setup:'Configuration requise', pixel_runtime_missing_config:'Configurez PIXEL_ENABLED et PIXEL_API_KEY sur le serveur avant d activer Pixel.', pixel_runtime_missing_encryption:'Configurez CREDENTIAL_ENCRYPTION_KEY avant de collecter des identifiants.', pixel_supplier_unreachable:'Verification fournisseur indisponible', pixel_supplier_summary:'Fournisseur : {pending} tache(s) en attente, {today} terminee(s) aujourd hui.', pixel_supplier_waiting:'Le solde fournisseur apparaitra apres la premiere verification.', pixel_settings_title:'Parametres d activation', pixel_settings_desc:'La valeur d un point est appliquee automatiquement a tous les packs.', pixel_enabled:'Activer Pixel', pixel_enabled_hint:'Le bouton reste masque tant que Pixel n est pas active et configure sur le serveur.', pixel_admin_only:'Administrateurs seulement', pixel_admin_only_hint:'Gardez le mini-bot limite pendant vos validations.', pixel_point_value:'Valeur d un point (USD)', pixel_fast_cost:'Cout activation rapide', pixel_normal_cost:'Cout activation standard', pixel_supplier_min:'Seuil de securite fournisseur', pixel_retention:'Conservation des identifiants (jours)', pixel_retention_hint:'0 conserve les identifiants chiffres jusqu a suppression manuelle.', pixel_security_note:'Les noms et emails restent visibles pour la tracabilite. Les mots de passe et 2FA sont chiffres dans Turso et ne sont jamais envoyes au dashboard.', pixel_packs_title:'Packs de credits', pixel_packs_desc:'Les prix suivent la valeur du point definie ci-dessus.', pixel_pack_label:'Libelle', pixel_pack_label_placeholder:'Starter', pixel_pack_credits:'Credits', pixel_pack_order:'Ordre d affichage', pixel_pack_active:'Disponible a l achat', pixel_pack_add:'Ajouter un pack', pixel_pack_save:'Enregistrer le pack', pixel_pack_edit:'Modifier le pack', pixel_pack_default_label:'Pack de {credits} credits', pixel_packs_empty:'Aucun pack de credits.', pixel_pack_delete_confirm:'Supprimer ce pack de credits ?', pixel_pack_deleted:'Pack de credits supprime.', pixel_pack_saved:'Pack de credits enregistre.', pixel_tasks_title:'Trace des activations', pixel_tasks_desc:'Les noms et emails sont conserves pour audit. Les identifiants ne sont jamais affiches ici.', pixel_col_task:'Tache', pixel_col_customer:'Client', pixel_col_email:'Email', pixel_col_mode:'Mode', pixel_col_credits:'Credits', pixel_col_supplier:'Fournisseur', pixel_col_status:'Statut', pixel_col_date:'Creee le', pixel_tasks_empty:'Aucune activation Pixel creee.', pixel_mode_fast:'Rapide', pixel_mode_normal:'Standard', pixel_credits_short:'credits', pixel_status_draft:'Brouillon', pixel_status_reserved:'Reservee', pixel_status_submitting:'Envoi', pixel_status_pending:'En attente', pixel_status_success:'Terminee', pixel_status_refunded:'Remboursee', pixel_status_submission_unknown:'Verification manuelle', pixel_status_cancelled:'Annulee', pixel_settings_saved:'Parametres Pixel enregistres.', pixel_settings_failed:'Echec de la mise a jour Pixel.', pixel_reconcile_queued:'Verification Pixel planifiee.'
+    },
+    ar: {
+        nav_pixel:'تفعيل Pixel', context_pixel:'إدارة تفعيل Pixel الآمن ونقاطه.', pixel_eyebrow:'مسار تفعيل آمن', pixel_title:'تفعيل Pixel', pixel_intro:'اضبط النقاط وراقب المورد وراجع السجل بدون كشف بيانات الدخول.', pixel_reconcile:'فحص المهام المعلقة', pixel_runtime:'الخدمة', pixel_supplier_balance:'نقاط المورد', pixel_pending_tasks:'المهام المعلقة', pixel_credits_sold:'النقاط المباعة', pixel_runtime_active:'نشط', pixel_runtime_ready:'جاهز', pixel_runtime_setup:'يلزم الإعداد', pixel_runtime_missing_config:'اضبط PIXEL_ENABLED و PIXEL_API_KEY على الخادم أولاً.', pixel_runtime_missing_encryption:'اضبط CREDENTIAL_ENCRYPTION_KEY قبل جمع أي بيانات دخول.', pixel_supplier_unreachable:'فحص المورد غير متاح', pixel_supplier_summary:'المورد: {pending} مهمة معلقة، {today} مكتملة اليوم.', pixel_supplier_waiting:'سيظهر رصيد المورد بعد أول فحص ناجح.', pixel_settings_title:'إعدادات التفعيل', pixel_settings_desc:'قيمة النقطة تطبق تلقائياً على كل الحزم.', pixel_enabled:'تفعيل Pixel', pixel_enabled_hint:'يبقى الزر مخفياً حتى يتم التفعيل والإعداد على الخادم.', pixel_admin_only:'للمسؤولين فقط', pixel_admin_only_hint:'أبق التطبيق المصغر مقيداً أثناء الاختبار.', pixel_point_value:'قيمة النقطة بالدولار', pixel_fast_cost:'تكلفة التفعيل السريع', pixel_normal_cost:'تكلفة التفعيل العادي', pixel_supplier_min:'حد أمان المورد', pixel_retention:'مدة حفظ البيانات بالأيام', pixel_retention_hint:'0 يحتفظ بالبيانات المشفرة حتى الحذف اليدوي.', pixel_security_note:'الأسماء والبريد مرئية للتتبع. كلمات المرور و2FA مشفرة في Turso ولا ترسل إلى لوحة التحكم.', pixel_packs_title:'حزم النقاط', pixel_packs_desc:'سعر الحزم يتبع قيمة النقطة أعلاه.', pixel_pack_label:'الاسم', pixel_pack_label_placeholder:'Starter', pixel_pack_credits:'النقاط', pixel_pack_order:'ترتيب العرض', pixel_pack_active:'متاح للشراء', pixel_pack_add:'إضافة حزمة', pixel_pack_save:'حفظ الحزمة', pixel_pack_edit:'تعديل الحزمة', pixel_pack_default_label:'حزمة {credits} نقطة', pixel_packs_empty:'لا توجد حزم نقاط.', pixel_pack_delete_confirm:'حذف حزمة النقاط؟', pixel_pack_deleted:'تم حذف الحزمة.', pixel_pack_saved:'تم حفظ الحزمة.', pixel_tasks_title:'سجل التفعيل', pixel_tasks_desc:'يتم الاحتفاظ بالأسماء والبريد للتدقيق. بيانات الدخول لا تظهر هنا.', pixel_col_task:'المهمة', pixel_col_customer:'العميل', pixel_col_email:'البريد', pixel_col_mode:'الوضع', pixel_col_credits:'النقاط', pixel_col_supplier:'المورد', pixel_col_status:'الحالة', pixel_col_date:'تاريخ الإنشاء', pixel_tasks_empty:'لم يتم إنشاء أي تفعيل Pixel.', pixel_mode_fast:'سريع', pixel_mode_normal:'عادي', pixel_credits_short:'نقاط', pixel_status_draft:'مسودة', pixel_status_reserved:'محجوز', pixel_status_submitting:'جار الإرسال', pixel_status_pending:'معلق', pixel_status_success:'مكتمل', pixel_status_refunded:'مسترد', pixel_status_submission_unknown:'مراجعة يدوية', pixel_status_cancelled:'ملغي', pixel_settings_saved:'تم حفظ إعدادات Pixel.', pixel_settings_failed:'فشل تحديث Pixel.', pixel_reconcile_queued:'تمت جدولة فحص Pixel.'
+    },
+    zh: {
+        nav_pixel:'Pixel 激活', context_pixel:'管理安全的 Pixel 激活和积分。', pixel_eyebrow:'安全激活流程', pixel_title:'Pixel 激活', pixel_intro:'配置积分、监控供应商能力并审查记录，不暴露登录凭据。', pixel_reconcile:'检查待处理任务', pixel_runtime:'运行状态', pixel_supplier_balance:'供应商积分', pixel_pending_tasks:'待处理任务', pixel_credits_sold:'已售积分', pixel_runtime_active:'已启用', pixel_runtime_ready:'已就绪', pixel_runtime_setup:'需要配置', pixel_runtime_missing_config:'请先在服务器上设置 PIXEL_ENABLED 和 PIXEL_API_KEY。', pixel_runtime_missing_encryption:'请先配置 CREDENTIAL_ENCRYPTION_KEY。', pixel_supplier_unreachable:'供应商检查不可用', pixel_supplier_summary:'供应商：{pending} 个待处理任务，今天完成 {today} 个。', pixel_supplier_waiting:'首次成功检查后将显示供应商余额。', pixel_settings_title:'激活设置', pixel_settings_desc:'积分单价会自动应用到所有积分包。', pixel_enabled:'启用 Pixel 激活', pixel_enabled_hint:'在服务器配置完成且启用前，按钮保持隐藏。', pixel_admin_only:'仅管理员', pixel_admin_only_hint:'验证期间保持迷你应用受限。', pixel_point_value:'积分价值 (USD)', pixel_fast_cost:'快速激活费用', pixel_normal_cost:'标准激活费用', pixel_supplier_min:'供应商安全下限', pixel_retention:'凭据保留天数', pixel_retention_hint:'0 表示加密凭据保留至手动删除。', pixel_security_note:'姓名和邮箱用于追踪。密码和 2FA 在 Turso 中加密，绝不会发送到仪表板。', pixel_packs_title:'积分包', pixel_packs_desc:'价格遵循上方积分价值。', pixel_pack_label:'名称', pixel_pack_label_placeholder:'Starter', pixel_pack_credits:'积分', pixel_pack_order:'显示顺序', pixel_pack_active:'可购买', pixel_pack_add:'添加积分包', pixel_pack_save:'保存积分包', pixel_pack_edit:'编辑积分包', pixel_pack_default_label:'{credits} 积分包', pixel_packs_empty:'暂无积分包。', pixel_pack_delete_confirm:'删除此积分包？', pixel_pack_deleted:'积分包已删除。', pixel_pack_saved:'积分包已保存。', pixel_tasks_title:'激活记录', pixel_tasks_desc:'姓名和邮箱保留用于审计。凭据不会显示。', pixel_col_task:'任务', pixel_col_customer:'客户', pixel_col_email:'邮箱', pixel_col_mode:'模式', pixel_col_credits:'积分', pixel_col_supplier:'供应商', pixel_col_status:'状态', pixel_col_date:'创建时间', pixel_tasks_empty:'尚未创建 Pixel 激活。', pixel_mode_fast:'快速', pixel_mode_normal:'标准', pixel_credits_short:'积分', pixel_status_draft:'草稿', pixel_status_reserved:'已预留', pixel_status_submitting:'提交中', pixel_status_pending:'等待中', pixel_status_success:'已完成', pixel_status_refunded:'已退款', pixel_status_submission_unknown:'人工审核', pixel_status_cancelled:'已取消', pixel_settings_saved:'Pixel 设置已保存。', pixel_settings_failed:'Pixel 更新失败。', pixel_reconcile_queued:'Pixel 检查已排队。'
+    },
+    vi: {
+        nav_pixel:'Kich hoat Pixel', context_pixel:'Quan ly kich hoat Pixel an toan va diem.', pixel_eyebrow:'Quy trinh kich hoat an toan', pixel_title:'Kich hoat Pixel', pixel_intro:'Cau hinh diem, theo doi nha cung cap va xem lich su ma khong lo thong tin dang nhap.', pixel_reconcile:'Kiem tra tac vu cho', pixel_runtime:'Trang thai', pixel_supplier_balance:'Diem nha cung cap', pixel_pending_tasks:'Tac vu dang cho', pixel_credits_sold:'Diem da ban', pixel_runtime_active:'Dang bat', pixel_runtime_ready:'San sang', pixel_runtime_setup:'Can cau hinh', pixel_runtime_missing_config:'Hay dat PIXEL_ENABLED va PIXEL_API_KEY tren may chu truoc.', pixel_runtime_missing_encryption:'Hay cau hinh CREDENTIAL_ENCRYPTION_KEY truoc khi thu thap thong tin.', pixel_supplier_unreachable:'Khong the kiem tra nha cung cap', pixel_supplier_summary:'Nha cung cap: {pending} tac vu cho, {today} hoan thanh hom nay.', pixel_supplier_waiting:'So du nha cung cap se hien sau lan kiem tra thanh cong dau tien.', pixel_settings_title:'Cai dat kich hoat', pixel_settings_desc:'Gia tri diem tu dong ap dung cho moi goi.', pixel_enabled:'Bat kich hoat Pixel', pixel_enabled_hint:'Nut bi an den khi may chu duoc cau hinh va bat.', pixel_admin_only:'Chi quan tri vien', pixel_admin_only_hint:'Giu mini-app bi gioi han trong luc kiem tra.', pixel_point_value:'Gia tri diem (USD)', pixel_fast_cost:'Gia kich hoat nhanh', pixel_normal_cost:'Gia kich hoat tieu chuan', pixel_supplier_min:'Nguong an toan nha cung cap', pixel_retention:'Luu thong tin (ngay)', pixel_retention_hint:'0 giu thong tin ma hoa den khi xoa thu cong.', pixel_security_note:'Ten va email hien de truy vet. Mat khau va 2FA duoc ma hoa trong Turso va khong bao gio gui den dashboard.', pixel_packs_title:'Goi diem', pixel_packs_desc:'Gia goi theo gia tri diem o tren.', pixel_pack_label:'Nhan', pixel_pack_label_placeholder:'Starter', pixel_pack_credits:'Diem', pixel_pack_order:'Thu tu hien thi', pixel_pack_active:'Co the mua', pixel_pack_add:'Them goi', pixel_pack_save:'Luu goi', pixel_pack_edit:'Sua goi', pixel_pack_default_label:'Goi {credits} diem', pixel_packs_empty:'Chua co goi diem.', pixel_pack_delete_confirm:'Xoa goi diem nay?', pixel_pack_deleted:'Da xoa goi diem.', pixel_pack_saved:'Da luu goi diem.', pixel_tasks_title:'Lich su kich hoat', pixel_tasks_desc:'Ten va email duoc giu cho kiem toan. Thong tin dang nhap khong hien o day.', pixel_col_task:'Tac vu', pixel_col_customer:'Khach hang', pixel_col_email:'Email', pixel_col_mode:'Che do', pixel_col_credits:'Diem', pixel_col_supplier:'Nha cung cap', pixel_col_status:'Trang thai', pixel_col_date:'Da tao', pixel_tasks_empty:'Chua co kich hoat Pixel.', pixel_mode_fast:'Nhanh', pixel_mode_normal:'Tieu chuan', pixel_credits_short:'diem', pixel_status_draft:'Ban nhap', pixel_status_reserved:'Da giu', pixel_status_submitting:'Dang gui', pixel_status_pending:'Dang cho', pixel_status_success:'Hoan thanh', pixel_status_refunded:'Da hoan', pixel_status_submission_unknown:'Can kiem tra', pixel_status_cancelled:'Da huy', pixel_settings_saved:'Da luu cai dat Pixel.', pixel_settings_failed:'Cap nhat Pixel that bai.', pixel_reconcile_queued:'Da xep hang kiem tra Pixel.'
+    },
+    ru: {
+        nav_pixel:'Pixel activation', context_pixel:'Upravlenie bezopasnoy Pixel activation i credit.', pixel_eyebrow:'Bezopasnyy protsess aktivatsii', pixel_title:'Pixel activation', pixel_intro:'Nastroika credit, proverka postavshchika i zhurnal bez pokazannykh dannykh dostupa.', pixel_reconcile:'Proverit ozhidayushchie zadachi', pixel_runtime:'Sostoyanie', pixel_supplier_balance:'Credit postavshchika', pixel_pending_tasks:'Ozhidayushchie zadachi', pixel_credits_sold:'Prodannye credits', pixel_runtime_active:'Aktivno', pixel_runtime_ready:'Gotovo', pixel_runtime_setup:'Nuzhna nastroika', pixel_runtime_missing_config:'Snachala zadayte PIXEL_ENABLED i PIXEL_API_KEY na servere.', pixel_runtime_missing_encryption:'Snachala nastroite CREDENTIAL_ENCRYPTION_KEY.', pixel_supplier_unreachable:'Proverka postavshchika nedostupna', pixel_supplier_summary:'Postavshchik: {pending} v ozhidanii, {today} zaversheno segodnya.', pixel_supplier_waiting:'Balans postavshchika poyavitsya posle uspeshnoy proverki.', pixel_settings_title:'Nastroiki aktivatsii', pixel_settings_desc:'Stoimost credit avtomaticheski primenyaetsya k paketam.', pixel_enabled:'Vkluchit Pixel activation', pixel_enabled_hint:'Knopka skryta, poka server ne nastroen i funktsiya ne vklyuchena.', pixel_admin_only:'Tolko administratory', pixel_admin_only_hint:'Ogranichte mini-prilozhenie vo vremya proverki.', pixel_point_value:'Stoimost credit (USD)', pixel_fast_cost:'Stoimost bystroy aktivatsii', pixel_normal_cost:'Stoimost standartnoy aktivatsii', pixel_supplier_min:'Bezopasnyy minimum postavshchika', pixel_retention:'Khranenie dannykh (dni)', pixel_retention_hint:'0 khranit shifrovannye dannye do ruchnogo udaleniya.', pixel_security_note:'Imena i email vidny dlya sledov. Paroli i 2FA shifruyutsya v Turso i ne peredayutsya v dashboard.', pixel_packs_title:'Pakety credits', pixel_packs_desc:'Tsena paketov sleduet stoimosti credit vyshe.', pixel_pack_label:'Nazvanie', pixel_pack_label_placeholder:'Starter', pixel_pack_credits:'Credits', pixel_pack_order:'Poryadok', pixel_pack_active:'Dostupen dlya pokupki', pixel_pack_add:'Dobavit paket', pixel_pack_save:'Sohranit paket', pixel_pack_edit:'Izmenit paket', pixel_pack_default_label:'Paket {credits} credits', pixel_packs_empty:'Paketov net.', pixel_pack_delete_confirm:'Udalit etot paket?', pixel_pack_deleted:'Paket udalen.', pixel_pack_saved:'Paket sohranen.', pixel_tasks_title:'Zhurnal aktivatsii', pixel_tasks_desc:'Imena i email hranitsya dlya audita. Dannye dostupa zdes ne pokazyvayutsya.', pixel_col_task:'Zadacha', pixel_col_customer:'Klient', pixel_col_email:'Email', pixel_col_mode:'Rezhim', pixel_col_credits:'Credits', pixel_col_supplier:'Postavshchik', pixel_col_status:'Status', pixel_col_date:'Sozdano', pixel_tasks_empty:'Pixel activation eshche ne sozdana.', pixel_mode_fast:'Bystryy', pixel_mode_normal:'Standartnyy', pixel_credits_short:'credits', pixel_status_draft:'Chernovik', pixel_status_reserved:'Zarezervirovano', pixel_status_submitting:'Otpravlyaetsya', pixel_status_pending:'Ozhidanie', pixel_status_success:'Zaversheno', pixel_status_refunded:'Vozvrashcheno', pixel_status_submission_unknown:'Ruchnaya proverka', pixel_status_cancelled:'Otmeneno', pixel_settings_saved:'Nastroiki Pixel sohraneny.', pixel_settings_failed:'Ne udalos obnovit Pixel.', pixel_reconcile_queued:'Proverka Pixel postavlena v ochered.'
+    },
+};
+Object.entries(PIXEL_DASHBOARD_TRANSLATIONS).forEach(([language, strings]) => Object.assign(LANG[language], strings));
+
 const state = {
     botUrl:'', apiKey:'', currentLang:'fr', currentTab:'dashboard-tab',
     categories:[], products:[], orders:[], activations:[], resellers:[], users:[], promos:[], tickets:[], walletHistory:[], binanceAccounts:[],
@@ -968,7 +990,8 @@ const state = {
     autoscaleChart:null, autoscaleStatus:null,
     resellerSpecialPrices:[], resellerSpecialPriceUserId:null,
     orderDetailItems:[], orderDetailTimeline:[], orderDetailId:null,
-    dashboardOverview:null, paymentReviewSummary:{}, conversionFunnel:null
+    dashboardOverview:null, paymentReviewSummary:{}, conversionFunnel:null,
+    pixel:null
 };
 
 function $(id) { return document.getElementById(id); }
@@ -1057,6 +1080,10 @@ const DOM = {
     supplierCustomName:$('supplier-custom-name'), supplierCustomEmoji:$('supplier-custom-emoji'), supplierCustomEmojiId:$('supplier-custom-emoji-id'), supplierCustomImageUrl:$('supplier-custom-image-url'), supplierAutoTranslate:$('supplier-auto-translate'),
     supplierDescriptionEn:$('supplier-description-en'), supplierDescriptionFr:$('supplier-description-fr'), supplierDescriptionAr:$('supplier-description-ar'),
     supplierDescriptionZh:$('supplier-description-zh'), supplierDescriptionVi:$('supplier-description-vi'), supplierDescriptionRu:$('supplier-description-ru'),
+    pixelSettingsForm:$('pixel-settings-form'), pixelEnabled:$('pixel-enabled'), pixelAdminOnly:$('pixel-admin-only'), pixelCreditUsdPrice:$('pixel-credit-usd-price'),
+    pixelFastCredits:$('pixel-fast-credits'), pixelNormalCredits:$('pixel-normal-credits'), pixelMinSupplierPoints:$('pixel-min-supplier-points'), pixelCredentialRetention:$('pixel-credential-retention'),
+    pixelRuntimeState:$('pixel-runtime-state'), pixelSupplierBalance:$('pixel-supplier-balance'), pixelPendingTasks:$('pixel-pending-tasks'), pixelCreditsRevenue:$('pixel-credits-revenue'), pixelRuntimeNote:$('pixel-runtime-note'),
+    pixelPackForm:$('pixel-pack-form'), pixelPackId:$('pixel-pack-id'), pixelPackLabel:$('pixel-pack-label'), pixelPackCredits:$('pixel-pack-credits'), pixelPackSort:$('pixel-pack-sort'), pixelPackActive:$('pixel-pack-active'), pixelPackSubmit:$('pixel-pack-submit'), pixelPacksList:$('pixel-packs-list'), pixelTasksBody:$('pixel-tasks-body'), btnPixelReconcile:$('btn-pixel-reconcile'),
     btnGameRefresh:$('btn-game-refresh'), gameProviderStatus:$('game-provider-status'), gameProviderWarning:$('game-provider-warning'),
     gameOpenCount:$('game-open-count'), gameSettleCount:$('game-settle-count'), gameBetCount:$('game-bet-count'), gameCoinsStaked:$('game-coins-staked'),
     gameCatalogFilters:$('game-catalog-filters'), gameDateFrom:$('game-date-from'), gameDateTo:$('game-date-to'),
@@ -1548,6 +1575,8 @@ function handleDelegatedDashboardClick(event) {
         case 'supplier-description': if (id) return void openSupplierDescriptionEditor(id); break;
         case 'supplier-save': if (id) return void saveSupplierProduct(id); break;
         case 'supplier-route': if (id) return void reviewSupplierRoute(id, element.dataset.status || ''); break;
+        case 'pixel-pack-edit': if (id) return editPixelCreditPack(id); break;
+        case 'pixel-pack-delete': if (id) return void deletePixelCreditPack(id); break;
         case 'ai-open-supplier': return openAiSupplier(element.dataset.code || '');
         case 'ai-toggle-group': {
             const index = Number(element.dataset.index);
@@ -1859,6 +1888,9 @@ function setupEvents() {
     $$('[data-supplier-days]').forEach(button => button.addEventListener('click', () => setSupplierStatsDays(button.dataset.supplierDays)));
     if (DOM.supplierDescriptionForm) DOM.supplierDescriptionForm.addEventListener('submit', saveSupplierDescriptions);
     if (DOM.supplierAutoTranslate) DOM.supplierAutoTranslate.addEventListener('click', autoTranslateSupplierDescription);
+    if (DOM.pixelSettingsForm) DOM.pixelSettingsForm.addEventListener('submit', savePixelActivationSettings);
+    if (DOM.pixelPackForm) DOM.pixelPackForm.addEventListener('submit', savePixelCreditPack);
+    if (DOM.btnPixelReconcile) DOM.btnPixelReconcile.addEventListener('click', reconcilePixelTasks);
     if (DOM.btnGameRefresh) DOM.btnGameRefresh.addEventListener('click', () => loadGameManagement({forceCatalog:true}));
     if (DOM.gameCatalogFilters) DOM.gameCatalogFilters.addEventListener('submit', event => {
         event.preventDefault();
@@ -2755,6 +2787,7 @@ const tabRefreshLoaders = {
     'activations-tab': [loadProducts, loadActivations],
     'resellers-tab': [loadResellers],
     'supplier-bots-tab': [loadSupplierBot],
+    'pixel-tab': [loadPixelActivation],
     'ai-bot-tab': [loadAiSupplierStatus, loadAiSupplierGroups],
     'game-tab': [loadGameManagement],
     'users-tab': [loadUsers],
@@ -2766,7 +2799,7 @@ const tabRefreshLoaders = {
 };
 
 const fullRefreshLoaders = [
-    loadDashboardOverview, loadPerformanceMetrics, loadFinance, loadProducts, loadAllOrders, loadActivations, loadResellers, loadSupplierBot, loadAiSupplierStatus, loadAiSupplierGroups,
+    loadDashboardOverview, loadPerformanceMetrics, loadFinance, loadProducts, loadAllOrders, loadActivations, loadResellers, loadSupplierBot, loadPixelActivation, loadAiSupplierStatus, loadAiSupplierGroups,
     loadTickets, loadUsers, loadPromos, loadWalletHistory, loadBinanceAccounts,
     loadPaymentSettings, loadStatsBundle, loadPaymentReview
 ];
@@ -2775,7 +2808,7 @@ const TAB_CACHE_TTLS = {
     'dashboard-tab':30000, 'orders-tab':30000, 'payment-review-tab':30000, 'activations-tab':30000,
     'inventory-tab':60000, 'users-tab':60000, 'tickets-tab':60000, 'wallet-history-tab':60000,
     'finance-tab':60000, 'resellers-tab':120000, 'game-tab':120000, 'binance-tab':120000,
-    'supplier-bots-tab':180000, 'ai-bot-tab':180000, 'stats-tab':120000, 'settings-tab':300000,
+    'supplier-bots-tab':180000, 'pixel-tab':120000, 'ai-bot-tab':180000, 'stats-tab':120000, 'settings-tab':300000,
 };
 
 function tabDataIsFresh(tabId) {
@@ -6281,6 +6314,170 @@ async function handleBroadcast() {
     finally { showLoading(false); }
 }
 
+// Pixel activation
+function pixelTaskPresentation(status) {
+    const normalized = String(status || 'DRAFT').toUpperCase();
+    const key = `pixel_status_${normalized.toLowerCase()}`;
+    const fallback = normalized.replaceAll('_', ' ');
+    const label = t(key) === key ? fallback : t(key);
+    const cls = normalized === 'SUCCESS' ? 'success'
+        : ['REFUNDED', 'SUBMISSION_UNKNOWN', 'CANCELLED'].includes(normalized) ? 'error'
+        : 'pending';
+    return {label, cls};
+}
+
+function resetPixelPackForm() {
+    if (!DOM.pixelPackForm) return;
+    DOM.pixelPackForm.reset();
+    DOM.pixelPackId.value = '';
+    DOM.pixelPackActive.checked = true;
+    DOM.pixelPackSort.value = '0';
+    DOM.pixelPackSubmit?.querySelector('span')?.replaceChildren(document.createTextNode(t('pixel_pack_add')));
+}
+
+function renderPixelActivation() {
+    const data = state.pixel || {};
+    const settings = data.settings || {};
+    const runtime = data.runtime || {};
+    const balance = runtime.supplier_balance || null;
+    const stats = data.stats || {};
+    const byStatus = stats.by_status || {};
+
+    if (DOM.pixelEnabled) DOM.pixelEnabled.checked = Boolean(settings.is_enabled);
+    if (DOM.pixelAdminOnly) DOM.pixelAdminOnly.checked = Boolean(settings.admin_only);
+    if (DOM.pixelCreditUsdPrice) DOM.pixelCreditUsdPrice.value = Number(settings.credit_usd_price || 0).toFixed(4);
+    if (DOM.pixelFastCredits) DOM.pixelFastCredits.value = Number(settings.fast_credits || 1);
+    if (DOM.pixelNormalCredits) DOM.pixelNormalCredits.value = Number(settings.normal_credits || 1);
+    if (DOM.pixelMinSupplierPoints) DOM.pixelMinSupplierPoints.value = Number(settings.min_supplier_points || 0);
+    if (DOM.pixelCredentialRetention) DOM.pixelCredentialRetention.value = Number(settings.credential_retention_days || 0);
+
+    if (DOM.pixelRuntimeState) {
+        DOM.pixelRuntimeState.textContent = runtime.configured && runtime.credential_encryption_ready
+            ? (settings.is_enabled ? t('pixel_runtime_active') : t('pixel_runtime_ready'))
+            : t('pixel_runtime_setup');
+    }
+    if (DOM.pixelSupplierBalance) {
+        DOM.pixelSupplierBalance.textContent = balance
+            ? Number(balance.balance_points || 0).toLocaleString(currentLocale(), {maximumFractionDigits:2})
+            : '-';
+    }
+    if (DOM.pixelPendingTasks) {
+        DOM.pixelPendingTasks.textContent = ['RESERVED', 'SUBMITTING', 'PENDING'].reduce(
+            (total, key) => total + Number(byStatus[key] || 0), 0,
+        ).toLocaleString(currentLocale());
+    }
+    if (DOM.pixelCreditsRevenue) DOM.pixelCreditsRevenue.textContent = `$${Number(stats.credit_revenue_usd || 0).toFixed(2)}`;
+    if (DOM.pixelRuntimeNote) {
+        const note = !runtime.configured ? t('pixel_runtime_missing_config')
+            : !runtime.credential_encryption_ready ? t('pixel_runtime_missing_encryption')
+            : runtime.supplier_error ? `${t('pixel_supplier_unreachable')}: ${runtime.supplier_error}`
+            : balance ? tf('pixel_supplier_summary', {
+                pending:Number(balance.pending_task_count || 0),
+                today:Number(balance.today_success_count || 0),
+            }) : t('pixel_supplier_waiting');
+        DOM.pixelRuntimeNote.textContent = note;
+        DOM.pixelRuntimeNote.className = `pixel-runtime-note ${runtime.supplier_error || !runtime.configured || !runtime.credential_encryption_ready ? 'error' : 'success'}`;
+    }
+
+    const packs = data.packs || [];
+    if (DOM.pixelPacksList) {
+        DOM.pixelPacksList.innerHTML = packs.length ? packs.map(pack => `<article class="pixel-pack-row">
+            <div><strong>${escapeHtml(pack.label || tf('pixel_pack_default_label', {credits:Number(pack.credits || 0)}))}</strong><small>${Number(pack.credits || 0).toLocaleString(currentLocale())} ${escapeHtml(t('pixel_credits_short'))} - $${Number(pack.price_usd || 0).toFixed(2)}</small></div>
+            <span class="status-badge ${pack.is_active ? 'completed' : 'cancelled'}">${pack.is_active ? escapeHtml(t('active')) : escapeHtml(t('inactive'))}</span>
+            <div class="pixel-pack-actions"><button type="button" class="btn-table-action" data-action="pixel-pack-edit" data-id="${Number(pack.id)}" title="${escapeHtml(t('pixel_pack_edit'))}"><i class="fa-solid fa-pen"></i></button><button type="button" class="btn-table-action delete" data-action="pixel-pack-delete" data-id="${Number(pack.id)}" title="${escapeHtml(t('confirm_delete'))}"><i class="fa-solid fa-trash"></i></button></div>
+        </article>`).join('') : `<p class="empty-state">${escapeHtml(t('pixel_packs_empty'))}</p>`;
+    }
+
+    const tasks = data.tasks || [];
+    if (DOM.pixelTasksBody) {
+        DOM.pixelTasksBody.innerHTML = tasks.length ? tasks.map(task => {
+            const status = pixelTaskPresentation(task.status);
+            const supplier = task.supplier_points_cost == null ? '-' : Number(task.supplier_points_cost).toLocaleString(currentLocale(), {maximumFractionDigits:2});
+            const created = task.created_at ? parseUTCDate(task.created_at).toLocaleString(currentLocale(), {dateStyle:'short', timeStyle:'short'}) : '-';
+            return `<tr><td><code>${escapeHtml(task.public_id || '-')}</code></td><td>${escapeHtml(task.user_display_name || '-')}<br><small>${escapeHtml(String(task.user_telegram_id || ''))}</small></td><td><code>${escapeHtml(task.email || '-')}</code></td><td>${escapeHtml(t(`pixel_mode_${task.channel || 'normal'}`))}</td><td>${Number(task.credits_reserved || 0).toLocaleString(currentLocale())}</td><td>${escapeHtml(supplier)}</td><td><span class="pixel-task-status ${status.cls}">${escapeHtml(status.label)}</span></td><td>${escapeHtml(created)}</td></tr>`;
+        }).join('') : `<tr><td colspan="8" class="empty-state">${escapeHtml(t('pixel_tasks_empty'))}</td></tr>`;
+    }
+}
+
+async function loadPixelActivation() {
+    if (!DOM.pixelSettingsForm) return;
+    const data = await apiCall('/api/pixel');
+    state.pixel = data || {};
+    renderPixelActivation();
+}
+
+async function savePixelActivationSettings(event) {
+    event.preventDefault();
+    try {
+        const result = await apiCall('/api/pixel/settings', 'POST', {
+            is_enabled: Boolean(DOM.pixelEnabled?.checked),
+            admin_only: Boolean(DOM.pixelAdminOnly?.checked),
+            credit_usd_price: Number(DOM.pixelCreditUsdPrice?.value),
+            fast_credits: Number(DOM.pixelFastCredits?.value),
+            normal_credits: Number(DOM.pixelNormalCredits?.value),
+            min_supplier_points: Number(DOM.pixelMinSupplierPoints?.value),
+            credential_retention_days: Number(DOM.pixelCredentialRetention?.value),
+        });
+        state.pixel = {...(state.pixel || {}), settings:result.settings || {}};
+        await loadPixelActivation();
+        showToast(t('pixel_settings_saved'), 'success');
+    } catch (error) {
+        showToast(error.message || t('pixel_settings_failed'), 'error');
+    }
+}
+
+async function savePixelCreditPack(event) {
+    event.preventDefault();
+    try {
+        await apiCall('/api/pixel/packs', 'POST', {
+            id: DOM.pixelPackId?.value || null,
+            label: DOM.pixelPackLabel?.value.trim() || '',
+            credits: Number(DOM.pixelPackCredits?.value),
+            sort_order: Number(DOM.pixelPackSort?.value || 0),
+            is_active: Boolean(DOM.pixelPackActive?.checked),
+        });
+        resetPixelPackForm();
+        await loadPixelActivation();
+        showToast(t('pixel_pack_saved'), 'success');
+    } catch (error) {
+        showToast(error.message || t('pixel_settings_failed'), 'error');
+    }
+}
+
+function editPixelCreditPack(packId) {
+    const pack = (state.pixel?.packs || []).find(item => Number(item.id) === Number(packId));
+    if (!pack) return;
+    DOM.pixelPackId.value = String(pack.id);
+    DOM.pixelPackLabel.value = pack.label || '';
+    DOM.pixelPackCredits.value = String(Number(pack.credits || 0));
+    DOM.pixelPackSort.value = String(Number(pack.sort_order || 0));
+    DOM.pixelPackActive.checked = Boolean(pack.is_active);
+    DOM.pixelPackSubmit?.querySelector('span')?.replaceChildren(document.createTextNode(t('pixel_pack_save')));
+    DOM.pixelPackLabel.focus();
+}
+
+async function deletePixelCreditPack(packId) {
+    if (!confirm(t('pixel_pack_delete_confirm'))) return;
+    try {
+        await apiCall(`/api/pixel/packs/${Number(packId)}`, 'DELETE');
+        if (Number(DOM.pixelPackId?.value || 0) === Number(packId)) resetPixelPackForm();
+        await loadPixelActivation();
+        showToast(t('pixel_pack_deleted'), 'success');
+    } catch (error) {
+        showToast(error.message || t('pixel_settings_failed'), 'error');
+    }
+}
+
+async function reconcilePixelTasks() {
+    try {
+        await apiCall('/api/pixel/reconcile', 'POST', {});
+        showToast(t('pixel_reconcile_queued'), 'success');
+        window.setTimeout(() => { void loadPixelActivation(); }, 1200);
+    } catch (error) {
+        showToast(error.message || t('pixel_settings_failed'), 'error');
+    }
+}
+
 // Settings
 function handleSaveSettings(e) {
     e.preventDefault();
@@ -6318,12 +6515,12 @@ async function handleSaveCryptoSettings(e) {
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // Category select removed — not needed
 
-const tabKeys = { 'dashboard-tab':'tab_dashboard','stats-tab':'tab_stats','inventory-tab':'tab_inventory','orders-tab':'tab_orders','payment-review-tab':'payment_review_title','activations-tab':'nav_activations','resellers-tab':'nav_resellers','supplier-bots-tab':'nav_supplier_bots','ai-bot-tab':'nav_ai_bot','game-tab':'tab_game','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
+const tabKeys = { 'dashboard-tab':'tab_dashboard','stats-tab':'tab_stats','inventory-tab':'tab_inventory','orders-tab':'tab_orders','payment-review-tab':'payment_review_title','activations-tab':'nav_activations','resellers-tab':'nav_resellers','supplier-bots-tab':'nav_supplier_bots','pixel-tab':'nav_pixel','ai-bot-tab':'nav_ai_bot','game-tab':'tab_game','users-tab':'tab_users','tickets-tab':'tab_tickets','broadcast-tab':'tab_broadcast','settings-tab':'tab_settings','wallet-history-tab':'nav_wallet_history','finance-tab':'tab_finance','binance-tab':'tab_binance' };
 const tabContextKeys = {
     'dashboard-tab':'context_dashboard', 'stats-tab':'context_stats', 'inventory-tab':'context_inventory',
     'orders-tab':'context_orders', 'payment-review-tab':'context_payment_review', 'activations-tab':'context_activations',
     'finance-tab':'context_finance', 'wallet-history-tab':'context_wallet', 'users-tab':'context_users',
-    'tickets-tab':'context_tickets', 'resellers-tab':'context_resellers', 'supplier-bots-tab':'context_suppliers',
+    'tickets-tab':'context_tickets', 'resellers-tab':'context_resellers', 'supplier-bots-tab':'context_suppliers', 'pixel-tab':'context_pixel',
     'ai-bot-tab':'context_ai', 'game-tab':'context_game', 'binance-tab':'context_binance',
     'broadcast-tab':'context_broadcast', 'settings-tab':'context_settings'
 };

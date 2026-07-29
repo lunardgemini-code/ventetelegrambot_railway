@@ -62,6 +62,27 @@ except (TypeError, ValueError):
     _log.warning("Invalid CRYPTO_PAY_FEE_PERCENT; falling back to 3%")
     CRYPTO_PAY_FEE_PERCENT = 3.0
 
+# Pixel activation remains opt-in.  An unavailable external supplier must
+# never impact the normal Telegram shop or reseller API paths.
+PIXEL_ENABLED: bool = os.getenv("PIXEL_ENABLED", "false").strip().lower() in {
+    "1", "true", "yes", "on"
+}
+PIXEL_API_KEY: str = os.getenv("PIXEL_API_KEY", "").strip()
+PIXEL_API_BASE_URL: str = os.getenv(
+    "PIXEL_API_BASE_URL", "https://pixel.wxie.de/api/v1"
+).strip().rstrip("/")
+PIXEL_ADMIN_ONLY: bool = os.getenv("PIXEL_ADMIN_ONLY", "true").strip().lower() in {
+    "1", "true", "yes", "on"
+}
+PIXEL_HTTP_TIMEOUT_SECONDS: float = max(
+    5.0,
+    min(60.0, float(os.getenv("PIXEL_HTTP_TIMEOUT_SECONDS", "20"))),
+)
+PIXEL_RECONCILE_SECONDS: int = max(
+    30,
+    min(900, int(os.getenv("PIXEL_RECONCILE_SECONDS", "90"))),
+)
+
 PAYMENT_TIMEOUT_SECONDS: int = max(
     60,
     int(os.getenv("PAYMENT_TIMEOUT_SECONDS", "300")),

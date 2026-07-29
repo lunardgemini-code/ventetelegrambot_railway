@@ -2048,5 +2048,112 @@ async def init_db() -> None:
             await db.commit()
             current_version = 21
 
+        # Pixel V2 intentionally uses new tables instead of the short-lived
+        # legacy Pixel tables. Some databases may contain legacy rows from a
+        # rolled-back deployment; leaving those historical rows untouched is
+        # safer than reinterpreting them.
+        if current_version < 23:
+            version_twenty_three_statements = [
+                """CREATE TABLE IF NOT EXISTS pixel_activation_settings (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    is_enabled INTEGER NOT NULL DEFAULT 0,
+                    admin_only INTEGER NOT NULL DEFAULT 1,
+                    credit_usd_price REAL NOT NULL DEFAULT 1.0,
+                    fast_credits INTEGER NOT NULL DEFAULT 6,
+                    normal_credits INTEGER NOT NULL DEFAULT 5,
+                    min_supplier_points REAL NOT NULL DEFAULT 0,
+                    credential_retention_days INTEGER NOT NULL DEFAULT 90,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )""",
+                """INSERT OR IGNORE INTO pixel_activation_settings
+                   (id, is_enabled, admin_only, credit_usd_price, fast_credits,
+                    normal_credits, min_supplier_points, credential_retention_days)
+                   VALUES (1, 0, 1, 1.0, 6, 5, 0, 90)""",
+                """CREATE TABLE IF NOT EXISTS pixel_credit_accounts (
+                    user_telegram_id INTEGER PRIMARY KEY,
+                    balance_credits INTEGER NOT NULL DEFAULT 0 CHECK (balance_credits >= 0),
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_telegram_id) REFERENCES users(telegram_id)
+                )""",
+                """CREATE TABLE IF NOT EXISTS pixel_credit_packs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    label TEXT NOT NULL DEFAULT '',
+                    credits INTEGER NOT NULL CHECK (credits > 0),
+                    price_usd REAL NOT NULL CHECK (price_usd > 0),
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )""",
+                """CREATE TABLE IF NOT EXISTS pixel_credit_ledger (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_telegram_id INTEGER NOT NULL,
+                    task_public_id TEXT DEFAULT NULL,
+                    amount_credits INTEGER NOT NULL,
+                    balance_after INTEGER NOT NULL CHECK (balance_after >= 0),
+                    amount_usd REAL NOT NULL DEFAULT 0,
+                    event_type TEXT NOT NULL,
+                    reference_key TEXT NOT NULL UNIQUE,
+                    description TEXT NOT NULL DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_telegram_id) REFERENCES users(telegram_id)
+                )""",
+                """CREATE TABLE IF NOT EXISTS pixel_activation_tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    public_id TEXT NOT NULL UNIQUE,
+                    request_key TEXT NOT NULL UNIQUE,
+                    user_telegram_id INTEGER NOT NULL,
+                    user_display_name TEXT NOT NULL DEFAULT '',
+                    email TEXT NOT NULL,
+                    password_encrypted TEXT NOT NULL DEFAULT '',
+                    twofa_secret_encrypted TEXT NOT NULL DEFAULT '',
+                    callback_token_hash TEXT NOT NULL,
+                    callback_token_encrypted TEXT NOT NULL DEFAULT '',
+                    task_mode TEXT NOT NULL DEFAULT 'extract_link',
+                    channel TEXT NOT NULL DEFAULT 'normal',
+                    credits_reserved INTEGER NOT NULL DEFAULT 0,
+                    credit_usd_price REAL NOT NULL DEFAULT 0,
+                    supplier_task_id INTEGER UNIQUE,
+                    supplier_backend_task_id INTEGER,
+                    supplier_points_cost REAL,
+                    supplier_status TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'DRAFT',
+                    result_link TEXT NOT NULL DEFAULT '',
+                    error_message TEXT NOT NULL DEFAULT '',
+                    submission_claimed_at TIMESTAMP,
+                    reconcile_claimed_at TIMESTAMP,
+                    next_check_at TIMESTAMP,
+                    poll_attempts INTEGER NOT NULL DEFAULT 0,
+                    submitted_at TIMESTAMP,
+                    finished_at TIMESTAMP,
+                    notified_at TIMESTAMP,
+                    credentials_purged_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_telegram_id) REFERENCES users(telegram_id)
+                )""",
+                "CREATE INDEX IF NOT EXISTS idx_pixel_tasks_submission ON pixel_activation_tasks(status, submission_claimed_at, created_at)",
+                "CREATE INDEX IF NOT EXISTS idx_pixel_tasks_reconcile ON pixel_activation_tasks(status, next_check_at, reconcile_claimed_at)",
+                "CREATE INDEX IF NOT EXISTS idx_pixel_tasks_user_created ON pixel_activation_tasks(user_telegram_id, created_at DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_pixel_ledger_user_created ON pixel_credit_ledger(user_telegram_id, created_at DESC)",
+                """INSERT INTO pixel_credit_packs (label, credits, price_usd, is_active, sort_order)
+                   SELECT 'Starter', 10, 10.0, 1, 10
+                   WHERE NOT EXISTS (SELECT 1 FROM pixel_credit_packs)""",
+                """INSERT INTO pixel_credit_packs (label, credits, price_usd, is_active, sort_order)
+                   SELECT 'Standard', 50, 50.0, 1, 20
+                   WHERE NOT EXISTS (SELECT 1 FROM pixel_credit_packs WHERE label = 'Standard')""",
+                """INSERT INTO pixel_credit_packs (label, credits, price_usd, is_active, sort_order)
+                   SELECT 'Pro', 100, 100.0, 1, 30
+                   WHERE NOT EXISTS (SELECT 1 FROM pixel_credit_packs WHERE label = 'Pro')""",
+            ]
+            for sql in version_twenty_three_statements:
+                await db.execute(sql)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (23, ?)",
+                ("pixel_activation_v2_secure",),
+            )
+            await db.commit()
+            current_version = 23
+
     finally:
         await db.close()

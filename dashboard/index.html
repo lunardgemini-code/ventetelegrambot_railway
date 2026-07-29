@@ -22,7 +22,7 @@
     <link rel="stylesheet" href="revamp.css?v=20260720-reseller-prices">
     <link rel="stylesheet" href="system.css?v=20260723-pwa-v8">
     <link rel="stylesheet" href="liquid-glass.css?v=20260723-liquid-v1">
-    <link rel="stylesheet" href="operations.css?v=20260725-auto-hide-v2">
+    <link rel="stylesheet" href="operations.css?v=20260729-pixel-v1">
 </head>
 <body>
     <a class="skip-link" href="#dashboard-workspace" data-i18n="skip_to_content">Aller au contenu</a>
@@ -77,6 +77,7 @@
                 <p class="nav-section-label" data-i18n="nav_group_resellers">Revendeurs et fournisseurs API</p>
                 <a href="#" class="menu-item" data-tab="resellers-tab"><i class="fa-solid fa-handshake"></i> <span data-i18n="nav_resellers">Revendeurs</span></a>
                 <a href="#" class="menu-item" data-tab="supplier-bots-tab"><i class="fa-solid fa-plug-circle-bolt"></i> <span data-i18n="nav_supplier_bots">API Bot Gestion</span></a>
+                <a href="#" class="menu-item" data-tab="pixel-tab"><i class="fa-solid fa-wand-magic-sparkles"></i> <span data-i18n="nav_pixel">Pixel Activation</span></a>
                 <a href="#" class="menu-item" data-tab="ai-bot-tab"><i class="fa-solid fa-magnifying-glass-chart"></i> <span data-i18n="nav_ai_bot">IA Bot</span></a>
                 <a href="#" class="menu-item" data-external="api-docs"><i class="fa-solid fa-book-open"></i> <span data-i18n="nav_api_docs">Documentation API</span></a>
                 <p class="nav-section-label" data-i18n="nav_group_analytics">Analyses</p>
@@ -800,6 +801,64 @@
                             <tbody id="supplier-router-body"><tr><td colspan="6" class="empty-state">Lancez une analyse pour rechercher les produits equivalents.</td></tr></tbody>
                         </table>
                     </div>
+                </div>
+            </section>
+
+            <!-- Pixel activation control center -->
+            <section id="pixel-tab" class="tab-content">
+                <div class="flex-justify mb-4 pixel-heading">
+                    <div>
+                        <p class="eyebrow" data-i18n="pixel_eyebrow">Secure activation workflow</p>
+                        <h2><i class="fa-solid fa-wand-magic-sparkles"></i> <span data-i18n="pixel_title">Pixel Activation</span></h2>
+                        <p data-i18n="pixel_intro">Configure points, monitor supplier capacity, and review activation traces without exposing credentials.</p>
+                    </div>
+                    <button id="btn-pixel-reconcile" class="btn-secondary btn-sm" type="button"><i class="fa-solid fa-rotate"></i> <span data-i18n="pixel_reconcile">Check pending tasks</span></button>
+                </div>
+
+                <div class="pixel-runtime-strip glass-panel" aria-live="polite">
+                    <div><span data-i18n="pixel_runtime">Runtime</span><strong id="pixel-runtime-state">-</strong></div>
+                    <div><span data-i18n="pixel_supplier_balance">Supplier points</span><strong id="pixel-supplier-balance">-</strong></div>
+                    <div><span data-i18n="pixel_pending_tasks">Pending tasks</span><strong id="pixel-pending-tasks">0</strong></div>
+                    <div><span data-i18n="pixel_credits_sold">Credits sold</span><strong id="pixel-credits-revenue">$0.00</strong></div>
+                </div>
+                <p id="pixel-runtime-note" class="pixel-runtime-note" aria-live="polite"></p>
+
+                <div class="pixel-layout">
+                    <div class="glass-panel pixel-settings-panel">
+                        <div class="panel-header"><div><h3 data-i18n="pixel_settings_title">Activation settings</h3><p data-i18n="pixel_settings_desc">A point price is applied automatically to every credit pack.</p></div></div>
+                        <form id="pixel-settings-form" class="pixel-settings-grid">
+                            <label class="supplier-enable-control"><input id="pixel-enabled" type="checkbox"><span><strong data-i18n="pixel_enabled">Enable Pixel activation</strong><small data-i18n="pixel_enabled_hint">The button remains hidden until this is enabled and the server is configured.</small></span></label>
+                            <label class="supplier-enable-control"><input id="pixel-admin-only" type="checkbox" checked><span><strong data-i18n="pixel_admin_only">Admins only</strong><small data-i18n="pixel_admin_only_hint">Keep the activation mini-app restricted while you validate it.</small></span></label>
+                            <div class="form-group"><label for="pixel-credit-usd-price" data-i18n="pixel_point_value">Point value (USD)</label><input id="pixel-credit-usd-price" type="number" min="0.0001" max="10000" step="0.0001" required></div>
+                            <div class="form-group"><label for="pixel-fast-credits" data-i18n="pixel_fast_cost">Fast activation cost</label><input id="pixel-fast-credits" type="number" min="1" max="100000" step="1" required></div>
+                            <div class="form-group"><label for="pixel-normal-credits" data-i18n="pixel_normal_cost">Standard activation cost</label><input id="pixel-normal-credits" type="number" min="1" max="100000" step="1" required></div>
+                            <div class="form-group"><label for="pixel-min-supplier-points" data-i18n="pixel_supplier_min">Supplier safety minimum</label><input id="pixel-min-supplier-points" type="number" min="0" step="0.01" required></div>
+                            <div class="form-group"><label for="pixel-credential-retention" data-i18n="pixel_retention">Credential retention (days)</label><input id="pixel-credential-retention" type="number" min="0" max="3650" step="1" required><small data-i18n="pixel_retention_hint">0 keeps encrypted credentials until you remove them manually.</small></div>
+                            <div class="pixel-settings-action"><button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> <span data-i18n="btn_save">Save</span></button></div>
+                        </form>
+                        <p class="pixel-security-note"><i class="fa-solid fa-shield-halved"></i> <span data-i18n="pixel_security_note">Names and emails are visible for traceability. Passwords and 2FA are encrypted in Turso and are never sent to this dashboard.</span></p>
+                    </div>
+
+                    <div class="glass-panel pixel-pack-panel">
+                        <div class="panel-header"><div><h3 data-i18n="pixel_packs_title">Credit packs</h3><p data-i18n="pixel_packs_desc">Pack prices follow the point value above.</p></div></div>
+                        <form id="pixel-pack-form" class="pixel-pack-form">
+                            <input id="pixel-pack-id" type="hidden">
+                            <div class="form-group"><label for="pixel-pack-label" data-i18n="pixel_pack_label">Label</label><input id="pixel-pack-label" type="text" maxlength="80" data-i18n-placeholder="pixel_pack_label_placeholder" placeholder="Starter"></div>
+                            <div class="form-group"><label for="pixel-pack-credits" data-i18n="pixel_pack_credits">Credits</label><input id="pixel-pack-credits" type="number" min="1" max="1000000" step="1" required></div>
+                            <div class="form-group"><label for="pixel-pack-sort" data-i18n="pixel_pack_order">Display order</label><input id="pixel-pack-sort" type="number" step="1" value="0"></div>
+                            <label class="pixel-pack-active"><input id="pixel-pack-active" type="checkbox" checked><span data-i18n="pixel_pack_active">Available for purchase</span></label>
+                            <button id="pixel-pack-submit" type="submit" class="btn-secondary"><i class="fa-solid fa-plus"></i> <span data-i18n="pixel_pack_add">Add pack</span></button>
+                        </form>
+                        <div id="pixel-packs-list" class="pixel-packs-list"></div>
+                    </div>
+                </div>
+
+                <div class="glass-panel overflow-hidden pixel-tasks-panel">
+                    <div class="panel-header pixel-tasks-header"><div><h3 data-i18n="pixel_tasks_title">Activation trace</h3><p data-i18n="pixel_tasks_desc">Names and emails are retained for audit. Credentials never appear here.</p></div></div>
+                    <table class="data-table pixel-tasks-table" data-responsive="scroll">
+                        <thead><tr><th data-i18n="pixel_col_task">Task</th><th data-i18n="pixel_col_customer">Customer</th><th data-i18n="pixel_col_email">Email</th><th data-i18n="pixel_col_mode">Mode</th><th data-i18n="pixel_col_credits">Credits</th><th data-i18n="pixel_col_supplier">Supplier</th><th data-i18n="pixel_col_status">Status</th><th data-i18n="pixel_col_date">Created</th></tr></thead>
+                        <tbody id="pixel-tasks-body"><tr><td colspan="8" class="empty-state" data-i18n="pixel_tasks_empty">No Pixel activation has been created.</td></tr></tbody>
+                    </table>
                 </div>
             </section>
 
@@ -1813,7 +1872,7 @@
         <footer id="ops-drawer-actions" class="ops-drawer-actions"></footer>
     </aside>
 
-    <script defer src="app.js?v=20260726-targeted-broadcast-v1"></script>
+    <script defer src="app.js?v=20260729-pixel-v1"></script>
     <script defer src="operations.js?v=20260726-targeted-broadcast-v1"></script>
     <!-- Mass Translation Progress Overlay -->
     <div id="mass-translate-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; flex-direction:column; justify-content:center; align-items:center; color:white;">
