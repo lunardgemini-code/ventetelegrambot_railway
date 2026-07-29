@@ -91,6 +91,9 @@ from handlers.profile import show_profile, show_referrals, view_referrals_list
 from handlers.pixel_activation import (
     pixel_activation_conversation_handler,
     pixel_activation_menu,
+    pixel_cancel,
+    pixel_confirm_batch,
+    pixel_confirm_task,
     pixel_credit_pack_confirm,
     pixel_credit_pack_purchase,
     pixel_credit_packs_menu,
@@ -7609,6 +7612,15 @@ def main() -> None:
     app.add_handler(get_support_conversation_handler(), group=2)
     app.add_handler(wallet_conversation_handler(), group=3)
     app.add_handler(pixel_activation_conversation_handler(), group=4)
+    # Persistent confirmation buttons must remain usable after a process
+    # restart, when ConversationHandler's in-memory state is no longer known.
+    app.add_handler(CallbackQueryHandler(
+        pixel_confirm_task, pattern=r"^pixel:confirm:[A-Za-z0-9_-]{8,32}$"
+    ), group=4)
+    app.add_handler(CallbackQueryHandler(
+        pixel_confirm_batch, pattern=r"^pixel:batch-confirm:[A-Za-z0-9_-]{8,32}$"
+    ), group=4)
+    app.add_handler(CallbackQueryHandler(pixel_cancel, pattern=r"^pixel:cancel$"), group=4)
 
     # ── Command handlers ─────────────────────────────────────────
     app.add_handler(CommandHandler("start", start_command))

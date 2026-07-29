@@ -7,6 +7,7 @@ catch-all text handler, so support, orders and reseller traffic stay isolated.
 from __future__ import annotations
 
 import logging
+import re
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackQueryHandler, ContextTypes, ConversationHandler, MessageHandler, filters
@@ -14,6 +15,7 @@ from telegram.ext import CallbackQueryHandler, ContextTypes, ConversationHandler
 from config import PIXEL_ADMIN_ONLY, PIXEL_ENABLED
 from database.models import (
     create_pixel_activation_draft,
+    create_pixel_activation_batch_drafts,
     get_pixel_activation_settings,
     get_pixel_activation_task,
     get_pixel_credit_balance,
@@ -23,9 +25,10 @@ from database.models import (
     list_pixel_activation_tasks,
     purchase_pixel_credit_pack,
     reserve_pixel_activation_task,
+    reserve_pixel_activation_batch,
     signal_pixel_reconciliation,
 )
-from services.pixel_worker import submit_pixel_activation_task
+from services.pixel_worker import process_pixel_activation_cycle
 from utils.helpers import escape_html, is_admin
 from utils.keyboards import make_button
 from utils.locales import t
@@ -35,6 +38,59 @@ from utils.telegram import safe_edit_message_text
 logger = logging.getLogger(__name__)
 PIXEL_CREDENTIALS = 310
 PIXEL_CONFIRM = 311
+PIXEL_BATCH_MAX_SIZE = 20
+_PIXEL_TWOFA_SECRET_RE = re.compile(r"[A-Z2-7]{32}")
+
+
+def parse_pixel_credentials_message(text: str) -> list[dict[str, str]]:
+    """Parse one legacy three-line record or a pipe-delimited batch.
+
+    The provider requires a raw 32-character Base32 secret. In particular,
+    ``otpauth://`` URLs are not a supported substitute.
+    """
+    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+    if not lines:
+        raise ValueError("No Pixel credentials were supplied")
+
+    pipe_mode = any("|" in line for line in lines)
+    if pipe_mode:
+        if len(lines) > PIXEL_BATCH_MAX_SIZE or any("|" not in line for line in lines):
+            raise ValueError("Invalid Pixel batch")
+        raw_entries = []
+        for line in lines:
+            parts = [part.strip() for part in line.split("|")]
+            if len(parts) != 3:
+                raise ValueError("Invalid Pixel batch entry")
+            raw_entries.append(parts)
+    else:
+        if len(lines) != 3:
+            raise ValueError("Invalid Pixel credentials")
+        raw_entries = [lines]
+
+    entries: list[dict[str, str]] = []
+    seen_emails: set[str] = set()
+    for email, password, raw_secret in raw_entries:
+        normalized_email = str(email or "").strip().lower()
+        normalized_password = str(password or "").strip()
+        secret_text = str(raw_secret or "").strip()
+        normalized_secret = re.sub(r"[\s-]+", "", secret_text).upper()
+        if (
+            "@" not in normalized_email
+            or len(normalized_email) > 254
+            or not normalized_password
+            or "otpauth://" in secret_text.lower()
+            or "://" in secret_text
+            or not _PIXEL_TWOFA_SECRET_RE.fullmatch(normalized_secret)
+            or normalized_email in seen_emails
+        ):
+            raise ValueError("Invalid Pixel credentials")
+        seen_emails.add(normalized_email)
+        entries.append({
+            "email": normalized_email,
+            "password": normalized_password,
+            "twofa_secret": normalized_secret,
+        })
+    return entries
 
 
 async def pixel_activation_available_for_user(user_id: int) -> bool:
@@ -207,6 +263,7 @@ async def pixel_select_channel(update: Update, context: ContextTypes.DEFAULT_TYP
     text = t("pixel_credentials_prompt", lang).format(
         channel=escape_html(t(f"pixel_channel_{channel}", lang)),
         credits=credits,
+        max_accounts=PIXEL_BATCH_MAX_SIZE,
     )
     await safe_edit_message_text(
         query,
@@ -223,24 +280,40 @@ async def pixel_receive_credentials(update: Update, context: ContextTypes.DEFAUL
     allowed, lang = await _guard(update)
     if not allowed:
         return ConversationHandler.END
-    text = str(update.effective_message.text or "").strip()
-    parts = [item.strip() for item in text.replace("|", "\n").splitlines() if item.strip()]
-    if len(parts) < 3 or "@" not in parts[0]:
-        await update.effective_message.reply_text(t("pixel_credentials_invalid", lang), parse_mode="HTML")
+    try:
+        entries = parse_pixel_credentials_message(str(update.effective_message.text or ""))
+    except ValueError:
+        await update.effective_message.reply_text(
+            t("pixel_credentials_invalid", lang).format(max_accounts=PIXEL_BATCH_MAX_SIZE),
+            parse_mode="HTML",
+        )
         return PIXEL_CREDENTIALS
     channel = "fast" if context.user_data.get("pixel_channel") == "fast" else "normal"
     user = update.effective_user
     display_name = " ".join(part for part in (user.first_name, user.last_name) if part).strip() or (user.username or str(user.id))
     try:
-        draft = await create_pixel_activation_draft(
-            user_telegram_id=int(user.id),
-            user_display_name=display_name,
-            email=parts[0],
-            password=parts[1],
-            twofa_secret=parts[2],
-            channel=channel,
-            request_key=f"pixel-draft:{user.id}:{update.effective_message.message_id}",
-        )
+        if len(entries) == 1:
+            entry = entries[0]
+            draft = await create_pixel_activation_draft(
+                user_telegram_id=int(user.id),
+                user_display_name=display_name,
+                email=entry["email"],
+                password=entry["password"],
+                twofa_secret=entry["twofa_secret"],
+                channel=channel,
+                request_key=f"pixel-draft:{user.id}:{update.effective_message.message_id}",
+            )
+            batch = None
+        else:
+            batch_result = await create_pixel_activation_batch_drafts(
+                user_telegram_id=int(user.id),
+                user_display_name=display_name,
+                credentials=entries,
+                channel=channel,
+                request_key=f"pixel-batch:{user.id}:{update.effective_message.message_id}",
+            )
+            batch = batch_result["batch"]
+            draft = None
     except (ValueError, RuntimeError) as exc:
         logger.warning("Pixel draft could not be stored: %s", exc)
         await update.effective_message.reply_text(t("pixel_credentials_store_failed", lang), parse_mode="HTML")
@@ -256,8 +329,29 @@ async def pixel_receive_credentials(update: Update, context: ContextTypes.DEFAUL
         pass
     settings = await get_pixel_activation_settings()
     cost = settings["fast_credits"] if channel == "fast" else settings["normal_credits"]
+    if batch:
+        count = len(entries)
+        confirmation = t("pixel_batch_confirm", lang).format(
+            count=count,
+            channel=escape_html(t(f"pixel_channel_{channel}", lang)),
+            credits=cost * count,
+        )
+        await update.effective_chat.send_message(
+            confirmation,
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(
+                    t("pixel_confirm_batch", lang).format(count=count),
+                    callback_data=f"pixel:batch-confirm:{batch['public_id']}",
+                )],
+                [InlineKeyboardButton(t("btn_cancel", lang), callback_data="pixel:cancel")],
+            ]),
+        )
+        return PIXEL_CONFIRM
+
+    entry = entries[0]
     confirmation = t("pixel_task_confirm", lang).format(
-        email=escape_html(parts[0]),
+        email=escape_html(entry["email"]),
         channel=escape_html(t(f"pixel_channel_{channel}", lang)),
         credits=cost,
     )
@@ -298,13 +392,13 @@ async def pixel_confirm_task(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await safe_edit_message_text(query, t("pixel_task_not_found", lang), reply_markup=_main_markup(lang))
         return ConversationHandler.END
 
-    # The task is durable and reserved first. The external call deliberately
-    # runs outside the callback so Telegram stays responsive under supplier lag.
-    if task.get("status") == "RESERVED":
+    # The task is durable and reserved first. The external calls deliberately
+    # run outside the callback so Telegram stays responsive under supplier lag.
+    if task.get("newly_reserved"):
         context.application.create_task(
-            submit_pixel_activation_task(public_id, context.bot),
+            process_pixel_activation_cycle(context.bot, busy=False),
             update=update,
-            name="pixel-confirm-submission",
+            name="pixel-confirm-cycle",
         )
     await safe_edit_message_text(
         query,
@@ -312,6 +406,54 @@ async def pixel_confirm_task(update: Update, context: ContextTypes.DEFAULT_TYPE)
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton(t("pixel_view_task", lang), callback_data=f"pixel:task:{public_id}")],
+            [InlineKeyboardButton(t("pixel_back_activation", lang), callback_data="pixel:menu")],
+        ]),
+    )
+    return ConversationHandler.END
+
+
+async def pixel_confirm_batch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    allowed, lang = await _guard(update)
+    if not allowed:
+        return ConversationHandler.END
+    try:
+        batch_public_id = str(query.data).rsplit(":", 1)[1]
+    except IndexError:
+        return ConversationHandler.END
+    try:
+        result = await reserve_pixel_activation_batch(batch_public_id, int(update.effective_user.id))
+    except ValueError as exc:
+        if str(exc) == "INSUFFICIENT_PIXEL_CREDITS":
+            await safe_edit_message_text(
+                query,
+                t("pixel_credits_insufficient", lang),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(t("pixel_buy_credits", lang), callback_data="pixel:credits")],
+                    [InlineKeyboardButton(t("pixel_back_activation", lang), callback_data="pixel:menu")],
+                ]),
+            )
+            return ConversationHandler.END
+        await safe_edit_message_text(query, t("pixel_task_not_found", lang), reply_markup=_main_markup(lang))
+        return ConversationHandler.END
+
+    tasks = result.get("tasks") or []
+    if result.get("newly_reserved"):
+        context.application.create_task(
+            process_pixel_activation_cycle(context.bot, busy=False),
+            update=update,
+            name="pixel-batch-confirm-cycle",
+        )
+    await safe_edit_message_text(
+        query,
+        t("pixel_batch_queued", lang).format(
+            count=len(tasks),
+            credits=int((result.get("batch") or {}).get("credits_reserved") or 0),
+        ),
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton(t("pixel_my_tasks", lang), callback_data="pixel:tasks")],
             [InlineKeyboardButton(t("pixel_back_activation", lang), callback_data="pixel:menu")],
         ]),
     )
@@ -400,6 +542,7 @@ def pixel_activation_conversation_handler() -> ConversationHandler:
             ],
             PIXEL_CONFIRM: [
                 CallbackQueryHandler(pixel_confirm_task, pattern=r"^pixel:confirm:[A-Za-z0-9_-]{8,32}$"),
+                CallbackQueryHandler(pixel_confirm_batch, pattern=r"^pixel:batch-confirm:[A-Za-z0-9_-]{8,32}$"),
             ],
         },
         fallbacks=[CallbackQueryHandler(pixel_cancel, pattern=r"^pixel:(cancel|menu)$")],

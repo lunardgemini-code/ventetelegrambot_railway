@@ -2155,5 +2155,53 @@ async def init_db() -> None:
             await db.commit()
             current_version = 23
 
+        # A batch is a durable confirmation envelope for several independent
+        # Pixel tasks. Credentials still live only on the individual tasks so
+        # each provider submission and refund remains independently auditable.
+        if current_version < 24:
+            pixel_tasks_table = await (
+                await db.execute(
+                    "SELECT 1 FROM sqlite_master "
+                    "WHERE type = 'table' AND name = 'pixel_activation_tasks'"
+                )
+            ).fetchone()
+            if pixel_tasks_table:
+                pixel_task_columns = await _columns_for("pixel_activation_tasks")
+                if "batch_public_id" not in pixel_task_columns:
+                    await db.execute(
+                        "ALTER TABLE pixel_activation_tasks "
+                        "ADD COLUMN batch_public_id TEXT DEFAULT NULL"
+                    )
+            version_twenty_four_statements = [
+                """CREATE TABLE IF NOT EXISTS pixel_activation_batches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    public_id TEXT NOT NULL UNIQUE,
+                    request_key TEXT NOT NULL UNIQUE,
+                    user_telegram_id INTEGER NOT NULL,
+                    user_display_name TEXT NOT NULL DEFAULT '',
+                    channel TEXT NOT NULL DEFAULT 'normal',
+                    task_count INTEGER NOT NULL CHECK (task_count > 0),
+                    credits_reserved INTEGER NOT NULL DEFAULT 0,
+                    credit_usd_price REAL NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'DRAFT',
+                    confirmed_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_telegram_id) REFERENCES users(telegram_id)
+                )""",
+                "CREATE INDEX IF NOT EXISTS idx_pixel_batches_user_created "
+                "ON pixel_activation_batches(user_telegram_id, created_at DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_pixel_tasks_batch "
+                "ON pixel_activation_tasks(batch_public_id, status, created_at)",
+            ]
+            for sql in version_twenty_four_statements:
+                await db.execute(sql)
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (24, ?)",
+                ("pixel_activation_batch_submission",),
+            )
+            await db.commit()
+            current_version = 24
+
     finally:
         await db.close()

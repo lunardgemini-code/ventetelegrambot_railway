@@ -1582,6 +1582,53 @@ _PIXEL_TRANSLATIONS = {
     },
 }
 
+_PIXEL_BATCH_TRANSLATIONS = {
+    "en": {
+        "pixel_credentials_prompt": "<b>{channel} Pixel activation</b>\n\nCost: <b>{credits}</b> credits per account\n\nOne account (three lines):\n<code>email</code>\n<code>password</code>\n<code>32-character 2FA secret</code>\n\nBatch: one account per line (up to {max_accounts}):\n<code>email | password | 32-character 2FA secret</code>\n\n2FA URLs are not accepted. Your message will be deleted after encryption.",
+        "pixel_credentials_invalid": "Use three lines for one account, or one <code>email | password | 32-character 2FA secret</code> entry per line (up to {max_accounts}). 2FA URLs are not accepted.",
+        "pixel_batch_confirm": "<b>Confirm Pixel batch</b>\n\nAccounts: <b>{count}</b>\nMode: <b>{channel}</b>\nTotal: <b>{credits}</b> credits\n\nAll accounts will be reserved together.",
+        "pixel_confirm_batch": "Confirm {count} activations",
+        "pixel_batch_queued": "<b>Pixel batch queued</b>\n\nAccounts: <b>{count}</b>\nReserved: <b>{credits}</b> credits\n\nYou will receive one result per account.",
+    },
+    "fr": {
+        "pixel_credentials_prompt": "<b>Activation Pixel {channel}</b>\n\nCout : <b>{credits}</b> credits par compte\n\nUn compte (trois lignes) :\n<code>email</code>\n<code>mot de passe</code>\n<code>secret 2FA de 32 caracteres</code>\n\nLot : un compte par ligne (maximum {max_accounts}) :\n<code>email | mot de passe | secret 2FA de 32 caracteres</code>\n\nLes URL 2FA ne sont pas acceptees. Votre message sera supprime apres chiffrement.",
+        "pixel_credentials_invalid": "Utilisez trois lignes pour un compte, ou une entree <code>email | mot de passe | secret 2FA de 32 caracteres</code> par ligne (maximum {max_accounts}). Les URL 2FA ne sont pas acceptees.",
+        "pixel_batch_confirm": "<b>Confirmer le lot Pixel</b>\n\nComptes : <b>{count}</b>\nMode : <b>{channel}</b>\nTotal : <b>{credits}</b> credits\n\nTous les comptes seront reserves ensemble.",
+        "pixel_confirm_batch": "Confirmer {count} activations",
+        "pixel_batch_queued": "<b>Lot Pixel en attente</b>\n\nComptes : <b>{count}</b>\nCredits reserves : <b>{credits}</b>\n\nVous recevrez un resultat par compte.",
+    },
+    "ar": {
+        "pixel_credentials_prompt": "<b>تفعيل Pixel {channel}</b>\n\nالتكلفة: <b>{credits}</b> رصيد لكل حساب\n\nحساب واحد (ثلاثة أسطر):\n<code>email</code>\n<code>password</code>\n<code>سر 2FA من 32 حرفاً</code>\n\nدفعة: حساب واحد في كل سطر (حتى {max_accounts}):\n<code>email | password | 32-character 2FA secret</code>\n\nروابط 2FA غير مقبولة. ستُحذف رسالتك بعد التشفير.",
+        "pixel_credentials_invalid": "استخدم ثلاثة أسطر لحساب واحد، أو سجلاً واحداً لكل سطر بصيغة <code>email | password | 32-character 2FA secret</code> (حتى {max_accounts}). روابط 2FA غير مقبولة.",
+        "pixel_batch_confirm": "<b>تأكيد دفعة Pixel</b>\n\nالحسابات: <b>{count}</b>\nالوضع: <b>{channel}</b>\nالإجمالي: <b>{credits}</b> رصيد\n\nسيتم حجز كل الحسابات معاً.",
+        "pixel_confirm_batch": "تأكيد {count} عمليات تفعيل",
+        "pixel_batch_queued": "<b>دفعة Pixel قيد الانتظار</b>\n\nالحسابات: <b>{count}</b>\nالرصيد المحجوز: <b>{credits}</b>\n\nستتلقى نتيجة لكل حساب.",
+    },
+    "zh": {
+        "pixel_credentials_prompt": "<b>Pixel {channel} 激活</b>\n\n每个账号费用：<b>{credits}</b> 积分\n\n单个账号（三行）：\n<code>email</code>\n<code>password</code>\n<code>32 位 2FA 密钥</code>\n\n批量：每行一个账号（最多 {max_accounts} 个）：\n<code>email | password | 32-character 2FA secret</code>\n\n不接受 2FA URL。加密后消息会被删除。",
+        "pixel_credentials_invalid": "单个账号请使用三行；批量请每行使用 <code>email | password | 32-character 2FA secret</code>（最多 {max_accounts} 个）。不接受 2FA URL。",
+        "pixel_batch_confirm": "<b>确认 Pixel 批量激活</b>\n\n账号：<b>{count}</b>\n模式：<b>{channel}</b>\n总计：<b>{credits}</b> 积分\n\n所有账号将一起预留。",
+        "pixel_confirm_batch": "确认 {count} 个激活",
+        "pixel_batch_queued": "<b>Pixel 批量任务已排队</b>\n\n账号：<b>{count}</b>\n已预留：<b>{credits}</b> 积分\n\n每个账号都会收到结果。",
+    },
+    "vi": {
+        "pixel_credentials_prompt": "<b>Kich hoat Pixel {channel}</b>\n\nGia: <b>{credits}</b> diem moi tai khoan\n\nMot tai khoan (ba dong):\n<code>email</code>\n<code>password</code>\n<code>ma bi mat 2FA 32 ky tu</code>\n\nTheo lo: mot tai khoan moi dong (toi da {max_accounts}):\n<code>email | password | 32-character 2FA secret</code>\n\nKhong chap nhan URL 2FA. Tin nhan se duoc xoa sau khi ma hoa.",
+        "pixel_credentials_invalid": "Dung ba dong cho mot tai khoan, hoac mot dong <code>email | password | 32-character 2FA secret</code> cho moi tai khoan (toi da {max_accounts}). Khong chap nhan URL 2FA.",
+        "pixel_batch_confirm": "<b>Xac nhan lo Pixel</b>\n\nTai khoan: <b>{count}</b>\nChe do: <b>{channel}</b>\nTong: <b>{credits}</b> diem\n\nTat ca tai khoan se duoc giu diem cung luc.",
+        "pixel_confirm_batch": "Xac nhan {count} kich hoat",
+        "pixel_batch_queued": "<b>Lo Pixel dang cho</b>\n\nTai khoan: <b>{count}</b>\nDiem da giu: <b>{credits}</b>\n\nBan se nhan ket qua cho tung tai khoan.",
+    },
+    "ru": {
+        "pixel_credentials_prompt": "<b>Pixel {channel}</b>\n\nStoimost: <b>{credits}</b> credits za akkaunt\n\nOdin akkaunt (tri stroki):\n<code>email</code>\n<code>password</code>\n<code>32-character 2FA secret</code>\n\nPaket: odin akkaunt v stroke (do {max_accounts}):\n<code>email | password | 32-character 2FA secret</code>\n\n2FA URL ne prinimayutsya. Soobshchenie budet udaleno posle shifrovaniya.",
+        "pixel_credentials_invalid": "Ispolzuyte tri stroki dlya odnogo akkaunta ili po odnoi zapisi <code>email | password | 32-character 2FA secret</code> v stroke (do {max_accounts}). 2FA URL ne prinimayutsya.",
+        "pixel_batch_confirm": "<b>Podtverdit paket Pixel</b>\n\nAkkaunty: <b>{count}</b>\nRezhim: <b>{channel}</b>\nVsego: <b>{credits}</b> credits\n\nVse akkaunty budut zarezervirovany vmeste.",
+        "pixel_confirm_batch": "Podtverdit {count} aktivatsii",
+        "pixel_batch_queued": "<b>Paket Pixel v ocheredi</b>\n\nAkkaunty: <b>{count}</b>\nZarezervirovano: <b>{credits}</b> credits\n\nVy poluchite rezultat dlya kazhdogo akkaunta.",
+    },
+}
+for _pixel_lang, _pixel_strings in _PIXEL_BATCH_TRANSLATIONS.items():
+    _PIXEL_TRANSLATIONS[_pixel_lang].update(_pixel_strings)
+
 for _pixel_lang, _pixel_strings in _PIXEL_TRANSLATIONS.items():
     TRANSLATIONS.setdefault(_pixel_lang, {}).update(_pixel_strings)
 

@@ -10019,6 +10019,44 @@ _PIXEL_DEFAULT_SETTINGS = {
 }
 _PIXEL_FINAL_STATUSES = {"SUCCESS", "REFUNDED", "SUBMISSION_UNKNOWN"}
 _PIXEL_FAILURE_STATUSES = {"failed", "error", "cancelled", "canceled", "rejected"}
+_PIXEL_BATCH_MAX_SIZE = 20
+_PIXEL_TWOFA_SECRET_RE = re.compile(r"[A-Z2-7]{32}")
+
+
+def _normalize_pixel_credentials(email: str, password: str, twofa_secret: str) -> tuple[str, str, str]:
+    """Validate the provider's raw 32-character 2FA secret format.
+
+    Pixel's API calls its field ``twofa_url``, but its documented value is a
+    raw 32-character Base32 secret. URLs are rejected before anything reaches
+    encrypted storage or the provider.
+    """
+    normalized_email = str(email or "").strip().lower()
+    normalized_password = str(password or "").strip()
+    raw_secret = str(twofa_secret or "").strip()
+    secret_lower = raw_secret.lower()
+    if "otpauth://" in secret_lower or "://" in raw_secret:
+        raise ValueError("Pixel requires a raw 32-character 2FA secret")
+    normalized_secret = re.sub(r"[\s-]+", "", raw_secret).upper()
+    if (
+        "@" not in normalized_email
+        or len(normalized_email) > 254
+        or not normalized_password
+        or not _PIXEL_TWOFA_SECRET_RE.fullmatch(normalized_secret)
+    ):
+        raise ValueError("Invalid Pixel credentials")
+    return normalized_email, normalized_password, normalized_secret
+
+
+def _pixel_public_batch(batch: dict | None) -> dict | None:
+    if not batch:
+        return None
+    data = dict(batch)
+    for field in ("task_count", "credits_reserved"):
+        if data.get(field) is not None:
+            data[field] = int(data[field])
+    if data.get("credit_usd_price") is not None:
+        data["credit_usd_price"] = float(data["credit_usd_price"])
+    return data
 
 
 def _pixel_public_task(task: dict | None) -> dict | None:
@@ -10367,13 +10405,11 @@ async def create_pixel_activation_draft(
     """Persist a traceable encrypted draft before the user confirms payment."""
     if not secret_store_configured():
         raise RuntimeError("Credential encryption is not configured")
-    email = str(email or "").strip().lower()
-    password = str(password or "").strip()
-    twofa_secret = str(twofa_secret or "").strip()
+    email, password, twofa_secret = _normalize_pixel_credentials(
+        email, password, twofa_secret
+    )
     channel = "fast" if channel == "fast" else "normal"
     request_key = str(request_key or "").strip()
-    if "@" not in email or len(email) > 254 or not password or not twofa_secret:
-        raise ValueError("Invalid Pixel credentials")
     if not request_key or len(request_key) > 160:
         raise ValueError("Invalid Pixel draft reference")
 
@@ -10424,6 +10460,220 @@ async def create_pixel_activation_draft(
         await db.close()
 
 
+async def create_pixel_activation_batch_drafts(
+    *,
+    user_telegram_id: int,
+    user_display_name: str,
+    credentials: list[dict],
+    channel: str,
+    request_key: str,
+) -> dict:
+    """Create a durable, encrypted set of drafts for one confirmed batch.
+
+    No credits move at this point. A batch exists to make the subsequent
+    confirmation one atomic debit while retaining one encrypted trace per
+    provider task.
+    """
+    if not secret_store_configured():
+        raise RuntimeError("Credential encryption is not configured")
+    if not isinstance(credentials, list) or not (2 <= len(credentials) <= _PIXEL_BATCH_MAX_SIZE):
+        raise ValueError(f"Pixel batches must contain 2 to {_PIXEL_BATCH_MAX_SIZE} accounts")
+
+    channel = "fast" if channel == "fast" else "normal"
+    request_key = str(request_key or "").strip()
+    if not request_key or len(request_key) > 140:
+        raise ValueError("Invalid Pixel batch reference")
+
+    normalized: list[tuple[str, str, str]] = []
+    seen_emails: set[str] = set()
+    for raw in credentials:
+        if not isinstance(raw, dict):
+            raise ValueError("Invalid Pixel batch credentials")
+        item = _normalize_pixel_credentials(
+            raw.get("email", ""),
+            raw.get("password", ""),
+            raw.get("twofa_secret", ""),
+        )
+        if item[0] in seen_emails:
+            raise ValueError("A Pixel batch cannot contain the same email twice")
+        seen_emails.add(item[0])
+        normalized.append(item)
+
+    user_id = int(user_telegram_id)
+    display_name = str(user_display_name or "").strip()[:120]
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        existing = await (await db.execute(
+            "SELECT * FROM pixel_activation_batches WHERE request_key = ?",
+            (request_key,),
+        )).fetchone()
+        if existing:
+            rows = await (await db.execute(
+                "SELECT * FROM pixel_activation_tasks WHERE batch_public_id = ? ORDER BY id ASC",
+                (existing["public_id"],),
+            )).fetchall()
+            await db.commit()
+            return {
+                "batch": _pixel_public_batch(dict(existing)) or {},
+                "tasks": [_pixel_public_task(dict(row)) or {} for row in rows],
+                "idempotent": True,
+            }
+
+        batch_public_id = secrets.token_urlsafe(12)
+        await db.execute(
+            """INSERT INTO pixel_activation_batches
+               (public_id, request_key, user_telegram_id, user_display_name, channel, task_count, status)
+               VALUES (?, ?, ?, ?, ?, ?, 'DRAFT')""",
+            (batch_public_id, request_key, user_id, display_name, channel, len(normalized)),
+        )
+        for index, (email, password, twofa_secret) in enumerate(normalized, start=1):
+            public_id = secrets.token_urlsafe(12)
+            callback_token = secrets.token_urlsafe(32)
+            await db.execute(
+                """INSERT INTO pixel_activation_tasks
+                   (public_id, request_key, user_telegram_id, user_display_name, email,
+                    password_encrypted, twofa_secret_encrypted, callback_token_hash,
+                    callback_token_encrypted, task_mode, channel, batch_public_id, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'extract_link', ?, ?, 'DRAFT')""",
+                (
+                    public_id,
+                    f"{request_key}:{index}",
+                    user_id,
+                    display_name,
+                    email,
+                    encrypt_secret(password),
+                    encrypt_secret(twofa_secret),
+                    hashlib.sha256(callback_token.encode("utf-8")).hexdigest(),
+                    encrypt_secret(callback_token),
+                    channel,
+                    batch_public_id,
+                ),
+            )
+        batch = await (await db.execute(
+            "SELECT * FROM pixel_activation_batches WHERE public_id = ?", (batch_public_id,)
+        )).fetchone()
+        rows = await (await db.execute(
+            "SELECT * FROM pixel_activation_tasks WHERE batch_public_id = ? ORDER BY id ASC",
+            (batch_public_id,),
+        )).fetchall()
+        await db.commit()
+        return {
+            "batch": _pixel_public_batch(dict(batch)) if batch else {},
+            "tasks": [_pixel_public_task(dict(row)) or {} for row in rows],
+            "idempotent": False,
+        }
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def reserve_pixel_activation_batch(batch_public_id: str, user_telegram_id: int) -> dict:
+    """Atomically reserve credits for every draft in a Pixel batch."""
+    user_id = int(user_telegram_id)
+    batch_public_id = str(batch_public_id or "").strip()
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        batch_row = await (await db.execute(
+            """SELECT * FROM pixel_activation_batches
+               WHERE public_id = ? AND user_telegram_id = ?""",
+            (batch_public_id, user_id),
+        )).fetchone()
+        if not batch_row:
+            raise ValueError("PIXEL_BATCH_NOT_FOUND")
+        batch = dict(batch_row)
+        rows = await (await db.execute(
+            """SELECT * FROM pixel_activation_tasks
+               WHERE batch_public_id = ? AND user_telegram_id = ? ORDER BY id ASC""",
+            (batch_public_id, user_id),
+        )).fetchall()
+        tasks = [dict(row) for row in rows]
+        if not tasks or len(tasks) != int(batch["task_count"]):
+            raise ValueError("PIXEL_BATCH_INVALID")
+        if batch["status"] != "DRAFT":
+            await db.commit()
+            return {
+                "batch": _pixel_public_batch(batch) or {},
+                "tasks": [_pixel_public_task(task) or {} for task in tasks],
+                "newly_reserved": False,
+            }
+        if any(task["status"] != "DRAFT" for task in tasks):
+            raise ValueError("PIXEL_BATCH_INVALID")
+
+        settings_row = await (await db.execute(
+            "SELECT * FROM pixel_activation_settings WHERE id = 1"
+        )).fetchone()
+        settings = _pixel_settings_from_row(dict(settings_row) if settings_row else None)
+        credits_per_task = _pixel_task_status_for_channel(str(batch["channel"]), settings)
+        credits_total = credits_per_task * len(tasks)
+        cursor = await db.execute(
+            """UPDATE pixel_credit_accounts
+               SET balance_credits = balance_credits - ?, updated_at = CURRENT_TIMESTAMP
+               WHERE user_telegram_id = ? AND balance_credits >= ?
+               RETURNING balance_credits""",
+            (credits_total, user_id, credits_total),
+        )
+        account = await cursor.fetchone()
+        if not account:
+            raise ValueError("INSUFFICIENT_PIXEL_CREDITS")
+        balance_after = int(account["balance_credits"])
+        await db.execute(
+            """INSERT INTO pixel_credit_ledger
+               (user_telegram_id, amount_credits, balance_after, amount_usd,
+                event_type, reference_key, description)
+               VALUES (?, ?, ?, 0, 'TASK_RESERVE', ?, ?)""",
+            (
+                user_id,
+                -credits_total,
+                balance_after,
+                f"pixel-batch-reserve:{batch_public_id}",
+                f"Pixel activation batch reservation ({len(tasks)} tasks)",
+            ),
+        )
+        for task in tasks:
+            await db.execute(
+                """UPDATE pixel_activation_tasks
+                   SET status = 'RESERVED', credits_reserved = ?, credit_usd_price = ?,
+                       next_check_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                   WHERE public_id = ? AND status = 'DRAFT'""",
+                (credits_per_task, settings["credit_usd_price"], task["public_id"]),
+            )
+        await db.execute(
+            """UPDATE pixel_activation_batches
+               SET status = 'RESERVED', credits_reserved = ?, credit_usd_price = ?,
+                   confirmed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+               WHERE public_id = ?""",
+            (credits_total, settings["credit_usd_price"], batch_public_id),
+        )
+        batch_row = await (await db.execute(
+            "SELECT * FROM pixel_activation_batches WHERE public_id = ?", (batch_public_id,)
+        )).fetchone()
+        rows = await (await db.execute(
+            "SELECT * FROM pixel_activation_tasks WHERE batch_public_id = ? ORDER BY id ASC",
+            (batch_public_id,),
+        )).fetchall()
+        await db.commit()
+        return {
+            "batch": _pixel_public_batch(dict(batch_row)) if batch_row else {},
+            "tasks": [_pixel_public_task(dict(row)) or {} for row in rows],
+            "newly_reserved": True,
+        }
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
 async def reserve_pixel_activation_task(public_id: str, user_telegram_id: int) -> dict:
     """Atomically reserve customer credits for one confirmed activation task."""
     user_id = int(user_telegram_id)
@@ -10439,7 +10689,9 @@ async def reserve_pixel_activation_task(public_id: str, user_telegram_id: int) -
         task = dict(row)
         if task["status"] != "DRAFT":
             await db.commit()
-            return _pixel_public_task(task) or {}
+            result = _pixel_public_task(task) or {}
+            result["newly_reserved"] = False
+            return result
 
         settings_row = await (await db.execute(
             "SELECT * FROM pixel_activation_settings WHERE id = 1"
@@ -10477,7 +10729,9 @@ async def reserve_pixel_activation_task(public_id: str, user_telegram_id: int) -
             "SELECT * FROM pixel_activation_tasks WHERE public_id = ?", (task["public_id"],)
         )).fetchone()
         await db.commit()
-        return _pixel_public_task(dict(row)) or {}
+        result = _pixel_public_task(dict(row)) or {}
+        result["newly_reserved"] = True
+        return result
     except Exception:
         try:
             await db.rollback()
@@ -11010,6 +11264,16 @@ async def expire_stale_pixel_drafts(*, max_age_hours: int = 24) -> int:
                WHERE status = 'DRAFT' AND credentials_purged_at IS NULL
                  AND created_at < datetime('now', ?)""",
             (f'-{hours} hours',),
+        )
+        await db.execute(
+            """UPDATE pixel_activation_batches
+               SET status = 'CANCELLED', updated_at = CURRENT_TIMESTAMP
+               WHERE status = 'DRAFT'
+                 AND NOT EXISTS (
+                     SELECT 1 FROM pixel_activation_tasks AS task
+                     WHERE task.batch_public_id = pixel_activation_batches.public_id
+                       AND task.status = 'DRAFT'
+                 )"""
         )
         await db.commit()
         return max(0, int(cursor.rowcount)) if cursor.rowcount != -1 else 0

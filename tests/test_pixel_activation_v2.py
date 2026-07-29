@@ -7,6 +7,10 @@ from cryptography.fernet import Fernet
 from database import db as db_module
 from database import models
 from database.db import get_db, init_db
+from handlers.pixel_activation import parse_pixel_credentials_message
+
+
+PIXEL_2FA_SECRET = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
 
 
 class PixelActivationV2Tests(unittest.IsolatedAsyncioTestCase):
@@ -60,7 +64,7 @@ class PixelActivationV2Tests(unittest.IsolatedAsyncioTestCase):
             user_display_name="Pixel Trace",
             email="trace@example.com",
             password="plain-password",
-            twofa_secret="plain-twofa",
+            twofa_secret=PIXEL_2FA_SECRET,
             channel="normal",
             request_key="pixel-test-draft-1",
         )
@@ -70,7 +74,7 @@ class PixelActivationV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(str(raw["password_encrypted"]).startswith("enc:v1:"))
         self.assertTrue(str(raw["twofa_secret_encrypted"]).startswith("enc:v1:"))
         self.assertNotIn("plain-password", str(raw["password_encrypted"]))
-        self.assertNotIn("plain-twofa", str(raw["twofa_secret_encrypted"]))
+        self.assertNotIn(PIXEL_2FA_SECRET, str(raw["twofa_secret_encrypted"]))
 
         snapshot = await models.get_pixel_dashboard_snapshot()
         task = next(item for item in snapshot["tasks"] if item["public_id"] == draft["public_id"])
@@ -110,7 +114,7 @@ class PixelActivationV2Tests(unittest.IsolatedAsyncioTestCase):
             user_display_name="Pixel Trace",
             email="trace@example.com",
             password="plain-password",
-            twofa_secret="plain-twofa",
+            twofa_secret=PIXEL_2FA_SECRET,
             channel="normal",
             request_key="pixel-test-draft-2",
         )
@@ -136,7 +140,7 @@ class PixelActivationV2Tests(unittest.IsolatedAsyncioTestCase):
             user_display_name="Pixel Trace",
             email="trace@example.com",
             password="plain-password",
-            twofa_secret="plain-twofa",
+            twofa_secret=PIXEL_2FA_SECRET,
             channel="normal",
             request_key="pixel-test-draft-3",
         )
@@ -157,6 +161,72 @@ class PixelActivationV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raw["email"], "trace@example.com")
         self.assertEqual(raw["password_encrypted"], "")
         self.assertEqual(raw["twofa_secret_encrypted"], "")
+
+    async def test_batch_reservation_is_atomic_and_idempotent(self):
+        packs = await models.get_pixel_credit_packs(active_only=True)
+        starter = next(pack for pack in packs if pack["credits"] == 10)
+        await models.purchase_pixel_credit_pack(
+            901001, starter["id"], reference_key="pixel-batch-credit-test"
+        )
+        created = await models.create_pixel_activation_batch_drafts(
+            user_telegram_id=901001,
+            user_display_name="Pixel Trace",
+            channel="normal",
+            request_key="pixel-batch-test-1",
+            credentials=[
+                {
+                    "email": "one@example.com",
+                    "password": "password-one",
+                    "twofa_secret": PIXEL_2FA_SECRET,
+                },
+                {
+                    "email": "two@example.com",
+                    "password": "password-two",
+                    "twofa_secret": PIXEL_2FA_SECRET,
+                },
+            ],
+        )
+        self.assertFalse(created["idempotent"])
+        self.assertEqual(len(created["tasks"]), 2)
+        self.assertTrue(created["batch"]["public_id"])
+
+        reserved = await models.reserve_pixel_activation_batch(
+            created["batch"]["public_id"], 901001
+        )
+        repeated = await models.reserve_pixel_activation_batch(
+            created["batch"]["public_id"], 901001
+        )
+        self.assertTrue(reserved["newly_reserved"])
+        self.assertFalse(repeated["newly_reserved"])
+        self.assertEqual(len(reserved["tasks"]), 2)
+        self.assertEqual(await models.get_pixel_credit_balance(901001), 0)
+        self.assertEqual(reserved["batch"]["credits_reserved"], 10)
+
+        db = await get_db()
+        try:
+            raw_tasks = await (await db.execute(
+                "SELECT password_encrypted, twofa_secret_encrypted, batch_public_id "
+                "FROM pixel_activation_tasks WHERE batch_public_id = ? ORDER BY id",
+                (created["batch"]["public_id"],),
+            )).fetchall()
+        finally:
+            await db.close()
+        self.assertEqual(len(raw_tasks), 2)
+        self.assertTrue(all(row["batch_public_id"] == created["batch"]["public_id"] for row in raw_tasks))
+        self.assertTrue(all(str(row["password_encrypted"]).startswith("enc:v1:") for row in raw_tasks))
+        self.assertTrue(all(str(row["twofa_secret_encrypted"]).startswith("enc:v1:") for row in raw_tasks))
+
+    async def test_batch_parser_requires_raw_32_character_twofa_secret(self):
+        entries = parse_pixel_credentials_message(
+            "one@example.com | pass-one | JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP\n"
+            "two@example.com | pass-two | JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+        )
+        self.assertEqual([entry["email"] for entry in entries], ["one@example.com", "two@example.com"])
+        self.assertEqual(entries[0]["twofa_secret"], PIXEL_2FA_SECRET)
+        with self.assertRaises(ValueError):
+            parse_pixel_credentials_message(
+                "one@example.com\npass-one\notpauth://totp/example?secret=JBSWY3DPEHPK3PXP"
+            )
 
 
 if __name__ == "__main__":
