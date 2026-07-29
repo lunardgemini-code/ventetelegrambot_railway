@@ -71,7 +71,7 @@ PIXEL_API_KEY: str = os.getenv("PIXEL_API_KEY", "").strip()
 PIXEL_API_BASE_URL: str = os.getenv(
     "PIXEL_API_BASE_URL", "https://pixel.wxie.de/api/v1"
 ).strip().rstrip("/")
-PIXEL_ADMIN_ONLY: bool = os.getenv("PIXEL_ADMIN_ONLY", "true").strip().lower() in {
+PIXEL_ADMIN_ONLY: bool = os.getenv("PIXEL_ADMIN_ONLY", "false").strip().lower() in {
     "1", "true", "yes", "on"
 }
 PIXEL_HTTP_TIMEOUT_SECONDS: float = max(
