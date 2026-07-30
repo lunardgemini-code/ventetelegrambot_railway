@@ -10735,6 +10735,28 @@ async def reserve_pixel_activation_batch(batch_public_id: str, user_telegram_id:
         await db.close()
 
 
+async def get_pixel_activation_batch(
+    batch_public_id: str, *, user_telegram_id: int | None = None
+) -> dict | None:
+    """Return one Pixel batch without exposing credential-bearing task rows."""
+    db = await get_db()
+    try:
+        if user_telegram_id is None:
+            row = await (await db.execute(
+                "SELECT * FROM pixel_activation_batches WHERE public_id = ?",
+                (str(batch_public_id),),
+            )).fetchone()
+        else:
+            row = await (await db.execute(
+                "SELECT * FROM pixel_activation_batches "
+                "WHERE public_id = ? AND user_telegram_id = ?",
+                (str(batch_public_id), int(user_telegram_id)),
+            )).fetchone()
+        return _pixel_public_batch(dict(row)) if row else None
+    finally:
+        await db.close()
+
+
 async def reserve_pixel_activation_task(public_id: str, user_telegram_id: int) -> dict:
     """Atomically reserve customer credits for one confirmed activation task."""
     user_id = int(user_telegram_id)

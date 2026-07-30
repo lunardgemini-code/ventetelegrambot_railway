@@ -17,6 +17,7 @@ from config import PIXEL_ADMIN_ONLY, PIXEL_ENABLED
 from database.models import (
     create_pixel_activation_draft,
     create_pixel_activation_batch_drafts,
+    get_pixel_activation_batch,
     get_pixel_activation_settings,
     get_pixel_activation_task,
     get_pixel_credit_balance,
@@ -29,6 +30,7 @@ from database.models import (
     reserve_pixel_activation_batch,
     signal_pixel_reconciliation,
 )
+from services.pixel_api import PixelAPIError, get_pixel_balance as get_pixel_supplier_balance
 from services.pixel_worker import process_pixel_activation_cycle
 from utils.helpers import escape_html, is_admin
 from utils.keyboards import make_button
@@ -41,6 +43,10 @@ PIXEL_CREDENTIALS = 310
 PIXEL_CONFIRM = 311
 PIXEL_BATCH_MAX_SIZE = 20
 _PIXEL_TWOFA_SECRET_RE = re.compile(r"[A-Z2-7]{32}")
+# Current supplier pricing is 6 points for Fast and 4 for Standard. Keeping
+# it here makes a confirmation fail closed if the supplier cannot cover a
+# requested activation or a complete batch.
+_PIXEL_SUPPLIER_POINTS_PER_ACTIVATION = {"fast": 6.0, "normal": 4.0}
 
 
 def _format_pixel_credits(value: object) -> str:
@@ -60,6 +66,40 @@ def _pixel_pack_credits_summary(pack: dict, lang: str) -> str:
             credits=credits, bonus=bonus, total=total
         )
     return total
+
+
+async def _pixel_supplier_ready(channel: str, task_count: int = 1) -> bool:
+    """Check supplier reachability and capacity before reserving user credits."""
+    settings = await get_pixel_activation_settings()
+    normalized_channel = "fast" if channel == "fast" else "normal"
+    count = max(1, int(task_count))
+    required_points = max(
+        float(settings.get("min_supplier_points") or 0),
+        _PIXEL_SUPPLIER_POINTS_PER_ACTIVATION[normalized_channel] * count,
+    )
+    try:
+        supplier_balance = await get_pixel_supplier_balance()
+    except PixelAPIError as exc:
+        logger.warning("Pixel supplier preflight failed before confirmation: %s", exc)
+        return False
+    available_points = float(supplier_balance.get("balance_points") or 0)
+    if available_points < required_points:
+        logger.warning(
+            "Pixel supplier preflight blocked confirmation: available=%s required=%s channel=%s count=%s",
+            available_points,
+            required_points,
+            normalized_channel,
+            count,
+        )
+        return False
+    return True
+
+
+def _pixel_supplier_retry_markup(lang: str, callback_data: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(t("pixel_retry_activation", lang), callback_data=callback_data)],
+        [InlineKeyboardButton(t("pixel_back_activation", lang), callback_data="pixel:menu")],
+    ])
 
 
 def parse_pixel_credentials_message(text: str) -> list[dict[str, str]]:
@@ -421,6 +461,17 @@ async def pixel_confirm_task(update: Update, context: ContextTypes.DEFAULT_TYPE)
         public_id = str(query.data).rsplit(":", 1)[1]
     except IndexError:
         return ConversationHandler.END
+    task = await get_pixel_activation_task(
+        public_id, user_telegram_id=int(update.effective_user.id)
+    )
+    if task and task.get("status") == "DRAFT":
+        if not await _pixel_supplier_ready(str(task.get("channel") or "normal")):
+            await safe_edit_message_text(
+                query,
+                t("pixel_supplier_preflight_failed", lang),
+                reply_markup=_pixel_supplier_retry_markup(lang, str(query.data)),
+            )
+            return ConversationHandler.END
     try:
         task = await reserve_pixel_activation_task(public_id, int(update.effective_user.id))
     except ValueError as exc:
@@ -467,6 +518,18 @@ async def pixel_confirm_batch(update: Update, context: ContextTypes.DEFAULT_TYPE
         batch_public_id = str(query.data).rsplit(":", 1)[1]
     except IndexError:
         return ConversationHandler.END
+    batch = await get_pixel_activation_batch(
+        batch_public_id, user_telegram_id=int(update.effective_user.id)
+    )
+    if batch and batch.get("status") == "DRAFT":
+        channel = str(batch.get("channel") or "normal")
+        if not await _pixel_supplier_ready(channel, int(batch.get("task_count") or 1)):
+            await safe_edit_message_text(
+                query,
+                t("pixel_supplier_preflight_failed", lang),
+                reply_markup=_pixel_supplier_retry_markup(lang, str(query.data)),
+            )
+            return ConversationHandler.END
     try:
         result = await reserve_pixel_activation_batch(batch_public_id, int(update.effective_user.id))
     except ValueError as exc:

@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import AsyncMock, patch
 
 from cryptography.fernet import Fernet
 from telegram.constants import KeyboardButtonStyle
@@ -8,7 +9,12 @@ from telegram.constants import KeyboardButtonStyle
 from database import db as db_module
 from database import models
 from database.db import get_db, init_db
-from handlers.pixel_activation import _main_markup, parse_pixel_credentials_message
+from handlers.pixel_activation import (
+    _main_markup,
+    _pixel_supplier_ready,
+    parse_pixel_credentials_message,
+)
+from services.pixel_api import PixelAPIError
 from utils.keyboards import main_menu_keyboard
 from utils.locales import t
 
@@ -247,6 +253,30 @@ class PixelActivationV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(repeat["idempotent"])
         self.assertEqual(repeat["credits_added"], 15)
         self.assertEqual(await models.get_pixel_credit_balance(901001), 15)
+
+    async def test_supplier_preflight_requires_live_capacity_before_reservation(self):
+        await models.update_pixel_activation_settings({
+            "credit_usd_price": 0.25,
+            "fast_credits": 3,
+            "normal_credits": 2,
+            "is_enabled": False,
+            "admin_only": True,
+            "min_supplier_points": 0,
+            "credential_retention_days": 90,
+        })
+        with patch(
+            "handlers.pixel_activation.get_pixel_supplier_balance",
+            new=AsyncMock(return_value={"balance_points": 6}),
+        ):
+            self.assertTrue(await _pixel_supplier_ready("fast"))
+            self.assertTrue(await _pixel_supplier_ready("normal"))
+            self.assertFalse(await _pixel_supplier_ready("fast", task_count=2))
+
+        with patch(
+            "handlers.pixel_activation.get_pixel_supplier_balance",
+            new=AsyncMock(side_effect=PixelAPIError("supplier offline")),
+        ):
+            self.assertFalse(await _pixel_supplier_ready("normal"))
 
     async def test_expired_draft_keeps_trace_identity_but_erases_credentials(self):
         draft = await models.create_pixel_activation_draft(

@@ -1721,6 +1721,35 @@ _PIXEL_PACK_BONUS_TRANSLATIONS = {
 for _pixel_lang, _pixel_strings in _PIXEL_PACK_BONUS_TRANSLATIONS.items():
     _PIXEL_TRANSLATIONS[_pixel_lang].update(_pixel_strings)
 
+_PIXEL_PROVIDER_PREFLIGHT_TRANSLATIONS = {
+    "en": {
+        "pixel_supplier_preflight_failed": "Pixel activation is temporarily unavailable. No credits were reserved. Please try again shortly.",
+        "pixel_retry_activation": "Try again",
+    },
+    "fr": {
+        "pixel_supplier_preflight_failed": "Le fournisseur d'activation Pixel est temporairement indisponible. Aucun credit n'a ete reserve. Reessaie dans quelques minutes.",
+        "pixel_retry_activation": "Reessayer",
+    },
+    "ar": {
+        "pixel_supplier_preflight_failed": "تفعيل Pixel غير متاح مؤقتاً. لم يتم حجز أي رصيد. حاول مرة أخرى بعد قليل.",
+        "pixel_retry_activation": "إعادة المحاولة",
+    },
+    "zh": {
+        "pixel_supplier_preflight_failed": "Pixel 激活暂时不可用。未预留任何积分，请稍后重试。",
+        "pixel_retry_activation": "重试",
+    },
+    "vi": {
+        "pixel_supplier_preflight_failed": "Kích hoạt Pixel hiện tạm thời không khả dụng. Không có điểm nào bị giữ lại. Vui lòng thử lại sau.",
+        "pixel_retry_activation": "Thử lại",
+    },
+    "ru": {
+        "pixel_supplier_preflight_failed": "Активация Pixel временно недоступна. Кредиты не были зарезервированы. Повторите попытку позже.",
+        "pixel_retry_activation": "Повторить",
+    },
+}
+for _pixel_lang, _pixel_strings in _PIXEL_PROVIDER_PREFLIGHT_TRANSLATIONS.items():
+    _PIXEL_TRANSLATIONS[_pixel_lang].update(_pixel_strings)
+
 for _pixel_lang, _pixel_strings in _PIXEL_TRANSLATIONS.items():
     TRANSLATIONS.setdefault(_pixel_lang, {}).update(_pixel_strings)
 
