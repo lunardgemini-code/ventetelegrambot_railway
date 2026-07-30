@@ -2079,6 +2079,7 @@ async def init_db() -> None:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     label TEXT NOT NULL DEFAULT '',
                     credits REAL NOT NULL CHECK (credits > 0),
+                    bonus_credits REAL NOT NULL DEFAULT 0 CHECK (bonus_credits >= 0),
                     price_usd REAL NOT NULL CHECK (price_usd > 0),
                     is_active INTEGER NOT NULL DEFAULT 1,
                     sort_order INTEGER NOT NULL DEFAULT 0,
@@ -2202,6 +2203,23 @@ async def init_db() -> None:
             )
             await db.commit()
             current_version = 24
+
+        # Pack bonuses are free credits credited with a paid pack. The pack
+        # price remains based on ``credits`` alone, so a bonus cannot quietly
+        # alter a customer's wallet charge.
+        if current_version < 25:
+            pixel_pack_columns = await _columns_for("pixel_credit_packs")
+            if "bonus_credits" not in pixel_pack_columns:
+                await db.execute(
+                    "ALTER TABLE pixel_credit_packs "
+                    "ADD COLUMN bonus_credits REAL NOT NULL DEFAULT 0"
+                )
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (25, ?)",
+                ("pixel_credit_pack_bonuses",),
+            )
+            await db.commit()
+            current_version = 25
 
     finally:
         await db.close()

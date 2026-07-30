@@ -10060,6 +10060,21 @@ def _validated_pixel_credit_amount(
     return float(normalized)
 
 
+def _pixel_public_credit_pack(row: dict) -> dict:
+    """Expose base, bonus, and credited totals without changing pack pricing."""
+    data = dict(row)
+    credits = _pixel_credit_amount(data.get("credits"))
+    bonus_credits = _pixel_credit_amount(data.get("bonus_credits"))
+    data.update({
+        "credits": credits,
+        "bonus_credits": bonus_credits,
+        "total_credits": _pixel_credit_amount(credits + bonus_credits),
+        "price_usd": float(data.get("price_usd") or 0),
+        "is_active": bool(data.get("is_active")),
+    })
+    return data
+
+
 def _normalize_pixel_credentials(email: str, password: str, twofa_secret: str) -> tuple[str, str, str]:
     """Validate the provider's raw 32-character 2FA secret format.
 
@@ -10241,15 +10256,7 @@ async def get_pixel_credit_packs(*, active_only: bool = False) -> list[dict]:
         rows = await (await db.execute(
             f"SELECT * FROM pixel_credit_packs {where} ORDER BY sort_order ASC, id ASC"
         )).fetchall()
-        return [
-            {
-                **dict(row),
-                "credits": _pixel_credit_amount(row["credits"]),
-                "price_usd": float(row["price_usd"]),
-                "is_active": bool(row["is_active"]),
-            }
-            for row in rows
-        ]
+        return [_pixel_public_credit_pack(dict(row)) for row in rows]
     finally:
         await db.close()
 
@@ -10259,6 +10266,11 @@ async def upsert_pixel_credit_pack(values: dict) -> dict:
         pack_id = int(values["id"]) if values.get("id") else None
         credits = _validated_pixel_credit_amount(
             values["credits"], maximum=Decimal("1000000")
+        )
+        bonus_credits = _validated_pixel_credit_amount(
+            values.get("bonus_credits", 0),
+            minimum=Decimal("0"),
+            maximum=Decimal("1000000"),
         )
         sort_order = int(values.get("sort_order") or 0)
     except (TypeError, ValueError, KeyError) as exc:
@@ -10280,29 +10292,23 @@ async def upsert_pixel_credit_pack(values: dict) -> dict:
         if pack_id:
             cursor = await db.execute(
                 """UPDATE pixel_credit_packs
-                   SET label = ?, credits = ?, price_usd = ?, is_active = ?,
+                   SET label = ?, credits = ?, bonus_credits = ?, price_usd = ?, is_active = ?,
                        sort_order = ?, updated_at = CURRENT_TIMESTAMP
                    WHERE id = ? RETURNING *""",
-                (label, credits, price_usd, is_active, sort_order, pack_id),
+                (label, credits, bonus_credits, price_usd, is_active, sort_order, pack_id),
             )
         else:
             cursor = await db.execute(
                 """INSERT INTO pixel_credit_packs
-                   (label, credits, price_usd, is_active, sort_order)
-                   VALUES (?, ?, ?, ?, ?) RETURNING *""",
-                (label, credits, price_usd, is_active, sort_order),
+                   (label, credits, bonus_credits, price_usd, is_active, sort_order)
+                   VALUES (?, ?, ?, ?, ?, ?) RETURNING *""",
+                (label, credits, bonus_credits, price_usd, is_active, sort_order),
             )
         row = await cursor.fetchone()
         if not row:
             raise ValueError("Credit pack not found")
         await db.commit()
-        result = dict(row)
-        result.update({
-            "credits": _pixel_credit_amount(result["credits"]),
-            "price_usd": float(result["price_usd"]),
-            "is_active": bool(result["is_active"]),
-        })
-        return result
+        return _pixel_public_credit_pack(dict(row))
     except Exception:
         try:
             await db.rollback()
@@ -10361,6 +10367,7 @@ async def purchase_pixel_credit_pack(
             return {
                 "idempotent": True,
                 "credits_added": _pixel_credit_amount(prior["amount_credits"]),
+                "bonus_credits": 0.0,
                 "credit_balance": _pixel_credit_amount(prior["balance_after"]),
                 "wallet_balance": float(wallet["wallet_balance"] or 0) if wallet else 0.0,
                 "price_usd": float(prior["amount_usd"] or 0),
@@ -10373,6 +10380,8 @@ async def purchase_pixel_credit_pack(
         if not pack:
             raise ValueError("Pixel credit pack is unavailable")
         credits = _pixel_credit_amount(pack["credits"])
+        bonus_credits = _pixel_credit_amount(pack["bonus_credits"])
+        credits_added = _pixel_credit_amount(credits + bonus_credits)
         price_usd = usd_float(pack["price_usd"], places=4, allow_zero=False)
 
         cursor = await db.execute(
@@ -10394,7 +10403,7 @@ async def purchase_pixel_credit_pack(
                    balance_credits = ROUND(pixel_credit_accounts.balance_credits + excluded.balance_credits, 3),
                    updated_at = CURRENT_TIMESTAMP
                RETURNING balance_credits""",
-            (user_id, credits),
+            (user_id, credits_added),
         )
         account = await cursor.fetchone()
         credit_balance = _pixel_credit_amount(account["balance_credits"])
@@ -10403,7 +10412,14 @@ async def purchase_pixel_credit_pack(
                (user_telegram_id, amount_credits, balance_after, amount_usd,
                 event_type, reference_key, description)
                VALUES (?, ?, ?, ?, 'WALLET_TOPUP', ?, ?)""",
-            (user_id, credits, credit_balance, price_usd, reference_key, f"Pixel credits pack #{int(pack_id)}"),
+            (
+                user_id,
+                credits_added,
+                credit_balance,
+                price_usd,
+                reference_key,
+                f"Pixel credits pack #{int(pack_id)} ({credits} + {bonus_credits} bonus)",
+            ),
         )
         await db.execute(
             """INSERT INTO wallet_transactions
@@ -10415,7 +10431,8 @@ async def purchase_pixel_credit_pack(
         invalidate_stats_cache()
         return {
             "idempotent": False,
-            "credits_added": credits,
+            "credits_added": credits_added,
+            "bonus_credits": bonus_credits,
             "credit_balance": credit_balance,
             "wallet_balance": wallet_balance,
             "price_usd": price_usd,
@@ -11254,15 +11271,7 @@ async def get_pixel_dashboard_snapshot() -> dict:
         )).fetchone()
         return {
             "settings": _pixel_settings_from_row(dict(settings_row) if settings_row else None),
-            "packs": [
-                {
-                    **dict(row),
-                    "credits": _pixel_credit_amount(row["credits"]),
-                    "price_usd": float(row["price_usd"]),
-                    "is_active": bool(row["is_active"]),
-                }
-                for row in packs
-            ],
+            "packs": [_pixel_public_credit_pack(dict(row)) for row in packs],
             "tasks": [_pixel_dashboard_task(dict(row)) for row in tasks],
             "stats": {
                 "by_status": {str(row["status"]): int(row["count"]) for row in stats_rows},

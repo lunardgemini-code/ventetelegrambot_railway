@@ -1692,6 +1692,35 @@ _PIXEL_PIPE_CREDENTIAL_TRANSLATIONS = {
 for _pixel_lang, _pixel_strings in _PIXEL_PIPE_CREDENTIAL_TRANSLATIONS.items():
     _PIXEL_TRANSLATIONS[_pixel_lang].update(_pixel_strings)
 
+_PIXEL_PACK_BONUS_TRANSLATIONS = {
+    "en": {
+        "pixel_pack_bonus_summary": "{credits} + {bonus} bonus = {total}",
+        "pixel_bonus_included": "Bonus included: +{credits} credits",
+    },
+    "fr": {
+        "pixel_pack_bonus_summary": "{credits} + {bonus} bonus = {total}",
+        "pixel_bonus_included": "Bonus inclus : +{credits} credits",
+    },
+    "ar": {
+        "pixel_pack_bonus_summary": "{credits} + {bonus} إضافي = {total}",
+        "pixel_bonus_included": "رصيد إضافي: +{credits} نقطة",
+    },
+    "zh": {
+        "pixel_pack_bonus_summary": "{credits} + {bonus} 奖励 = {total}",
+        "pixel_bonus_included": "已包含奖励：+{credits} 积分",
+    },
+    "vi": {
+        "pixel_pack_bonus_summary": "{credits} + {bonus} thưởng = {total}",
+        "pixel_bonus_included": "Đã gồm thưởng: +{credits} điểm",
+    },
+    "ru": {
+        "pixel_pack_bonus_summary": "{credits} + {bonus} бонус = {total}",
+        "pixel_bonus_included": "Бонус включен: +{credits} кредитов",
+    },
+}
+for _pixel_lang, _pixel_strings in _PIXEL_PACK_BONUS_TRANSLATIONS.items():
+    _PIXEL_TRANSLATIONS[_pixel_lang].update(_pixel_strings)
+
 for _pixel_lang, _pixel_strings in _PIXEL_TRANSLATIONS.items():
     TRANSLATIONS.setdefault(_pixel_lang, {}).update(_pixel_strings)
 

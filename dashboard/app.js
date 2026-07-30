@@ -972,6 +972,16 @@ const PIXEL_DASHBOARD_TRANSLATIONS = {
 };
 Object.entries(PIXEL_DASHBOARD_TRANSLATIONS).forEach(([language, strings]) => Object.assign(LANG[language], strings));
 
+const PIXEL_PACK_BONUS_TRANSLATIONS = {
+    en: {pixel_pack_bonus_credits:'Bonus credits', pixel_pack_bonus_summary:'{credits} + {bonus} bonus = {total}'},
+    fr: {pixel_pack_bonus_credits:'Credits bonus', pixel_pack_bonus_summary:'{credits} + {bonus} bonus = {total}'},
+    ar: {pixel_pack_bonus_credits:'رصيد إضافي', pixel_pack_bonus_summary:'{credits} + {bonus} إضافي = {total}'},
+    zh: {pixel_pack_bonus_credits:'赠送积分', pixel_pack_bonus_summary:'{credits} + {bonus} 奖励 = {total}'},
+    vi: {pixel_pack_bonus_credits:'Điểm thưởng', pixel_pack_bonus_summary:'{credits} + {bonus} thưởng = {total}'},
+    ru: {pixel_pack_bonus_credits:'Бонусные кредиты', pixel_pack_bonus_summary:'{credits} + {bonus} бонус = {total}'},
+};
+Object.entries(PIXEL_PACK_BONUS_TRANSLATIONS).forEach(([language, strings]) => Object.assign(LANG[language], strings));
+
 const state = {
     botUrl:'', apiKey:'', currentLang:'fr', currentTab:'dashboard-tab',
     categories:[], products:[], orders:[], activations:[], resellers:[], users:[], promos:[], tickets:[], walletHistory:[], binanceAccounts:[],
@@ -1083,7 +1093,7 @@ const DOM = {
     pixelSettingsForm:$('pixel-settings-form'), pixelEnabled:$('pixel-enabled'), pixelAdminOnly:$('pixel-admin-only'), pixelCreditUsdPrice:$('pixel-credit-usd-price'),
     pixelFastCredits:$('pixel-fast-credits'), pixelNormalCredits:$('pixel-normal-credits'), pixelMinSupplierPoints:$('pixel-min-supplier-points'), pixelCredentialRetention:$('pixel-credential-retention'),
     pixelRuntimeState:$('pixel-runtime-state'), pixelSupplierBalance:$('pixel-supplier-balance'), pixelPendingTasks:$('pixel-pending-tasks'), pixelCreditsRevenue:$('pixel-credits-revenue'), pixelRuntimeNote:$('pixel-runtime-note'),
-    pixelPackForm:$('pixel-pack-form'), pixelPackId:$('pixel-pack-id'), pixelPackLabel:$('pixel-pack-label'), pixelPackCredits:$('pixel-pack-credits'), pixelPackSort:$('pixel-pack-sort'), pixelPackActive:$('pixel-pack-active'), pixelPackSubmit:$('pixel-pack-submit'), pixelPacksList:$('pixel-packs-list'), pixelTasksBody:$('pixel-tasks-body'), btnPixelReconcile:$('btn-pixel-reconcile'),
+    pixelPackForm:$('pixel-pack-form'), pixelPackId:$('pixel-pack-id'), pixelPackLabel:$('pixel-pack-label'), pixelPackCredits:$('pixel-pack-credits'), pixelPackBonusCredits:$('pixel-pack-bonus-credits'), pixelPackSort:$('pixel-pack-sort'), pixelPackActive:$('pixel-pack-active'), pixelPackSubmit:$('pixel-pack-submit'), pixelPacksList:$('pixel-packs-list'), pixelTasksBody:$('pixel-tasks-body'), btnPixelReconcile:$('btn-pixel-reconcile'),
     btnGameRefresh:$('btn-game-refresh'), gameProviderStatus:$('game-provider-status'), gameProviderWarning:$('game-provider-warning'),
     gameOpenCount:$('game-open-count'), gameSettleCount:$('game-settle-count'), gameBetCount:$('game-bet-count'), gameCoinsStaked:$('game-coins-staked'),
     gameCatalogFilters:$('game-catalog-filters'), gameDateFrom:$('game-date-from'), gameDateTo:$('game-date-to'),
@@ -6328,6 +6338,17 @@ function pixelCreditInputValue(value) {
     return amount.toFixed(3).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
 }
 
+function pixelPackCreditsSummary(pack) {
+    const credits = formatPixelCredits(pack?.credits);
+    const bonus = Number(pack?.bonus_credits || 0);
+    const total = formatPixelCredits(pack?.total_credits ?? (Number(pack?.credits || 0) + bonus));
+    return bonus > 0 ? tf('pixel_pack_bonus_summary', {
+        credits,
+        bonus: formatPixelCredits(bonus),
+        total,
+    }) : total;
+}
+
 function pixelTaskPresentation(status) {
     const normalized = String(status || 'DRAFT').toUpperCase();
     const key = `pixel_status_${normalized.toLowerCase()}`;
@@ -6344,6 +6365,7 @@ function resetPixelPackForm() {
     DOM.pixelPackForm.reset();
     DOM.pixelPackId.value = '';
     DOM.pixelPackActive.checked = true;
+    if (DOM.pixelPackBonusCredits) DOM.pixelPackBonusCredits.value = '0';
     DOM.pixelPackSort.value = '0';
     DOM.pixelPackSubmit?.querySelector('span')?.replaceChildren(document.createTextNode(t('pixel_pack_add')));
 }
@@ -6394,11 +6416,14 @@ function renderPixelActivation() {
 
     const packs = data.packs || [];
     if (DOM.pixelPacksList) {
-        DOM.pixelPacksList.innerHTML = packs.length ? packs.map(pack => `<article class="pixel-pack-row">
-            <div><strong>${escapeHtml(pack.label || tf('pixel_pack_default_label', {credits:formatPixelCredits(pack.credits)}))}</strong><small>${formatPixelCredits(pack.credits)} ${escapeHtml(t('pixel_credits_short'))} - $${Number(pack.price_usd || 0).toFixed(2)}</small></div>
+        DOM.pixelPacksList.innerHTML = packs.length ? packs.map(pack => {
+            const creditsSummary = pixelPackCreditsSummary(pack);
+            return `<article class="pixel-pack-row">
+            <div><strong>${escapeHtml(pack.label || tf('pixel_pack_default_label', {credits:creditsSummary}))}</strong><small>${escapeHtml(creditsSummary)} ${escapeHtml(t('pixel_credits_short'))} - $${Number(pack.price_usd || 0).toFixed(2)}</small></div>
             <span class="status-badge ${pack.is_active ? 'completed' : 'cancelled'}">${pack.is_active ? escapeHtml(t('active')) : escapeHtml(t('inactive'))}</span>
             <div class="pixel-pack-actions"><button type="button" class="btn-table-action" data-action="pixel-pack-edit" data-id="${Number(pack.id)}" title="${escapeHtml(t('pixel_pack_edit'))}"><i class="fa-solid fa-pen"></i></button><button type="button" class="btn-table-action delete" data-action="pixel-pack-delete" data-id="${Number(pack.id)}" title="${escapeHtml(t('confirm_delete'))}"><i class="fa-solid fa-trash"></i></button></div>
-        </article>`).join('') : `<p class="empty-state">${escapeHtml(t('pixel_packs_empty'))}</p>`;
+        </article>`;
+        }).join('') : `<p class="empty-state">${escapeHtml(t('pixel_packs_empty'))}</p>`;
     }
 
     const tasks = data.tasks || [];
@@ -6446,6 +6471,7 @@ async function savePixelCreditPack(event) {
             id: DOM.pixelPackId?.value || null,
             label: DOM.pixelPackLabel?.value.trim() || '',
             credits: Number(DOM.pixelPackCredits?.value),
+            bonus_credits: Number(DOM.pixelPackBonusCredits?.value || 0),
             sort_order: Number(DOM.pixelPackSort?.value || 0),
             is_active: Boolean(DOM.pixelPackActive?.checked),
         });
@@ -6463,6 +6489,7 @@ function editPixelCreditPack(packId) {
     DOM.pixelPackId.value = String(pack.id);
     DOM.pixelPackLabel.value = pack.label || '';
     DOM.pixelPackCredits.value = pixelCreditInputValue(pack.credits);
+    if (DOM.pixelPackBonusCredits) DOM.pixelPackBonusCredits.value = pixelCreditInputValue(pack.bonus_credits);
     DOM.pixelPackSort.value = String(Number(pack.sort_order || 0));
     DOM.pixelPackActive.checked = Boolean(pack.is_active);
     DOM.pixelPackSubmit?.querySelector('span')?.replaceChildren(document.createTextNode(t('pixel_pack_save')));

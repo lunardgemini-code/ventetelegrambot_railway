@@ -207,6 +207,41 @@ class PixelActivationV2Tests(unittest.IsolatedAsyncioTestCase):
             await db.close()
         self.assertEqual(stored["balance_type"], "real")
 
+    async def test_credit_pack_bonus_is_credited_without_changing_pack_price(self):
+        await models.update_pixel_activation_settings({
+            "credit_usd_price": 0.25,
+            "fast_credits": 1.5,
+            "normal_credits": 0.5,
+            "is_enabled": False,
+            "admin_only": True,
+            "min_supplier_points": 0,
+            "credential_retention_days": 90,
+        })
+        pack = await models.upsert_pixel_credit_pack({
+            "label": "Pro",
+            "credits": 10,
+            "bonus_credits": 5,
+            "sort_order": 50,
+            "is_active": True,
+        })
+        self.assertEqual(pack["credits"], 10)
+        self.assertEqual(pack["bonus_credits"], 5)
+        self.assertEqual(pack["total_credits"], 15)
+        self.assertEqual(pack["price_usd"], 2.5)
+
+        purchase = await models.purchase_pixel_credit_pack(
+            901001, pack["id"], reference_key="pixel-bonus-credit-test"
+        )
+        repeat = await models.purchase_pixel_credit_pack(
+            901001, pack["id"], reference_key="pixel-bonus-credit-test"
+        )
+        self.assertFalse(purchase["idempotent"])
+        self.assertEqual(purchase["credits_added"], 15)
+        self.assertEqual(purchase["bonus_credits"], 5)
+        self.assertTrue(repeat["idempotent"])
+        self.assertEqual(repeat["credits_added"], 15)
+        self.assertEqual(await models.get_pixel_credit_balance(901001), 15)
+
     async def test_expired_draft_keeps_trace_identity_but_erases_credentials(self):
         draft = await models.create_pixel_activation_draft(
             user_telegram_id=901001,

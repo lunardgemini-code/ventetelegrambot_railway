@@ -51,6 +51,17 @@ def _format_pixel_credits(value: object) -> str:
         return "0"
 
 
+def _pixel_pack_credits_summary(pack: dict, lang: str) -> str:
+    credits = _format_pixel_credits(pack.get("credits"))
+    bonus = _format_pixel_credits(pack.get("bonus_credits"))
+    total = _format_pixel_credits(pack.get("total_credits", pack.get("credits")))
+    if float(pack.get("bonus_credits") or 0) > 0:
+        return t("pixel_pack_bonus_summary", lang).format(
+            credits=credits, bonus=bonus, total=total
+        )
+    return total
+
+
 def parse_pixel_credentials_message(text: str) -> list[dict[str, str]]:
     """Parse one legacy three-line record or a pipe-delimited batch.
 
@@ -190,7 +201,7 @@ async def pixel_credit_packs_menu(update: Update, context: ContextTypes.DEFAULT_
     rows = []
     for pack in packs:
         label = str(pack.get("label") or "").strip()
-        credits_label = _format_pixel_credits(pack["credits"])
+        credits_label = _pixel_pack_credits_summary(pack, lang)
         title = label or t("pixel_credit_pack", lang).format(credits=credits_label)
         rows.append([
             InlineKeyboardButton(
@@ -222,10 +233,15 @@ async def pixel_credit_pack_confirm(update: Update, context: ContextTypes.DEFAUL
     wallet_balance = await get_wallet_balance(int(update.effective_user.id))
     enough = wallet_balance >= float(pack["price_usd"])
     text = t("pixel_credit_confirm", lang).format(
-        credits=_format_pixel_credits(pack["credits"]),
+        credits=_format_pixel_credits(pack.get("total_credits", pack["credits"])),
         price=f"{pack['price_usd']:.2f}",
         wallet=f"{wallet_balance:.2f}",
     )
+    bonus = float(pack.get("bonus_credits") or 0)
+    if bonus > 0:
+        text += "\n" + t("pixel_bonus_included", lang).format(
+            credits=_format_pixel_credits(bonus)
+        )
     rows = []
     if enough:
         rows.append([InlineKeyboardButton(t("pixel_confirm_credit_purchase", lang), callback_data=f"pixel:credit-buy:{pack_id}")])
@@ -271,6 +287,11 @@ async def pixel_credit_pack_purchase(update: Update, context: ContextTypes.DEFAU
         balance=_format_pixel_credits(result["credit_balance"]),
         wallet=f"{result['wallet_balance']:.2f}",
     )
+    bonus = float(result.get("bonus_credits") or 0)
+    if bonus > 0:
+        text += "\n" + t("pixel_bonus_included", lang).format(
+            credits=_format_pixel_credits(bonus)
+        )
     await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=_main_markup(lang))
 
 

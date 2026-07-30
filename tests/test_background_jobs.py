@@ -83,10 +83,14 @@ class PersistentBackgroundJobTests(unittest.IsolatedAsyncioTestCase):
             product_columns = {
                 str(row["name"]) for row in await cursor.fetchall()
             }
+            cursor = await db.execute("PRAGMA table_info(pixel_credit_packs)")
+            pixel_pack_columns = {
+                str(row["name"]) for row in await cursor.fetchall()
+            }
         finally:
             await db.close()
 
-        self.assertEqual(versions, [*range(1, 22), 23, 24])
+        self.assertEqual(versions, [*range(1, 22), 23, 24, 25])
         self.assertEqual(tables, [
             "background_jobs",
             "performance_action_hourly",
@@ -115,6 +119,7 @@ class PersistentBackgroundJobTests(unittest.IsolatedAsyncioTestCase):
             }
             <= product_columns
         )
+        self.assertIn("bonus_credits", pixel_pack_columns)
 
     async def test_webhook_autoscale_settings_and_decisions_are_persistent(self):
         settings = await update_webhook_autoscale_settings(
