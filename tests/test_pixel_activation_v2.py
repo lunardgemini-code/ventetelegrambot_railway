@@ -9,6 +9,7 @@ from database import db as db_module
 from database import models
 from database.db import get_db, init_db
 from handlers.pixel_activation import _main_markup, parse_pixel_credentials_message
+from utils.keyboards import main_menu_keyboard
 from utils.locales import t
 
 
@@ -29,6 +30,11 @@ class PixelActivationV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("min-h", buttons[0].text)
         self.assertIn("24 h", buttons[1].text)
         self.assertIn("email | password | 32-character 2FA secret", t("pixel_credentials_prompt", "en"))
+
+        main_menu = main_menu_keyboard("en", include_pixel=True)
+        pixel_button = main_menu.inline_keyboard[1][0]
+        self.assertEqual(pixel_button.callback_data, "pixel:menu")
+        self.assertEqual(pixel_button.style, KeyboardButtonStyle.PRIMARY)
 
     async def asyncSetUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()

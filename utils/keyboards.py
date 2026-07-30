@@ -125,7 +125,12 @@ def main_menu_keyboard(lang: str = "fr", *, include_pixel: bool = False) -> Inli
         [make_button("btn_buy", lang, callback_data="menu_buy", style=KeyboardButtonStyle.SUCCESS)],
     ]
     if include_pixel:
-        rows.append([make_button("btn_pixel_activation", lang, callback_data="pixel:menu")])
+        rows.append([make_button(
+            "btn_pixel_activation",
+            lang,
+            callback_data="pixel:menu",
+            style=KeyboardButtonStyle.PRIMARY,
+        )])
     rows.extend([
         [make_button("btn_wallet", lang, callback_data="menu_wallet")],
         [make_button("btn_game", lang, callback_data="menu_game", style=KeyboardButtonStyle.DANGER)],
