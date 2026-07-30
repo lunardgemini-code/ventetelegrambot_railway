@@ -1629,6 +1629,38 @@ _PIXEL_BATCH_TRANSLATIONS = {
 for _pixel_lang, _pixel_strings in _PIXEL_BATCH_TRANSLATIONS.items():
     _PIXEL_TRANSLATIONS[_pixel_lang].update(_pixel_strings)
 
+# These are deliberately separate from the mode names used in receipts and
+# task details: the menu needs concise turnaround expectations without making
+# every confirmation message needlessly long.
+_PIXEL_MENU_BUTTON_TRANSLATIONS = {
+    "en": {
+        "pixel_mode_fast_button": "Fast activation (min-h)",
+        "pixel_mode_normal_button": "🟣 Standard activation (<=24 h)",
+    },
+    "fr": {
+        "pixel_mode_fast_button": "Activation rapide (min-h)",
+        "pixel_mode_normal_button": "🟣 Activation standard (<=24 h)",
+    },
+    "ar": {
+        "pixel_mode_fast_button": "تفعيل سريع (دقائق-ساعات)",
+        "pixel_mode_normal_button": "🟣 تفعيل قياسي (حتى 24 ساعة)",
+    },
+    "zh": {
+        "pixel_mode_fast_button": "快速激活（分钟-小时）",
+        "pixel_mode_normal_button": "🟣 标准激活（最多 24 小时）",
+    },
+    "vi": {
+        "pixel_mode_fast_button": "Kích hoạt nhanh (phút-giờ)",
+        "pixel_mode_normal_button": "🟣 Kích hoạt tiêu chuẩn (<=24 giờ)",
+    },
+    "ru": {
+        "pixel_mode_fast_button": "Быстрая активация (мин-часы)",
+        "pixel_mode_normal_button": "🟣 Стандартная активация (до 24 ч)",
+    },
+}
+for _pixel_lang, _pixel_strings in _PIXEL_MENU_BUTTON_TRANSLATIONS.items():
+    _PIXEL_TRANSLATIONS[_pixel_lang].update(_pixel_strings)
+
 for _pixel_lang, _pixel_strings in _PIXEL_TRANSLATIONS.items():
     TRANSLATIONS.setdefault(_pixel_lang, {}).update(_pixel_strings)
 

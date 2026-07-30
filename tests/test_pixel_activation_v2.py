@@ -3,17 +3,31 @@ import tempfile
 import unittest
 
 from cryptography.fernet import Fernet
+from telegram.constants import KeyboardButtonStyle
 
 from database import db as db_module
 from database import models
 from database.db import get_db, init_db
-from handlers.pixel_activation import parse_pixel_credentials_message
+from handlers.pixel_activation import _main_markup, parse_pixel_credentials_message
+from utils.locales import t
 
 
 PIXEL_2FA_SECRET = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
 
 
 class PixelActivationV2Tests(unittest.IsolatedAsyncioTestCase):
+    def test_activation_menu_has_clear_turnaround_labels_and_safe_styles(self):
+        for lang in ("en", "fr", "ar", "zh", "vi", "ru"):
+            self.assertNotEqual(t("pixel_mode_fast_button", lang), "pixel_mode_fast_button")
+            self.assertNotEqual(t("pixel_mode_normal_button", lang), "pixel_mode_normal_button")
+
+        buttons = [row[0] for row in _main_markup("en").inline_keyboard]
+        self.assertEqual(buttons[0].style, KeyboardButtonStyle.PRIMARY)
+        self.assertIsNone(buttons[1].style)
+        self.assertEqual(buttons[2].style, KeyboardButtonStyle.SUCCESS)
+        self.assertIn("min-h", buttons[0].text)
+        self.assertIn("24 h", buttons[1].text)
+
     async def asyncSetUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.previous_db_path = os.environ.get("DB_PATH")

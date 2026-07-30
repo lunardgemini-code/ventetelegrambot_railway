@@ -10,6 +10,7 @@ import logging
 import re
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.constants import KeyboardButtonStyle
 from telegram.ext import CallbackQueryHandler, ContextTypes, ConversationHandler, MessageHandler, filters
 
 from config import PIXEL_ADMIN_ONLY, PIXEL_ENABLED
@@ -127,9 +128,23 @@ async def _guard(update: Update) -> tuple[bool, str]:
 
 def _main_markup(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(t("pixel_mode_fast", lang), callback_data="pixel:mode:fast")],
-        [InlineKeyboardButton(t("pixel_mode_normal", lang), callback_data="pixel:mode:normal")],
-        [InlineKeyboardButton(t("pixel_buy_credits", lang), callback_data="pixel:credits")],
+        [InlineKeyboardButton(
+            t("pixel_mode_fast_button", lang),
+            callback_data="pixel:mode:fast",
+            style=KeyboardButtonStyle.PRIMARY,
+        )],
+        # Telegram only supports blue, green, and red button backgrounds. The
+        # purple marker keeps the Standard option visually distinct without
+        # misrepresenting a color that the Telegram API cannot render.
+        [InlineKeyboardButton(
+            t("pixel_mode_normal_button", lang),
+            callback_data="pixel:mode:normal",
+        )],
+        [InlineKeyboardButton(
+            t("pixel_buy_credits", lang),
+            callback_data="pixel:credits",
+            style=KeyboardButtonStyle.SUCCESS,
+        )],
         [InlineKeyboardButton(t("pixel_my_tasks", lang), callback_data="pixel:tasks")],
         [make_button("btn_back", lang, callback_data="back_main")],
     ])
