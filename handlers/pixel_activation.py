@@ -43,6 +43,14 @@ PIXEL_BATCH_MAX_SIZE = 20
 _PIXEL_TWOFA_SECRET_RE = re.compile(r"[A-Z2-7]{32}")
 
 
+def _format_pixel_credits(value: object) -> str:
+    """Keep customer-facing credit amounts compact while preserving decimals."""
+    try:
+        return f"{float(value):.3f}".rstrip("0").rstrip(".") or "0"
+    except (TypeError, ValueError):
+        return "0"
+
+
 def parse_pixel_credentials_message(text: str) -> list[dict[str, str]]:
     """Parse one legacy three-line record or a pipe-delimited batch.
 
@@ -161,9 +169,9 @@ async def pixel_activation_menu(update: Update, context: ContextTypes.DEFAULT_TY
     credits = await get_pixel_credit_balance(user_id)
     settings = await get_pixel_activation_settings()
     text = t("pixel_menu", lang).format(
-        credits=credits,
-        fast_credits=settings["fast_credits"],
-        normal_credits=settings["normal_credits"],
+        credits=_format_pixel_credits(credits),
+        fast_credits=_format_pixel_credits(settings["fast_credits"]),
+        normal_credits=_format_pixel_credits(settings["normal_credits"]),
     )
     if query:
         await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=_main_markup(lang))
@@ -182,17 +190,18 @@ async def pixel_credit_packs_menu(update: Update, context: ContextTypes.DEFAULT_
     rows = []
     for pack in packs:
         label = str(pack.get("label") or "").strip()
-        title = label or t("pixel_credit_pack", lang).format(credits=pack["credits"])
+        credits_label = _format_pixel_credits(pack["credits"])
+        title = label or t("pixel_credit_pack", lang).format(credits=credits_label)
         rows.append([
             InlineKeyboardButton(
-                f"{title} - {pack['credits']} {t('pixel_credits_short', lang)} (${pack['price_usd']:.2f})",
+                f"{title} - {credits_label} {t('pixel_credits_short', lang)} (${pack['price_usd']:.2f})",
                 callback_data=f"pixel:credit-pack:{int(pack['id'])}",
             )
         ])
     if not rows:
         rows.append([InlineKeyboardButton(t("pixel_no_credit_packs", lang), callback_data="pixel:menu")])
     rows.append([InlineKeyboardButton(t("pixel_back_activation", lang), callback_data="pixel:menu")])
-    text = t("pixel_credit_packs", lang).format(credits=credits)
+    text = t("pixel_credit_packs", lang).format(credits=_format_pixel_credits(credits))
     await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(rows))
 
 
@@ -213,7 +222,7 @@ async def pixel_credit_pack_confirm(update: Update, context: ContextTypes.DEFAUL
     wallet_balance = await get_wallet_balance(int(update.effective_user.id))
     enough = wallet_balance >= float(pack["price_usd"])
     text = t("pixel_credit_confirm", lang).format(
-        credits=pack["credits"],
+        credits=_format_pixel_credits(pack["credits"]),
         price=f"{pack['price_usd']:.2f}",
         wallet=f"{wallet_balance:.2f}",
     )
@@ -258,8 +267,8 @@ async def pixel_credit_pack_purchase(update: Update, context: ContextTypes.DEFAU
         await safe_edit_message_text(query, t("pixel_credit_purchase_failed", lang), reply_markup=_main_markup(lang))
         return
     text = t("pixel_credit_purchase_success", lang).format(
-        credits=result["credits_added"],
-        balance=result["credit_balance"],
+        credits=_format_pixel_credits(result["credits_added"]),
+        balance=_format_pixel_credits(result["credit_balance"]),
         wallet=f"{result['wallet_balance']:.2f}",
     )
     await safe_edit_message_text(query, text, parse_mode="HTML", reply_markup=_main_markup(lang))
@@ -277,7 +286,7 @@ async def pixel_select_channel(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data["pixel_channel"] = channel
     text = t("pixel_credentials_prompt", lang).format(
         channel=escape_html(t(f"pixel_channel_{channel}", lang)),
-        credits=credits,
+        credits=_format_pixel_credits(credits),
         max_accounts=PIXEL_BATCH_MAX_SIZE,
     )
     await safe_edit_message_text(
@@ -349,7 +358,7 @@ async def pixel_receive_credentials(update: Update, context: ContextTypes.DEFAUL
         confirmation = t("pixel_batch_confirm", lang).format(
             count=count,
             channel=escape_html(t(f"pixel_channel_{channel}", lang)),
-            credits=cost * count,
+            credits=_format_pixel_credits(cost * count),
         )
         await update.effective_chat.send_message(
             confirmation,
@@ -368,7 +377,7 @@ async def pixel_receive_credentials(update: Update, context: ContextTypes.DEFAUL
     confirmation = t("pixel_task_confirm", lang).format(
         email=escape_html(entry["email"]),
         channel=escape_html(t(f"pixel_channel_{channel}", lang)),
-        credits=cost,
+        credits=_format_pixel_credits(cost),
     )
     await update.effective_chat.send_message(
         confirmation,
@@ -464,7 +473,7 @@ async def pixel_confirm_batch(update: Update, context: ContextTypes.DEFAULT_TYPE
         query,
         t("pixel_batch_queued", lang).format(
             count=len(tasks),
-            credits=int((result.get("batch") or {}).get("credits_reserved") or 0),
+            credits=_format_pixel_credits((result.get("batch") or {}).get("credits_reserved")),
         ),
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([
@@ -503,7 +512,7 @@ async def pixel_tasks_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                     task_id=escape_html(str(task["public_id"])),
                     email=escape_html(str(task.get("email") or "")),
                     status=status,
-                    credits=int(task.get("credits_reserved") or 0),
+                    credits=_format_pixel_credits(task.get("credits_reserved")),
                 )
             )
         text = "\n\n".join(chunks)
@@ -533,7 +542,7 @@ async def pixel_task_view(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         task_id=escape_html(public_id),
         email=escape_html(str(task.get("email") or "")),
         status=escape_html(str(task.get("status") or "")),
-        credits=int(task.get("credits_reserved") or 0),
+        credits=_format_pixel_credits(task.get("credits_reserved")),
         result_link=escape_html(str(task.get("result_link") or "-")),
         error=escape_html(str(task.get("error_message") or "-")),
     )

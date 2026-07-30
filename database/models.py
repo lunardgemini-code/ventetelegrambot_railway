@@ -14,6 +14,7 @@ import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from config import PAYMENT_TIMEOUT_SECONDS
 from services.singleflight import AsyncSingleFlight
@@ -10021,6 +10022,42 @@ _PIXEL_FINAL_STATUSES = {"SUCCESS", "REFUNDED", "SUBMISSION_UNKNOWN"}
 _PIXEL_FAILURE_STATUSES = {"failed", "error", "cancelled", "canceled", "rejected"}
 _PIXEL_BATCH_MAX_SIZE = 20
 _PIXEL_TWOFA_SECRET_RE = re.compile(r"[A-Z2-7]{32}")
+_PIXEL_CREDIT_QUANTUM = Decimal("0.001")
+_PIXEL_CREDIT_MAX = Decimal("100000")
+
+
+def _pixel_credit_amount(value, *, default: float = 0.0) -> float:
+    """Return a credit amount rounded to the supported thousandth."""
+    if value is None:
+        return float(default)
+    try:
+        amount = Decimal(str(value))
+        if not amount.is_finite():
+            raise ValueError
+        return float(amount.quantize(_PIXEL_CREDIT_QUANTUM, rounding=ROUND_HALF_UP))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError("Invalid Pixel credit amount") from exc
+
+
+def _validated_pixel_credit_amount(
+    value,
+    *,
+    minimum: Decimal = _PIXEL_CREDIT_QUANTUM,
+    maximum: Decimal = _PIXEL_CREDIT_MAX,
+) -> float:
+    """Validate an exact, positive credit amount without hidden rounding."""
+    try:
+        raw = Decimal(str(value))
+        if not raw.is_finite():
+            raise ValueError
+        normalized = raw.quantize(_PIXEL_CREDIT_QUANTUM, rounding=ROUND_HALF_UP)
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError("Invalid Pixel credit amount") from exc
+    if raw != normalized or normalized < minimum or normalized > maximum:
+        raise ValueError(
+            f"Pixel credits must be between {minimum} and {maximum} with up to three decimals"
+        )
+    return float(normalized)
 
 
 def _normalize_pixel_credentials(email: str, password: str, twofa_secret: str) -> tuple[str, str, str]:
@@ -10051,9 +10088,10 @@ def _pixel_public_batch(batch: dict | None) -> dict | None:
     if not batch:
         return None
     data = dict(batch)
-    for field in ("task_count", "credits_reserved"):
-        if data.get(field) is not None:
-            data[field] = int(data[field])
+    if data.get("task_count") is not None:
+        data["task_count"] = int(data["task_count"])
+    if data.get("credits_reserved") is not None:
+        data["credits_reserved"] = _pixel_credit_amount(data["credits_reserved"])
     if data.get("credit_usd_price") is not None:
         data["credit_usd_price"] = float(data["credit_usd_price"])
     return data
@@ -10071,12 +10109,14 @@ def _pixel_public_task(task: dict | None) -> dict | None:
         "callback_token_hash",
     ):
         data.pop(field, None)
-    for field in ("credits_reserved", "supplier_task_id", "poll_attempts"):
+    for field in ("supplier_task_id", "poll_attempts"):
         if data.get(field) is not None:
             try:
                 data[field] = int(data[field])
             except (TypeError, ValueError):
                 pass
+    if data.get("credits_reserved") is not None:
+        data["credits_reserved"] = _pixel_credit_amount(data["credits_reserved"])
     for field in ("credit_usd_price", "supplier_points_cost"):
         if data.get(field) is not None:
             try:
@@ -10106,8 +10146,12 @@ def _pixel_settings_from_row(row: dict | None) -> dict:
             "is_enabled": bool(row.get("is_enabled")),
             "admin_only": bool(row.get("admin_only")),
             "credit_usd_price": float(row.get("credit_usd_price") or 1.0),
-            "fast_credits": int(row.get("fast_credits") or 6),
-            "normal_credits": int(row.get("normal_credits") or 5),
+            "fast_credits": _pixel_credit_amount(
+                row.get("fast_credits"), default=_PIXEL_DEFAULT_SETTINGS["fast_credits"]
+            ),
+            "normal_credits": _pixel_credit_amount(
+                row.get("normal_credits"), default=_PIXEL_DEFAULT_SETTINGS["normal_credits"]
+            ),
             "min_supplier_points": float(row.get("min_supplier_points") or 0.0),
             "credential_retention_days": int(row.get("credential_retention_days") or 0),
             "updated_at": row.get("updated_at"),
@@ -10139,14 +10183,12 @@ async def update_pixel_activation_settings(values: dict) -> dict:
     current = await get_pixel_activation_settings()
     try:
         price = usd_float(values.get("credit_usd_price", current["credit_usd_price"]), places=4, allow_zero=False)
-        fast = int(values.get("fast_credits", current["fast_credits"]))
-        normal = int(values.get("normal_credits", current["normal_credits"]))
+        fast = _validated_pixel_credit_amount(values.get("fast_credits", current["fast_credits"]))
+        normal = _validated_pixel_credit_amount(values.get("normal_credits", current["normal_credits"]))
         supplier_min = float(values.get("min_supplier_points", current["min_supplier_points"]))
         retention = int(values.get("credential_retention_days", current["credential_retention_days"]))
     except (TypeError, ValueError) as exc:
         raise ValueError("Invalid Pixel activation settings") from exc
-    if fast < 1 or normal < 1 or fast > 100000 or normal > 100000:
-        raise ValueError("Activation credit cost must be between 1 and 100000")
     if supplier_min < 0 or supplier_min > 1_000_000_000:
         raise ValueError("Invalid minimum supplier balance")
     if retention < 0 or retention > 3650:
@@ -10202,7 +10244,7 @@ async def get_pixel_credit_packs(*, active_only: bool = False) -> list[dict]:
         return [
             {
                 **dict(row),
-                "credits": int(row["credits"]),
+                "credits": _pixel_credit_amount(row["credits"]),
                 "price_usd": float(row["price_usd"]),
                 "is_active": bool(row["is_active"]),
             }
@@ -10215,12 +10257,12 @@ async def get_pixel_credit_packs(*, active_only: bool = False) -> list[dict]:
 async def upsert_pixel_credit_pack(values: dict) -> dict:
     try:
         pack_id = int(values["id"]) if values.get("id") else None
-        credits = int(values["credits"])
+        credits = _validated_pixel_credit_amount(
+            values["credits"], maximum=Decimal("1000000")
+        )
         sort_order = int(values.get("sort_order") or 0)
     except (TypeError, ValueError, KeyError) as exc:
         raise ValueError("Invalid credit pack") from exc
-    if credits < 1 or credits > 1_000_000:
-        raise ValueError("Credits must be between 1 and 1000000")
     label = str(values.get("label") or "").strip()[:80]
     is_active = int(_pixel_bool(values.get("is_active"), True))
     db = await get_db()
@@ -10256,7 +10298,7 @@ async def upsert_pixel_credit_pack(values: dict) -> dict:
         await db.commit()
         result = dict(row)
         result.update({
-            "credits": int(result["credits"]),
+            "credits": _pixel_credit_amount(result["credits"]),
             "price_usd": float(result["price_usd"]),
             "is_active": bool(result["is_active"]),
         })
@@ -10281,14 +10323,14 @@ async def delete_pixel_credit_pack(pack_id: int) -> bool:
         await db.close()
 
 
-async def get_pixel_credit_balance(user_telegram_id: int) -> int:
+async def get_pixel_credit_balance(user_telegram_id: int) -> float:
     db = await get_db()
     try:
         row = await (await db.execute(
             "SELECT balance_credits FROM pixel_credit_accounts WHERE user_telegram_id = ?",
             (int(user_telegram_id),),
         )).fetchone()
-        return max(0, int(row["balance_credits"])) if row else 0
+        return max(0.0, _pixel_credit_amount(row["balance_credits"])) if row else 0.0
     finally:
         await db.close()
 
@@ -10318,8 +10360,8 @@ async def purchase_pixel_credit_pack(
             await db.commit()
             return {
                 "idempotent": True,
-                "credits_added": int(prior["amount_credits"]),
-                "credit_balance": int(prior["balance_after"]),
+                "credits_added": _pixel_credit_amount(prior["amount_credits"]),
+                "credit_balance": _pixel_credit_amount(prior["balance_after"]),
                 "wallet_balance": float(wallet["wallet_balance"] or 0) if wallet else 0.0,
                 "price_usd": float(prior["amount_usd"] or 0),
             }
@@ -10330,7 +10372,7 @@ async def purchase_pixel_credit_pack(
         )).fetchone()
         if not pack:
             raise ValueError("Pixel credit pack is unavailable")
-        credits = int(pack["credits"])
+        credits = _pixel_credit_amount(pack["credits"])
         price_usd = usd_float(pack["price_usd"], places=4, allow_zero=False)
 
         cursor = await db.execute(
@@ -10349,13 +10391,13 @@ async def purchase_pixel_credit_pack(
             """INSERT INTO pixel_credit_accounts (user_telegram_id, balance_credits, updated_at)
                VALUES (?, ?, CURRENT_TIMESTAMP)
                ON CONFLICT(user_telegram_id) DO UPDATE SET
-                   balance_credits = pixel_credit_accounts.balance_credits + excluded.balance_credits,
+                   balance_credits = ROUND(pixel_credit_accounts.balance_credits + excluded.balance_credits, 3),
                    updated_at = CURRENT_TIMESTAMP
                RETURNING balance_credits""",
             (user_id, credits),
         )
         account = await cursor.fetchone()
-        credit_balance = int(account["balance_credits"])
+        credit_balance = _pixel_credit_amount(account["balance_credits"])
         await db.execute(
             """INSERT INTO pixel_credit_ledger
                (user_telegram_id, amount_credits, balance_after, amount_usd,
@@ -10388,8 +10430,10 @@ async def purchase_pixel_credit_pack(
         await db.close()
 
 
-def _pixel_task_status_for_channel(channel: str, settings: dict) -> int:
-    return int(settings["fast_credits"] if channel == "fast" else settings["normal_credits"])
+def _pixel_task_status_for_channel(channel: str, settings: dict) -> float:
+    return _pixel_credit_amount(
+        settings["fast_credits"] if channel == "fast" else settings["normal_credits"]
+    )
 
 
 async def create_pixel_activation_draft(
@@ -10611,10 +10655,10 @@ async def reserve_pixel_activation_batch(batch_public_id: str, user_telegram_id:
         )).fetchone()
         settings = _pixel_settings_from_row(dict(settings_row) if settings_row else None)
         credits_per_task = _pixel_task_status_for_channel(str(batch["channel"]), settings)
-        credits_total = credits_per_task * len(tasks)
+        credits_total = _pixel_credit_amount(credits_per_task * len(tasks))
         cursor = await db.execute(
             """UPDATE pixel_credit_accounts
-               SET balance_credits = balance_credits - ?, updated_at = CURRENT_TIMESTAMP
+               SET balance_credits = ROUND(balance_credits - ?, 3), updated_at = CURRENT_TIMESTAMP
                WHERE user_telegram_id = ? AND balance_credits >= ?
                RETURNING balance_credits""",
             (credits_total, user_id, credits_total),
@@ -10622,7 +10666,7 @@ async def reserve_pixel_activation_batch(batch_public_id: str, user_telegram_id:
         account = await cursor.fetchone()
         if not account:
             raise ValueError("INSUFFICIENT_PIXEL_CREDITS")
-        balance_after = int(account["balance_credits"])
+        balance_after = _pixel_credit_amount(account["balance_credits"])
         await db.execute(
             """INSERT INTO pixel_credit_ledger
                (user_telegram_id, amount_credits, balance_after, amount_usd,
@@ -10702,7 +10746,7 @@ async def reserve_pixel_activation_task(public_id: str, user_telegram_id: int) -
 
         cursor = await db.execute(
             """UPDATE pixel_credit_accounts
-               SET balance_credits = balance_credits - ?, updated_at = CURRENT_TIMESTAMP
+               SET balance_credits = ROUND(balance_credits - ?, 3), updated_at = CURRENT_TIMESTAMP
                WHERE user_telegram_id = ? AND balance_credits >= ?
                RETURNING balance_credits""",
             (credits, user_id, credits),
@@ -10710,7 +10754,7 @@ async def reserve_pixel_activation_task(public_id: str, user_telegram_id: int) -
         account = await cursor.fetchone()
         if not account:
             raise ValueError("INSUFFICIENT_PIXEL_CREDITS")
-        balance_after = int(account["balance_credits"])
+        balance_after = _pixel_credit_amount(account["balance_credits"])
         await db.execute(
             """INSERT INTO pixel_credit_ledger
                (user_telegram_id, task_public_id, amount_credits, balance_after,
@@ -10909,11 +10953,11 @@ async def _refund_pixel_task_tx(db, task: dict, *, error_message: str, supplier_
         return task
     if task["status"] == "SUCCESS":
         return task
-    credits = max(0, int(task.get("credits_reserved") or 0))
+    credits = max(0.0, _pixel_credit_amount(task.get("credits_reserved")))
     if credits:
         cursor = await db.execute(
             """UPDATE pixel_credit_accounts
-               SET balance_credits = balance_credits + ?, updated_at = CURRENT_TIMESTAMP
+               SET balance_credits = ROUND(balance_credits + ?, 3), updated_at = CURRENT_TIMESTAMP
                WHERE user_telegram_id = ? RETURNING balance_credits""",
             (credits, int(task["user_telegram_id"])),
         )
@@ -10929,7 +10973,7 @@ async def _refund_pixel_task_tx(db, task: dict, *, error_message: str, supplier_
                 int(task["user_telegram_id"]),
                 task["public_id"],
                 credits,
-                int(account["balance_credits"]),
+                _pixel_credit_amount(account["balance_credits"]),
                 f"pixel-refund:{task['public_id']}",
                 "Pixel activation refunded",
             ),
@@ -11211,14 +11255,19 @@ async def get_pixel_dashboard_snapshot() -> dict:
         return {
             "settings": _pixel_settings_from_row(dict(settings_row) if settings_row else None),
             "packs": [
-                {**dict(row), "credits": int(row["credits"]), "price_usd": float(row["price_usd"]), "is_active": bool(row["is_active"])}
+                {
+                    **dict(row),
+                    "credits": _pixel_credit_amount(row["credits"]),
+                    "price_usd": float(row["price_usd"]),
+                    "is_active": bool(row["is_active"]),
+                }
                 for row in packs
             ],
             "tasks": [_pixel_dashboard_task(dict(row)) for row in tasks],
             "stats": {
                 "by_status": {str(row["status"]): int(row["count"]) for row in stats_rows},
                 "credit_revenue_usd": float(ledger_rows["credits_revenue"] or 0) if ledger_rows else 0.0,
-                "credits_spent": int(ledger_rows["credits_spent"] or 0) if ledger_rows else 0,
+                "credits_spent": _pixel_credit_amount(ledger_rows["credits_spent"]) if ledger_rows else 0.0,
             },
         }
     finally:

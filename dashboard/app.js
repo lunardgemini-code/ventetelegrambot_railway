@@ -6315,6 +6315,19 @@ async function handleBroadcast() {
 }
 
 // Pixel activation
+function formatPixelCredits(value) {
+    const amount = Number(value);
+    return Number.isFinite(amount)
+        ? amount.toLocaleString(currentLocale(), {maximumFractionDigits: 3})
+        : '0';
+}
+
+function pixelCreditInputValue(value) {
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) return '0';
+    return amount.toFixed(3).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+}
+
 function pixelTaskPresentation(status) {
     const normalized = String(status || 'DRAFT').toUpperCase();
     const key = `pixel_status_${normalized.toLowerCase()}`;
@@ -6346,8 +6359,8 @@ function renderPixelActivation() {
     if (DOM.pixelEnabled) DOM.pixelEnabled.checked = Boolean(settings.is_enabled);
     if (DOM.pixelAdminOnly) DOM.pixelAdminOnly.checked = Boolean(settings.admin_only);
     if (DOM.pixelCreditUsdPrice) DOM.pixelCreditUsdPrice.value = Number(settings.credit_usd_price || 0).toFixed(4);
-    if (DOM.pixelFastCredits) DOM.pixelFastCredits.value = Number(settings.fast_credits || 1);
-    if (DOM.pixelNormalCredits) DOM.pixelNormalCredits.value = Number(settings.normal_credits || 1);
+    if (DOM.pixelFastCredits) DOM.pixelFastCredits.value = pixelCreditInputValue(settings.fast_credits || 1);
+    if (DOM.pixelNormalCredits) DOM.pixelNormalCredits.value = pixelCreditInputValue(settings.normal_credits || 1);
     if (DOM.pixelMinSupplierPoints) DOM.pixelMinSupplierPoints.value = Number(settings.min_supplier_points || 0);
     if (DOM.pixelCredentialRetention) DOM.pixelCredentialRetention.value = Number(settings.credential_retention_days || 0);
 
@@ -6382,7 +6395,7 @@ function renderPixelActivation() {
     const packs = data.packs || [];
     if (DOM.pixelPacksList) {
         DOM.pixelPacksList.innerHTML = packs.length ? packs.map(pack => `<article class="pixel-pack-row">
-            <div><strong>${escapeHtml(pack.label || tf('pixel_pack_default_label', {credits:Number(pack.credits || 0)}))}</strong><small>${Number(pack.credits || 0).toLocaleString(currentLocale())} ${escapeHtml(t('pixel_credits_short'))} - $${Number(pack.price_usd || 0).toFixed(2)}</small></div>
+            <div><strong>${escapeHtml(pack.label || tf('pixel_pack_default_label', {credits:formatPixelCredits(pack.credits)}))}</strong><small>${formatPixelCredits(pack.credits)} ${escapeHtml(t('pixel_credits_short'))} - $${Number(pack.price_usd || 0).toFixed(2)}</small></div>
             <span class="status-badge ${pack.is_active ? 'completed' : 'cancelled'}">${pack.is_active ? escapeHtml(t('active')) : escapeHtml(t('inactive'))}</span>
             <div class="pixel-pack-actions"><button type="button" class="btn-table-action" data-action="pixel-pack-edit" data-id="${Number(pack.id)}" title="${escapeHtml(t('pixel_pack_edit'))}"><i class="fa-solid fa-pen"></i></button><button type="button" class="btn-table-action delete" data-action="pixel-pack-delete" data-id="${Number(pack.id)}" title="${escapeHtml(t('confirm_delete'))}"><i class="fa-solid fa-trash"></i></button></div>
         </article>`).join('') : `<p class="empty-state">${escapeHtml(t('pixel_packs_empty'))}</p>`;
@@ -6394,7 +6407,7 @@ function renderPixelActivation() {
             const status = pixelTaskPresentation(task.status);
             const supplier = task.supplier_points_cost == null ? '-' : Number(task.supplier_points_cost).toLocaleString(currentLocale(), {maximumFractionDigits:2});
             const created = task.created_at ? parseUTCDate(task.created_at).toLocaleString(currentLocale(), {dateStyle:'short', timeStyle:'short'}) : '-';
-            return `<tr><td><code>${escapeHtml(task.public_id || '-')}</code></td><td>${escapeHtml(task.user_display_name || '-')}<br><small>${escapeHtml(String(task.user_telegram_id || ''))}</small></td><td><code>${escapeHtml(task.email || '-')}</code></td><td>${escapeHtml(t(`pixel_mode_${task.channel || 'normal'}`))}</td><td>${Number(task.credits_reserved || 0).toLocaleString(currentLocale())}</td><td>${escapeHtml(supplier)}</td><td><span class="pixel-task-status ${status.cls}">${escapeHtml(status.label)}</span></td><td>${escapeHtml(created)}</td></tr>`;
+            return `<tr><td><code>${escapeHtml(task.public_id || '-')}</code></td><td>${escapeHtml(task.user_display_name || '-')}<br><small>${escapeHtml(String(task.user_telegram_id || ''))}</small></td><td><code>${escapeHtml(task.email || '-')}</code></td><td>${escapeHtml(t(`pixel_mode_${task.channel || 'normal'}`))}</td><td>${formatPixelCredits(task.credits_reserved)}</td><td>${escapeHtml(supplier)}</td><td><span class="pixel-task-status ${status.cls}">${escapeHtml(status.label)}</span></td><td>${escapeHtml(created)}</td></tr>`;
         }).join('') : `<tr><td colspan="8" class="empty-state">${escapeHtml(t('pixel_tasks_empty'))}</td></tr>`;
     }
 }
@@ -6449,7 +6462,7 @@ function editPixelCreditPack(packId) {
     if (!pack) return;
     DOM.pixelPackId.value = String(pack.id);
     DOM.pixelPackLabel.value = pack.label || '';
-    DOM.pixelPackCredits.value = String(Number(pack.credits || 0));
+    DOM.pixelPackCredits.value = pixelCreditInputValue(pack.credits);
     DOM.pixelPackSort.value = String(Number(pack.sort_order || 0));
     DOM.pixelPackActive.checked = Boolean(pack.is_active);
     DOM.pixelPackSubmit?.querySelector('span')?.replaceChildren(document.createTextNode(t('pixel_pack_save')));

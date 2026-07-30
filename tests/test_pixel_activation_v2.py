@@ -150,6 +150,63 @@ class PixelActivationV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(repeated_refund["status"], "REFUNDED")
         self.assertEqual(await models.get_pixel_credit_balance(901001), 10)
 
+    async def test_fractional_credits_are_charged_and_refunded_exactly(self):
+        settings = await models.update_pixel_activation_settings({
+            "credit_usd_price": 0.25,
+            "fast_credits": 1.5,
+            "normal_credits": 0.5,
+            "is_enabled": False,
+            "admin_only": True,
+            "min_supplier_points": 0,
+            "credential_retention_days": 90,
+        })
+        self.assertEqual(settings["fast_credits"], 1.5)
+        self.assertEqual(settings["normal_credits"], 0.5)
+
+        pack = await models.upsert_pixel_credit_pack({
+            "label": "Fractional",
+            "credits": 1.5,
+            "sort_order": 99,
+            "is_active": True,
+        })
+        self.assertEqual(pack["credits"], 1.5)
+        self.assertEqual(pack["price_usd"], 0.375)
+
+        purchase = await models.purchase_pixel_credit_pack(
+            901001, pack["id"], reference_key="pixel-fractional-credit-test"
+        )
+        self.assertEqual(purchase["credits_added"], 1.5)
+        self.assertEqual(await models.get_pixel_credit_balance(901001), 1.5)
+
+        draft = await models.create_pixel_activation_draft(
+            user_telegram_id=901001,
+            user_display_name="Pixel Trace",
+            email="fractional@example.com",
+            password="plain-password",
+            twofa_secret=PIXEL_2FA_SECRET,
+            channel="normal",
+            request_key="pixel-fractional-draft",
+        )
+        reserved = await models.reserve_pixel_activation_task(draft["public_id"], 901001)
+        self.assertEqual(reserved["credits_reserved"], 0.5)
+        self.assertEqual(await models.get_pixel_credit_balance(901001), 1.0)
+
+        await models.refund_pixel_activation_task(
+            draft["public_id"], error_message="fractional refund test"
+        )
+        self.assertEqual(await models.get_pixel_credit_balance(901001), 1.5)
+
+        db = await get_db()
+        try:
+            stored = await (await db.execute(
+                "SELECT typeof(balance_credits) AS balance_type FROM pixel_credit_accounts "
+                "WHERE user_telegram_id = ?",
+                (901001,),
+            )).fetchone()
+        finally:
+            await db.close()
+        self.assertEqual(stored["balance_type"], "real")
+
     async def test_expired_draft_keeps_trace_identity_but_erases_credentials(self):
         draft = await models.create_pixel_activation_draft(
             user_telegram_id=901001,
