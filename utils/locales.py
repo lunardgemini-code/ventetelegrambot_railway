@@ -1634,31 +1634,62 @@ for _pixel_lang, _pixel_strings in _PIXEL_BATCH_TRANSLATIONS.items():
 # every confirmation message needlessly long.
 _PIXEL_MENU_BUTTON_TRANSLATIONS = {
     "en": {
-        "pixel_mode_fast_button": "Fast activation (min-h)",
+        "pixel_mode_fast_button": "🟢 Fast activation (min-h)",
         "pixel_mode_normal_button": "🟣 Standard activation (<=24 h)",
     },
     "fr": {
-        "pixel_mode_fast_button": "Activation rapide (min-h)",
+        "pixel_mode_fast_button": "🟢 Activation rapide (min-h)",
         "pixel_mode_normal_button": "🟣 Activation standard (<=24 h)",
     },
     "ar": {
-        "pixel_mode_fast_button": "تفعيل سريع (دقائق-ساعات)",
+        "pixel_mode_fast_button": "🟢 تفعيل سريع (دقائق-ساعات)",
         "pixel_mode_normal_button": "🟣 تفعيل قياسي (حتى 24 ساعة)",
     },
     "zh": {
-        "pixel_mode_fast_button": "快速激活（分钟-小时）",
+        "pixel_mode_fast_button": "🟢 快速激活（分钟-小时）",
         "pixel_mode_normal_button": "🟣 标准激活（最多 24 小时）",
     },
     "vi": {
-        "pixel_mode_fast_button": "Kích hoạt nhanh (phút-giờ)",
+        "pixel_mode_fast_button": "🟢 Kích hoạt nhanh (phút-giờ)",
         "pixel_mode_normal_button": "🟣 Kích hoạt tiêu chuẩn (<=24 giờ)",
     },
     "ru": {
-        "pixel_mode_fast_button": "Быстрая активация (мин-часы)",
+        "pixel_mode_fast_button": "🟢 Быстрая активация (мин-часы)",
         "pixel_mode_normal_button": "🟣 Стандартная активация (до 24 ч)",
     },
 }
 for _pixel_lang, _pixel_strings in _PIXEL_MENU_BUTTON_TRANSLATIONS.items():
+    _PIXEL_TRANSLATIONS[_pixel_lang].update(_pixel_strings)
+
+# The pipe format is the single input format shown to users. The parser still
+# accepts the former three-line form for existing in-progress conversations.
+_PIXEL_PIPE_CREDENTIAL_TRANSLATIONS = {
+    "en": {
+        "pixel_credentials_prompt": "<b>{channel} Pixel activation</b>\n\nCost: <b>{credits}</b> credits per account\n\nSend one account per line (up to {max_accounts}):\n<code>email | password | 32-character 2FA secret</code>\n\nUse this exact format for one account too. 2FA URLs are not accepted. Your message will be deleted after encryption.",
+        "pixel_credentials_invalid": "Use one <code>email | password | 32-character 2FA secret</code> entry per line (up to {max_accounts}). 2FA URLs are not accepted.",
+    },
+    "fr": {
+        "pixel_credentials_prompt": "<b>Activation Pixel {channel}</b>\n\nCout : <b>{credits}</b> credits par compte\n\nEnvoyez un compte par ligne (maximum {max_accounts}) :\n<code>email | mot de passe | secret 2FA de 32 caracteres</code>\n\nUtilisez exactement ce format pour un seul compte aussi. Les URL 2FA ne sont pas acceptees. Votre message sera supprime apres chiffrement.",
+        "pixel_credentials_invalid": "Utilisez une entree <code>email | mot de passe | secret 2FA de 32 caracteres</code> par ligne (maximum {max_accounts}). Les URL 2FA ne sont pas acceptees.",
+    },
+    "ar": {
+        "pixel_credentials_prompt": "<b>تفعيل Pixel {channel}</b>\n\nالتكلفة: <b>{credits}</b> رصيد لكل حساب\n\nأرسل حسابا واحدا في كل سطر (حتى {max_accounts}):\n<code>email | password | 32-character 2FA secret</code>\n\nاستخدم التنسيق نفسه حتى لحساب واحد. روابط 2FA غير مقبولة. ستُحذف رسالتك بعد التشفير.",
+        "pixel_credentials_invalid": "استخدم سجلا واحدا بصيغة <code>email | password | 32-character 2FA secret</code> في كل سطر (حتى {max_accounts}). روابط 2FA غير مقبولة.",
+    },
+    "zh": {
+        "pixel_credentials_prompt": "<b>Pixel {channel} 激活</b>\n\n每个账号费用：<b>{credits}</b> 积分\n\n每行发送一个账号（最多 {max_accounts} 个）：\n<code>email | password | 32-character 2FA secret</code>\n\n单个账号也使用此格式。不接受 2FA URL。加密后消息会被删除。",
+        "pixel_credentials_invalid": "每行使用一个 <code>email | password | 32-character 2FA secret</code> 条目（最多 {max_accounts} 个）。不接受 2FA URL。",
+    },
+    "vi": {
+        "pixel_credentials_prompt": "<b>Kich hoat Pixel {channel}</b>\n\nGia: <b>{credits}</b> diem moi tai khoan\n\nGui mot tai khoan moi dong (toi da {max_accounts}):\n<code>email | password | 32-character 2FA secret</code>\n\nDung dung dinh dang nay cho ca mot tai khoan. Khong chap nhan URL 2FA. Tin nhan se duoc xoa sau khi ma hoa.",
+        "pixel_credentials_invalid": "Dung mot muc <code>email | password | 32-character 2FA secret</code> cho moi dong (toi da {max_accounts}). Khong chap nhan URL 2FA.",
+    },
+    "ru": {
+        "pixel_credentials_prompt": "<b>Pixel {channel}</b>\n\nStoimost: <b>{credits}</b> credits za akkaunt\n\nOtpravlyayte po odnomu akkauntu v stroke (do {max_accounts}):\n<code>email | password | 32-character 2FA secret</code>\n\nI dlya odnogo akkaunta ispolzuyte etot zhe format. 2FA URL ne prinimayutsya. Soobshchenie budet udaleno posle shifrovaniya.",
+        "pixel_credentials_invalid": "Ispolzuyte po odnoi zapisi <code>email | password | 32-character 2FA secret</code> v stroke (do {max_accounts}). 2FA URL ne prinimayutsya.",
+    },
+}
+for _pixel_lang, _pixel_strings in _PIXEL_PIPE_CREDENTIAL_TRANSLATIONS.items():
     _PIXEL_TRANSLATIONS[_pixel_lang].update(_pixel_strings)
 
 for _pixel_lang, _pixel_strings in _PIXEL_TRANSLATIONS.items():

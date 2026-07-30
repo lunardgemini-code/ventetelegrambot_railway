@@ -25,8 +25,10 @@ class PixelActivationV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(buttons[0].style, KeyboardButtonStyle.PRIMARY)
         self.assertIsNone(buttons[1].style)
         self.assertEqual(buttons[2].style, KeyboardButtonStyle.SUCCESS)
+        self.assertTrue(buttons[0].text.startswith("🟢"))
         self.assertIn("min-h", buttons[0].text)
         self.assertIn("24 h", buttons[1].text)
+        self.assertIn("email | password | 32-character 2FA secret", t("pixel_credentials_prompt", "en"))
 
     async def asyncSetUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -231,6 +233,12 @@ class PixelActivationV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(str(row["twofa_secret_encrypted"]).startswith("enc:v1:") for row in raw_tasks))
 
     async def test_batch_parser_requires_raw_32_character_twofa_secret(self):
+        single_entry = parse_pixel_credentials_message(
+            "one@example.com | pass-one | JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+        )
+        self.assertEqual(len(single_entry), 1)
+        self.assertEqual(single_entry[0]["email"], "one@example.com")
+
         entries = parse_pixel_credentials_message(
             "one@example.com | pass-one | JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP\n"
             "two@example.com | pass-two | JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
