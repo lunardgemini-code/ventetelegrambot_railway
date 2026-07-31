@@ -417,7 +417,13 @@ def quantity_keyboard(product_id: int, stock: int, lang: str = "fr") -> InlineKe
 #  Payment keyboards
 # ──────────────────────────────────────────────
 
-async def payment_method_keyboard(order_id: int, lang: str = "fr", wallet_balance: float = 0.0, has_promo: bool = False) -> InlineKeyboardMarkup:
+async def payment_method_keyboard(
+    order_id: int,
+    lang: str = "fr",
+    wallet_balance: float = 0.0,
+    has_promo: bool = False,
+    allow_bybit: bool = False,
+) -> InlineKeyboardMarkup:
     """Choose payment method or cancel."""
     from utils.helpers import format_price
     from database.models import get_setting
@@ -453,7 +459,7 @@ async def payment_method_keyboard(order_id: int, lang: str = "fr", wallet_balanc
         )])
 
     from services.bybit_transfer import is_bybit_transfer_configured
-    if is_bybit_transfer_configured():
+    if allow_bybit and is_bybit_transfer_configured():
         buttons.append([InlineKeyboardButton(
             t("btn_pay_bybit", lang),
             callback_data=f"pay_bybit:{order_id}",

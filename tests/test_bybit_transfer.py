@@ -1,9 +1,12 @@
 import time
 import unittest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from handlers import payment as payment_handler
 from services import bybit_transfer
 from utils.keyboards import payment_method_keyboard
+from utils.locales import t
 
 
 class BybitTransferTests(unittest.IsolatedAsyncioTestCase):
@@ -83,7 +86,7 @@ class BybitTransferTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch("database.models.get_setting", AsyncMock(return_value=None)),
         ):
-            markup = await payment_method_keyboard(42, "en", 0)
+            markup = await payment_method_keyboard(42, "en", 0, allow_bybit=True)
 
         callbacks = [
             button.callback_data
@@ -92,6 +95,52 @@ class BybitTransferTests(unittest.IsolatedAsyncioTestCase):
             if button.callback_data
         ]
         self.assertIn("pay_bybit:42", callbacks)
+
+    async def test_button_is_hidden_for_regular_users(self):
+        with (
+            patch(
+                "services.bybit_transfer.is_bybit_transfer_configured",
+                return_value=True,
+            ),
+            patch("database.models.get_setting", AsyncMock(return_value=None)),
+        ):
+            markup = await payment_method_keyboard(42, "en", 0)
+
+        callbacks = [
+            button.callback_data
+            for row in markup.inline_keyboard
+            for button in row
+            if button.callback_data
+        ]
+        self.assertNotIn("pay_bybit:42", callbacks)
+
+    async def test_direct_callback_is_rejected_for_regular_users(self):
+        query = SimpleNamespace(
+            data="pay_bybit:42",
+            answer=AsyncMock(),
+            message=SimpleNamespace(chat_id=123),
+        )
+        update = SimpleNamespace(
+            callback_query=query,
+            effective_user=SimpleNamespace(id=123),
+        )
+        context = SimpleNamespace(user_data={})
+        safe_edit = AsyncMock()
+
+        with (
+            patch.object(payment_handler, "get_user_lang", AsyncMock(return_value="en")),
+            patch.object(
+                payment_handler,
+                "get_order",
+                AsyncMock(return_value={"id": 42, "user_telegram_id": 123}),
+            ),
+            patch.object(payment_handler, "is_admin", return_value=False),
+            patch.object(payment_handler, "safe_edit_message_text", safe_edit),
+        ):
+            await payment_handler.pay_with_bybit_transfer(update, context)
+
+        safe_edit.assert_awaited_once_with(query, t("access_denied", "en"))
+        self.assertEqual(context.user_data, {})
 
 
 if __name__ == "__main__":
