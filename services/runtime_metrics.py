@@ -33,6 +33,7 @@ def _env_float(name: str, default: float, minimum: float = 0.0) -> float:
 
 _DEPENDENCY_LIMITS = {
     "binance": _env_int("BINANCE_CONCURRENCY", 4),
+    "bybit": _env_int("BYBIT_CONCURRENCY", 4),
     "nowpayments": _env_int("NOWPAYMENTS_CONCURRENCY", 4),
     "supplier": _env_int("SUPPLIER_CONCURRENCY", 3),
     "sports": _env_int("SPORTS_API_CONCURRENCY", 2),

@@ -62,6 +62,21 @@ except (TypeError, ValueError):
     _log.warning("Invalid CRYPTO_PAY_FEE_PERCENT; falling back to 3%")
     CRYPTO_PAY_FEE_PERCENT = 3.0
 
+# Read-only verification of incoming internal Bybit transfers.
+BYBIT_TRANSFER_ENABLED: bool = os.getenv(
+    "BYBIT_TRANSFER_ENABLED", "false"
+).strip().lower() in {"1", "true", "yes", "on"}
+BYBIT_API_KEY: str = os.getenv("BYBIT_API_KEY", "").strip()
+BYBIT_API_SECRET: str = os.getenv("BYBIT_API_SECRET", "").strip()
+BYBIT_UID: str = os.getenv("BYBIT_UID", "").strip()
+BYBIT_API_BASE_URL: str = os.getenv(
+    "BYBIT_API_BASE_URL", "https://api.bybit.com"
+).strip().rstrip("/")
+BYBIT_RECV_WINDOW: int = max(
+    1000,
+    min(10000, int(os.getenv("BYBIT_RECV_WINDOW", "5000"))),
+)
+
 PAYMENT_TIMEOUT_SECONDS: int = max(
     60,
     int(os.getenv("PAYMENT_TIMEOUT_SECONDS", "300")),

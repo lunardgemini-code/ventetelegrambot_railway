@@ -6932,8 +6932,8 @@ function renderPixelPacksTable() {
                 <td>${statusBadge}</td>
                 <td>
                     <div style="display:flex; gap:6px;">
-                        <button type="button" class="btn-secondary btn-sm" onclick="editPixelPack(${pack.id})"><i class="fa-solid fa-pen"></i></button>
-                        <button type="button" class="btn-danger btn-sm" onclick="deletePixelPack(${pack.id})"><i class="fa-solid fa-trash"></i></button>
+                        <button type="button" class="btn-secondary btn-sm" data-pixel-action="edit" data-pack-id="${pack.id}"><i class="fa-solid fa-pen"></i></button>
+                        <button type="button" class="btn-danger btn-sm" data-pixel-action="delete" data-pack-id="${pack.id}"><i class="fa-solid fa-trash"></i></button>
                     </div>
                 </td>
             </tr>
@@ -6971,6 +6971,18 @@ window.deletePixelPack = async function(id) {
 
 // DOM Event Listeners initialization for Pixel Tab
 document.addEventListener("DOMContentLoaded", () => {
+    const packsTable = document.getElementById("pixel-packs-table-body");
+    if (packsTable) {
+        packsTable.addEventListener("click", (event) => {
+            const button = event.target.closest("button[data-pixel-action][data-pack-id]");
+            if (!button || !packsTable.contains(button)) return;
+            const packId = Number.parseInt(button.dataset.packId, 10);
+            if (!Number.isInteger(packId)) return;
+            if (button.dataset.pixelAction === "edit") window.editPixelPack(packId);
+            if (button.dataset.pixelAction === "delete") window.deletePixelPack(packId);
+        });
+    }
+
     // Settings Form Submit
     const settingsForm = document.getElementById("pixel-settings-form");
     if (settingsForm) {

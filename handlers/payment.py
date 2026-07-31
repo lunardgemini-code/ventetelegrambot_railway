@@ -22,12 +22,14 @@ from telegram.ext import (
 from config import (
     ADMIN_IDS,
     BINANCE_PAY_ID,
+    BYBIT_UID,
     CRYPTO_PAY_FEE_PERCENT,
     PAYMENT_TIMEOUT_SECONDS,
 )
 from database.models import (
     claim_bep20_order_payment,
     claim_binance_order_payment,
+    claim_bybit_order_payment,
     claim_trc20_order_payment,
     create_order,
     get_pending_activation_order_for_user,
@@ -165,7 +167,14 @@ async def _ensure_supplier_stock_for_order(query, order: dict, lang: str) -> boo
 
 
 def _clear_payment_context(context: ContextTypes.DEFAULT_TYPE) -> None:
-    for key in ("paying_order_id", "paying_amount", "paying_product_id", "pending_order_id", "pending_product_id"):
+    for key in (
+        "paying_order_id",
+        "paying_amount",
+        "paying_product_id",
+        "paying_provider",
+        "pending_order_id",
+        "pending_product_id",
+    ):
         context.user_data.pop(key, None)
 
 
@@ -188,6 +197,7 @@ async def _prompt_activation_identifier(update: Update, context: ContextTypes.DE
     context.user_data.pop("paying_order_id", None)
     context.user_data.pop("paying_amount", None)
     context.user_data.pop("paying_product_id", None)
+    context.user_data.pop("paying_provider", None)
 
     product_name = product["name"] if product else f"#{order_id}"
     text = t("activation_prompt", lang).format(
@@ -1031,6 +1041,7 @@ async def pay_with_binance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["paying_order_id"] = order_id
         context.user_data["paying_amount"] = order["amount_usd"]
         context.user_data["paying_product_id"] = order.get("product_id")
+        context.user_data["paying_provider"] = "binance"
 
         # Determine which Binance UID to use
         uid_to_show = BINANCE_PAY_ID
@@ -1079,12 +1090,90 @@ async def pay_with_binance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
 
+async def pay_with_bybit_transfer(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+):
+    """Show a Bybit UID transfer that can be verified with a read-only API key."""
+    query = update.callback_query
+    await query.answer()
+    lang = await get_user_lang(update.effective_user.id)
+
+    try:
+        from services.bybit_transfer import is_bybit_transfer_configured
+
+        order_id = int(query.data.split(":", 1)[1])
+        order = await get_order(order_id)
+        if not order:
+            await safe_edit_message_text(query, t("product_not_found", lang))
+            return ConversationHandler.END
+
+        telegram_id = update.effective_user.id
+        if int(order.get("user_telegram_id") or 0) != telegram_id:
+            logger.warning(
+                "User %s tried to pay order #%s via Bybit which belongs to %s",
+                telegram_id,
+                order_id,
+                order.get("user_telegram_id"),
+            )
+            await safe_edit_message_text(query, t("access_denied", lang))
+            return ConversationHandler.END
+        if not is_bybit_transfer_configured():
+            await safe_edit_message_text(query, t("bybit_transfer_unavailable", lang))
+            return ConversationHandler.END
+        if not await _ensure_supplier_stock_for_order(query, order, lang):
+            return ConversationHandler.END
+
+        await update_order_status(
+            order_id,
+            "AWAITING_PAYMENT",
+            expected_statuses=("PENDING", "AWAITING_PAYMENT"),
+        )
+        context.user_data["paying_order_id"] = order_id
+        context.user_data["paying_amount"] = order["amount_usd"]
+        context.user_data["paying_product_id"] = order.get("product_id")
+        context.user_data["paying_provider"] = "bybit"
+
+        await safe_edit_message_text(
+            query,
+            f"{t('bybit_transfer_title', lang)}\n\n"
+            f"{t('bybit_uid_lbl', lang)}\n"
+            f"<code>{escape_html(BYBIT_UID)}</code>\n\n"
+            f"{t('amount_lbl', lang)} {format_price(order['amount_usd'])}\n\n"
+            f"{t('pay_instructions', lang)}\n"
+            f"{t('bybit_transfer_step1', lang)}\n"
+            f"{t('bybit_transfer_step2', lang)}\n\n"
+            f"{t('waiting_payment', lang)}",
+            parse_mode="HTML",
+            reply_markup=payment_check_keyboard(order_id, lang),
+        )
+
+        chat_id = query.message.chat_id if query.message else telegram_id
+        previous = _timeout_tasks.pop(order_id, None)
+        if previous and not previous.done():
+            previous.cancel()
+        _timeout_tasks[order_id] = asyncio.create_task(
+            cancel_order_after_timeout(
+                context,
+                chat_id,
+                order_id,
+                telegram_id,
+                timeout_seconds=PAYMENT_TIMEOUT_SECONDS,
+            )
+        )
+        return WAITING_ORDER_ID
+    except Exception as exc:
+        logger.error("pay_with_bybit_transfer: %s", exc, exc_info=True)
+        await safe_edit_message_text(query, t("pay_error", lang))
+        return ConversationHandler.END
+
+
 async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle text message in WAITING_ORDER_ID state â€” verify payment."""
     client_order_id = update.message.text.strip()
     order_id = context.user_data.get("paying_order_id")
     expected_amount = context.user_data.get("paying_amount", 0)
     product_id = context.user_data.get("paying_product_id")
+    payment_provider = str(context.user_data.get("paying_provider") or "binance")
     lang = await get_user_lang(update.effective_user.id)
 
     if not order_id:
@@ -1101,6 +1190,7 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("paying_order_id", None)
         context.user_data.pop("paying_amount", None)
         context.user_data.pop("paying_product_id", None)
+        context.user_data.pop("paying_provider", None)
         return ConversationHandler.END
 
     try:
@@ -1118,43 +1208,62 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return ConversationHandler.END
 
-        # Determine which API credentials to use based on the product
-        api_key_to_use = None
-        api_secret_to_use = None
-        if product_id:
-            product = await get_product(product_id)
-            if product and product.get("binance_account_id"):
-                from database.models import get_binance_account
-                acc = await get_binance_account(product["binance_account_id"])
-                if acc:
-                    api_key_to_use = acc.get("api_key")
-                    api_secret_to_use = acc.get("api_secret")
+        if payment_provider == "bybit":
+            from services.bybit_transfer import verify_payment as verify_bybit_payment
 
-        result = await verify_payment(
-            client_order_id, 
-            expected_amount, 
-            api_key=api_key_to_use, 
-            api_secret=api_secret_to_use,
-            lang=lang
-        )
+            result = await verify_bybit_payment(client_order_id, expected_amount)
+        else:
+            api_key_to_use = None
+            api_secret_to_use = None
+            if product_id:
+                product = await get_product(product_id)
+                if product and product.get("binance_account_id"):
+                    from database.models import get_binance_account
+                    acc = await get_binance_account(product["binance_account_id"])
+                    if acc:
+                        api_key_to_use = acc.get("api_key")
+                        api_secret_to_use = acc.get("api_secret")
+
+            result = await verify_payment(
+                client_order_id,
+                expected_amount,
+                api_key=api_key_to_use,
+                api_secret=api_secret_to_use,
+                lang=lang,
+            )
 
         if result.get("verified"):
             tx = result.get("transaction", {})
             tx_id = str(tx.get("transactionId", "")) or str(tx.get("orderId", "")) or client_order_id
-            binance_tx_id = tx.get("transactionId", "")
-            binance_order_id_val = tx.get("orderId", "")
-            display_id = binance_order_id_val or binance_tx_id or client_order_id
-            payment_claim = await claim_binance_order_payment(
-                tx_id,
-                order_id,
-                update.effective_user.id,
-                expected_amount,
-                display_id,
-            )
+            provider_tx_id = tx.get("transactionId", "")
+            provider_order_id = tx.get("orderId", "")
+            display_id = provider_order_id or provider_tx_id or client_order_id
+            if payment_provider == "bybit":
+                payment_method = "bybit"
+                payment_label = "Bybit Transfer"
+                payment_claim = await claim_bybit_order_payment(
+                    tx_id,
+                    order_id,
+                    update.effective_user.id,
+                    expected_amount,
+                    display_id,
+                    str(tx.get("fromMemberId") or ""),
+                )
+            else:
+                payment_method = "binance"
+                payment_label = "Binance Pay"
+                payment_claim = await claim_binance_order_payment(
+                    tx_id,
+                    order_id,
+                    update.effective_user.id,
+                    expected_amount,
+                    display_id,
+                )
             if not payment_claim.get("claimed"):
                 if payment_claim.get("reason") in ("already_claimed", "order_not_payable"):
                     logger.info(
-                        "Duplicate Binance verification ignored for order %d transaction %s",
+                        "Duplicate %s verification ignored for order %d transaction %s",
+                        payment_provider,
                         order_id,
                         tx_id,
                     )
@@ -1177,11 +1286,17 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 task.cancel()
                 
             if payment_claim.get("previous_status") == "CANCELLED":
-                logger.info("Order #%d reactivated: Binance payment confirmed after timeout", order_id)
+                logger.info(
+                    "Order #%d reactivated: %s payment confirmed after timeout",
+                    order_id,
+                    payment_provider,
+                )
 
             product = await get_product(product_id)
             if _is_activation_product(product):
-                return await _prompt_activation_identifier(update, context, order_id, product, lang, "binance", display_id)
+                return await _prompt_activation_identifier(
+                    update, context, order_id, product, lang, payment_method, display_id
+                )
 
             delivered = await deliver_order(order_id, product_id)
 
@@ -1190,7 +1305,7 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     order_id,
                     "COMPLETED",
                     expected_statuses=("PENDING", "AWAITING_PAYMENT", "PAID_PENDING_DELIVERY"),
-                    payment_method="binance",
+                    payment_method=payment_method,
                     binance_order_id=display_id,
                 )
                 warranty_days = product.get("warranty_days", 0) if product else 0
@@ -1210,7 +1325,7 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     order_id,
                     "PAID_PENDING_DELIVERY",
                     expected_statuses=("PENDING", "AWAITING_PAYMENT"),
-                    payment_method="binance",
+                    payment_method=payment_method,
                     binance_order_id=display_id,
                 )
                 await update.message.reply_text(
@@ -1225,7 +1340,7 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 order_id,
                 product_id,
                 expected_amount,
-                payment_method="Binance Pay",
+                payment_method=payment_label,
                 user_id=update.effective_user.id,
             )
 
@@ -1237,10 +1352,17 @@ async def receive_order_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.pop("paying_order_id", None)
             context.user_data.pop("paying_amount", None)
             context.user_data.pop("paying_product_id", None)
+            context.user_data.pop("paying_provider", None)
             return ConversationHandler.END
 
         else:
-            error_msg = result.get("error", t("payment_not_detected", lang))
+            error_key = result.get("error_key")
+            if error_key:
+                error_msg = t(str(error_key), lang).format(
+                    **(result.get("error_params") or {})
+                )
+            else:
+                error_msg = result.get("error", t("payment_not_detected", lang))
             await update.message.reply_text(
                 f"{t('payment_not_detected', lang)}\n\n"
                 f"❌ {error_msg}\n\n"
@@ -3030,6 +3152,7 @@ def get_payment_conversation_handler() -> ConversationHandler:
         entry_points=[
             CallbackQueryHandler(initiate_purchase, pattern=r"^buy:"),
             CallbackQueryHandler(pay_with_binance, pattern=r"^pay_binance:"),
+            CallbackQueryHandler(pay_with_bybit_transfer, pattern=r"^pay_bybit:"),
             CallbackQueryHandler(pay_with_wallet, pattern=r"^pay_wallet:"),
             CallbackQueryHandler(pay_with_nowpayments, pattern=r"^pay_nowpayments:"),
             CallbackQueryHandler(pay_with_cryptopay, pattern=r"^pay_cryptopay:"),
@@ -3046,6 +3169,7 @@ def get_payment_conversation_handler() -> ConversationHandler:
             ],
             WAITING_PAYMENT_METHOD: [
                 CallbackQueryHandler(pay_with_binance, pattern=r"^pay_binance:"),
+                CallbackQueryHandler(pay_with_bybit_transfer, pattern=r"^pay_bybit:"),
                 CallbackQueryHandler(pay_with_wallet, pattern=r"^pay_wallet:"),
                 CallbackQueryHandler(pay_with_nowpayments, pattern=r"^pay_nowpayments:"),
                 CallbackQueryHandler(pay_with_cryptopay, pattern=r"^pay_cryptopay:"),

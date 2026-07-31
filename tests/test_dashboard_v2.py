@@ -22,7 +22,7 @@ class DashboardV2Tests(unittest.TestCase):
             "payment-review-tab", "activations-tab", "inventory-tab",
             "users-tab", "wallet-history-tab", "tickets-tab", "resellers-tab",
             "supplier-bots-tab", "ai-bot-tab", "game-tab", "binance-tab",
-            "broadcast-tab", "settings-tab",
+            "broadcast-tab", "settings-tab", "pixel-tab",
         }
         menu_tabs = re.findall(r'class="menu-item(?: active)?" data-tab="([^"]+)"', self.html)
         self.assertEqual(set(menu_tabs), expected_tabs)

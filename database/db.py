@@ -918,6 +918,15 @@ async def init_db() -> None:
                 amount REAL,
                 used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )""",
+            """CREATE TABLE IF NOT EXISTS used_bybit_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                transaction_id TEXT UNIQUE NOT NULL,
+                order_id INTEGER,
+                user_telegram_id INTEGER,
+                amount REAL,
+                sender_uid TEXT DEFAULT '',
+                used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )""",
             """CREATE TABLE IF NOT EXISTS used_bep20_transactions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 tx_hash TEXT UNIQUE NOT NULL,
@@ -1167,6 +1176,7 @@ async def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_telegram_id)",
             "CREATE INDEX IF NOT EXISTS idx_used_bep20_tx ON used_bep20_transactions(tx_hash)",
             "CREATE INDEX IF NOT EXISTS idx_used_trc20_tx ON used_trc20_transactions(tx_hash)",
+            "CREATE INDEX IF NOT EXISTS idx_used_bybit_tx ON used_bybit_transactions(transaction_id)",
             "CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users(referred_by)",
             "CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id)",
             "CREATE INDEX IF NOT EXISTS idx_price_tiers_product ON price_tiers(product_id)",

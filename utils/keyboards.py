@@ -452,6 +452,13 @@ async def payment_method_keyboard(order_id: int, lang: str = "fr", wallet_balanc
             icon_custom_emoji_id=CUSTOM_EMOJIS["btn_pay_cryptopay"],
         )])
 
+    from services.bybit_transfer import is_bybit_transfer_configured
+    if is_bybit_transfer_configured():
+        buttons.append([InlineKeyboardButton(
+            t("btn_pay_bybit", lang),
+            callback_data=f"pay_bybit:{order_id}",
+        )])
+
     # Dynamic BEP20 button
     bep20_addr = await get_setting("bep20_address")
     if bep20_addr:

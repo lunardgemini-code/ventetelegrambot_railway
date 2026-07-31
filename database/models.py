@@ -9084,6 +9084,133 @@ async def _claim_binance_order_payment_once(
         await db.close()
 
 
+async def claim_bybit_order_payment(
+    transaction_id: str,
+    order_id: int,
+    user_telegram_id: int,
+    amount: float,
+    payment_reference: str,
+    sender_uid: str = "",
+) -> dict:
+    """Atomically consume a Bybit transfer and mark its order as paid."""
+    transaction_id = str(transaction_id or "").strip()
+    if not transaction_id:
+        raise ValueError("BYBIT_TRANSACTION_ID_REQUIRED")
+    amount = usd_float(amount, places=8, allow_zero=False)
+
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            async with _get_critical_db_semaphore():
+                return await _claim_bybit_order_payment_once(
+                    transaction_id,
+                    int(order_id),
+                    int(user_telegram_id),
+                    amount,
+                    str(payment_reference or transaction_id),
+                    str(sender_uid or ""),
+                    fresh_connection=True,
+                )
+        except Exception as exc:
+            last_exc = exc
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            logger.warning(
+                "Retrying Bybit order payment claim for order %s: %s",
+                order_id,
+                exc,
+            )
+            await asyncio.sleep(0.1 * (attempt + 1))
+    raise RuntimeError("Bybit order payment claim unavailable") from last_exc
+
+
+async def _claim_bybit_order_payment_once(
+    transaction_id: str,
+    order_id: int,
+    user_telegram_id: int,
+    amount: float,
+    payment_reference: str,
+    sender_uid: str,
+    *,
+    fresh_connection: bool = False,
+) -> dict:
+    db = await get_db(fresh=fresh_connection)
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute(
+            "SELECT order_id, user_telegram_id FROM used_bybit_transactions WHERE transaction_id = ?",
+            (transaction_id,),
+        )
+        existing = await cursor.fetchone()
+        if existing:
+            await db.rollback()
+            same_order = (
+                existing["order_id"] == order_id
+                and existing["user_telegram_id"] == user_telegram_id
+            )
+            return {
+                "claimed": False,
+                "reason": "already_claimed" if same_order else "transaction_used",
+            }
+
+        cursor = await db.execute(
+            """SELECT o.status, p.delivery_type
+               FROM orders o
+               JOIN products p ON p.id = o.product_id
+               WHERE o.id = ? AND o.user_telegram_id = ?""",
+            (order_id, user_telegram_id),
+        )
+        order = await cursor.fetchone()
+        if not order:
+            await db.rollback()
+            return {"claimed": False, "reason": "order_not_found"}
+
+        previous_status = str(order["status"] or "")
+        if previous_status not in ("PENDING", "AWAITING_PAYMENT", "CANCELLED"):
+            await db.rollback()
+            return {
+                "claimed": False,
+                "reason": "order_not_payable",
+                "order_status": previous_status,
+            }
+
+        await db.execute(
+            """INSERT INTO used_bybit_transactions
+               (transaction_id, order_id, user_telegram_id, amount, sender_uid)
+               VALUES (?, ?, ?, ?, ?)""",
+            (transaction_id, order_id, user_telegram_id, amount, sender_uid),
+        )
+        next_status = (
+            "AWAITING_ACTIVATION_INFO"
+            if str(order["delivery_type"] or "stock") == "activation"
+            else "PAID_PENDING_DELIVERY"
+        )
+        await db.execute(
+            """UPDATE orders
+               SET status = ?, payment_method = 'bybit',
+                   binance_order_id = ?, paid_at = COALESCE(paid_at, CURRENT_TIMESTAMP)
+               WHERE id = ? AND user_telegram_id = ?""",
+            (next_status, payment_reference, order_id, user_telegram_id),
+        )
+        await db.commit()
+        _clear_stock_cache()
+        invalidate_stats_cache()
+        return {
+            "claimed": True,
+            "reason": "claimed",
+            "previous_status": previous_status,
+            "order_status": next_status,
+        }
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
 async def credit_wallet_from_binance_transaction(
     transaction_id: str,
     user_telegram_id: int,

@@ -6738,6 +6738,8 @@ async def post_shutdown(application: Application) -> None:
     await close_nowpayments_client()
     from services.crypto_pay import close_crypto_pay_client
     await close_crypto_pay_client()
+    from services.bybit_transfer import close_bybit_transfer_client
+    await close_bybit_transfer_client()
     from services.reseller_webhooks import close_reseller_webhook_client
     await close_reseller_webhook_client()
     from services.supplier_registry import close_supplier_clients
@@ -7128,6 +7130,8 @@ async def run_migrations_command(update: Update, context: ContextTypes.DEFAULT_T
         ("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)", "Table 'settings'"),
         ("CREATE TABLE IF NOT EXISTS used_bep20_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, tx_hash TEXT UNIQUE NOT NULL, order_id INTEGER, user_telegram_id INTEGER, amount REAL, used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)", "Table 'used_bep20_transactions'"),
         ("CREATE TABLE IF NOT EXISTS used_trc20_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, tx_hash TEXT UNIQUE NOT NULL, order_id INTEGER, user_telegram_id INTEGER, amount REAL, used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)", "Table 'used_trc20_transactions'"),
+        ("CREATE TABLE IF NOT EXISTS used_bybit_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, transaction_id TEXT UNIQUE NOT NULL, order_id INTEGER, user_telegram_id INTEGER, amount REAL, sender_uid TEXT DEFAULT '', used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)", "Table 'used_bybit_transactions'"),
+        ("CREATE INDEX IF NOT EXISTS idx_used_bybit_tx ON used_bybit_transactions(transaction_id)", "Index 'idx_used_bybit_tx'"),
         ("ALTER TABLE orders ADD COLUMN quantity INTEGER DEFAULT 1", "Column 'orders.quantity'"),
         ("ALTER TABLE orders ADD COLUMN payment_method TEXT DEFAULT 'binance'", "Column 'orders.payment_method'"),
         ("ALTER TABLE orders ADD COLUMN promo_code_id INTEGER", "Column 'orders.promo_code_id'"),

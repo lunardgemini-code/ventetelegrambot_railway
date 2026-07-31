@@ -340,6 +340,40 @@ class OrderSafetyTests(unittest.IsolatedAsyncioTestCase):
             await db.close()
         self.assertEqual(int(row["cnt"]), 1)
 
+    async def test_concurrent_bybit_order_claim_has_one_winner(self):
+        order = await models.create_order(1001, self.product_id, 5, quantity=1)
+
+        results = await asyncio.gather(*(
+            models.claim_bybit_order_payment(
+                "77c37e5c-d9fa-41e5-bd13-c9b59d95",
+                order["id"],
+                1001,
+                5,
+                "77c37e5c-d9fa-41e5-bd13-c9b59d95",
+                "118027304",
+            )
+            for _ in range(3)
+        ))
+
+        self.assertEqual(sum(bool(result["claimed"]) for result in results), 1)
+        self.assertEqual(
+            sum(result["reason"] == "already_claimed" for result in results),
+            2,
+        )
+        stored = await models.get_order(order["id"])
+        self.assertEqual(stored["status"], "PAID_PENDING_DELIVERY")
+        self.assertEqual(stored["payment_method"], "bybit")
+
+        db = await get_db()
+        try:
+            row = await (await db.execute(
+                "SELECT COUNT(*) AS cnt FROM used_bybit_transactions WHERE transaction_id = ?",
+                ("77c37e5c-d9fa-41e5-bd13-c9b59d95",),
+            )).fetchone()
+        finally:
+            await db.close()
+        self.assertEqual(int(row["cnt"]), 1)
+
     async def test_concurrent_binance_wallet_credit_happens_once(self):
         results = await asyncio.gather(*(
             models.credit_wallet_from_binance_transaction(
