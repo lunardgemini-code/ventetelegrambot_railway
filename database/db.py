@@ -1009,6 +1009,7 @@ async def init_db() -> None:
             )""",
             """CREATE TABLE IF NOT EXISTS cryptopay_invoices (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider TEXT NOT NULL DEFAULT 'cryptopay',
                 payment_kind TEXT NOT NULL CHECK (payment_kind IN ('order', 'wallet_topup')),
                 order_id INTEGER,
                 user_telegram_id INTEGER NOT NULL,
@@ -2220,6 +2221,31 @@ async def init_db() -> None:
             )
             await db.commit()
             current_version = 25
+
+        # Reuse the hardened invoice ledger for other hosted checkout providers.
+        # Existing rows remain Crypto Pay rows; Bybit Pay uses the same atomic
+        # fulfillment and exactly-once wallet/order completion machinery.
+        if current_version < 26:
+            cryptopay_columns = await _columns_for("cryptopay_invoices")
+            if "provider" not in cryptopay_columns:
+                await db.execute(
+                    "ALTER TABLE cryptopay_invoices "
+                    "ADD COLUMN provider TEXT NOT NULL DEFAULT 'cryptopay'"
+                )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_payment_provider_status "
+                "ON cryptopay_invoices(provider, provider_status, updated_at)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_payment_provider_order "
+                "ON cryptopay_invoices(provider, order_id, created_at DESC)"
+            )
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (26, ?)",
+                ("multi_provider_checkout_ledger",),
+            )
+            await db.commit()
+            current_version = 26
 
     finally:
         await db.close()

@@ -53,6 +53,7 @@ from utils.keyboards import (
     payment_check_keyboard,
     payment_method_keyboard,
     cryptopay_payment_keyboard,
+    bybitpay_payment_keyboard,
     nowpayments_payment_keyboard,
     quantity_keyboard,
 )
@@ -70,10 +71,12 @@ WAITING_TRC20_TX_HASH = 205
 WAITING_ACTIVATION_IDENTIFIER = 206
 WAITING_NOWPAYMENTS = 207
 WAITING_CRYPTOPAY = 208
+WAITING_BYBITPAY = 209
 
 _timeout_tasks = {}
 _nowpayments_locks = [asyncio.Lock() for _ in range(64)]
 _cryptopay_locks = [asyncio.Lock() for _ in range(64)]
+_bybitpay_locks = [asyncio.Lock() for _ in range(64)]
 
 
 def _nowpayments_callback_url() -> str:
@@ -95,6 +98,27 @@ def _nowpayments_callback_url() -> str:
             public_base = f"https://{railway_domain}"
         return f"{public_base}/webhooks/nowpayments"
     return ""
+
+
+def _bybitpay_public_urls() -> tuple[str, str]:
+    explicit = os.environ.get("BYBIT_PAY_CALLBACK_URL", "").strip()
+    if explicit:
+        callback_url = explicit.rstrip("/")
+        base_url = callback_url.rsplit("/webhooks/bybitpay", 1)[0]
+        return callback_url, f"{base_url}/health/live"
+    for env_name in ("PUBLIC_BASE_URL", "WEBHOOK_URL"):
+        public_base = os.environ.get(env_name, "").strip().rstrip("/")
+        if public_base.startswith("https://"):
+            return f"{public_base}/webhooks/bybitpay", f"{public_base}/health/live"
+    railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "").strip().strip("/")
+    if railway_domain:
+        public_base = (
+            railway_domain.rstrip("/")
+            if railway_domain.startswith("https://")
+            else f"https://{railway_domain}"
+        )
+        return f"{public_base}/webhooks/bybitpay", f"{public_base}/health/live"
+    return "", ""
 
 
 def _format_crypto_amount(value) -> str:
@@ -1452,6 +1476,54 @@ async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                     return WAITING_CRYPTOPAY
 
+        if str(order.get("payment_method") or "").lower() == "bybitpay":
+            from database.models import get_bybitpay_invoice_for_order, save_cryptopay_update
+            from services.bybit_pay import BybitPayError, get_payment_result, normalize_payment
+
+            invoice = await get_bybitpay_invoice_for_order(order_id)
+            if invoice and invoice.get("invoice_id"):
+                try:
+                    provider_result = await get_payment_result(
+                        pay_id=str(invoice["invoice_id"])
+                    )
+                    invoice = (
+                        await save_cryptopay_update(normalize_payment(provider_result))
+                        or invoice
+                    )
+                    if str(invoice.get("provider_status") or "") == "paid":
+                        result = await process_cryptopay_invoice_notification(
+                            context.bot, invoice["invoice_id"]
+                        )
+                        if result.get("action") in (
+                            "completed", "activation", "paid_pending_delivery"
+                        ):
+                            await safe_edit_message_text(
+                                query,
+                                t("payment_confirmed", lang),
+                                parse_mode="HTML",
+                                reply_markup=main_menu_keyboard(lang),
+                            )
+                            return ConversationHandler.END
+                        if result.get("action") == "review_required":
+                            await safe_edit_message_text(
+                                query,
+                                t("bybitpay_review", lang),
+                                reply_markup=main_menu_keyboard(lang),
+                            )
+                            return ConversationHandler.END
+                except (BybitPayError, ValueError, TypeError) as exc:
+                    logger.warning(
+                        "Bybit Pay pre-cancellation check failed for order #%s: %s",
+                        order_id,
+                        exc,
+                    )
+                    await safe_edit_message_text(
+                        query,
+                        t("bybitpay_unavailable", lang),
+                        reply_markup=payment_check_keyboard(order_id, lang),
+                    )
+                    return WAITING_BYBITPAY
+
         # Cancel the background timeout task if it exists
         task = _timeout_tasks.pop(order_id, None)
         if task and not task.done():
@@ -1473,6 +1545,7 @@ async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             from database.models import cancel_cryptopay_order_invoice
             await cancel_cryptopay_order_invoice(order_id)
+            await cancel_cryptopay_order_invoice(order_id, provider="bybitpay")
         except Exception as exc:
             logger.warning(
                 "Could not mark Crypto Pay invoice cancelled for order #%s: %s",
@@ -1685,6 +1758,10 @@ async def process_cryptopay_invoice_notification(
     result = finalized_result or await finalize_cryptopay_invoice(invoice_id)
     action = result.get("action")
     invoice = result.get("invoice") or {}
+    is_bybitpay = str(invoice.get("provider") or "cryptopay") == "bybitpay"
+    payment_method = "bybitpay" if is_bybitpay else "cryptopay"
+    provider_label = "Bybit Pay" if is_bybitpay else "CryptoBot"
+    translation_prefix = "bybitpay" if is_bybitpay else "cryptopay"
     if invoice.get("payment_kind") == "wallet_topup":
         return result
 
@@ -1700,7 +1777,7 @@ async def process_cryptopay_invoice_notification(
                     int(invoice["order_id"]),
                     "COMPLETED",
                     expected_statuses=("PAID_PENDING_DELIVERY",),
-                    payment_method="cryptopay",
+                    payment_method=payment_method,
                     binance_order_id=str(invoice_id),
                 )
                 result["action"] = action = "completed"
@@ -1764,7 +1841,7 @@ async def process_cryptopay_invoice_notification(
     elif action == "paid_pending_delivery" and user_id:
         await bot.send_message(
             user_id,
-            t("cryptopay_paid_pending", lang).format(order_id=order_id),
+            t(f"{translation_prefix}_paid_pending", lang).format(order_id=order_id),
             reply_markup=main_menu_keyboard(lang),
         )
         notified = True
@@ -1772,7 +1849,7 @@ async def process_cryptopay_invoice_notification(
         if user_id:
             await bot.send_message(
                 user_id,
-                t("cryptopay_review", lang),
+                t(f"{translation_prefix}_review", lang),
                 reply_markup=main_menu_keyboard(lang),
             )
         reason = escape_html(
@@ -1783,7 +1860,7 @@ async def process_cryptopay_invoice_notification(
                 await bot.send_message(
                     admin_id,
                     (
-                        "<b>Crypto Pay security review</b>\n"
+                        f"<b>{provider_label} security review</b>\n"
                         f"Order: #{order_id}\n"
                         f"Invoice: <code>{escape_html(str(invoice_id))}</code>\n"
                         f"Reason: {reason}"
@@ -1792,15 +1869,16 @@ async def process_cryptopay_invoice_notification(
                 )
             except Exception as exc:
                 logger.warning(
-                    "Could not notify admin %s about Crypto Pay review: %s",
+                    "Could not notify admin %s about %s review: %s",
                     admin_id,
+                    provider_label,
                     exc,
                 )
         notified = True
     elif action == "expired" and user_id:
         await bot.send_message(
             user_id,
-            t("cryptopay_expired", lang),
+            t(f"{translation_prefix}_expired", lang),
             reply_markup=main_menu_keyboard(lang),
         )
         notified = True
@@ -1813,7 +1891,7 @@ async def process_cryptopay_invoice_notification(
                 order_id,
                 product_id,
                 float(invoice.get("amount_usd") or 0),
-                payment_method="CryptoBot",
+                payment_method=provider_label,
                 user_id=user_id,
             )
     else:
@@ -2031,6 +2109,243 @@ async def check_cryptopay_payment(
         t("cryptopay_waiting", lang),
     )
     return WAITING_CRYPTOPAY
+
+
+def _bybitpay_checkout_url(invoice: dict) -> str:
+    from services.bybit_pay import is_safe_checkout_url
+
+    provider_url = str(invoice.get("web_app_invoice_url") or "").strip()
+    request_key = str(invoice.get("request_key") or "").strip()
+    callback_url, _ = _bybitpay_public_urls()
+    if (
+        not is_safe_checkout_url(provider_url)
+        or not request_key.startswith("bp_order_")
+        or not callback_url.startswith("https://")
+    ):
+        return ""
+    public_base = callback_url.rsplit("/webhooks/bybitpay", 1)[0]
+    return f"{public_base}/payments/bybit/{request_key}"
+
+
+async def _render_bybitpay_checkout(
+    query,
+    invoice: dict,
+    lang: str,
+    status_text: str | None = None,
+):
+    checkout_url = _bybitpay_checkout_url(invoice)
+    if not checkout_url:
+        await safe_edit_message_text(
+            query,
+            t("bybitpay_unavailable", lang),
+            reply_markup=main_menu_keyboard(lang),
+        )
+        return
+    amount = f"{float(invoice.get('provider_amount_usd') or invoice.get('amount_usd') or 0):.2f}"
+    invoice_id = escape_html(str(invoice.get("invoice_id") or ""))
+    text = (
+        f"{t('bybitpay_title', lang)}\n\n"
+        f"{t('bybitpay_amount', lang).format(amount=amount)}\n"
+        f"{t('bybitpay_reference', lang).format(invoice_id=invoice_id)}\n\n"
+        f"{t('bybitpay_instructions', lang)}\n\n"
+        f"{status_text or t('bybitpay_waiting', lang)}"
+    )
+    await safe_edit_message_text(
+        query,
+        text,
+        parse_mode="HTML",
+        reply_markup=bybitpay_payment_keyboard(
+            int(invoice["id"]),
+            checkout_url,
+            lang,
+            order_id=int(invoice["order_id"]),
+        ),
+    )
+
+
+async def pay_with_bybitpay(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    lang = await get_user_lang(update.effective_user.id)
+    order_id = int(query.data.split(":", 1)[1])
+    lock = _bybitpay_locks[order_id % len(_bybitpay_locks)]
+
+    async with lock:
+        order = await get_order(order_id)
+        if not order:
+            await safe_edit_message_text(query, t("product_not_found", lang))
+            return ConversationHandler.END
+        if int(order.get("user_telegram_id") or 0) != update.effective_user.id:
+            await safe_edit_message_text(query, t("access_denied", lang))
+            return ConversationHandler.END
+        if order.get("status") not in ("PENDING", "AWAITING_PAYMENT"):
+            text = (
+                t("payment_confirmed", lang)
+                if order.get("status") == "COMPLETED"
+                else t("order_cancelled", lang)
+            )
+            await safe_edit_message_text(query, text, reply_markup=main_menu_keyboard(lang))
+            return ConversationHandler.END
+        if not await _ensure_supplier_stock_for_order(query, order, lang):
+            return ConversationHandler.END
+
+        from database.models import (
+            attach_cryptopay_invoice,
+            mark_cryptopay_creation_failed,
+            prepare_cryptopay_invoice,
+        )
+        from services.bybit_pay import (
+            BybitPayError,
+            create_payment,
+            is_bybit_pay_configured,
+            normalize_payment,
+        )
+
+        callback_url, success_url = _bybitpay_public_urls()
+        if (
+            not is_bybit_pay_configured()
+            or not callback_url.startswith("https://")
+            or not success_url.startswith("https://")
+        ):
+            await safe_edit_message_text(
+                query,
+                t("bybitpay_unavailable", lang),
+                reply_markup=main_menu_keyboard(lang),
+            )
+            return ConversationHandler.END
+
+        amount = round(float(order["amount_usd"]), 2)
+        attempt = await prepare_cryptopay_invoice(
+            "order",
+            update.effective_user.id,
+            amount,
+            order_id=order_id,
+            provider="bybitpay",
+        )
+        if not attempt.get("created"):
+            if attempt.get("invoice_id") and _bybitpay_checkout_url(attempt):
+                await _render_bybitpay_checkout(query, attempt, lang)
+                return WAITING_BYBITPAY
+            await safe_edit_message_text(
+                query,
+                t("bybitpay_creation_unknown", lang).format(
+                    reference=escape_html(str(attempt.get("request_key") or order_id))
+                ),
+                reply_markup=main_menu_keyboard(lang),
+            )
+            return ConversationHandler.END
+
+        await update_order_status(
+            order_id,
+            "AWAITING_PAYMENT",
+            expected_statuses=("PENDING", "AWAITING_PAYMENT"),
+            payment_method="bybitpay",
+        )
+        product = await get_product(int(order["product_id"]))
+        description = (
+            f"{(product or {}).get('name') or 'Digital product'} "
+            f"x{max(1, int(order.get('quantity') or 1))}"
+        )
+        try:
+            provider_result = await create_payment(
+                amount_usd=amount,
+                merchant_trade_no=str(attempt["provider_payload"]),
+                goods_name=description,
+                callback_url=callback_url,
+                success_url=success_url,
+                expires_in=PAYMENT_TIMEOUT_SECONDS,
+                user_telegram_id=update.effective_user.id,
+            )
+            normalized = normalize_payment(provider_result)
+            invoice = await attach_cryptopay_invoice(
+                str(attempt["request_key"]),
+                normalized,
+            )
+        except (BybitPayError, ValueError, TypeError) as exc:
+            uncertain = bool(isinstance(exc, BybitPayError) and exc.retryable)
+            await mark_cryptopay_creation_failed(
+                str(attempt["request_key"]),
+                uncertain=uncertain,
+                error=str(exc),
+            )
+            logger.warning("Bybit Pay creation failed for order %s: %s", order_id, exc)
+            text = (
+                t("bybitpay_creation_unknown", lang).format(
+                    reference=escape_html(str(attempt["request_key"]))
+                )
+                if uncertain
+                else t("bybitpay_unavailable", lang)
+            )
+            await safe_edit_message_text(query, text, reply_markup=main_menu_keyboard(lang))
+            return ConversationHandler.END
+
+        context.user_data["paying_order_id"] = order_id
+        context.user_data["paying_product_id"] = order.get("product_id")
+        await _render_bybitpay_checkout(query, invoice, lang)
+        return WAITING_BYBITPAY
+
+
+async def check_bybitpay_payment(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    query = update.callback_query
+    lang = await get_user_lang(update.effective_user.id)
+    await query.answer(t("bybitpay_checking_short", lang))
+    local_id = int(query.data.split(":", 1)[1])
+
+    from database.models import get_cryptopay_invoice_by_local_id, save_cryptopay_update
+    from services.bybit_pay import BybitPayError, get_payment_result, normalize_payment
+
+    invoice = await get_cryptopay_invoice_by_local_id(local_id)
+    if (
+        not invoice
+        or invoice.get("provider") != "bybitpay"
+        or invoice.get("payment_kind") != "order"
+        or int(invoice.get("user_telegram_id") or 0) != update.effective_user.id
+    ):
+        await safe_edit_message_text(query, t("access_denied", lang))
+        return ConversationHandler.END
+    await _render_bybitpay_checkout(
+        query, invoice, lang, t("bybitpay_checking", lang)
+    )
+    try:
+        provider_result = await get_payment_result(pay_id=str(invoice["invoice_id"]))
+        normalized = normalize_payment(provider_result)
+        invoice = await save_cryptopay_update(normalized) or invoice
+        result = await process_cryptopay_invoice_notification(
+            context.bot,
+            invoice["invoice_id"],
+        )
+    except (BybitPayError, ValueError, TypeError):
+        await _render_bybitpay_checkout(
+            query, invoice, lang, t("bybitpay_unavailable", lang)
+        )
+        return WAITING_BYBITPAY
+
+    action = result.get("action")
+    if action in ("completed", "activation", "paid_pending_delivery"):
+        await safe_edit_message_text(
+            query,
+            t("payment_confirmed", lang),
+            parse_mode="HTML",
+            reply_markup=main_menu_keyboard(lang),
+        )
+        return ConversationHandler.END
+    if action == "review_required":
+        await safe_edit_message_text(
+            query, t("bybitpay_review", lang), reply_markup=main_menu_keyboard(lang)
+        )
+        return ConversationHandler.END
+    if action == "expired":
+        await safe_edit_message_text(
+            query, t("bybitpay_expired", lang), reply_markup=main_menu_keyboard(lang)
+        )
+        return ConversationHandler.END
+    await _render_bybitpay_checkout(
+        query, invoice, lang, t("bybitpay_waiting", lang)
+    )
+    return WAITING_BYBITPAY
 
 
 async def _render_nowpayments_checkout(
@@ -3033,8 +3348,10 @@ def get_payment_conversation_handler() -> ConversationHandler:
             CallbackQueryHandler(pay_with_wallet, pattern=r"^pay_wallet:"),
             CallbackQueryHandler(pay_with_nowpayments, pattern=r"^pay_nowpayments:"),
             CallbackQueryHandler(pay_with_cryptopay, pattern=r"^pay_cryptopay:"),
+            CallbackQueryHandler(pay_with_bybitpay, pattern=r"^pay_bybitpay:"),
             CallbackQueryHandler(check_nowpayments_payment, pattern=r"^check_nowpayments:"),
             CallbackQueryHandler(check_cryptopay_payment, pattern=r"^check_cryptopay:"),
+            CallbackQueryHandler(check_bybitpay_payment, pattern=r"^check_bybitpay:"),
             CallbackQueryHandler(start_activation_identifier, pattern=r"^activation_info:"),
             CallbackQueryHandler(pay_with_bep20, pattern=r"^pay_bep20:"),
             CallbackQueryHandler(pay_with_trc20, pattern=r"^pay_trc20:"),
@@ -3049,6 +3366,7 @@ def get_payment_conversation_handler() -> ConversationHandler:
                 CallbackQueryHandler(pay_with_wallet, pattern=r"^pay_wallet:"),
                 CallbackQueryHandler(pay_with_nowpayments, pattern=r"^pay_nowpayments:"),
                 CallbackQueryHandler(pay_with_cryptopay, pattern=r"^pay_cryptopay:"),
+                CallbackQueryHandler(pay_with_bybitpay, pattern=r"^pay_bybitpay:"),
                 CallbackQueryHandler(pay_with_bep20, pattern=r"^pay_bep20:"),
                 CallbackQueryHandler(pay_with_trc20, pattern=r"^pay_trc20:"),
                 CallbackQueryHandler(start_apply_promo, pattern=r"^apply_promo:"),
@@ -3074,6 +3392,10 @@ def get_payment_conversation_handler() -> ConversationHandler:
             ],
             WAITING_CRYPTOPAY: [
                 CallbackQueryHandler(check_cryptopay_payment, pattern=r"^check_cryptopay:"),
+                CallbackQueryHandler(start_activation_identifier, pattern=r"^activation_info:"),
+            ],
+            WAITING_BYBITPAY: [
+                CallbackQueryHandler(check_bybitpay_payment, pattern=r"^check_bybitpay:"),
                 CallbackQueryHandler(start_activation_identifier, pattern=r"^activation_info:"),
             ],
             WAITING_ACTIVATION_IDENTIFIER: [

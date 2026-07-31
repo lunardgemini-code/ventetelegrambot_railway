@@ -62,6 +62,25 @@ except (TypeError, ValueError):
     _log.warning("Invalid CRYPTO_PAY_FEE_PERCENT; falling back to 3%")
     CRYPTO_PAY_FEE_PERCENT = 3.0
 
+# Bybit Pay QR checkout. Keep it opt-in until merchant onboarding has supplied
+# an API key/secret, merchant UID and Bybit's webhook verification public key.
+BYBIT_PAY_ENABLED: bool = os.getenv("BYBIT_PAY_ENABLED", "false").strip().lower() in {
+    "1", "true", "yes", "on"
+}
+BYBIT_PAY_API_KEY: str = os.getenv("BYBIT_PAY_API_KEY", "").strip()
+BYBIT_PAY_API_SECRET: str = os.getenv("BYBIT_PAY_API_SECRET", "").strip()
+BYBIT_PAY_MERCHANT_ID: str = os.getenv("BYBIT_PAY_MERCHANT_ID", "").strip()
+BYBIT_PAY_BASE_URL: str = os.getenv(
+    "BYBIT_PAY_BASE_URL", "https://api.bybit.com"
+).strip().rstrip("/")
+BYBIT_PAY_WEBHOOK_PUBLIC_KEY: str = os.getenv(
+    "BYBIT_PAY_WEBHOOK_PUBLIC_KEY", ""
+).strip().replace("\\n", "\n")
+BYBIT_PAY_RECV_WINDOW: int = max(
+    1000,
+    min(10000, int(os.getenv("BYBIT_PAY_RECV_WINDOW", "5000"))),
+)
+
 # Pixel activation remains opt-in.  An unavailable external supplier must
 # never impact the normal Telegram shop or reseller API paths.
 PIXEL_ENABLED: bool = os.getenv("PIXEL_ENABLED", "false").strip().lower() in {

@@ -448,6 +448,13 @@ async def payment_method_keyboard(order_id: int, lang: str = "fr", wallet_balanc
             icon_custom_emoji_id=CUSTOM_EMOJIS["btn_pay_cryptopay"],
         )])
 
+    from services.bybit_pay import is_bybit_pay_configured
+    if is_bybit_pay_configured():
+        buttons.append([InlineKeyboardButton(
+            t("btn_pay_bybitpay", lang),
+            callback_data=f"pay_bybitpay:{order_id}",
+        )])
+
     # Dynamic BEP20 button
     bep20_addr = await get_setting("bep20_address")
     if bep20_addr:
@@ -527,6 +534,23 @@ def cryptopay_payment_keyboard(
         [InlineKeyboardButton(t("btn_open_cryptopay", lang), url=invoice_url)],
         [InlineKeyboardButton(t("btn_check_cryptopay", lang), callback_data=check_callback)],
         [make_button("btn_cancel", lang, callback_data=cancel_callback)],
+    ])
+
+
+def bybitpay_payment_keyboard(
+    local_id: int,
+    checkout_url: str,
+    lang: str = "fr",
+    *,
+    order_id: int,
+) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(t("btn_open_bybitpay", lang), url=checkout_url)],
+        [InlineKeyboardButton(
+            t("btn_check_bybitpay", lang),
+            callback_data=f"check_bybitpay:{local_id}",
+        )],
+        [make_button("btn_cancel", lang, callback_data=f"cancel_order:{order_id}")],
     ])
 
 

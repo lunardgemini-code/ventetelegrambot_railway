@@ -2042,6 +2042,75 @@ async def api_pixel_provider_callback(public_id: str, callback_token: str, reque
     return {"status": "accepted"}
 
 
+@api.post("/webhooks/bybitpay", include_in_schema=False)
+async def bybitpay_webhook(
+    request: Request,
+    timestamp: str = Header(None),
+    signature: str = Header(None),
+):
+    """Persist only authentic, fresh Bybit Pay callbacks."""
+    from config import BYBIT_PAY_MERCHANT_ID
+    from services.bybit_pay import (
+        is_bybit_pay_configured,
+        normalize_payment,
+        verify_webhook_signature,
+    )
+
+    if not is_bybit_pay_configured():
+        raise HTTPException(status_code=503, detail="Bybit Pay is not configured")
+    raw_body = await request.body()
+    if len(raw_body) > 65536:
+        raise HTTPException(status_code=413, detail="Webhook payload too large")
+    if not verify_webhook_signature(raw_body, timestamp, signature):
+        logger.warning("Rejected Bybit Pay webhook with an invalid signature")
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+    try:
+        payload = json.loads(raw_body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+    if not isinstance(payload, dict) or payload.get("paymentType") != "E_COMMERCE":
+        raise HTTPException(status_code=400, detail="Invalid payment payload")
+    if str(payload.get("merchantId") or "") != BYBIT_PAY_MERCHANT_ID:
+        raise HTTPException(status_code=401, detail="Merchant mismatch")
+
+    from database.models import save_cryptopay_update
+
+    try:
+        invoice = await save_cryptopay_update(normalize_payment(payload))
+    except ValueError as exc:
+        logger.error("Rejected signed Bybit Pay webhook: %s", exc)
+        raise HTTPException(status_code=409, detail="Payment mismatch")
+    if not invoice or invoice.get("provider") != "bybitpay":
+        raise HTTPException(status_code=404, detail="Unknown payment")
+
+    invoice_id = str(invoice["invoice_id"])
+    if tg_app and getattr(tg_app, "bot", None):
+        task = asyncio.create_task(_process_cryptopay_invoice(invoice_id))
+        task.add_done_callback(_log_cryptopay_task_result)
+    return {"status": "accepted"}
+
+
+@api.get("/payments/bybit/{request_key}", include_in_schema=False)
+async def open_bybitpay_checkout(request_key: str):
+    """Bridge Telegram's HTTPS button to Bybit's verified app/deep link."""
+    if not re.fullmatch(r"bp_order_[0-9a-f]{32}", request_key):
+        raise HTTPException(status_code=404, detail="Payment not found")
+    from database.models import get_bybitpay_invoice_by_request_key
+    from services.bybit_pay import is_safe_checkout_url
+
+    invoice = await get_bybitpay_invoice_by_request_key(request_key)
+    checkout_url = str((invoice or {}).get("web_app_invoice_url") or "").strip()
+    if not invoice or not is_safe_checkout_url(checkout_url):
+        raise HTTPException(status_code=404, detail="Payment not found")
+    if str(invoice.get("provider_status") or "") not in {"active", "paid"}:
+        raise HTTPException(status_code=410, detail="Payment expired")
+    return RedirectResponse(
+        checkout_url,
+        status_code=302,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @api.post("/api/resellers/keys", dependencies=[Depends(verify_api_key)])
 async def api_admin_create_reseller_key(data: dict):
     from database.models import create_reseller_api_key, get_user
@@ -6537,6 +6606,84 @@ async def _cryptopay_worker() -> None:
         await asyncio.sleep(next_delay)
 
 
+async def _bybitpay_worker() -> None:
+    from database.models import (
+        expire_stale_cryptopay_invoices,
+        list_checkout_creation_unknown,
+        list_cryptopay_invoices_to_finalize,
+        list_cryptopay_invoices_to_poll,
+        save_cryptopay_update,
+    )
+    from services.bybit_pay import BybitPayError, get_payment_result, normalize_payment
+
+    while True:
+        next_delay = CRYPTOPAY_RECONCILE_SECONDS
+        try:
+            uncertain = await list_checkout_creation_unknown(
+                provider="bybitpay",
+                limit=10,
+            )
+            for attempt in uncertain:
+                try:
+                    result = await get_payment_result(
+                        merchant_trade_no=str(attempt["provider_payload"])
+                    )
+                    normalized = normalize_payment(result)
+                    if not normalized.get("invoice_id"):
+                        continue
+                    from database.models import attach_cryptopay_invoice
+
+                    saved = await attach_cryptopay_invoice(
+                        str(attempt["request_key"]),
+                        normalized,
+                    )
+                    if saved.get("provider_status") in {"paid", "expired"}:
+                        await _process_cryptopay_invoice(str(saved["invoice_id"]))
+                except BybitPayError:
+                    # The create request may not have reached Bybit. Keep the
+                    # same merchant reference locked until local expiry.
+                    continue
+
+            expired_ids = await expire_stale_cryptopay_invoices(
+                timeout_seconds=PAYMENT_TIMEOUT_SECONDS,
+                provider="bybitpay",
+            )
+            for invoice_id in expired_ids:
+                await _process_cryptopay_invoice(invoice_id)
+
+            finalizable = await list_cryptopay_invoices_to_finalize(
+                limit=25,
+                provider="bybitpay",
+            )
+            for invoice in finalizable:
+                await _process_cryptopay_invoice(str(invoice["invoice_id"]))
+
+            if _current_webhook_backlog() <= 0:
+                pollable = await list_cryptopay_invoices_to_poll(
+                    limit=CRYPTOPAY_POLL_BATCH,
+                    provider="bybitpay",
+                )
+                for invoice in pollable:
+                    if _current_webhook_backlog() > 0:
+                        break
+                    result = await get_payment_result(pay_id=str(invoice["invoice_id"]))
+                    saved = await save_cryptopay_update(normalize_payment(result))
+                    if saved and (
+                        saved.get("status_changed")
+                        or saved.get("provider_status") in {"paid", "expired"}
+                    ):
+                        await _process_cryptopay_invoice(str(saved["invoice_id"]))
+        except asyncio.CancelledError:
+            raise
+        except BybitPayError as exc:
+            logger.warning("Bybit Pay reconciliation cycle failed: %s", exc)
+            next_delay = 30
+        except Exception as exc:
+            logger.exception("Bybit Pay reconciliation cycle failed: %s", exc)
+            next_delay = 30
+        await asyncio.sleep(next_delay)
+
+
 async def setup_telegram_bot_commands(bot) -> None:
     """Register official BotCommands and enable the native Telegram blue Menu button."""
     from telegram import BotCommand, MenuButtonCommands
@@ -6803,6 +6950,19 @@ async def post_init(application: Application) -> None:
                 CRYPTOPAY_RECONCILE_SECONDS,
             )
 
+    from services.bybit_pay import is_bybit_pay_configured
+    if is_bybit_pay_configured():
+        task = application.bot_data.get("bybitpay_task")
+        if not task or task.done():
+            application.bot_data["bybitpay_task"] = asyncio.create_task(
+                _bybitpay_worker(),
+                name="bybitpay-reconciliation",
+            )
+            logger.info(
+                "Bybit Pay reconciliation worker started (check every %ds)",
+                CRYPTOPAY_RECONCILE_SECONDS,
+            )
+
     from services.pixel_api import is_pixel_configured
     if is_pixel_configured():
         task = application.bot_data.get("pixel_activation_task")
@@ -6827,6 +6987,7 @@ async def post_shutdown(application: Application) -> None:
         application.bot_data.pop("dynamic_pricing_task", None),
         application.bot_data.pop("nowpayments_task", None),
         application.bot_data.pop("cryptopay_task", None),
+        application.bot_data.pop("bybitpay_task", None),
         application.bot_data.pop("pixel_activation_task", None),
         application.bot_data.pop("stale_order_task", None),
         application.bot_data.pop("background_job_task", None),
@@ -6862,6 +7023,8 @@ async def post_shutdown(application: Application) -> None:
     await close_nowpayments_client()
     from services.crypto_pay import close_crypto_pay_client
     await close_crypto_pay_client()
+    from services.bybit_pay import close_bybit_pay_client
+    await close_bybit_pay_client()
     from services.pixel_api import close_pixel_api_client
     await close_pixel_api_client()
     from services.reseller_webhooks import close_reseller_webhook_client
