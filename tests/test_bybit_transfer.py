@@ -89,7 +89,7 @@ class BybitTransferTests(unittest.IsolatedAsyncioTestCase):
             patch("services.crypto_pay.is_crypto_pay_configured", return_value=True),
             patch("database.models.get_setting", AsyncMock(return_value=None)),
         ):
-            markup = await payment_method_keyboard(42, "en", 0, allow_bybit=True)
+            markup = await payment_method_keyboard(42, "en", 0)
 
         callbacks = [
             button.callback_data
@@ -127,7 +127,7 @@ class BybitTransferTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(bybit_button.icon_custom_emoji_id, "5370607602919031217")
 
-    async def test_button_is_hidden_for_regular_users(self):
+    async def test_button_is_public_for_regular_users(self):
         with (
             patch(
                 "services.bybit_transfer.is_bybit_transfer_configured",
@@ -145,9 +145,9 @@ class BybitTransferTests(unittest.IsolatedAsyncioTestCase):
             for button in row
             if button.callback_data
         ]
-        self.assertNotIn("pay_bybit:42", callbacks)
+        self.assertIn("pay_bybit:42", callbacks)
 
-    async def test_wallet_topup_button_is_admin_only(self):
+    async def test_wallet_topup_button_is_public(self):
         with (
             patch(
                 "services.bybit_transfer.is_bybit_transfer_configured",
@@ -157,28 +157,18 @@ class BybitTransferTests(unittest.IsolatedAsyncioTestCase):
             patch("services.crypto_pay.is_crypto_pay_configured", return_value=True),
             patch("database.models.get_setting", AsyncMock(return_value=None)),
         ):
-            admin_markup = await wallet_topup_method_keyboard(
-                "en", allow_bybit=True
-            )
             customer_markup = await wallet_topup_method_keyboard("en")
 
-        admin_callbacks = [
-            button.callback_data
-            for row in admin_markup.inline_keyboard
-            for button in row
-            if button.callback_data
-        ]
         customer_callbacks = [
             button.callback_data
             for row in customer_markup.inline_keyboard
             for button in row
             if button.callback_data
         ]
-        self.assertIn("topup_bybit", admin_callbacks)
-        self.assertNotIn("topup_bybit", customer_callbacks)
+        self.assertIn("topup_bybit", customer_callbacks)
         payment_callbacks = [
             callback
-            for callback in admin_callbacks
+            for callback in customer_callbacks
             if callback in {
                 "topup_binance",
                 "topup_bybit",
@@ -197,13 +187,13 @@ class BybitTransferTests(unittest.IsolatedAsyncioTestCase):
         )
         bybit_button = next(
             button
-            for row in admin_markup.inline_keyboard
+            for row in customer_markup.inline_keyboard
             for button in row
             if button.callback_data == "topup_bybit"
         )
         self.assertEqual(bybit_button.icon_custom_emoji_id, "5370607602919031217")
 
-    async def test_direct_callback_is_rejected_for_regular_users(self):
+    async def test_direct_callback_is_available_for_regular_users(self):
         query = SimpleNamespace(
             data="pay_bybit:42",
             answer=AsyncMock(),
@@ -221,17 +211,36 @@ class BybitTransferTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 payment_handler,
                 "get_order",
-                AsyncMock(return_value={"id": 42, "user_telegram_id": 123}),
+                AsyncMock(return_value={
+                    "id": 42,
+                    "user_telegram_id": 123,
+                    "amount_usd": 2,
+                    "product_id": 7,
+                }),
             ),
-            patch.object(payment_handler, "is_admin", return_value=False),
+            patch.object(bybit_transfer, "is_bybit_transfer_configured", return_value=True),
+            patch.object(
+                payment_handler,
+                "_ensure_supplier_stock_for_order",
+                AsyncMock(return_value=True),
+            ),
+            patch.object(payment_handler, "update_order_status", AsyncMock(return_value=True)),
+            patch.object(
+                payment_handler,
+                "cancel_order_after_timeout",
+                AsyncMock(return_value=None),
+            ),
             patch.object(payment_handler, "safe_edit_message_text", safe_edit),
         ):
-            await payment_handler.pay_with_bybit_transfer(update, context)
+            state = await payment_handler.pay_with_bybit_transfer(update, context)
 
-        safe_edit.assert_awaited_once_with(query, t("access_denied", "en"))
-        self.assertEqual(context.user_data, {})
+        task = payment_handler._timeout_tasks.pop(42)
+        await task
+        self.assertEqual(state, payment_handler.WAITING_ORDER_ID)
+        self.assertEqual(context.user_data["paying_provider"], "bybit")
+        safe_edit.assert_awaited_once()
 
-    async def test_wallet_topup_callback_is_rejected_for_regular_users(self):
+    async def test_wallet_topup_callback_is_available_for_regular_users(self):
         query = SimpleNamespace(data="topup_bybit", answer=AsyncMock())
         update = SimpleNamespace(
             callback_query=query,
@@ -242,12 +251,13 @@ class BybitTransferTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(wallet_handler, "get_user_lang", AsyncMock(return_value="en")),
-            patch.object(wallet_handler, "is_admin", return_value=False),
+            patch.object(bybit_transfer, "is_bybit_transfer_configured", return_value=True),
             patch.object(wallet_handler, "safe_edit_message_text", safe_edit),
         ):
-            await wallet_handler.wallet_topup_method_bybit(update, context)
+            state = await wallet_handler.wallet_topup_method_bybit(update, context)
 
-        safe_edit.assert_awaited_once_with(query, t("access_denied", "en"))
+        self.assertEqual(state, wallet_handler.WALLET_TOPUP_BYBIT_VERIFY)
+        safe_edit.assert_awaited_once()
 
     async def test_wallet_topup_credits_verified_received_amount(self):
         message = SimpleNamespace(
@@ -263,7 +273,6 @@ class BybitTransferTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(wallet_handler, "get_user_lang", AsyncMock(return_value="en")),
-            patch.object(wallet_handler, "is_admin", return_value=True),
             patch.object(
                 bybit_transfer,
                 "verify_payment",

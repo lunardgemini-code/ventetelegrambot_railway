@@ -461,7 +461,6 @@ async def payment_method_keyboard(
     lang: str = "fr",
     wallet_balance: float = 0.0,
     has_promo: bool = False,
-    allow_bybit: bool = False,
 ) -> InlineKeyboardMarkup:
     """Choose payment method or cancel."""
     from utils.helpers import format_price
@@ -481,7 +480,7 @@ async def payment_method_keyboard(
     )])
 
     from services.bybit_transfer import is_bybit_transfer_configured
-    if allow_bybit and is_bybit_transfer_configured():
+    if is_bybit_transfer_configured():
         buttons.append([InlineKeyboardButton(
             t("btn_pay_bybit", lang),
             callback_data=f"pay_bybit:{order_id}",
@@ -590,7 +589,6 @@ def cryptopay_payment_keyboard(
 
 async def wallet_topup_method_keyboard(
     lang: str = "fr",
-    allow_bybit: bool = False,
 ) -> InlineKeyboardMarkup:
     """Choose wallet top-up method or cancel."""
     from database.models import get_setting
@@ -605,7 +603,7 @@ async def wallet_topup_method_keyboard(
     )])
 
     from services.bybit_transfer import is_bybit_transfer_configured
-    if allow_bybit and is_bybit_transfer_configured():
+    if is_bybit_transfer_configured():
         buttons.append([InlineKeyboardButton(
             t("btn_pay_bybit", lang),
             callback_data="topup_bybit",

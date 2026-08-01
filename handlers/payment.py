@@ -50,7 +50,7 @@ from services.binance_verify import verify_payment
 from services.delivery import check_low_stock, deliver_order
 from services.supplier_api import SupplierAPIError
 from services.supplier_sync import refresh_supplier_product_stock
-from utils.helpers import escape_html, format_price, is_admin
+from utils.helpers import escape_html, format_price
 from utils.keyboards import (
     back_keyboard,
     main_menu_keyboard,
@@ -740,7 +740,6 @@ async def show_payment_method_screen(
         lang,
         wallet_balance=wallet_balance,
         has_promo=has_promo,
-        allow_bybit=is_admin(telegram_id),
     )
 
     if is_callback and update.callback_query:
@@ -1167,13 +1166,6 @@ async def pay_with_bybit_transfer(
             return ConversationHandler.END
 
         telegram_id = update.effective_user.id
-        if not is_admin(telegram_id):
-            logger.warning(
-                "Non-admin user %s attempted to use the restricted Bybit flow",
-                telegram_id,
-            )
-            await safe_edit_message_text(query, t("access_denied", lang))
-            return ConversationHandler.END
         if int(order.get("user_telegram_id") or 0) != telegram_id:
             logger.warning(
                 "User %s tried to pay order #%s via Bybit which belongs to %s",

@@ -31,7 +31,7 @@ from database.models import (
     get_wallet_transactions,
 )
 from services.binance_verify import verify_payment
-from utils.helpers import escape_html, format_price, is_admin
+from utils.helpers import escape_html, format_price
 from utils.keyboards import (
     cryptopay_payment_keyboard,
     main_menu_keyboard,
@@ -138,10 +138,7 @@ async def wallet_topup_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["wallet_topup_amount"] = amount
 
     try:
-        kb = await wallet_topup_method_keyboard(
-            lang,
-            allow_bybit=is_admin(update.effective_user.id),
-        )
+        kb = await wallet_topup_method_keyboard(lang)
         await update.message.reply_text(
             f"💰 {t('amount_lbl', lang)} {format_price(amount)}\n\n"
             f"Veuillez choisir votre méthode de paiement pour recharger :",
@@ -200,20 +197,10 @@ async def wallet_topup_method_binance(update: Update, context: ContextTypes.DEFA
 async def wallet_topup_method_bybit(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ):
-    """Show admin-only Bybit internal-transfer instructions for a wallet top-up."""
+    """Show Bybit internal-transfer instructions for a wallet top-up."""
     query = update.callback_query
     await query.answer()
     lang = await get_user_lang(update.effective_user.id)
-    telegram_id = update.effective_user.id
-
-    if not is_admin(telegram_id):
-        logger.warning(
-            "Non-admin user %s attempted to use restricted Bybit wallet top-up",
-            telegram_id,
-        )
-        await safe_edit_message_text(query, t("access_denied", lang))
-        return ConversationHandler.END
-
     from services.bybit_transfer import is_bybit_transfer_configured
 
     if not is_bybit_transfer_configured():
@@ -1304,18 +1291,9 @@ async def wallet_verify_trc20(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def wallet_verify_bybit(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Verify an admin Bybit transfer and credit the wallet atomically."""
+    """Verify a Bybit transfer and credit the wallet atomically."""
     lang = await get_user_lang(update.effective_user.id)
     telegram_id = update.effective_user.id
-    if not is_admin(telegram_id):
-        logger.warning(
-            "Non-admin user %s attempted to verify restricted Bybit wallet top-up",
-            telegram_id,
-        )
-        await update.message.reply_text(t("access_denied", lang))
-        context.user_data.pop("wallet_topup_amount", None)
-        return ConversationHandler.END
-
     amount = float(context.user_data.get("wallet_topup_amount") or 0)
     if amount <= 0:
         await update.message.reply_text(t("order_error", lang))
