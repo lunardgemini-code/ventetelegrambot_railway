@@ -1041,12 +1041,13 @@
                         <th data-action="sort-users" data-field="orders" class="sortable-header"><span data-i18n="th_orders_count">Commandes</span> <span class="sort-icon" id="sort-orders"></span></th>
                         <th data-action="sort-users" data-field="spent" class="sortable-header"><span data-i18n="th_spent">Dépenses</span> <span class="sort-icon" id="sort-spent"></span></th>
                         <th data-action="sort-users" data-field="wallet" class="sortable-header">💳 Wallet <span class="sort-icon" id="sort-wallet"></span></th>
+                        <th data-action="sort-users" data-field="loyalty_points" class="sortable-header"><span data-i18n="th_cashback_points">Points cashback</span> <span class="sort-icon" id="sort-loyalty_points"></span></th>
                         <th data-i18n="th_referrer">Parrain</th>
                         <th data-action="sort-users" data-field="referrals" class="sortable-header"><span data-i18n="th_referrals">Filleuls</span> <span class="sort-icon" id="sort-referrals"></span></th>
                         <th data-action="sort-users" data-field="referral_earnings" class="sortable-header"><span data-i18n="th_referral_earnings">Gains Parrainage</span> <span class="sort-icon" id="sort-referral_earnings"></span></th>
                         <th data-action="sort-users" data-field="joined" class="sortable-header"><span data-i18n="th_joined">Inscrit</span> <span class="sort-icon" id="sort-joined"></span></th>
                         <th>Action</th>
-                    </tr></thead><tbody id="users-table-body"><tr><td colspan="12" class="empty-state" data-i18n="no_users">Aucun utilisateur.</td></tr></tbody></table>
+                    </tr></thead><tbody id="users-table-body"><tr><td colspan="13" class="empty-state" data-i18n="no_users">Aucun utilisateur.</td></tr></tbody></table>
                 </div>
                 <div id="users-pagination" class="pagination-bar hidden">
                     <button id="users-prev" class="btn-secondary btn-sm"><i class="fa-solid fa-chevron-left"></i></button>
@@ -1938,7 +1939,7 @@
         <footer id="ops-drawer-actions" class="ops-drawer-actions"></footer>
     </aside>
 
-    <script defer src="app.js?v=20260801-loyalty-v1"></script>
+    <script defer src="app.js?v=20260801-user-points-v1"></script>
     <script defer src="operations.js?v=20260726-targeted-broadcast-v1"></script>
     <!-- Mass Translation Progress Overlay -->
     <div id="mass-translate-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; flex-direction:column; justify-content:center; align-items:center; color:white;">

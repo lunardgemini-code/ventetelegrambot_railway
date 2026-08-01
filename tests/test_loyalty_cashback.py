@@ -135,6 +135,21 @@ class LoyaltyCashbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(summary["enabled"])
         self.assertEqual(summary["balance_points"], 0)
 
+    async def test_users_list_includes_and_sorts_cashback_points(self):
+        await self._complete_order(10)
+
+        users, total = await models.get_users_paginated(
+            limit=20,
+            offset=0,
+            search="81001",
+            sort="loyalty_points",
+            order="desc",
+        )
+
+        self.assertEqual(total, 1)
+        self.assertEqual(users[0]["telegram_id"], 81001)
+        self.assertEqual(users[0]["loyalty_points"], 100)
+
 
 class LoyaltyDashboardAssetTests(unittest.TestCase):
     @classmethod
@@ -148,6 +163,11 @@ class LoyaltyDashboardAssetTests(unittest.TestCase):
         self.assertIn("handleSaveLoyaltySettings", self.app)
         self.assertIn("updateLoyaltyPreview", self.app)
 
+    def test_users_table_exposes_cashback_points(self):
+        self.assertIn('data-field="loyalty_points"', self.html)
+        self.assertIn('data-i18n="th_cashback_points"', self.html)
+        self.assertIn("u.loyalty_points||0", self.app)
+
     def test_all_dashboard_languages_have_cashback_strings(self):
         section = self.app.split("const LOYALTY_TRANSLATIONS = {", 1)[1].split(
             "Object.entries(LOYALTY_TRANSLATIONS)", 1
@@ -158,6 +178,7 @@ class LoyaltyDashboardAssetTests(unittest.TestCase):
             "loyalty_minimum",
             "loyalty_save",
             "loyalty_saved",
+            "th_cashback_points",
         ):
             self.assertEqual(section.count(f'{key}:"'), 6, key)
 

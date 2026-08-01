@@ -573,6 +573,7 @@ async def get_users_paginated(limit: int = 20, offset: int = 0, search: str = ""
             "orders": "u.total_orders",
             "spent": "u.total_spent",
             "wallet": "u.wallet_balance",
+            "loyalty_points": "loyalty_points",
             "referrals": "referrals_count",
             "joined": "u.created_at",
             "referral_earnings": "u.referral_earnings"
@@ -582,9 +583,15 @@ async def get_users_paginated(limit: int = 20, offset: int = 0, search: str = ""
         order_dir = "ASC" if order.lower() == "asc" else "DESC"
 
         paginated_query = f"""
-            SELECT u.*, COUNT(f.telegram_id) as referrals_count
+            SELECT u.*, COUNT(f.telegram_id) as referrals_count,
+                   COALESCE(lp.loyalty_points, 0) AS loyalty_points
             FROM users u
             LEFT JOIN users f ON f.referred_by = u.telegram_id
+            LEFT JOIN (
+                SELECT user_telegram_id, COALESCE(SUM(points), 0) AS loyalty_points
+                FROM loyalty_transactions
+                GROUP BY user_telegram_id
+            ) lp ON lp.user_telegram_id = u.telegram_id
             {where_clause}
             GROUP BY u.id
             ORDER BY {sort_col} {order_dir}, u.created_at DESC
