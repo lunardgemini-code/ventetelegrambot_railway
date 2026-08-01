@@ -86,7 +86,7 @@ class PersistentBackgroundJobTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await db.close()
 
-        self.assertEqual(versions, list(range(1, 23)))
+        self.assertEqual(versions, list(range(1, 24)))
         self.assertEqual(tables, [
             "background_jobs",
             "performance_action_hourly",
@@ -115,6 +115,42 @@ class PersistentBackgroundJobTests(unittest.IsolatedAsyncioTestCase):
             }
             <= product_columns
         )
+
+    async def test_v23_restores_bybit_replay_guard_on_existing_database(self):
+        db = await db_module.get_db()
+        try:
+            await db.execute("DROP TABLE IF EXISTS used_bybit_transactions")
+            await db.execute("DELETE FROM schema_migrations WHERE version = 23")
+            await db.commit()
+        finally:
+            await db.close()
+
+        await init_db()
+        db = await db_module.get_db()
+        try:
+            table = await (
+                await db.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' "
+                    "AND name = 'used_bybit_transactions'"
+                )
+            ).fetchone()
+            index = await (
+                await db.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'index' "
+                    "AND name = 'idx_used_bybit_tx'"
+                )
+            ).fetchone()
+            version = await (
+                await db.execute(
+                    "SELECT name FROM schema_migrations WHERE version = 23"
+                )
+            ).fetchone()
+        finally:
+            await db.close()
+
+        self.assertIsNotNone(table)
+        self.assertIsNotNone(index)
+        self.assertEqual(version["name"], "bybit_transaction_replay_guard")
 
     async def test_webhook_autoscale_settings_and_decisions_are_persistent(self):
         settings = await update_webhook_autoscale_settings(

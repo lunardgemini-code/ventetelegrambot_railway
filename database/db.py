@@ -2116,5 +2116,29 @@ async def init_db() -> None:
             )
             await db.commit()
             current_version = 22
+
+        if 22 <= current_version < 23:
+            await db.execute(
+                """CREATE TABLE IF NOT EXISTS used_bybit_transactions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    transaction_id TEXT UNIQUE NOT NULL,
+                    order_id INTEGER,
+                    user_telegram_id INTEGER,
+                    amount REAL,
+                    sender_uid TEXT DEFAULT '',
+                    used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )"""
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_used_bybit_tx "
+                "ON used_bybit_transactions(transaction_id)"
+            )
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) "
+                "VALUES (23, ?)",
+                ("bybit_transaction_replay_guard",),
+            )
+            await db.commit()
+            current_version = 23
     finally:
         await db.close()
