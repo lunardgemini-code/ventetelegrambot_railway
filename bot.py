@@ -88,6 +88,7 @@ from handlers.products import (
     show_products_list,
 )
 from handlers.profile import show_profile, show_referrals, view_referrals_list
+from handlers.cashback import claim_cashback, show_cashback
 from handlers.reseller_api import confirm_generate_reseller_api_key, generate_reseller_api_key, reseller_api_menu
 from handlers.start import (
     callback_check_sub,
@@ -5686,6 +5687,31 @@ async def api_set_payment_settings(data: dict):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@api.get("/api/loyalty/settings", dependencies=[Depends(verify_api_key)])
+async def api_get_loyalty_settings():
+    from database.models import get_loyalty_dashboard
+    try:
+        return await get_loyalty_dashboard()
+    except Exception as exc:
+        logger.error("Loyalty settings read failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@api.post("/api/loyalty/settings", dependencies=[Depends(verify_api_key)])
+async def api_set_loyalty_settings(data: dict):
+    from database.models import get_loyalty_dashboard, set_loyalty_settings
+    try:
+        await set_loyalty_settings(data)
+        return await get_loyalty_dashboard()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Loyalty settings save failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @api.get("/api/settings/product-stack", dependencies=[Depends(verify_api_key)])
 async def api_get_product_stack_settings():
     from database.models import get_product_stack_mode
@@ -7532,6 +7558,8 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(show_product_detail, pattern=r"^prod:"))
     app.add_handler(CallbackQueryHandler(notify_product_restock, pattern=r"^notify_stock:"))
     app.add_handler(CallbackQueryHandler(show_profile, pattern=r"^menu_profile$"))
+    app.add_handler(CallbackQueryHandler(show_cashback, pattern=r"^menu_cashback$"))
+    app.add_handler(CallbackQueryHandler(claim_cashback, pattern=r"^cashback_claim$"))
     app.add_handler(CallbackQueryHandler(show_referrals, pattern=r"^show_referrals$"))
     app.add_handler(CallbackQueryHandler(view_referrals_list, pattern=r"^view_referrals_list$"))
     app.add_handler(CallbackQueryHandler(show_history, pattern=r"^menu_history$"))

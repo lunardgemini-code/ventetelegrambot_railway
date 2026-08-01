@@ -1833,6 +1833,96 @@ for _quantity_lang, _quantity_label in _QUICK_QUANTITY_TRANSLATIONS.items():
     TRANSLATIONS[_quantity_lang]["btn_custom_quantity"] = _quantity_label
 
 
+_CASHBACK_TRANSLATIONS = {
+    "en": {
+        "btn_cashback": "💰 Cashback",
+        "btn_cashback_claim": "💸 Claim to wallet",
+        "cashback_title": "<b>💰 Cashback</b>",
+        "cashback_balance": "Your balance: <b>{points} points</b>",
+        "cashback_value": "Available now: <b>${amount}</b>",
+        "cashback_earn_rule": "Earn {earn_points} points for every ${earn_spend} spent on completed orders.",
+        "cashback_claim_rule": "Claim from {minimum} points. {block_points} points = ${block_usd}.",
+        "cashback_progress": "You need {remaining} more points to claim.",
+        "cashback_ready": "Your cashback is ready to claim.",
+        "cashback_disabled": "The cashback program is currently paused.",
+        "cashback_claimed": "✅ {points} points were converted into <b>${amount}</b> and added to your wallet.\nNew wallet balance: <b>${wallet}</b>",
+        "cashback_claim_error": "Cashback could not be claimed right now. Please try again.",
+    },
+    "fr": {
+        "btn_cashback": "💰 Cashback",
+        "btn_cashback_claim": "💸 Réclamer sur le wallet",
+        "cashback_title": "<b>💰 Cashback</b>",
+        "cashback_balance": "Votre solde : <b>{points} points</b>",
+        "cashback_value": "Disponible maintenant : <b>{amount} $</b>",
+        "cashback_earn_rule": "Gagnez {earn_points} points pour chaque tranche de {earn_spend} $ dépensée sur une commande terminée.",
+        "cashback_claim_rule": "Réclamation à partir de {minimum} points. {block_points} points = {block_usd} $.",
+        "cashback_progress": "Il vous manque encore {remaining} points pour réclamer.",
+        "cashback_ready": "Votre cashback est prêt à être réclamé.",
+        "cashback_disabled": "Le programme cashback est actuellement en pause.",
+        "cashback_claimed": "✅ {points} points ont été convertis en <b>{amount} $</b> et ajoutés à votre wallet.\nNouveau solde : <b>{wallet} $</b>",
+        "cashback_claim_error": "Impossible de réclamer le cashback maintenant. Réessayez.",
+    },
+    "ar": {
+        "btn_cashback": "💰 استرداد نقدي",
+        "btn_cashback_claim": "💸 تحويل إلى المحفظة",
+        "cashback_title": "<b>💰 الاسترداد النقدي</b>",
+        "cashback_balance": "رصيدك: <b>{points} نقطة</b>",
+        "cashback_value": "متاح الآن: <b>{amount}$</b>",
+        "cashback_earn_rule": "اكسب {earn_points} نقطة مقابل كل {earn_spend}$ تنفقها على الطلبات المكتملة.",
+        "cashback_claim_rule": "يمكن التحويل ابتداءً من {minimum} نقطة. كل {block_points} نقطة = {block_usd}$.",
+        "cashback_progress": "تحتاج إلى {remaining} نقطة إضافية للتحويل.",
+        "cashback_ready": "رصيد الاسترداد النقدي جاهز للتحويل.",
+        "cashback_disabled": "برنامج الاسترداد النقدي متوقف مؤقتًا.",
+        "cashback_claimed": "✅ تم تحويل {points} نقطة إلى <b>{amount}$</b> وإضافتها إلى محفظتك.\nرصيد المحفظة الجديد: <b>{wallet}$</b>",
+        "cashback_claim_error": "تعذر تحويل الاسترداد النقدي الآن. حاول مرة أخرى.",
+    },
+    "zh": {
+        "btn_cashback": "💰 返现",
+        "btn_cashback_claim": "💸 提现到钱包",
+        "cashback_title": "<b>💰 返现</b>",
+        "cashback_balance": "您的余额：<b>{points} 积分</b>",
+        "cashback_value": "当前可兑换：<b>${amount}</b>",
+        "cashback_earn_rule": "每完成 ${earn_spend} 的订单消费可获得 {earn_points} 积分。",
+        "cashback_claim_rule": "满 {minimum} 积分可兑换。{block_points} 积分 = ${block_usd}。",
+        "cashback_progress": "还需要 {remaining} 积分才能兑换。",
+        "cashback_ready": "您的返现已可兑换。",
+        "cashback_disabled": "返现计划目前已暂停。",
+        "cashback_claimed": "✅ {points} 积分已兑换为 <b>${amount}</b> 并存入钱包。\n钱包新余额：<b>${wallet}</b>",
+        "cashback_claim_error": "目前无法兑换返现，请重试。",
+    },
+    "vi": {
+        "btn_cashback": "💰 Hoàn tiền",
+        "btn_cashback_claim": "💸 Nhận vào ví",
+        "cashback_title": "<b>💰 Hoàn tiền</b>",
+        "cashback_balance": "Số dư: <b>{points} điểm</b>",
+        "cashback_value": "Có thể nhận: <b>${amount}</b>",
+        "cashback_earn_rule": "Nhận {earn_points} điểm cho mỗi ${earn_spend} chi tiêu trên đơn đã hoàn tất.",
+        "cashback_claim_rule": "Có thể nhận từ {minimum} điểm. {block_points} điểm = ${block_usd}.",
+        "cashback_progress": "Bạn cần thêm {remaining} điểm để nhận tiền.",
+        "cashback_ready": "Tiền hoàn của bạn đã sẵn sàng để nhận.",
+        "cashback_disabled": "Chương trình hoàn tiền hiện đang tạm dừng.",
+        "cashback_claimed": "✅ {points} điểm đã được đổi thành <b>${amount}</b> và cộng vào ví.\nSố dư ví mới: <b>${wallet}</b>",
+        "cashback_claim_error": "Hiện không thể nhận tiền hoàn. Vui lòng thử lại.",
+    },
+    "ru": {
+        "btn_cashback": "💰 Кэшбэк",
+        "btn_cashback_claim": "💸 Получить на кошелек",
+        "cashback_title": "<b>💰 Кэшбэк</b>",
+        "cashback_balance": "Ваш баланс: <b>{points} баллов</b>",
+        "cashback_value": "Доступно сейчас: <b>${amount}</b>",
+        "cashback_earn_rule": "Получайте {earn_points} баллов за каждые ${earn_spend}, потраченные на завершенные заказы.",
+        "cashback_claim_rule": "Вывод доступен от {minimum} баллов. {block_points} баллов = ${block_usd}.",
+        "cashback_progress": "Для вывода нужно еще {remaining} баллов.",
+        "cashback_ready": "Ваш кэшбэк готов к выводу.",
+        "cashback_disabled": "Программа кэшбэка временно приостановлена.",
+        "cashback_claimed": "✅ {points} баллов обменены на <b>${amount}</b> и добавлены в кошелек.\nНовый баланс кошелька: <b>${wallet}</b>",
+        "cashback_claim_error": "Сейчас не удалось получить кэшбэк. Попробуйте еще раз.",
+    },
+}
+for _cashback_lang, _cashback_strings in _CASHBACK_TRANSLATIONS.items():
+    TRANSLATIONS[_cashback_lang].update(_cashback_strings)
+
+
 from utils.game_locales import GAME_TRANSLATIONS
 
 for _game_lang, _game_strings in GAME_TRANSLATIONS.items():

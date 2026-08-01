@@ -128,6 +128,7 @@ def main_menu_keyboard(lang: str = "fr", user_id: int | None = None) -> InlineKe
 
     rows = [
         [make_button("btn_buy", lang, callback_data="menu_buy", style=KeyboardButtonStyle.SUCCESS)],
+        [make_button("btn_cashback", lang, callback_data="menu_cashback")],
     ]
 
     if admin_flag:
@@ -323,6 +324,16 @@ def categories_keyboard(categories: list[dict], lang: str = "fr") -> InlineKeybo
         )]
         for cat in categories
     ]
+    buttons.append([make_button("btn_back", lang, callback_data="back_main")])
+    return InlineKeyboardMarkup(buttons)
+
+
+def cashback_keyboard(lang: str = "fr", can_claim: bool = False) -> InlineKeyboardMarkup:
+    buttons = []
+    if can_claim:
+        buttons.append([
+            make_button("btn_cashback_claim", lang, callback_data="cashback_claim")
+        ])
     buttons.append([make_button("btn_back", lang, callback_data="back_main")])
     return InlineKeyboardMarkup(buttons)
 

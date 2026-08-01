@@ -949,6 +949,16 @@ ru: {
 };
 Object.entries(TARGETED_BROADCAST_TRANSLATIONS).forEach(([language, strings]) => Object.assign(LANG[language], strings));
 
+const LOYALTY_TRANSLATIONS = {
+fr: {loyalty_settings_title:"Cashback fidélité",loyalty_settings_desc:"Configurez les points gagnés après chaque commande terminée et leur conversion vers le wallet.",loyalty_stat_issued:"Points attribués",loyalty_stat_outstanding:"Points en circulation",loyalty_stat_paid:"Cashback versé",loyalty_stat_users:"Clients participants",loyalty_earn_spend:"Montant dépensé ($)",loyalty_earn_points:"Points attribués",loyalty_minimum:"Seuil de réclamation",loyalty_block_points:"Bloc de points",loyalty_block_usd:"Valeur du bloc ($)",loyalty_save:"Enregistrer le cashback",loyalty_preview:"{spend} $ = {points} points · {minimum} points = {value} $ minimum",loyalty_saved:"Configuration cashback enregistrée.",loyalty_load_failed:"Impossible de charger le cashback."},
+en: {loyalty_settings_title:"Loyalty cashback",loyalty_settings_desc:"Configure points earned after each completed order and their wallet conversion.",loyalty_stat_issued:"Points issued",loyalty_stat_outstanding:"Outstanding points",loyalty_stat_paid:"Cashback paid",loyalty_stat_users:"Participating customers",loyalty_earn_spend:"Amount spent ($)",loyalty_earn_points:"Points awarded",loyalty_minimum:"Claim threshold",loyalty_block_points:"Points block",loyalty_block_usd:"Block value ($)",loyalty_save:"Save cashback",loyalty_preview:"${spend} = {points} points · {minimum} points = ${value} minimum",loyalty_saved:"Cashback settings saved.",loyalty_load_failed:"Unable to load cashback settings."},
+ar: {loyalty_settings_title:"استرداد نقدي للولاء",loyalty_settings_desc:"اضبط النقاط المكتسبة بعد كل طلب مكتمل وتحويلها إلى المحفظة.",loyalty_stat_issued:"النقاط الممنوحة",loyalty_stat_outstanding:"النقاط المتداولة",loyalty_stat_paid:"الاسترداد المدفوع",loyalty_stat_users:"العملاء المشاركون",loyalty_earn_spend:"المبلغ المنفق ($)",loyalty_earn_points:"النقاط الممنوحة",loyalty_minimum:"حد المطالبة",loyalty_block_points:"حزمة النقاط",loyalty_block_usd:"قيمة الحزمة ($)",loyalty_save:"حفظ الاسترداد",loyalty_preview:"{spend}$ = {points} نقطة · {minimum} نقطة = {value}$ كحد أدنى",loyalty_saved:"تم حفظ إعدادات الاسترداد النقدي.",loyalty_load_failed:"تعذر تحميل إعدادات الاسترداد النقدي."},
+zh: {loyalty_settings_title:"会员返现",loyalty_settings_desc:"配置每笔已完成订单获得的积分及其钱包兑换比例。",loyalty_stat_issued:"已发放积分",loyalty_stat_outstanding:"流通积分",loyalty_stat_paid:"已支付返现",loyalty_stat_users:"参与客户",loyalty_earn_spend:"消费金额 ($)",loyalty_earn_points:"奖励积分",loyalty_minimum:"兑换门槛",loyalty_block_points:"积分单位",loyalty_block_usd:"单位价值 ($)",loyalty_save:"保存返现设置",loyalty_preview:"${spend} = {points} 积分 · {minimum} 积分 = 最低 ${value}",loyalty_saved:"返现设置已保存。",loyalty_load_failed:"无法加载返现设置。"},
+vi: {loyalty_settings_title:"Hoàn tiền khách hàng thân thiết",loyalty_settings_desc:"Cấu hình điểm nhận được sau mỗi đơn hoàn tất và tỷ lệ đổi vào ví.",loyalty_stat_issued:"Điểm đã cấp",loyalty_stat_outstanding:"Điểm đang lưu hành",loyalty_stat_paid:"Hoàn tiền đã trả",loyalty_stat_users:"Khách hàng tham gia",loyalty_earn_spend:"Số tiền chi ($)",loyalty_earn_points:"Điểm được cấp",loyalty_minimum:"Ngưỡng nhận tiền",loyalty_block_points:"Khối điểm",loyalty_block_usd:"Giá trị khối ($)",loyalty_save:"Lưu hoàn tiền",loyalty_preview:"${spend} = {points} điểm · {minimum} điểm = tối thiểu ${value}",loyalty_saved:"Đã lưu cài đặt hoàn tiền.",loyalty_load_failed:"Không thể tải cài đặt hoàn tiền."},
+ru: {loyalty_settings_title:"Кэшбэк за лояльность",loyalty_settings_desc:"Настройте баллы за завершенные заказы и их обмен на баланс кошелька.",loyalty_stat_issued:"Начислено баллов",loyalty_stat_outstanding:"Баллов в обращении",loyalty_stat_paid:"Выплачено кэшбэка",loyalty_stat_users:"Участники",loyalty_earn_spend:"Сумма расходов ($)",loyalty_earn_points:"Начисляемые баллы",loyalty_minimum:"Порог вывода",loyalty_block_points:"Блок баллов",loyalty_block_usd:"Стоимость блока ($)",loyalty_save:"Сохранить кэшбэк",loyalty_preview:"${spend} = {points} баллов · {minimum} баллов = минимум ${value}",loyalty_saved:"Настройки кэшбэка сохранены.",loyalty_load_failed:"Не удалось загрузить настройки кэшбэка."}
+};
+Object.entries(LOYALTY_TRANSLATIONS).forEach(([language, strings]) => Object.assign(LANG[language], strings));
+
 
 const state = {
     botUrl:'', apiKey:'', currentLang:'fr', currentTab:'dashboard-tab',
@@ -1075,6 +1085,10 @@ const DOM = {
     settingsForm:$('settings-form'), settingsBotUrl:$('settings-bot-url'), settingsApiKey:$('settings-api-key'),
     reduceTransparency:$('reduce-transparency'),
     cryptoSettingsForm:$('crypto-settings-form'), settingsBep20Address:$('settings-bep20-address'), settingsTrc20Address:$('settings-trc20-address'),
+    loyaltySettingsForm:$('loyalty-settings-form'), loyaltyEnabled:$('loyalty-enabled'), loyaltyEarnSpend:$('loyalty-earn-spend'),
+    loyaltyEarnPoints:$('loyalty-earn-points'), loyaltyMinimum:$('loyalty-minimum'), loyaltyBlockPoints:$('loyalty-block-points'),
+    loyaltyBlockUsd:$('loyalty-block-usd'), loyaltyPreview:$('loyalty-preview'), loyaltySave:$('loyalty-save'),
+    loyaltyStatIssued:$('loyalty-stat-issued'), loyaltyStatOutstanding:$('loyalty-stat-outstanding'), loyaltyStatPaid:$('loyalty-stat-paid'), loyaltyStatUsers:$('loyalty-stat-users'),
     prodModal:$('prod-modal'), stockModal:$('stock-modal'), promoModal:$('promo-modal'), tiersModal:$('tiers-modal'),
     orderDetailModal:$('order-detail-modal'), viewStockModal:$('view-stock-modal'), editProdModal:$('edit-prod-modal'),
     addProdForm:$('add-prod-form'), addPromoForm:$('add-promo-form'), prodId:$('prod-id'),
@@ -1232,6 +1246,7 @@ function applyTranslations() {
     const mobileLanguageSelect = $('mobile-language-select');
     if (mobileLanguageSelect) mobileLanguageSelect.value = state.currentLang;
     updatePwaInstallButton();
+    updateLoyaltyPreview();
     enhanceResponsiveTables();
 }
 
@@ -2088,6 +2103,9 @@ function setupEvents() {
     DOM.addPromoForm.addEventListener('submit', handleAddPromo);
     DOM.settingsForm.addEventListener('submit', handleSaveSettings);
     DOM.cryptoSettingsForm.addEventListener('submit', handleSaveCryptoSettings);
+    DOM.loyaltySettingsForm.addEventListener('submit', handleSaveLoyaltySettings);
+    [DOM.loyaltyEarnSpend, DOM.loyaltyEarnPoints, DOM.loyaltyMinimum, DOM.loyaltyBlockPoints, DOM.loyaltyBlockUsd]
+        .forEach(input => input.addEventListener('input', updateLoyaltyPreview));
 
     $$('.order-filter-btn').forEach(b => b.addEventListener('click', () => {
         $$('.order-filter-btn').forEach(x => x.classList.remove('active')); b.classList.add('active');
@@ -2759,7 +2777,7 @@ const tabRefreshLoaders = {
     'game-tab': [loadGameManagement],
     'users-tab': [loadUsers],
     'tickets-tab': [loadTickets],
-    'settings-tab': [loadProducts, loadPromos, loadPaymentSettings],
+    'settings-tab': [loadProducts, loadPromos, loadPaymentSettings, loadLoyaltySettings],
     'wallet-history-tab': [loadWalletHistory],
     'finance-tab': [loadFinance],
     'binance-tab': [loadBinanceAccounts],
@@ -2769,7 +2787,7 @@ const tabRefreshLoaders = {
 const fullRefreshLoaders = [
     loadDashboardOverview, loadPerformanceMetrics, loadFinance, loadProducts, loadAllOrders, loadActivations, loadResellers, loadSupplierBot, loadAiSupplierStatus, loadAiSupplierGroups,
     loadTickets, loadUsers, loadPromos, loadWalletHistory, loadBinanceAccounts,
-    loadPaymentSettings, loadStatsBundle, loadPaymentReview, loadPixelTab
+    loadPaymentSettings, loadLoyaltySettings, loadStatsBundle, loadPaymentReview, loadPixelTab
 ];
 
 const TAB_CACHE_TTLS = {
@@ -6297,6 +6315,75 @@ async function loadPaymentSettings() {
         DOM.settingsBep20Address.value = s.bep20_address || '';
         DOM.settingsTrc20Address.value = s.trc20_address || '';
     } catch(e) { console.error('Failed loading payment settings:', e); }
+}
+
+function updateLoyaltyPreview() {
+    if (!DOM.loyaltyPreview) return;
+    const spend = Number(DOM.loyaltyEarnSpend?.value || 0);
+    const points = Number(DOM.loyaltyEarnPoints?.value || 0);
+    const minimum = Number(DOM.loyaltyMinimum?.value || 0);
+    const blockPoints = Number(DOM.loyaltyBlockPoints?.value || 0);
+    const blockUsd = Number(DOM.loyaltyBlockUsd?.value || 0);
+    const minimumValue = blockPoints > 0 ? (minimum / blockPoints) * blockUsd : 0;
+    DOM.loyaltyPreview.textContent = tf('loyalty_preview', {
+        spend: Number.isFinite(spend) ? spend.toFixed(2).replace(/\.00$/, '') : '0',
+        points: Number.isFinite(points) ? points : 0,
+        minimum: Number.isFinite(minimum) ? minimum : 0,
+        value: Number.isFinite(minimumValue) ? minimumValue.toFixed(2) : '0.00',
+    });
+}
+
+function renderLoyaltySettings(payload) {
+    const settings = payload?.settings || {};
+    const stats = payload?.stats || {};
+    DOM.loyaltyEnabled.checked = Boolean(settings.enabled);
+    DOM.loyaltyEarnSpend.value = settings.earn_spend_usd ?? 10;
+    DOM.loyaltyEarnPoints.value = settings.earn_points ?? 100;
+    DOM.loyaltyMinimum.value = settings.redeem_min_points ?? 2000;
+    DOM.loyaltyBlockPoints.value = settings.redeem_block_points ?? 100;
+    DOM.loyaltyBlockUsd.value = settings.redeem_block_usd ?? 0.10;
+    DOM.loyaltyStatIssued.textContent = Number(stats.issued_points || 0).toLocaleString(currentLocale());
+    DOM.loyaltyStatOutstanding.textContent = Number(stats.outstanding_points || 0).toLocaleString(currentLocale());
+    DOM.loyaltyStatPaid.textContent = `$${Number(stats.redeemed_usd || 0).toFixed(2)}`;
+    DOM.loyaltyStatUsers.textContent = Number(stats.users_count || 0).toLocaleString(currentLocale());
+    updateLoyaltyPreview();
+}
+
+async function loadLoyaltySettings() {
+    try {
+        renderLoyaltySettings(await apiCall('/api/loyalty/settings'));
+    } catch (error) {
+        console.error('Failed loading loyalty settings:', error);
+        throw new Error(t('loyalty_load_failed'));
+    }
+}
+
+async function handleSaveLoyaltySettings(event) {
+    event.preventDefault();
+    const button = DOM.loyaltySave;
+    if (button.disabled) return;
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    try {
+        const payload = {
+            enabled: DOM.loyaltyEnabled.checked,
+            earn_spend_usd: Number(DOM.loyaltyEarnSpend.value),
+            earn_points: Number(DOM.loyaltyEarnPoints.value),
+            redeem_min_points: Number(DOM.loyaltyMinimum.value),
+            redeem_block_points: Number(DOM.loyaltyBlockPoints.value),
+            redeem_block_usd: Number(DOM.loyaltyBlockUsd.value),
+        };
+        if (!Object.values(payload).every((value, index) => index === 0 || Number.isFinite(value) && value > 0)) {
+            throw new Error(t('settings_err'));
+        }
+        renderLoyaltySettings(await apiCall('/api/loyalty/settings', 'POST', payload));
+        showToast(t('loyalty_saved'), 'success');
+    } catch (error) {
+        showToast(error.message || t('settings_err'), 'error');
+    } finally {
+        button.disabled = false;
+        button.removeAttribute('aria-busy');
+    }
 }
 
 async function handleSaveCryptoSettings(e) {

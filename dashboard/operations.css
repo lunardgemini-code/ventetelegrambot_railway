@@ -1893,3 +1893,65 @@ html[data-reduce-transparency="true"]:is([data-appearance="liquid"], [data-appea
         transition-duration: 0.01ms !important;
     }
 }
+
+.loyalty-settings-panel {
+    padding: 24px;
+    margin-block: 24px;
+}
+
+.loyalty-settings-panel .panel-header {
+    align-items: center;
+}
+
+.loyalty-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    border-block: 1px solid var(--glass-border, rgba(255, 255, 255, .12));
+    margin-block: 20px;
+}
+
+.loyalty-stats > div {
+    min-width: 0;
+    padding: 16px 12px;
+}
+
+.loyalty-stats span,
+.loyalty-stats strong {
+    display: block;
+}
+
+.loyalty-stats span {
+    color: var(--color-text-muted);
+    font-size: .78rem;
+}
+
+.loyalty-stats strong {
+    margin-top: 5px;
+    font-size: 1.15rem;
+}
+
+.loyalty-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 18px;
+}
+
+.loyalty-preview {
+    min-height: 24px;
+    color: var(--color-text-muted);
+    margin: 4px 0 16px;
+}
+
+@media (max-width: 768px) {
+    .loyalty-settings-panel {
+        padding: 16px;
+    }
+
+    .loyalty-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .loyalty-form-grid {
+        grid-template-columns: 1fr;
+    }
+}

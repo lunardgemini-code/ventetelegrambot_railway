@@ -85,6 +85,14 @@ _TIERS_CACHE: dict[int, list[dict]] = {}
 _STOCK_COUNTS_CACHE: tuple[float, dict[int, int]] | None = None
 _STOCK_COUNTS_CACHE_TTL = max(2.0, float(os.environ.get("STOCK_COUNTS_CACHE_SECONDS", "10")))
 _SETTINGS_CACHE: dict[str, str | None] = {}
+_LOYALTY_DEFAULTS = {
+    "loyalty_enabled": "1",
+    "loyalty_earn_spend_usd": "10",
+    "loyalty_earn_points": "100",
+    "loyalty_redeem_min_points": "2000",
+    "loyalty_redeem_block_points": "100",
+    "loyalty_redeem_block_usd": "0.10",
+}
 _DEFAULT_BINANCE_ACCOUNT_CACHE: dict | None = None
 _DEFAULT_BINANCE_ACCOUNT_LOADED = False
 _RESELLER_LAST_USED_TOUCH_CACHE: dict[int, float] = {}
@@ -3538,6 +3546,71 @@ async def _increment_promo_usage_tx(
     )
 
 
+def _normalize_loyalty_settings(values: dict | None = None) -> dict:
+    raw = {**_LOYALTY_DEFAULTS, **(values or {})}
+    try:
+        settings = {
+            "enabled": str(raw["loyalty_enabled"]).strip().lower()
+            not in {"0", "false", "off", "no"},
+            "earn_spend_usd": float(raw["loyalty_earn_spend_usd"]),
+            "earn_points": int(raw["loyalty_earn_points"]),
+            "redeem_min_points": int(raw["loyalty_redeem_min_points"]),
+            "redeem_block_points": int(raw["loyalty_redeem_block_points"]),
+            "redeem_block_usd": float(raw["loyalty_redeem_block_usd"]),
+        }
+    except (TypeError, ValueError, KeyError) as exc:
+        raise ValueError("INVALID_LOYALTY_SETTINGS") from exc
+
+    if not 0 < settings["earn_spend_usd"] <= 100000:
+        raise ValueError("INVALID_LOYALTY_EARN_SPEND")
+    if not 0 < settings["earn_points"] <= 1_000_000_000:
+        raise ValueError("INVALID_LOYALTY_EARN_POINTS")
+    if not 0 < settings["redeem_min_points"] <= 1_000_000_000:
+        raise ValueError("INVALID_LOYALTY_MINIMUM")
+    if not 0 < settings["redeem_block_points"] <= 1_000_000_000:
+        raise ValueError("INVALID_LOYALTY_BLOCK_POINTS")
+    if not 0 < settings["redeem_block_usd"] <= 100000:
+        raise ValueError("INVALID_LOYALTY_BLOCK_VALUE")
+    return settings
+
+
+async def _get_loyalty_settings_tx(db) -> dict:
+    keys = tuple(_LOYALTY_DEFAULTS)
+    placeholders = ",".join("?" for _ in keys)
+    cursor = await db.execute(
+        f"SELECT key, value FROM settings WHERE key IN ({placeholders})", keys
+    )
+    rows = await cursor.fetchall()
+    return _normalize_loyalty_settings({row["key"]: row["value"] for row in rows})
+
+
+async def _award_loyalty_for_order_tx(db, order: dict) -> int:
+    order_id = order.get("id")
+    telegram_id = order.get("user_telegram_id")
+    amount_usd = float(order.get("amount_usd") or 0)
+    if not order_id or not telegram_id or amount_usd <= 0:
+        return 0
+
+    settings = await _get_loyalty_settings_tx(db)
+    if not settings["enabled"]:
+        return 0
+    points = int(
+        (amount_usd / settings["earn_spend_usd"]) * settings["earn_points"]
+        + 1e-9
+    )
+    if points <= 0:
+        return 0
+
+    cursor = await db.execute(
+        """INSERT OR IGNORE INTO loyalty_transactions
+           (user_telegram_id, points, transaction_type, order_id,
+            wallet_amount_usd, idempotency_key)
+           VALUES (?, ?, 'earn_order', ?, 0, ?)""",
+        (int(telegram_id), points, int(order_id), f"loyalty:order:{int(order_id)}"),
+    )
+    return points if int(getattr(cursor, "rowcount", 0) or 0) > 0 else 0
+
+
 async def _apply_completion_effects_tx(
     db,
     order: dict,
@@ -3582,6 +3655,9 @@ async def _apply_completion_effects_tx(
                    value = CAST(COALESCE(settings.value, '0') AS REAL) + CAST(excluded.value AS REAL)""",
             (setting_key, str(amount_usd)),
         )
+
+    if telegram_id:
+        await _award_loyalty_for_order_tx(db, order)
 
 
 async def update_order_status(
@@ -9743,6 +9819,232 @@ async def set_setting(key: str, value: str) -> None:
         )
         await db.commit()
         _SETTINGS_CACHE[key] = clean_value
+    finally:
+        await db.close()
+
+
+async def get_loyalty_settings() -> dict:
+    values = {}
+    for key, default in _LOYALTY_DEFAULTS.items():
+        value = await get_setting(key)
+        values[key] = default if value is None else value
+    return _normalize_loyalty_settings(values)
+
+
+async def set_loyalty_settings(data: dict) -> dict:
+    current = await get_loyalty_settings()
+    normalized = _normalize_loyalty_settings({
+        "loyalty_enabled": data.get("enabled", current["enabled"]),
+        "loyalty_earn_spend_usd": data.get(
+            "earn_spend_usd", current["earn_spend_usd"]
+        ),
+        "loyalty_earn_points": data.get("earn_points", current["earn_points"]),
+        "loyalty_redeem_min_points": data.get(
+            "redeem_min_points", current["redeem_min_points"]
+        ),
+        "loyalty_redeem_block_points": data.get(
+            "redeem_block_points", current["redeem_block_points"]
+        ),
+        "loyalty_redeem_block_usd": data.get(
+            "redeem_block_usd", current["redeem_block_usd"]
+        ),
+    })
+    stored = {
+        "loyalty_enabled": "1" if normalized["enabled"] else "0",
+        "loyalty_earn_spend_usd": str(normalized["earn_spend_usd"]),
+        "loyalty_earn_points": str(normalized["earn_points"]),
+        "loyalty_redeem_min_points": str(normalized["redeem_min_points"]),
+        "loyalty_redeem_block_points": str(normalized["redeem_block_points"]),
+        "loyalty_redeem_block_usd": str(normalized["redeem_block_usd"]),
+    }
+    db = await get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        for key, value in stored.items():
+            await db.execute(
+                """INSERT INTO settings (key, value) VALUES (?, ?)
+                   ON CONFLICT(key) DO UPDATE SET value = excluded.value""",
+                (key, value),
+            )
+        await db.commit()
+        _SETTINGS_CACHE.update(stored)
+        return normalized
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
+async def get_loyalty_summary(user_telegram_id: int, history_limit: int = 8) -> dict:
+    db = await get_db()
+    try:
+        settings = await _get_loyalty_settings_tx(db)
+        cursor = await db.execute(
+            """SELECT
+                   COALESCE(SUM(points), 0) AS balance_points,
+                   COALESCE(SUM(CASE WHEN points > 0 THEN points ELSE 0 END), 0) AS earned_points,
+                   COALESCE(-SUM(CASE WHEN points < 0 THEN points ELSE 0 END), 0) AS redeemed_points,
+                   COALESCE(SUM(wallet_amount_usd), 0) AS redeemed_usd
+               FROM loyalty_transactions
+               WHERE user_telegram_id = ?""",
+            (int(user_telegram_id),),
+        )
+        row = dict(await cursor.fetchone())
+        cursor = await db.execute(
+            """SELECT points, transaction_type, order_id, wallet_amount_usd, created_at
+               FROM loyalty_transactions
+               WHERE user_telegram_id = ?
+               ORDER BY id DESC LIMIT ?""",
+            (int(user_telegram_id), max(0, min(int(history_limit), 25))),
+        )
+        history = [dict(item) for item in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+    balance = max(0, int(row["balance_points"] or 0))
+    redeemable_points = 0
+    if balance >= settings["redeem_min_points"]:
+        redeemable_points = (
+            balance // settings["redeem_block_points"]
+        ) * settings["redeem_block_points"]
+    redeemable_usd = round(
+        (redeemable_points / settings["redeem_block_points"])
+        * settings["redeem_block_usd"],
+        4,
+    )
+    return {
+        **settings,
+        "balance_points": balance,
+        "earned_points": int(row["earned_points"] or 0),
+        "redeemed_points": int(row["redeemed_points"] or 0),
+        "redeemed_usd": round(float(row["redeemed_usd"] or 0), 4),
+        "redeemable_points": redeemable_points,
+        "redeemable_usd": redeemable_usd,
+        "history": history,
+    }
+
+
+async def redeem_loyalty_to_wallet(user_telegram_id: int) -> dict:
+    last_exc = None
+    for attempt in range(3):
+        try:
+            async with _get_critical_db_semaphore():
+                db = await get_db(fresh=attempt > 0)
+                try:
+                    await db.execute("BEGIN IMMEDIATE")
+                    settings = await _get_loyalty_settings_tx(db)
+                    if not settings["enabled"]:
+                        raise ValueError("LOYALTY_DISABLED")
+                    cursor = await db.execute(
+                        "SELECT COALESCE(SUM(points), 0) AS balance_points "
+                        "FROM loyalty_transactions WHERE user_telegram_id = ?",
+                        (int(user_telegram_id),),
+                    )
+                    balance = max(0, int((await cursor.fetchone())["balance_points"] or 0))
+                    if balance < settings["redeem_min_points"]:
+                        raise ValueError("LOYALTY_MINIMUM_NOT_REACHED")
+                    redeemed_points = (
+                        balance // settings["redeem_block_points"]
+                    ) * settings["redeem_block_points"]
+                    wallet_amount = round(
+                        (redeemed_points / settings["redeem_block_points"])
+                        * settings["redeem_block_usd"],
+                        4,
+                    )
+                    if redeemed_points <= 0 or wallet_amount <= 0:
+                        raise ValueError("LOYALTY_NOT_REDEEMABLE")
+
+                    cursor = await db.execute(
+                        "SELECT wallet_balance FROM users WHERE telegram_id = ?",
+                        (int(user_telegram_id),),
+                    )
+                    user = await cursor.fetchone()
+                    if not user:
+                        raise ValueError("USER_NOT_FOUND")
+                    new_wallet_balance = round(
+                        float(user["wallet_balance"] or 0) + wallet_amount, 4
+                    )
+                    cashout_id = uuid.uuid4().hex
+                    await db.execute(
+                        """INSERT INTO loyalty_transactions
+                           (user_telegram_id, points, transaction_type, order_id,
+                            wallet_amount_usd, idempotency_key)
+                           VALUES (?, ?, 'cashout_wallet', NULL, ?, ?)""",
+                        (
+                            int(user_telegram_id),
+                            -redeemed_points,
+                            wallet_amount,
+                            f"loyalty:cashout:{cashout_id}",
+                        ),
+                    )
+                    await db.execute(
+                        "UPDATE users SET wallet_balance = ? WHERE telegram_id = ?",
+                        (new_wallet_balance, int(user_telegram_id)),
+                    )
+                    await db.execute(
+                        """INSERT INTO wallet_transactions
+                           (user_telegram_id, type, amount, balance_after, description)
+                           VALUES (?, 'topup', ?, ?, ?)""",
+                        (
+                            int(user_telegram_id),
+                            wallet_amount,
+                            new_wallet_balance,
+                            f"Cashback claim: {redeemed_points} points",
+                        ),
+                    )
+                    await db.commit()
+                    return {
+                        "redeemed_points": redeemed_points,
+                        "wallet_amount_usd": wallet_amount,
+                        "wallet_balance": new_wallet_balance,
+                        "remaining_points": balance - redeemed_points,
+                    }
+                except Exception:
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                    raise
+                finally:
+                    await db.close()
+        except ValueError:
+            raise
+        except Exception as exc:
+            last_exc = exc
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            await asyncio.sleep(0.1 * (attempt + 1))
+    raise RuntimeError("Loyalty cashout unavailable") from last_exc
+
+
+async def get_loyalty_dashboard() -> dict:
+    db = await get_db()
+    try:
+        settings = await _get_loyalty_settings_tx(db)
+        cursor = await db.execute(
+            """SELECT
+                   COALESCE(SUM(CASE WHEN points > 0 THEN points ELSE 0 END), 0) AS issued_points,
+                   COALESCE(-SUM(CASE WHEN points < 0 THEN points ELSE 0 END), 0) AS redeemed_points,
+                   COALESCE(SUM(points), 0) AS outstanding_points,
+                   COALESCE(SUM(wallet_amount_usd), 0) AS redeemed_usd,
+                   COUNT(DISTINCT user_telegram_id) AS users_count
+               FROM loyalty_transactions"""
+        )
+        stats = dict(await cursor.fetchone())
+        return {
+            "settings": settings,
+            "stats": {
+                "issued_points": int(stats["issued_points"] or 0),
+                "redeemed_points": int(stats["redeemed_points"] or 0),
+                "outstanding_points": int(stats["outstanding_points"] or 0),
+                "redeemed_usd": round(float(stats["redeemed_usd"] or 0), 4),
+                "users_count": int(stats["users_count"] or 0),
+            },
+        }
     finally:
         await db.close()
 

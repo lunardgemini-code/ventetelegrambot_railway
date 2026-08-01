@@ -2120,7 +2120,13 @@ async def init_db() -> None:
         # Versions 23-26 were shipped by the production Pixel/payment branch.
         # Keep the Bybit replay guard at the next globally unused version so an
         # existing production database cannot mistake it for an older migration.
-        if current_version < 27:
+        bybit_guard_table = await (
+            await db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                "AND name = 'used_bybit_transactions'"
+            )
+        ).fetchone()
+        if current_version < 27 or not bybit_guard_table:
             await db.execute(
                 """CREATE TABLE IF NOT EXISTS used_bybit_transactions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2142,6 +2148,45 @@ async def init_db() -> None:
                 ("bybit_transaction_replay_guard",),
             )
             await db.commit()
-            current_version = 27
+            current_version = max(current_version, 27)
+
+        loyalty_table = await (
+            await db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                "AND name = 'loyalty_transactions'"
+            )
+        ).fetchone()
+        if current_version < 28 or not loyalty_table:
+            await db.execute(
+                """CREATE TABLE IF NOT EXISTS loyalty_transactions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_telegram_id INTEGER NOT NULL,
+                    points INTEGER NOT NULL,
+                    transaction_type TEXT NOT NULL,
+                    order_id INTEGER,
+                    wallet_amount_usd REAL NOT NULL DEFAULT 0,
+                    idempotency_key TEXT NOT NULL UNIQUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )"""
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_loyalty_user_created "
+                "ON loyalty_transactions(user_telegram_id, created_at DESC)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_loyalty_type_created "
+                "ON loyalty_transactions(transaction_type, created_at DESC)"
+            )
+            await db.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_loyalty_order_award "
+                "ON loyalty_transactions(order_id) "
+                "WHERE transaction_type = 'earn_order' AND order_id IS NOT NULL"
+            )
+            await db.execute(
+                "INSERT OR IGNORE INTO schema_migrations (version, name) VALUES (28, ?)",
+                ("loyalty_cashback_ledger",),
+            )
+            await db.commit()
+            current_version = max(current_version, 28)
     finally:
         await db.close()

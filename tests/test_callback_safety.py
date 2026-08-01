@@ -90,9 +90,11 @@ class CallbackSafetyTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_game_button_is_directly_below_wallet_with_custom_emoji(self):
         markup = main_menu_keyboard("en")
-        wallet_button = markup.inline_keyboard[1][0]
-        game_button = markup.inline_keyboard[2][0]
+        cashback_button = markup.inline_keyboard[1][0]
+        wallet_button = markup.inline_keyboard[2][0]
+        game_button = markup.inline_keyboard[3][0]
 
+        self.assertEqual(cashback_button.callback_data, "menu_cashback")
         self.assertEqual(wallet_button.callback_data, "menu_wallet")
         self.assertEqual(game_button.callback_data, "menu_game")
         self.assertEqual(game_button.icon_custom_emoji_id, "5375312095346704820")

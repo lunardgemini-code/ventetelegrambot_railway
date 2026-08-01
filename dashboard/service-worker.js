@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ventebot-dashboard-shell-20260726-targeted-broadcast-v1';
+const CACHE_NAME = 'ventebot-dashboard-shell-20260801-loyalty-v1';
 const APP_SHELL = [
     './',
     './index.html',
@@ -6,9 +6,9 @@ const APP_SHELL = [
     './revamp.css?v=20260720-reseller-prices',
     './system.css?v=20260723-pwa-v8',
     './liquid-glass.css?v=20260723-liquid-v1',
-    './operations.css?v=20260725-auto-hide-v2',
+    './operations.css?v=20260801-loyalty-v1',
     './theme-bootstrap.js?v=20260723-liquid-v1',
-    './app.js?v=20260726-targeted-broadcast-v1',
+    './app.js?v=20260801-loyalty-v1',
     './operations.js?v=20260726-targeted-broadcast-v1',
     './manifest.webmanifest',
     './icons/ventebot-icon-192.png',
