@@ -85,6 +85,8 @@ class BybitTransferTests(unittest.IsolatedAsyncioTestCase):
                 "services.bybit_transfer.is_bybit_transfer_configured",
                 return_value=True,
             ),
+            patch("services.nowpayments.is_nowpayments_configured", return_value=True),
+            patch("services.crypto_pay.is_crypto_pay_configured", return_value=True),
             patch("database.models.get_setting", AsyncMock(return_value=None)),
         ):
             markup = await payment_method_keyboard(42, "en", 0, allow_bybit=True)
@@ -96,6 +98,27 @@ class BybitTransferTests(unittest.IsolatedAsyncioTestCase):
             if button.callback_data
         ]
         self.assertIn("pay_bybit:42", callbacks)
+        payment_callbacks = [
+            callback
+            for callback in callbacks
+            if callback.startswith(
+                (
+                    "pay_binance:",
+                    "pay_bybit:",
+                    "pay_nowpayments:",
+                    "pay_cryptopay:",
+                )
+            )
+        ]
+        self.assertEqual(
+            payment_callbacks,
+            [
+                "pay_binance:42",
+                "pay_bybit:42",
+                "pay_nowpayments:42",
+                "pay_cryptopay:42",
+            ],
+        )
         bybit_button = next(
             button
             for row in markup.inline_keyboard
@@ -110,6 +133,8 @@ class BybitTransferTests(unittest.IsolatedAsyncioTestCase):
                 "services.bybit_transfer.is_bybit_transfer_configured",
                 return_value=True,
             ),
+            patch("services.nowpayments.is_nowpayments_configured", return_value=True),
+            patch("services.crypto_pay.is_crypto_pay_configured", return_value=True),
             patch("database.models.get_setting", AsyncMock(return_value=None)),
         ):
             markup = await payment_method_keyboard(42, "en", 0)
@@ -128,6 +153,8 @@ class BybitTransferTests(unittest.IsolatedAsyncioTestCase):
                 "services.bybit_transfer.is_bybit_transfer_configured",
                 return_value=True,
             ),
+            patch("services.nowpayments.is_nowpayments_configured", return_value=True),
+            patch("services.crypto_pay.is_crypto_pay_configured", return_value=True),
             patch("database.models.get_setting", AsyncMock(return_value=None)),
         ):
             admin_markup = await wallet_topup_method_keyboard(
@@ -149,6 +176,25 @@ class BybitTransferTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertIn("topup_bybit", admin_callbacks)
         self.assertNotIn("topup_bybit", customer_callbacks)
+        payment_callbacks = [
+            callback
+            for callback in admin_callbacks
+            if callback in {
+                "topup_binance",
+                "topup_bybit",
+                "topup_nowpayments",
+                "topup_cryptopay",
+            }
+        ]
+        self.assertEqual(
+            payment_callbacks,
+            [
+                "topup_binance",
+                "topup_bybit",
+                "topup_nowpayments",
+                "topup_cryptopay",
+            ],
+        )
         bybit_button = next(
             button
             for row in admin_markup.inline_keyboard

@@ -442,23 +442,6 @@ async def payment_method_keyboard(
         icon_custom_emoji_id="5388622778817589921"
     )])
 
-    # Automated USDT/BEP20 checkout through NOWPayments.
-    from services.nowpayments import is_nowpayments_configured
-    if is_nowpayments_configured():
-        buttons.append([InlineKeyboardButton(
-            t("btn_pay_nowpayments", lang),
-            callback_data=f"pay_nowpayments:{order_id}",
-            icon_custom_emoji_id="5359437015752401733",
-        )])
-
-    from services.crypto_pay import fee_percent_label, is_crypto_pay_configured
-    if is_crypto_pay_configured():
-        buttons.append([InlineKeyboardButton(
-            t("btn_pay_cryptopay", lang).format(fee=fee_percent_label()),
-            callback_data=f"pay_cryptopay:{order_id}",
-            icon_custom_emoji_id=CUSTOM_EMOJIS["btn_pay_cryptopay"],
-        )])
-
     from services.bybit_transfer import is_bybit_transfer_configured
     if allow_bybit and is_bybit_transfer_configured():
         buttons.append([InlineKeyboardButton(
@@ -467,9 +450,19 @@ async def payment_method_keyboard(
             icon_custom_emoji_id=CUSTOM_EMOJIS["btn_pay_bybit"],
         )])
 
+    # Automated USDT/BEP20 checkout through NOWPayments.
+    from services.nowpayments import is_nowpayments_configured
+    nowpayments_enabled = is_nowpayments_configured()
+    if nowpayments_enabled:
+        buttons.append([InlineKeyboardButton(
+            t("btn_pay_nowpayments", lang),
+            callback_data=f"pay_nowpayments:{order_id}",
+            icon_custom_emoji_id="5359437015752401733",
+        )])
+
     # Dynamic BEP20 button
     bep20_addr = await get_setting("bep20_address")
-    if bep20_addr:
+    if bep20_addr and not nowpayments_enabled:
         bep20_btn_text = {
             "fr": "Payer avec BEP20 (USDT)",
             "en": "Pay with BEP20 (USDT)",
@@ -479,6 +472,14 @@ async def payment_method_keyboard(
             bep20_btn_text,
             callback_data=f"pay_bep20:{order_id}",
             icon_custom_emoji_id="5413589900450625318"
+        )])
+
+    from services.crypto_pay import fee_percent_label, is_crypto_pay_configured
+    if is_crypto_pay_configured():
+        buttons.append([InlineKeyboardButton(
+            t("btn_pay_cryptopay", lang).format(fee=fee_percent_label()),
+            callback_data=f"pay_cryptopay:{order_id}",
+            icon_custom_emoji_id=CUSTOM_EMOJIS["btn_pay_cryptopay"],
         )])
 
     # Dynamic TRC20 button
@@ -565,6 +566,14 @@ async def wallet_topup_method_keyboard(
         icon_custom_emoji_id="5388622778817589921"
     )])
 
+    from services.bybit_transfer import is_bybit_transfer_configured
+    if allow_bybit and is_bybit_transfer_configured():
+        buttons.append([InlineKeyboardButton(
+            t("btn_pay_bybit", lang),
+            callback_data="topup_bybit",
+            icon_custom_emoji_id=CUSTOM_EMOJIS["btn_pay_bybit"],
+        )])
+
     from services.nowpayments import is_nowpayments_configured
     nowpayments_enabled = is_nowpayments_configured()
     if nowpayments_enabled:
@@ -572,22 +581,6 @@ async def wallet_topup_method_keyboard(
             t("btn_pay_nowpayments", lang),
             callback_data="topup_nowpayments",
             icon_custom_emoji_id="5359437015752401733",
-        )])
-
-    from services.crypto_pay import fee_percent_label, is_crypto_pay_configured
-    if is_crypto_pay_configured():
-        buttons.append([InlineKeyboardButton(
-            t("btn_pay_cryptopay", lang).format(fee=fee_percent_label()),
-            callback_data="topup_cryptopay",
-            icon_custom_emoji_id=CUSTOM_EMOJIS["btn_pay_cryptopay"],
-        )])
-
-    from services.bybit_transfer import is_bybit_transfer_configured
-    if allow_bybit and is_bybit_transfer_configured():
-        buttons.append([InlineKeyboardButton(
-            t("btn_pay_bybit", lang),
-            callback_data="topup_bybit",
-            icon_custom_emoji_id=CUSTOM_EMOJIS["btn_pay_bybit"],
         )])
 
     # Keep the legacy manual-address flow as a fallback when NOWPayments is off.
@@ -602,6 +595,14 @@ async def wallet_topup_method_keyboard(
             bep20_btn_text,
             callback_data="topup_bep20",
             icon_custom_emoji_id="5413589900450625318"
+        )])
+
+    from services.crypto_pay import fee_percent_label, is_crypto_pay_configured
+    if is_crypto_pay_configured():
+        buttons.append([InlineKeyboardButton(
+            t("btn_pay_cryptopay", lang).format(fee=fee_percent_label()),
+            callback_data="topup_cryptopay",
+            icon_custom_emoji_id=CUSTOM_EMOJIS["btn_pay_cryptopay"],
         )])
 
     # Dynamic TRC20 button
