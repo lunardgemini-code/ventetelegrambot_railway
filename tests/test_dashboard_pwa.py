@@ -67,9 +67,9 @@ class DashboardPwaTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("liquid-glass.css?v=20260723-liquid-v1", self.worker)
         self.assertIn("theme-bootstrap.js?v=20260723-liquid-v1", self.worker)
         self.assertIn("operations.css?v=20260801-loyalty-v1", self.worker)
-        self.assertIn("app.js?v=20260801-user-points-v1", self.worker)
+        self.assertIn("app.js?v=20260802-unique-customers-v1", self.worker)
         self.assertIn("operations.js?v=20260726-targeted-broadcast-v1", self.worker)
-        self.assertIn("ventebot-dashboard-shell-20260801-user-points-v1", self.worker)
+        self.assertIn("ventebot-dashboard-shell-20260802-unique-customers-v1", self.worker)
 
     def test_pwa_strings_are_available_in_all_dashboard_languages(self):
         shell = self.app.split("const SHELL_TRANSLATIONS = {", 1)[1].split(

@@ -6477,8 +6477,10 @@ async def _get_dashboard_overview_uncached() -> dict:
                    COALESCE(SUM(CASE WHEN status IN ('AWAITING_ACTIVATION_INFO', 'AWAITING_ACTIVATION') THEN 1 ELSE 0 END), 0) AS pending_activations,
                    COALESCE(SUM(CASE WHEN status = 'PAID_PENDING_DELIVERY' THEN 1 ELSE 0 END), 0) AS delivery_issues,
                    COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND DATE(created_at) = DATE('now') THEN 1 ELSE 0 END), 0) AS today_orders,
+                   COUNT(DISTINCT CASE WHEN status = 'COMPLETED' AND DATE(created_at) = DATE('now') THEN user_telegram_id END) AS today_unique_customers,
                    COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND DATE(created_at) = DATE('now') THEN amount_usd ELSE 0 END), 0) AS today_revenue,
                    COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND DATE(created_at) = DATE('now', '-1 day') THEN 1 ELSE 0 END), 0) AS yesterday_orders,
+                   COUNT(DISTINCT CASE WHEN status = 'COMPLETED' AND DATE(created_at) = DATE('now', '-1 day') THEN user_telegram_id END) AS yesterday_unique_customers,
                    COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND DATE(created_at) = DATE('now', '-1 day') THEN amount_usd ELSE 0 END), 0) AS yesterday_revenue,
                    COALESCE((
                        SELECT SUM(COALESCE(so.revenue_usd, linked.amount_usd, 0) - COALESCE(so.cost_usd, 0))
@@ -6520,10 +6522,12 @@ async def _get_dashboard_overview_uncached() -> dict:
         return {
             "today": {
                 "orders": int(summary.get("today_orders") or 0),
+                "unique_customers": int(summary.get("today_unique_customers") or 0),
                 "revenue": float(summary.get("today_revenue") or 0),
             },
             "yesterday": {
                 "orders": int(summary.get("yesterday_orders") or 0),
+                "unique_customers": int(summary.get("yesterday_unique_customers") or 0),
                 "revenue": float(summary.get("yesterday_revenue") or 0),
             },
             "actions": {
@@ -8866,7 +8870,8 @@ async def get_daily_stats(days: int = 30) -> list[dict]:
             """SELECT DATE(created_at) as day,
                       COUNT(*) as orders,
                       COALESCE(SUM(CASE WHEN status='COMPLETED' AND (payment_method IS NULL OR payment_method != 'wallet') THEN amount_usd ELSE 0 END), 0) as revenue,
-                      SUM(CASE WHEN status='COMPLETED' THEN 1 ELSE 0 END) as completed
+                      SUM(CASE WHEN status='COMPLETED' THEN 1 ELSE 0 END) as completed,
+                      COUNT(DISTINCT CASE WHEN status='COMPLETED' THEN user_telegram_id END) as unique_customers
                FROM orders
                WHERE created_at >= ?
                GROUP BY DATE(created_at)
@@ -8903,9 +8908,16 @@ async def get_daily_stats(days: int = 30) -> list[dict]:
 
         result = []
         for day in day_labels:
-            od = dict(order_rows.get(day, {"day": day, "orders": 0, "revenue": 0, "completed": 0}))
+            od = dict(order_rows.get(day, {
+                "day": day,
+                "orders": 0,
+                "revenue": 0,
+                "completed": 0,
+                "unique_customers": 0,
+            }))
             od["orders"] = int(od.get("orders") or 0)
             od["completed"] = int(od.get("completed") or 0)
+            od["unique_customers"] = int(od.get("unique_customers") or 0)
             od["revenue"] = float(od.get("revenue") or 0) + topup_rows.get(day, 0.0) - admin_debit_rows.get(day, 0.0)
             result.append(od)
         return result

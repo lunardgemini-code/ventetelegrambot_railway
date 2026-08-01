@@ -19,6 +19,7 @@ def _daily_points(days: int = 30) -> list[dict[str, object]]:
             "day": (today - timedelta(days=offset)).isoformat(),
             "revenue": round(54 + (offset % 6) * 7.4, 2),
             "orders": 13 + offset % 9,
+            "unique_customers": 9 + offset % 6,
         }
         for offset in range(days - 1, -1, -1)
     ]
@@ -43,8 +44,8 @@ MOCK_RESPONSES: dict[str, object] = {
         ],
     },
     "/api/dashboard/overview": {
-        "today": {"revenue": 184.7, "orders": 42},
-        "yesterday": {"revenue": 156.5, "orders": 38},
+        "today": {"revenue": 184.7, "orders": 42, "unique_customers": 31},
+        "yesterday": {"revenue": 156.5, "orders": 38, "unique_customers": 27},
         "actions": {"delivery_issues": 2, "pending_activations": 7, "pending_payments": 4, "open_tickets": 3},
         "economics": {"known_profit_30d": 418.62, "known_profit_orders_30d": 233},
         "recent_orders": [

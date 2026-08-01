@@ -95,7 +95,7 @@ body { background:var(--bg-primary); line-height:1.5; font-size:16px; }
 .segmented-control { display:inline-flex; padding:3px; gap:2px; border:1px solid var(--border-color); border-radius:6px; background:var(--input-bg); }
 .segmented-control button { border:0; border-radius:4px; padding:8px 13px; background:transparent; color:var(--color-text-muted); cursor:pointer; font-weight:650; font-size:13px; }
 .segmented-control button.active { background:var(--bg-elevated); color:var(--color-text-main); box-shadow:0 0 0 1px var(--border-color); }
-.today-strip { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.today-strip { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
 .today-signal { display:grid; grid-template-columns:1fr auto; align-items:baseline; gap:3px 14px; padding:18px 20px; border:1px solid var(--border-color); border-radius:8px; background:var(--bg-surface); }
 .today-signal span { color:var(--color-text-muted); font-size:14px; }
 .today-signal strong { grid-row:span 2; font-size:28px; }

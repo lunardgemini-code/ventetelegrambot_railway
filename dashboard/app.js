@@ -192,6 +192,12 @@ Object.assign(LANG.zh, {overview_kicker:'今天', overview_title:'商店概览',
 Object.assign(LANG.vi, {overview_kicker:'Hôm nay', overview_title:'Tổng quan cửa hàng', today_revenue:'Doanh thu hôm nay', today_orders:'Lượt bán hôm nay', priorities:'Ưu tiên', actions_title:'Cần xử lý', activity:'Hoạt động', recent_orders:'Đơn gần đây', view_all:'Xem tất cả', pending_metric:'Đơn đang chờ'});
 Object.assign(LANG.ru, {overview_kicker:'Сегодня', overview_title:'Магазин в цифрах', today_revenue:'Выручка сегодня', today_orders:'Продажи сегодня', priorities:'Приоритеты', actions_title:'Требует внимания', activity:'Активность', recent_orders:'Последние заказы', view_all:'Все заказы', pending_metric:'Заказы в ожидании'});
 Object.assign(LANG.ar, {overview_kicker:'اليوم', overview_title:'نظرة عامة على المتجر', today_revenue:'إيرادات اليوم', today_orders:'مبيعات اليوم', priorities:'الأولويات', actions_title:'بحاجة إلى معالجة', activity:'النشاط', recent_orders:'أحدث الطلبات', view_all:'عرض الكل', pending_metric:'الطلبات المعلقة'});
+Object.assign(LANG.fr, {today_unique_customers:'Clients acheteurs', stats_unique_today:"Clients uniques aujourd'hui", stats_unique_yesterday:'Hier : {count}', stats_unique_yesterday_empty:'Hier : 0', chart_orders_customers:'Commandes et clients uniques', chart_completed_orders:'Commandes', chart_unique_customers:'Clients uniques'});
+Object.assign(LANG.en, {today_unique_customers:'Buying customers', stats_unique_today:'Unique customers today', stats_unique_yesterday:'Yesterday: {count}', stats_unique_yesterday_empty:'Yesterday: 0', chart_orders_customers:'Orders and unique customers', chart_completed_orders:'Orders', chart_unique_customers:'Unique customers'});
+Object.assign(LANG.ar, {today_unique_customers:'العملاء المشترون', stats_unique_today:'العملاء الفريدون اليوم', stats_unique_yesterday:'أمس: {count}', stats_unique_yesterday_empty:'أمس: 0', chart_orders_customers:'الطلبات والعملاء الفريدون', chart_completed_orders:'الطلبات', chart_unique_customers:'العملاء الفريدون'});
+Object.assign(LANG.zh, {today_unique_customers:'今日购买客户', stats_unique_today:'今日独立客户', stats_unique_yesterday:'昨日：{count}', stats_unique_yesterday_empty:'昨日：0', chart_orders_customers:'每日订单与独立客户', chart_completed_orders:'订单', chart_unique_customers:'独立客户'});
+Object.assign(LANG.vi, {today_unique_customers:'Khách mua hôm nay', stats_unique_today:'Khách hàng duy nhất hôm nay', stats_unique_yesterday:'Hôm qua: {count}', stats_unique_yesterday_empty:'Hôm qua: 0', chart_orders_customers:'Đơn hàng và khách hàng duy nhất', chart_completed_orders:'Đơn hàng', chart_unique_customers:'Khách hàng duy nhất'});
+Object.assign(LANG.ru, {today_unique_customers:'Покупатели сегодня', stats_unique_today:'Уникальные клиенты сегодня', stats_unique_yesterday:'Вчера: {count}', stats_unique_yesterday_empty:'Вчера: 0', chart_orders_customers:'Заказы и уникальные клиенты', chart_completed_orders:'Заказы', chart_unique_customers:'Уникальные клиенты'});
 Object.assign(LANG.fr, {nav_supplier_bots:'API Bot Gestion', supplier_title:'API Bot Gestion', supplier_sync:'Synchroniser'});
 Object.assign(LANG.en, {nav_supplier_bots:'Bot API Management', supplier_title:'Bot API Management', supplier_sync:'Sync catalog'});
 Object.assign(LANG.fr, {nav_ai_bot:'IA Bot'});
@@ -998,8 +1004,8 @@ const DOM = {
     statRevenue:$('stat-revenue'), statOrders:$('stat-orders'), statUsers:$('stat-users'), statPending:$('stat-pending'),
     statNewUsers:$('stat-new-users'), statReturningUsers:$('stat-returning-users'),
     stockSummaryList:$('stock-summary-list'),
-    todayRevenue:$('today-revenue'), todayOrders:$('today-orders'),
-    todayRevenueDelta:$('today-revenue-delta'), todayOrdersDelta:$('today-orders-delta'),
+    todayRevenue:$('today-revenue'), todayOrders:$('today-orders'), todayUniqueCustomers:$('today-unique-customers'),
+    todayRevenueDelta:$('today-revenue-delta'), todayOrdersDelta:$('today-orders-delta'), todayUniqueCustomersDelta:$('today-unique-customers-delta'),
     actionCenterList:$('action-center-list'), recentOrdersList:$('recent-orders-list'),
     perfStatus:$('perf-status'), perfWorkers:$('perf-workers'), perfWorkersRec:$('perf-workers-rec'), perfSlowestAction:$('perf-slowest-action'),
     perfQueue:$('perf-queue'), perfQueueWait:$('perf-queue-wait'), perfProcessing:$('perf-processing'),
@@ -1019,6 +1025,8 @@ const DOM = {
     statsKpiTotalSales:$('stats-kpi-total-sales'),
     statsKpiTotalRevenue:$('stats-kpi-total-revenue'),
     statsKpiStockAlerts:$('stats-kpi-stock-alerts'),
+    statsKpiUniqueCustomersToday:$('stats-kpi-unique-customers-today'),
+    statsKpiUniqueCustomersYesterday:$('stats-kpi-unique-customers-yesterday'),
     chartProductSales:$('chart-product-sales'),
     chartProductMomentum:$('chart-product-momentum'),
     productMomentumControls:$('product-momentum-controls'),
@@ -3073,13 +3081,17 @@ async function loadDashboardOverview() {
     const actions = data.actions || {};
     const revenueDelta = formatComparison(today.revenue, yesterday.revenue);
     const ordersDelta = formatComparison(today.orders, yesterday.orders);
+    const uniqueCustomersDelta = formatComparison(today.unique_customers, yesterday.unique_customers);
 
     DOM.todayRevenue.textContent = `$${Number(today.revenue || 0).toFixed(2)}`;
     DOM.todayOrders.textContent = Number(today.orders || 0).toLocaleString();
+    DOM.todayUniqueCustomers.textContent = Number(today.unique_customers || 0).toLocaleString();
     DOM.todayRevenueDelta.textContent = revenueDelta.text;
     DOM.todayRevenueDelta.className = revenueDelta.className;
     DOM.todayOrdersDelta.textContent = ordersDelta.text;
     DOM.todayOrdersDelta.className = ordersDelta.className;
+    DOM.todayUniqueCustomersDelta.textContent = uniqueCustomersDelta.text;
+    DOM.todayUniqueCustomersDelta.className = uniqueCustomersDelta.className;
 
     const actionItems = [
         {count:actions.delivery_issues, icon:'triangle-exclamation', title:t('action_delivery_title'), detail:t('action_delivery_detail'), tab:'orders-tab'},
@@ -3164,6 +3176,15 @@ async function loadCharts(providedData=null) {
         const labels = data.map(d => d.day.slice(5));
         const revenues = data.map(d => d.revenue);
         const orders = data.map(d => d.orders);
+        const uniqueCustomers = data.map(d => Number(d.unique_customers || 0));
+        const today = data[data.length - 1] || {};
+        const yesterday = data[data.length - 2] || {};
+        if (DOM.statsKpiUniqueCustomersToday) {
+            DOM.statsKpiUniqueCustomersToday.textContent = Number(today.unique_customers || 0).toLocaleString();
+        }
+        if (DOM.statsKpiUniqueCustomersYesterday) {
+            DOM.statsKpiUniqueCustomersYesterday.textContent = tf('stats_unique_yesterday', {count:Number(yesterday.unique_customers || 0).toLocaleString()});
+        }
         const chartColor = getComputedStyle(document.documentElement).getPropertyValue('--primary-color').trim() || '#6366f1';
         const gridColor = getComputedStyle(document.documentElement).getPropertyValue('--chart-grid').trim() || 'rgba(255,255,255,0.05)';
         const textColor = getComputedStyle(document.documentElement).getPropertyValue('--color-text-muted').trim() || '#9f9baa';
@@ -3175,12 +3196,18 @@ async function loadCharts(providedData=null) {
         } else {
             state.revenueChart = new Chart(DOM.chartRevenue, { type:'line', data:{ labels, datasets:[{ data:revenues, borderColor:chartColor, backgroundColor:chartColor+'20', fill:true, tension:0.25, pointRadius:2 }] }, options:opts });
         }
+        const orderDatasets = [
+            {label:t('chart_completed_orders'), data:orders, backgroundColor:chartColor+'60', borderColor:chartColor, borderWidth:1, borderRadius:4, order:2},
+            {label:t('chart_unique_customers'), data:uniqueCustomers, type:'line', borderColor:'#10b981', backgroundColor:'#10b98120', borderWidth:2, tension:0.25, pointRadius:2, fill:false, order:1},
+        ];
+        const ordersOpts = {...opts, plugins:{legend:{display:true, labels:{color:textColor, usePointStyle:true, boxWidth:8}}}};
         if (state.ordersChart) {
             state.ordersChart.data.labels = labels;
-            state.ordersChart.data.datasets[0].data = orders;
+            state.ordersChart.data.datasets = orderDatasets;
+            state.ordersChart.options = ordersOpts;
             state.ordersChart.update('none');
         } else {
-            state.ordersChart = new Chart(DOM.chartOrders, { type:'bar', data:{ labels, datasets:[{ data:orders, backgroundColor:chartColor+'60', borderColor:chartColor, borderWidth:1, borderRadius:4 }] }, options:opts });
+            state.ordersChart = new Chart(DOM.chartOrders, {type:'bar', data:{labels, datasets:orderDatasets}, options:ordersOpts});
         }
     } catch(e) { console.warn('Charts failed:', e); }
 }

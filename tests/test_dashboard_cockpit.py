@@ -23,6 +23,8 @@ class DashboardCockpitStaticTests(unittest.TestCase):
             cls.html = handle.read()
         with open(os.path.join(DASHBOARD, "operations.js"), encoding="utf-8") as handle:
             cls.operations = handle.read()
+        with open(os.path.join(DASHBOARD, "app.js"), encoding="utf-8") as handle:
+            cls.app = handle.read()
         with open(os.path.join(DASHBOARD, "operations.css"), encoding="utf-8") as handle:
             cls.styles = handle.read()
         with open(os.path.join(DASHBOARD, "service-worker.js"), encoding="utf-8") as handle:
@@ -96,12 +98,19 @@ class DashboardCockpitStaticTests(unittest.TestCase):
     def test_pwa_shell_versions_every_new_asset(self):
         for asset in (
             "operations.css?v=20260801-loyalty-v1",
-            "app.js?v=20260801-user-points-v1",
+            "app.js?v=20260802-unique-customers-v1",
             "operations.js?v=20260726-targeted-broadcast-v1",
         ):
             self.assertIn(asset, self.html)
             self.assertIn(asset, self.worker)
-        self.assertIn("ventebot-dashboard-shell-20260801-user-points-v1", self.worker)
+        self.assertIn("ventebot-dashboard-shell-20260802-unique-customers-v1", self.worker)
+
+    def test_unique_customer_metric_is_wired_and_translated(self):
+        self.assertIn('id="today-unique-customers"', self.html)
+        self.assertIn('id="stats-kpi-unique-customers-today"', self.html)
+        self.assertIn("d.unique_customers", self.app)
+        self.assertEqual(self.app.count("today_unique_customers:'"), 6)
+        self.assertEqual(self.app.count("chart_unique_customers:'"), 6)
 
 
 class DashboardCockpitDataTests(unittest.IsolatedAsyncioTestCase):
@@ -221,6 +230,39 @@ class DashboardCockpitDataTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(overview["economics"]["known_profit_orders_30d"], 1)
         self.assertEqual(overview["economics"]["known_profit_30d"], 0.75)
         self.assertEqual(overview["today"]["orders"], 1)
+        self.assertEqual(overview["today"]["unique_customers"], 1)
+
+    async def test_daily_unique_customers_count_each_buyer_once(self):
+        duplicate_order = await models.create_order(
+            91001,
+            self.product_id,
+            1.0,
+            quantity=1,
+        )
+        await models.get_or_create_user(91002, "second_buyer", "Second Buyer")
+        second_buyer_order = await models.create_order(
+            91002,
+            self.product_id,
+            1.0,
+            quantity=1,
+        )
+        db = await db_module.get_db()
+        try:
+            await db.execute(
+                "UPDATE orders SET status = 'COMPLETED' WHERE id IN (?, ?)",
+                (duplicate_order["id"], second_buyer_order["id"]),
+            )
+            await db.commit()
+        finally:
+            await db.close()
+        models.invalidate_stats_cache()
+
+        daily = await models.get_daily_stats(days=2)
+        overview = await models.get_dashboard_overview()
+
+        self.assertEqual(daily[-1]["completed"], 3)
+        self.assertEqual(daily[-1]["unique_customers"], 2)
+        self.assertEqual(overview["today"]["unique_customers"], 2)
 
     async def test_overview_cache_is_reused_and_invalidated(self):
         models.invalidate_stats_cache()
