@@ -403,6 +403,60 @@ class OrderSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(int(used["cnt"]), 1)
         self.assertEqual(int(credits["cnt"]), 1)
 
+    async def test_concurrent_bybit_wallet_credit_happens_once(self):
+        results = await asyncio.gather(*(
+            models.credit_wallet_from_bybit_transaction(
+                "bybit-wallet-race",
+                1001,
+                5,
+                "Bybit Transfer: test-transaction",
+                "566919137",
+            )
+            for _ in range(3)
+        ))
+
+        self.assertEqual(sum(bool(result["credited"]) for result in results), 1)
+        self.assertEqual(await models.get_wallet_balance(1001), 25.0)
+
+        db = await get_db()
+        try:
+            used = await (await db.execute(
+                "SELECT COUNT(*) AS cnt FROM used_bybit_transactions "
+                "WHERE transaction_id = ?",
+                ("bybit-wallet-race",),
+            )).fetchone()
+            credits = await (await db.execute(
+                "SELECT COUNT(*) AS cnt FROM wallet_transactions WHERE tx_hash = ?",
+                ("bybit-wallet-race",),
+            )).fetchone()
+        finally:
+            await db.close()
+        self.assertEqual(int(used["cnt"]), 1)
+        self.assertEqual(int(credits["cnt"]), 1)
+
+    async def test_bybit_transaction_cannot_pay_order_then_credit_wallet(self):
+        order = await models.create_order(1001, self.product_id, 5, quantity=1)
+        claim = await models.claim_bybit_order_payment(
+            "bybit-cross-flow-replay",
+            order["id"],
+            1001,
+            5,
+            "bybit-cross-flow-replay",
+            "566919137",
+        )
+        credit = await models.credit_wallet_from_bybit_transaction(
+            "bybit-cross-flow-replay",
+            1001,
+            5,
+            "Bybit Transfer: replay",
+            "566919137",
+        )
+
+        self.assertTrue(claim["claimed"])
+        self.assertFalse(credit["credited"])
+        self.assertEqual(credit["reason"], "transaction_used")
+        self.assertEqual(await models.get_wallet_balance(1001), 20.0)
+
     async def test_failed_binance_order_claim_does_not_consume_transaction(self):
         result = await models.claim_binance_order_payment(
             "binance-missing-order",

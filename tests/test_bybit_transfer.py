@@ -4,8 +4,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from handlers import payment as payment_handler
+from handlers import wallet as wallet_handler
 from services import bybit_transfer
-from utils.keyboards import payment_method_keyboard
+from utils.keyboards import payment_method_keyboard, wallet_topup_method_keyboard
 from utils.locales import t
 
 
@@ -114,6 +115,34 @@ class BybitTransferTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertNotIn("pay_bybit:42", callbacks)
 
+    async def test_wallet_topup_button_is_admin_only(self):
+        with (
+            patch(
+                "services.bybit_transfer.is_bybit_transfer_configured",
+                return_value=True,
+            ),
+            patch("database.models.get_setting", AsyncMock(return_value=None)),
+        ):
+            admin_markup = await wallet_topup_method_keyboard(
+                "en", allow_bybit=True
+            )
+            customer_markup = await wallet_topup_method_keyboard("en")
+
+        admin_callbacks = [
+            button.callback_data
+            for row in admin_markup.inline_keyboard
+            for button in row
+            if button.callback_data
+        ]
+        customer_callbacks = [
+            button.callback_data
+            for row in customer_markup.inline_keyboard
+            for button in row
+            if button.callback_data
+        ]
+        self.assertIn("topup_bybit", admin_callbacks)
+        self.assertNotIn("topup_bybit", customer_callbacks)
+
     async def test_direct_callback_is_rejected_for_regular_users(self):
         query = SimpleNamespace(
             data="pay_bybit:42",
@@ -141,6 +170,65 @@ class BybitTransferTests(unittest.IsolatedAsyncioTestCase):
 
         safe_edit.assert_awaited_once_with(query, t("access_denied", "en"))
         self.assertEqual(context.user_data, {})
+
+    async def test_wallet_topup_callback_is_rejected_for_regular_users(self):
+        query = SimpleNamespace(data="topup_bybit", answer=AsyncMock())
+        update = SimpleNamespace(
+            callback_query=query,
+            effective_user=SimpleNamespace(id=123),
+        )
+        context = SimpleNamespace(user_data={"wallet_topup_amount": 2})
+        safe_edit = AsyncMock()
+
+        with (
+            patch.object(wallet_handler, "get_user_lang", AsyncMock(return_value="en")),
+            patch.object(wallet_handler, "is_admin", return_value=False),
+            patch.object(wallet_handler, "safe_edit_message_text", safe_edit),
+        ):
+            await wallet_handler.wallet_topup_method_bybit(update, context)
+
+        safe_edit.assert_awaited_once_with(query, t("access_denied", "en"))
+
+    async def test_wallet_topup_credits_verified_received_amount(self):
+        message = SimpleNamespace(
+            text="01d90e5a-dba0-4156-81ea-59a7c589",
+            reply_text=AsyncMock(),
+        )
+        update = SimpleNamespace(
+            message=message,
+            effective_user=SimpleNamespace(id=123),
+        )
+        context = SimpleNamespace(user_data={"wallet_topup_amount": 2})
+        credit = AsyncMock(return_value={"credited": True, "balance_after": 22.1})
+
+        with (
+            patch.object(wallet_handler, "get_user_lang", AsyncMock(return_value="en")),
+            patch.object(wallet_handler, "is_admin", return_value=True),
+            patch.object(
+                bybit_transfer,
+                "verify_payment",
+                AsyncMock(return_value={
+                    "verified": True,
+                    "transaction": {
+                        "transactionId": "01d90e5a-dba0-4156-81ea-59a7c589",
+                        "amount": 2.1,
+                        "fromMemberId": "566919137",
+                    },
+                }),
+            ),
+            patch.object(wallet_handler, "credit_wallet_from_bybit_transaction", credit),
+        ):
+            state = await wallet_handler.wallet_verify_bybit(update, context)
+
+        self.assertEqual(state, wallet_handler.ConversationHandler.END)
+        credit.assert_awaited_once_with(
+            "01d90e5a-dba0-4156-81ea-59a7c589",
+            123,
+            2.1,
+            "Bybit Transfer: 01d90e5a-dba0-4156-81ea-59a7c589",
+            "566919137",
+        )
+        self.assertNotIn("wallet_topup_amount", context.user_data)
 
 
 if __name__ == "__main__":

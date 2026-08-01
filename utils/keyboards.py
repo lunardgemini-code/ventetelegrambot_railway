@@ -547,7 +547,10 @@ def cryptopay_payment_keyboard(
     ])
 
 
-async def wallet_topup_method_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
+async def wallet_topup_method_keyboard(
+    lang: str = "fr",
+    allow_bybit: bool = False,
+) -> InlineKeyboardMarkup:
     """Choose wallet top-up method or cancel."""
     from database.models import get_setting
     buttons = []
@@ -575,6 +578,13 @@ async def wallet_topup_method_keyboard(lang: str = "fr") -> InlineKeyboardMarkup
             t("btn_pay_cryptopay", lang).format(fee=fee_percent_label()),
             callback_data="topup_cryptopay",
             icon_custom_emoji_id=CUSTOM_EMOJIS["btn_pay_cryptopay"],
+        )])
+
+    from services.bybit_transfer import is_bybit_transfer_configured
+    if allow_bybit and is_bybit_transfer_configured():
+        buttons.append([InlineKeyboardButton(
+            t("btn_pay_bybit", lang),
+            callback_data="topup_bybit",
         )])
 
     # Keep the legacy manual-address flow as a fallback when NOWPayments is off.

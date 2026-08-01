@@ -9247,6 +9247,102 @@ async def credit_wallet_from_binance_transaction(
     raise RuntimeError("Binance wallet credit unavailable") from last_exc
 
 
+async def credit_wallet_from_bybit_transaction(
+    transaction_id: str,
+    user_telegram_id: int,
+    amount: float,
+    description: str,
+    sender_uid: str = "",
+) -> dict:
+    """Atomically consume one Bybit transfer and credit one wallet once."""
+    transaction_id = str(transaction_id or "").strip()
+    if not transaction_id:
+        raise ValueError("BYBIT_TRANSACTION_ID_REQUIRED")
+    amount = usd_float(amount, places=8, allow_zero=False)
+
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            async with _get_critical_db_semaphore():
+                return await _credit_wallet_from_bybit_transaction_once(
+                    transaction_id,
+                    int(user_telegram_id),
+                    amount,
+                    str(description or "Bybit Transfer"),
+                    str(sender_uid or ""),
+                    fresh_connection=True,
+                )
+        except Exception as exc:
+            last_exc = exc
+            if not is_transient_db_connection_error(exc) or attempt == 2:
+                raise
+            logger.warning(
+                "Retrying atomic Bybit wallet credit for user %s: %s",
+                user_telegram_id,
+                exc,
+            )
+            await asyncio.sleep(0.1 * (attempt + 1))
+    raise RuntimeError("Bybit wallet credit unavailable") from last_exc
+
+
+async def _credit_wallet_from_bybit_transaction_once(
+    transaction_id: str,
+    user_telegram_id: int,
+    amount: float,
+    description: str,
+    sender_uid: str,
+    *,
+    fresh_connection: bool = False,
+) -> dict:
+    invalidate_stats_cache()
+    db = await get_db(fresh=fresh_connection)
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        cursor = await db.execute(
+            "SELECT order_id, user_telegram_id FROM used_bybit_transactions "
+            "WHERE transaction_id = ?",
+            (transaction_id,),
+        )
+        existing = await cursor.fetchone()
+        if existing:
+            await db.rollback()
+            return {
+                "credited": False,
+                "reason": "already_credited"
+                if existing["order_id"] is None
+                and existing["user_telegram_id"] == user_telegram_id
+                else "transaction_used",
+            }
+
+        await db.execute(
+            """INSERT INTO used_bybit_transactions
+               (transaction_id, order_id, user_telegram_id, amount, sender_uid)
+               VALUES (?, NULL, ?, ?, ?)""",
+            (transaction_id, user_telegram_id, amount, sender_uid),
+        )
+        balance_after = await _credit_wallet_tx(
+            db,
+            user_telegram_id,
+            amount,
+            description,
+            transaction_id,
+        )
+        await db.commit()
+        return {
+            "credited": True,
+            "reason": "credited",
+            "balance_after": balance_after,
+        }
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        await db.close()
+
+
 async def _credit_wallet_from_binance_transaction_once(
     transaction_id: str,
     user_telegram_id: int,

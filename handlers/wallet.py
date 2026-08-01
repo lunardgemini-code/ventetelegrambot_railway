@@ -17,19 +17,21 @@ from telegram.ext import (
 
 from config import (
     BINANCE_PAY_ID,
+    BYBIT_UID,
     CRYPTO_PAY_FEE_PERCENT,
     PAYMENT_TIMEOUT_SECONDS,
 )
 from database.models import (
     credit_wallet_from_bep20_transaction,
     credit_wallet_from_binance_transaction,
+    credit_wallet_from_bybit_transaction,
     credit_wallet_from_trc20_transaction,
     get_user_lang,
     get_wallet_balance,
     get_wallet_transactions,
 )
 from services.binance_verify import verify_payment
-from utils.helpers import escape_html, format_price
+from utils.helpers import escape_html, format_price, is_admin
 from utils.keyboards import (
     cryptopay_payment_keyboard,
     main_menu_keyboard,
@@ -50,6 +52,7 @@ WALLET_TOPUP_BEP20_TX = 303
 WALLET_TOPUP_TRC20_TX = 304
 WALLET_TOPUP_NOWPAYMENTS = 305
 WALLET_TOPUP_CRYPTOPAY = 306
+WALLET_TOPUP_BYBIT_VERIFY = 307
 
 _nowpayments_topup_locks = [asyncio.Lock() for _ in range(64)]
 _nowpayments_topup_timeout_tasks: dict[int, asyncio.Task] = {}
@@ -135,7 +138,10 @@ async def wallet_topup_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["wallet_topup_amount"] = amount
 
     try:
-        kb = await wallet_topup_method_keyboard(lang)
+        kb = await wallet_topup_method_keyboard(
+            lang,
+            allow_bybit=is_admin(update.effective_user.id),
+        )
         await update.message.reply_text(
             f"💰 {t('amount_lbl', lang)} {format_price(amount)}\n\n"
             f"Veuillez choisir votre méthode de paiement pour recharger :",
@@ -189,6 +195,55 @@ async def wallet_topup_method_binance(update: Update, context: ContextTypes.DEFA
     lang = await get_user_lang(update.effective_user.id)
     amount = context.user_data.get("wallet_topup_amount", 0)
     return await _start_binance_topup(update, context, amount, lang, is_callback=True)
+
+
+async def wallet_topup_method_bybit(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+):
+    """Show admin-only Bybit internal-transfer instructions for a wallet top-up."""
+    query = update.callback_query
+    await query.answer()
+    lang = await get_user_lang(update.effective_user.id)
+    telegram_id = update.effective_user.id
+
+    if not is_admin(telegram_id):
+        logger.warning(
+            "Non-admin user %s attempted to use restricted Bybit wallet top-up",
+            telegram_id,
+        )
+        await safe_edit_message_text(query, t("access_denied", lang))
+        return ConversationHandler.END
+
+    from services.bybit_transfer import is_bybit_transfer_configured
+
+    if not is_bybit_transfer_configured():
+        await safe_edit_message_text(query, t("bybit_transfer_unavailable", lang))
+        return ConversationHandler.END
+
+    amount = float(context.user_data.get("wallet_topup_amount") or 0)
+    if amount <= 0:
+        await safe_edit_message_text(query, t("order_error", lang))
+        return ConversationHandler.END
+
+    text = (
+        f"{t('bybit_transfer_title', lang)}\n\n"
+        f"{t('bybit_uid_lbl', lang)}\n"
+        f"<code>{escape_html(BYBIT_UID)}</code>\n\n"
+        f"{t('amount_lbl', lang)} {format_price(amount)}\n\n"
+        f"{t('pay_instructions', lang)}\n"
+        f"{t('bybit_transfer_step1', lang)}\n"
+        f"{t('bybit_transfer_step2', lang)}\n\n"
+        f"{t('waiting_payment', lang)}"
+    )
+    await safe_edit_message_text(
+        query,
+        text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton(t("btn_cancel", lang), callback_data="back_wallet")],
+        ]),
+    )
+    return WALLET_TOPUP_BYBIT_VERIFY
 
 
 def _format_topup_crypto_amount(value) -> str:
@@ -1248,6 +1303,93 @@ async def wallet_verify_trc20(update: Update, context: ContextTypes.DEFAULT_TYPE
     return await _verify_crypto_topup(update, context, "TRC20")
 
 
+async def wallet_verify_bybit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Verify an admin Bybit transfer and credit the wallet atomically."""
+    lang = await get_user_lang(update.effective_user.id)
+    telegram_id = update.effective_user.id
+    if not is_admin(telegram_id):
+        logger.warning(
+            "Non-admin user %s attempted to verify restricted Bybit wallet top-up",
+            telegram_id,
+        )
+        await update.message.reply_text(t("access_denied", lang))
+        context.user_data.pop("wallet_topup_amount", None)
+        return ConversationHandler.END
+
+    amount = float(context.user_data.get("wallet_topup_amount") or 0)
+    if amount <= 0:
+        await update.message.reply_text(t("order_error", lang))
+        return ConversationHandler.END
+
+    client_transaction_id = update.message.text.strip()
+    try:
+        await update.message.reply_text(t("verifying", lang))
+        from services.bybit_transfer import verify_payment as verify_bybit_payment
+
+        result = await verify_bybit_payment(client_transaction_id, amount)
+        if not result.get("verified"):
+            error_key = result.get("error_key")
+            if error_key:
+                reason = t(str(error_key), lang).format(
+                    **(result.get("error_params") or {})
+                )
+            else:
+                reason = result.get("error", t("payment_not_detected", lang))
+            await update.message.reply_text(
+                f"{t('payment_not_found', lang)}\n\n{reason}",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(t("btn_cancel", lang), callback_data="back_wallet")],
+                ]),
+            )
+            return WALLET_TOPUP_BYBIT_VERIFY
+
+        transaction = result.get("transaction") or {}
+        received_amount = float(transaction.get("amount") or amount)
+        transaction_id = (
+            str(transaction.get("transactionId") or "")
+            or str(transaction.get("orderId") or "")
+            or client_transaction_id
+        )
+        credit = await credit_wallet_from_bybit_transaction(
+            transaction_id,
+            telegram_id,
+            received_amount,
+            f"Bybit Transfer: {transaction_id}",
+            str(transaction.get("fromMemberId") or ""),
+        )
+        if not credit.get("credited"):
+            logger.warning(
+                "BYBIT WALLET REPLAY BLOCKED: User %s transaction %s",
+                telegram_id,
+                transaction_id,
+            )
+            await update.message.reply_text(
+                t("tx_used", lang),
+                reply_markup=main_menu_keyboard(lang, user_id=telegram_id),
+            )
+            context.user_data.pop("wallet_topup_amount", None)
+            return ConversationHandler.END
+
+        balance_after = float(credit["balance_after"])
+        text = (
+            t("wallet_credited", lang)
+            .replace("${amount}", format_price(received_amount))
+            .replace("${balance}", format_price(balance_after))
+        )
+        await update.message.reply_text(
+            text,
+            parse_mode="HTML",
+            reply_markup=wallet_menu_keyboard(balance_after, lang),
+        )
+        context.user_data.pop("wallet_topup_amount", None)
+        return ConversationHandler.END
+    except Exception as exc:
+        logger.error("wallet_verify_bybit: %s", exc, exc_info=True)
+        await update.message.reply_text(t("pay_error", lang))
+        return WALLET_TOPUP_BYBIT_VERIFY
+
+
 async def wallet_verify_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Verify Binance payment for wallet top-up."""
     client_order_id = update.message.text.strip()
@@ -1392,6 +1534,7 @@ def wallet_conversation_handler() -> ConversationHandler:
             WALLET_TOPUP_METHOD: [
                 CallbackQueryHandler(wallet_back, pattern=r"^back_wallet$"),
                 CallbackQueryHandler(wallet_topup_method_binance, pattern=r"^topup_binance$"),
+                CallbackQueryHandler(wallet_topup_method_bybit, pattern=r"^topup_bybit$"),
                 CallbackQueryHandler(wallet_topup_method_nowpayments, pattern=r"^topup_nowpayments$"),
                 CallbackQueryHandler(wallet_topup_method_cryptopay, pattern=r"^topup_cryptopay$"),
                 CallbackQueryHandler(wallet_topup_method_bep20, pattern=r"^topup_bep20$"),
@@ -1400,6 +1543,10 @@ def wallet_conversation_handler() -> ConversationHandler:
             WALLET_TOPUP_VERIFY: [
                 CallbackQueryHandler(wallet_back, pattern=r"^back_wallet$"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, wallet_verify_payment),
+            ],
+            WALLET_TOPUP_BYBIT_VERIFY: [
+                CallbackQueryHandler(wallet_back, pattern=r"^back_wallet$"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, wallet_verify_bybit),
             ],
             WALLET_TOPUP_BEP20_TX: [
                 CallbackQueryHandler(wallet_back, pattern=r"^back_wallet$"),
