@@ -2117,7 +2117,10 @@ async def init_db() -> None:
             await db.commit()
             current_version = 22
 
-        if 22 <= current_version < 23:
+        # Versions 23-26 were shipped by the production Pixel/payment branch.
+        # Keep the Bybit replay guard at the next globally unused version so an
+        # existing production database cannot mistake it for an older migration.
+        if current_version < 27:
             await db.execute(
                 """CREATE TABLE IF NOT EXISTS used_bybit_transactions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2135,10 +2138,10 @@ async def init_db() -> None:
             )
             await db.execute(
                 "INSERT OR IGNORE INTO schema_migrations (version, name) "
-                "VALUES (23, ?)",
+                "VALUES (27, ?)",
                 ("bybit_transaction_replay_guard",),
             )
             await db.commit()
-            current_version = 23
+            current_version = 27
     finally:
         await db.close()

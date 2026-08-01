@@ -86,7 +86,7 @@ class PersistentBackgroundJobTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await db.close()
 
-        self.assertEqual(versions, list(range(1, 24)))
+        self.assertEqual(versions, list(range(1, 23)) + [27])
         self.assertEqual(tables, [
             "background_jobs",
             "performance_action_hourly",
@@ -116,11 +116,23 @@ class PersistentBackgroundJobTests(unittest.IsolatedAsyncioTestCase):
             <= product_columns
         )
 
-    async def test_v23_restores_bybit_replay_guard_on_existing_database(self):
+    async def test_v27_restores_bybit_replay_guard_on_production_database(self):
         db = await db_module.get_db()
         try:
             await db.execute("DROP TABLE IF EXISTS used_bybit_transactions")
-            await db.execute("DELETE FROM schema_migrations WHERE version = 23")
+            await db.execute("DELETE FROM schema_migrations WHERE version = 27")
+            production_migrations = (
+                (23, "pixel_activation_v2_secure"),
+                (24, "pixel_activation_batch_submission"),
+                (25, "pixel_credit_pack_bonuses"),
+                (26, "multi_provider_checkout_ledger"),
+            )
+            for version_number, name in production_migrations:
+                await db.execute(
+                    "INSERT OR IGNORE INTO schema_migrations (version, name) "
+                    "VALUES (?, ?)",
+                    (version_number, name),
+                )
             await db.commit()
         finally:
             await db.close()
@@ -142,7 +154,7 @@ class PersistentBackgroundJobTests(unittest.IsolatedAsyncioTestCase):
             ).fetchone()
             version = await (
                 await db.execute(
-                    "SELECT name FROM schema_migrations WHERE version = 23"
+                    "SELECT name FROM schema_migrations WHERE version = 27"
                 )
             ).fetchone()
         finally:
