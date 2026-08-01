@@ -458,6 +458,7 @@ async def wallet_topup_method_nowpayments(update: Update, context: ContextTypes.
         )
         from services.nowpayments import (
             NowPaymentsError,
+            build_payment_description,
             create_payment,
             get_minimum_amount,
             is_nowpayments_configured,
@@ -503,10 +504,16 @@ async def wallet_topup_method_nowpayments(update: Update, context: ContextTypes.
             return ConversationHandler.END
 
         try:
+            user = update.effective_user
             provider_payment = await create_payment(
                 price_amount=provider_price,
                 order_id=attempt["request_key"],
-                order_description=f"Wallet top-up {amount:.2f} USD",
+                order_description=build_payment_description(
+                    f"Wallet top-up ${amount:.2f}",
+                    user.id,
+                    username=getattr(user, "username", None),
+                    first_name=getattr(user, "first_name", None),
+                ),
                 callback_url=callback_url,
             )
             topup = await attach_nowpayments_wallet_topup(attempt["request_key"], provider_payment)

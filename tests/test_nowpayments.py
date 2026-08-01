@@ -10,6 +10,7 @@ import httpx
 
 import bot
 from handlers import payment as payment_handler
+from handlers import wallet as wallet_handler
 from database import db as db_module
 from database.db import init_db
 from database import models
@@ -57,6 +58,20 @@ class NowPaymentsTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(nowpayments.verify_ipn_signature(second, signature))
             second["payment_status"] = "waiting"
             self.assertFalse(nowpayments.verify_ipn_signature(second, signature))
+
+    def test_payment_description_includes_customer_and_cleans_separators(self):
+        description = nowpayments.build_payment_description(
+            "Order #42",
+            2001,
+            username=None,
+            first_name="NP | Buyer\nTest",
+            details="Gemini | 18 months x1",
+        )
+
+        self.assertEqual(
+            description,
+            "Order #42 | NP / Buyer Test | TG 2001 | Gemini / 18 months x1",
+        )
 
     async def test_non_finite_provider_amounts_are_rejected_before_io(self):
         request = AsyncMock()
@@ -593,7 +608,11 @@ class NowPaymentsTests(unittest.IsolatedAsyncioTestCase):
         query.data = f"pay_nowpayments:{order['id']}"
         update = type("UpdateStub", (), {
             "callback_query": query,
-            "effective_user": type("UserStub", (), {"id": 2001})(),
+            "effective_user": type("UserStub", (), {
+                "id": 2001,
+                "username": "np_buyer",
+                "first_name": "NP Buyer",
+            })(),
         })()
         context = type("ContextStub", (), {"user_data": {}, "bot": AsyncMock()})()
         provider_payment = {
@@ -615,9 +634,56 @@ class NowPaymentsTests(unittest.IsolatedAsyncioTestCase):
             await pay_with_nowpayments(update, context)
 
         self.assertEqual(create_payment.await_args.kwargs["price_amount"], 5.0)
+        self.assertEqual(
+            create_payment.await_args.kwargs["order_description"],
+            f"Order #{order['id']} | @np_buyer | TG 2001 | NOWPayments product x1",
+        )
         saved = await models.get_nowpayments_payment_for_order(order["id"])
         self.assertEqual(float(saved["price_amount"]), 5.0)
         task = _timeout_tasks.pop(order["id"], None)
+        if task:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    async def test_wallet_topup_description_includes_customer(self):
+        query = AsyncMock()
+        update = type("UpdateStub", (), {
+            "callback_query": query,
+            "effective_user": type("UserStub", (), {
+                "id": 2001,
+                "username": "np_buyer",
+                "first_name": "NP Buyer",
+            })(),
+        })()
+        context = type("ContextStub", (), {
+            "user_data": {"wallet_topup_amount": 2.50},
+            "bot": AsyncMock(),
+        })()
+        provider_payment = {
+            "payment_id": "np-wallet-description",
+            "payment_status": "waiting",
+            "pay_amount": 2.50,
+            "pay_currency": "usdtbsc",
+            "pay_address": "0x2222222222222222222222222222222222222222",
+        }
+        create_payment = AsyncMock(return_value=provider_payment)
+
+        with (
+            patch("handlers.payment._nowpayments_callback_url", return_value="https://example.com/webhooks/nowpayments"),
+            patch("handlers.wallet._render_nowpayments_topup_checkout", AsyncMock()),
+            patch("services.nowpayments.is_nowpayments_configured", return_value=True),
+            patch("services.nowpayments.get_minimum_amount", AsyncMock(return_value={"fiat_equivalent": 0})),
+            patch("services.nowpayments.create_payment", create_payment),
+        ):
+            state = await wallet_handler.wallet_topup_method_nowpayments(update, context)
+
+        self.assertEqual(state, wallet_handler.WALLET_TOPUP_NOWPAYMENTS)
+        self.assertEqual(
+            create_payment.await_args.kwargs["order_description"],
+            "Wallet top-up $2.50 | @np_buyer | TG 2001",
+        )
+        topup_id = context.user_data["wallet_topup_id"]
+        task = wallet_handler._nowpayments_topup_timeout_tasks.pop(topup_id, None)
         if task:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)

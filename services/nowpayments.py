@@ -43,6 +43,30 @@ def is_nowpayments_configured() -> bool:
     return bool(NOWPAYMENTS_ENABLED and NOWPAYMENTS_API_KEY and NOWPAYMENTS_IPN_SECRET)
 
 
+def build_payment_description(
+    reference: str,
+    telegram_id: int,
+    *,
+    username: str | None = None,
+    first_name: str | None = None,
+    details: str | None = None,
+) -> str:
+    """Build a readable provider reference while keeping identifiers stable."""
+    def clean(value: str | None) -> str:
+        return " ".join(str(value or "").replace("|", "/").split())
+
+    clean_username = clean(username).lstrip("@")
+    customer = f"@{clean_username}" if clean_username else clean(first_name)
+    parts = [clean(reference)]
+    if customer:
+        parts.append(customer)
+    parts.append(f"TG {int(telegram_id)}")
+    clean_details = clean(details)
+    if clean_details:
+        parts.append(clean_details)
+    return " | ".join(part for part in parts if part)[:255]
+
+
 def calculate_checkout_price(order_amount: float) -> float:
     """Return the legacy provider price that included the BEP20 buffer."""
     try:

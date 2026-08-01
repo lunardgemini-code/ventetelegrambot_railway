@@ -2420,6 +2420,7 @@ async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         from services.nowpayments import (
             NowPaymentsError,
+            build_payment_description,
             create_payment,
             get_minimum_amount,
             is_nowpayments_configured,
@@ -2467,7 +2468,17 @@ async def pay_with_nowpayments(update: Update, context: ContextTypes.DEFAULT_TYP
             payment_method="nowpayments_bep20",
         )
         product = await get_product(order.get("product_id"))
-        description = f"{(product or {}).get('name') or 'Product'} x{int(order.get('quantity') or 1)}"
+        user = update.effective_user
+        description = build_payment_description(
+            f"Order #{order_id}",
+            user.id,
+            username=getattr(user, "username", None),
+            first_name=getattr(user, "first_name", None),
+            details=(
+                f"{(product or {}).get('name') or 'Product'} "
+                f"x{int(order.get('quantity') or 1)}"
+            ),
+        )
 
         try:
             provider_payment = await create_payment(
