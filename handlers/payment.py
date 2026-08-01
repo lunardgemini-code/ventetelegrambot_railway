@@ -32,6 +32,8 @@ from database.models import (
     claim_bybit_order_payment,
     claim_trc20_order_payment,
     create_order,
+    get_loyalty_order_reward,
+    get_loyalty_purchase_preview,
     get_pending_activation_order_for_user,
     get_order,
     get_product,
@@ -270,11 +272,34 @@ def _build_txt_delivery(items: list) -> str:
     return "\n\n".join(accounts) + "\n"
 
 
+async def append_cashback_reward_text(
+    text: str,
+    lang: str,
+    order_id: int | None,
+) -> str:
+    """Append the persisted reward without ever blocking delivery."""
+    if not order_id:
+        return text
+    try:
+        reward = await get_loyalty_order_reward(int(order_id))
+    except Exception as exc:
+        logger.warning("Could not load cashback reward for order #%s: %s", order_id, exc)
+        return text
+    if not reward or int(reward.get("points") or 0) <= 0:
+        return text
+    reward_text = t("cashback_purchase_earned", lang).format(
+        points=int(reward["points"]),
+        balance=max(0, int(reward.get("balance_points") or 0)),
+    )
+    return f"{text}\n\n{reward_text}"
+
+
 async def send_delivery_messages(bot, chat_id: int, header: str, items: list, footer: str, lang: str, order_id: int = None):
     """Sends delivery messages. Uses a single .txt document if the total delivery is very long."""
     import io
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     
+    footer = await append_cashback_reward_text(footer, lang, order_id)
     total_length = sum(len(item['account_data']) for item in items)
     your_acc_text = t("your_account", lang)
     
@@ -682,6 +707,21 @@ async def show_payment_method_screen(
         promo_discount = order.get("promo_discount", 0.0)
         promo_line = f"🎫 <b>Code Promo :</b> -{format_price(promo_discount)}\n"
 
+    cashback_line = ""
+    try:
+        preview_points = await get_loyalty_purchase_preview(order["amount_usd"])
+        if preview_points > 0:
+            cashback_line = (
+                t("cashback_purchase_preview", lang).format(points=preview_points)
+                + "\n"
+            )
+    except Exception as exc:
+        logger.warning(
+            "Could not calculate cashback preview for order #%s: %s",
+            order_id,
+            exc,
+        )
+
     summary = (
         f"{t('new_order', lang)}\n\n"
         f"{t('product_lbl', lang)} {escape_html(product['emoji'])} "
@@ -690,6 +730,7 @@ async def show_payment_method_screen(
         f"{unit_price_line}"
         f"{promo_line}"
         f"{t('total_lbl', lang)} {format_price(order['amount_usd'])}\n"
+        f"{cashback_line}"
         f"{t('ref_lbl', lang)} <code>{order.get('merchant_trade_no', order['id'])}</code>\n\n"
         f"{t('choose_payment', lang)}"
     )
@@ -2822,7 +2863,15 @@ async def receive_bep20_tx_hash(update: Update, context: ContextTypes.DEFAULT_TY
                     f"{t('save_info', lang)}\n\n"
                     f"{t('thank_you', lang)}"
                 )
-                await send_delivery_messages(context.bot, update.effective_user.id, header, delivered, footer, lang)
+                await send_delivery_messages(
+                    context.bot,
+                    update.effective_user.id,
+                    header,
+                    delivered,
+                    footer,
+                    lang,
+                    order_id,
+                )
             else:
                 await update_order_status(
                     order_id,

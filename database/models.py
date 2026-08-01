@@ -3591,6 +3591,17 @@ async def _get_loyalty_settings_tx(db) -> dict:
     return _normalize_loyalty_settings({row["key"]: row["value"] for row in rows})
 
 
+def _loyalty_points_for_amount(amount_usd: float, settings: dict) -> int:
+    if not settings.get("enabled"):
+        return 0
+    amount = max(0.0, float(amount_usd or 0))
+    return max(0, int(
+        (amount / float(settings["earn_spend_usd"]))
+        * int(settings["earn_points"])
+        + 1e-9
+    ))
+
+
 async def _award_loyalty_for_order_tx(db, order: dict) -> int:
     order_id = order.get("id")
     telegram_id = order.get("user_telegram_id")
@@ -3599,12 +3610,7 @@ async def _award_loyalty_for_order_tx(db, order: dict) -> int:
         return 0
 
     settings = await _get_loyalty_settings_tx(db)
-    if not settings["enabled"]:
-        return 0
-    points = int(
-        (amount_usd / settings["earn_spend_usd"]) * settings["earn_points"]
-        + 1e-9
-    )
+    points = _loyalty_points_for_amount(amount_usd, settings)
     if points <= 0:
         return 0
 
@@ -9836,6 +9842,35 @@ async def get_loyalty_settings() -> dict:
         value = await get_setting(key)
         values[key] = default if value is None else value
     return _normalize_loyalty_settings(values)
+
+
+async def get_loyalty_purchase_preview(amount_usd: float) -> int:
+    """Return the points a successfully completed purchase would earn."""
+    settings = await get_loyalty_settings()
+    return _loyalty_points_for_amount(amount_usd, settings)
+
+
+async def get_loyalty_order_reward(order_id: int) -> dict | None:
+    """Return the persisted reward and current points balance for an order."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT reward.points,
+                      COALESCE((
+                          SELECT SUM(entry.points)
+                          FROM loyalty_transactions entry
+                          WHERE entry.user_telegram_id = reward.user_telegram_id
+                      ), 0) AS balance_points
+               FROM loyalty_transactions reward
+               WHERE reward.order_id = ?
+                 AND reward.transaction_type = 'earn_order'
+               LIMIT 1""",
+            (int(order_id),),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
 
 
 async def set_loyalty_settings(data: dict) -> dict:

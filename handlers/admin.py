@@ -53,7 +53,7 @@ from database.models import (
     update_order_status,
 )
 from services.delivery import deliver_order
-from handlers.payment import safe_send_delivery_messages
+from handlers.payment import append_cashback_reward_text, safe_send_delivery_messages
 from utils.helpers import format_price, is_admin, escape_html
 from utils.locales import t, get_confirmation_message
 from utils.telegram import safe_edit_message_text
@@ -1563,6 +1563,12 @@ async def admin_complete_activation(update: Update, context: ContextTypes.DEFAUL
                     product=escape_html(product_name),
                     order_id=order_id,
                 )
+
+            final_msg = await append_cashback_reward_text(
+                final_msg,
+                user_lang,
+                order_id,
+            )
                 
             await context.bot.send_message(
                 order["user_telegram_id"],

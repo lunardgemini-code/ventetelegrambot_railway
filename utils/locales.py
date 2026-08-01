@@ -1848,6 +1848,8 @@ _CASHBACK_TRANSLATIONS = {
         "cashback_disabled": "The cashback program is currently paused.",
         "cashback_claimed": "✅ {points} points were converted into <b>${amount}</b> and added to your wallet.\nNew wallet balance: <b>${wallet}</b>",
         "cashback_claim_error": "Cashback could not be claimed right now. Please try again.",
+        "cashback_purchase_preview": "🎁 Complete this purchase and earn <b>{points} cashback points</b>.",
+        "cashback_purchase_earned": "🎁 You earned <b>{points} cashback points</b>. New points balance: <b>{balance}</b>.",
     },
     "fr": {
         "btn_cashback": "💰 Cashback",
@@ -1863,6 +1865,8 @@ _CASHBACK_TRANSLATIONS = {
         "cashback_disabled": "Le programme cashback est actuellement en pause.",
         "cashback_claimed": "✅ {points} points ont été convertis en <b>{amount} $</b> et ajoutés à votre wallet.\nNouveau solde : <b>{wallet} $</b>",
         "cashback_claim_error": "Impossible de réclamer le cashback maintenant. Réessayez.",
+        "cashback_purchase_preview": "🎁 Finalisez cet achat et gagnez <b>{points} points cashback</b>.",
+        "cashback_purchase_earned": "🎁 Vous avez gagné <b>{points} points cashback</b>. Nouveau solde : <b>{balance}</b>.",
     },
     "ar": {
         "btn_cashback": "💰 استرداد نقدي",
@@ -1878,6 +1882,8 @@ _CASHBACK_TRANSLATIONS = {
         "cashback_disabled": "برنامج الاسترداد النقدي متوقف مؤقتًا.",
         "cashback_claimed": "✅ تم تحويل {points} نقطة إلى <b>{amount}$</b> وإضافتها إلى محفظتك.\nرصيد المحفظة الجديد: <b>{wallet}$</b>",
         "cashback_claim_error": "تعذر تحويل الاسترداد النقدي الآن. حاول مرة أخرى.",
+        "cashback_purchase_preview": "🎁 أكمل هذا الشراء واربح <b>{points} نقطة استرداد</b>.",
+        "cashback_purchase_earned": "🎁 ربحت <b>{points} نقطة استرداد</b>. رصيد النقاط الجديد: <b>{balance}</b>.",
     },
     "zh": {
         "btn_cashback": "💰 返现",
@@ -1893,6 +1899,8 @@ _CASHBACK_TRANSLATIONS = {
         "cashback_disabled": "返现计划目前已暂停。",
         "cashback_claimed": "✅ {points} 积分已兑换为 <b>${amount}</b> 并存入钱包。\n钱包新余额：<b>${wallet}</b>",
         "cashback_claim_error": "目前无法兑换返现，请重试。",
+        "cashback_purchase_preview": "🎁 完成此购买可获得 <b>{points} 返现积分</b>。",
+        "cashback_purchase_earned": "🎁 您获得了 <b>{points} 返现积分</b>。新积分余额：<b>{balance}</b>。",
     },
     "vi": {
         "btn_cashback": "💰 Hoàn tiền",
@@ -1908,6 +1916,8 @@ _CASHBACK_TRANSLATIONS = {
         "cashback_disabled": "Chương trình hoàn tiền hiện đang tạm dừng.",
         "cashback_claimed": "✅ {points} điểm đã được đổi thành <b>${amount}</b> và cộng vào ví.\nSố dư ví mới: <b>${wallet}</b>",
         "cashback_claim_error": "Hiện không thể nhận tiền hoàn. Vui lòng thử lại.",
+        "cashback_purchase_preview": "🎁 Hoàn tất giao dịch này để nhận <b>{points} điểm hoàn tiền</b>.",
+        "cashback_purchase_earned": "🎁 Bạn đã nhận <b>{points} điểm hoàn tiền</b>. Số dư điểm mới: <b>{balance}</b>.",
     },
     "ru": {
         "btn_cashback": "💰 Кэшбэк",
@@ -1923,6 +1933,8 @@ _CASHBACK_TRANSLATIONS = {
         "cashback_disabled": "Программа кэшбэка временно приостановлена.",
         "cashback_claimed": "✅ {points} баллов обменены на <b>${amount}</b> и добавлены в кошелек.\nНовый баланс кошелька: <b>${wallet}</b>",
         "cashback_claim_error": "Сейчас не удалось получить кэшбэк. Попробуйте еще раз.",
+        "cashback_purchase_preview": "🎁 Завершите покупку и получите <b>{points} баллов кэшбэка</b>.",
+        "cashback_purchase_earned": "🎁 Вы получили <b>{points} баллов кэшбэка</b>. Новый баланс: <b>{balance}</b>.",
     },
 }
 for _cashback_lang, _cashback_strings in _CASHBACK_TRANSLATIONS.items():

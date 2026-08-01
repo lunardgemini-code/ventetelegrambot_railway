@@ -3,12 +3,15 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 from database import db as db_module
 from database import models
 from database.db import get_db, init_db
 from handlers.cashback import _cashback_claim_rejection_text, _cashback_text
+from handlers.payment import append_cashback_reward_text
 from utils.keyboards import cashback_keyboard
+from utils.locales import t
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,6 +77,15 @@ class LoyaltyCashbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(changed)
         self.assertEqual(second["balance_points"], 100)
         self.assertEqual(len(second["history"]), 1)
+
+    async def test_purchase_preview_matches_persisted_order_reward(self):
+        preview = await models.get_loyalty_purchase_preview(2.50)
+        order = await self._complete_order(2.50)
+        reward = await models.get_loyalty_order_reward(order["id"])
+
+        self.assertEqual(preview, 25)
+        self.assertEqual(reward["points"], 25)
+        self.assertEqual(reward["balance_points"], 25)
 
     async def test_pending_and_cancelled_orders_do_not_earn_points(self):
         pending = await models.create_order(81001, self.product_id, 10)
@@ -220,6 +232,39 @@ class LoyaltyTelegramInterfaceTests(unittest.TestCase):
 
         self.assertIn("2000 points", text)
         self.assertIn("100 points", text)
+
+    def test_purchase_messages_are_translated_in_every_language(self):
+        for lang in ("fr", "en", "ar", "zh", "vi", "ru"):
+            preview = t("cashback_purchase_preview", lang).format(points=25)
+            earned = t("cashback_purchase_earned", lang).format(
+                points=25,
+                balance=125,
+            )
+            self.assertNotIn("cashback_purchase_preview", preview)
+            self.assertNotIn("cashback_purchase_earned", earned)
+            self.assertIn("25", preview)
+            self.assertIn("125", earned)
+
+
+class LoyaltyDeliveryMessageTests(unittest.IsolatedAsyncioTestCase):
+    async def test_delivery_appends_only_persisted_reward(self):
+        with patch(
+            "handlers.payment.get_loyalty_order_reward",
+            AsyncMock(return_value={"points": 25, "balance_points": 125}),
+        ):
+            text = await append_cashback_reward_text("Delivery complete", "en", 42)
+
+        self.assertIn("You earned <b>25 cashback points</b>", text)
+        self.assertIn("<b>125</b>", text)
+
+    async def test_delivery_is_unchanged_without_reward(self):
+        with patch(
+            "handlers.payment.get_loyalty_order_reward",
+            AsyncMock(return_value=None),
+        ):
+            text = await append_cashback_reward_text("Delivery complete", "en", 42)
+
+        self.assertEqual(text, "Delivery complete")
 
 
 if __name__ == "__main__":
