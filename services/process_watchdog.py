@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 
 
 logger = logging.getLogger(__name__)
+_LAST_PROBE_FAILURE = ""
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -90,6 +91,7 @@ def enable_fault_diagnostics() -> bool:
 
 
 def probe_liveness(url: str, timeout_seconds: float) -> bool:
+    global _LAST_PROBE_FAILURE
     parsed = urlsplit(url)
     connection = HTTPConnection(
         parsed.hostname or "127.0.0.1",
@@ -104,8 +106,11 @@ def probe_liveness(url: str, timeout_seconds: float) -> bool:
         )
         response = connection.getresponse()
         response.read()
-        return 200 <= int(response.status) < 300
-    except Exception:
+        healthy = 200 <= int(response.status) < 300
+        _LAST_PROBE_FAILURE = "" if healthy else f"HTTP {response.status}"
+        return healthy
+    except Exception as exc:
+        _LAST_PROBE_FAILURE = f"{type(exc).__name__}: {exc}"
         return False
     finally:
         connection.close()
@@ -172,13 +177,15 @@ def monitor_parent(
             failures = 0
         else:
             failures += 1
+            detail = _LAST_PROBE_FAILURE if probe is probe_liveness else ""
+            suffix = f" ({detail})" if detail else ""
             log(
                 "Process watchdog: liveness failure "
-                f"{failures}/{config.failure_threshold}"
+                f"{failures}/{config.failure_threshold}{suffix}"
             )
             if failures >= config.failure_threshold:
                 log(
-                    "Process watchdog: event loop is unresponsive; "
+                    "Process watchdog: local HTTP liveness is unavailable; "
                     "capturing diagnostics and restarting the container"
                 )
                 if diagnostic_signal is not None:

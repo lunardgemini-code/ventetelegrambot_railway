@@ -20,7 +20,7 @@ from database.models import (
 from utils.helpers import format_date, format_price, escape_html
 from utils.keyboards import back_keyboard, history_keyboard
 from utils.locales import t
-from utils.telegram import safe_edit_message_text
+from utils.telegram import safe_edit_message_text, safe_edit_or_reply
 
 logger = logging.getLogger(__name__)
 
@@ -30,14 +30,15 @@ ORDERS_PER_PAGE = 5
 async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle 'menu_history' / 'hist_page:{page}' callback — show order history."""
     query = update.callback_query
-    await query.answer()
+    if query is not None:
+        await query.answer()
 
     telegram_id = update.effective_user.id
     lang = await get_user_lang(telegram_id)
 
     try:
         page = 0
-        if "hist_page:" in query.data:
+        if query is not None and "hist_page:" in (query.data or ""):
             page = max(0, int(query.data.split(":")[1]))
 
         offset = page * ORDERS_PER_PAGE
@@ -48,7 +49,7 @@ async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total_pages = max(1, (total + ORDERS_PER_PAGE - 1) // ORDERS_PER_PAGE)
 
         if not orders:
-            await safe_edit_message_text(query, 
+            await safe_edit_or_reply(update,
                 f"{t('history_title', lang)}\n\n{t('no_orders', lang)}",
                 parse_mode="HTML",
                 reply_markup=back_keyboard("back_main", lang),
@@ -67,14 +68,14 @@ async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         text += f"📄 {page + 1}/{total_pages}"
 
-        await safe_edit_message_text(query, 
+        await safe_edit_or_reply(update,
             text,
             parse_mode="HTML",
             reply_markup=history_keyboard(orders, page, total_pages, lang),
         )
     except Exception as exc:
         logger.error("show_history: %s", exc, exc_info=True)
-        await safe_edit_message_text(query, t("error_generic", lang))
+        await safe_edit_or_reply(update, t("error_generic", lang))
 
 
 async def show_order_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):

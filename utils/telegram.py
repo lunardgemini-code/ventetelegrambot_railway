@@ -98,3 +98,16 @@ async def safe_edit_message_text(
         except Exception:
             _FALLBACK_SENT.pop(fallback_key, None)
             raise
+
+
+async def safe_edit_or_reply(update: Any, text: str, **kwargs: Any) -> Any:
+    """Edit callback content, or reply when a handler was opened by a command."""
+    query = getattr(update, "callback_query", None)
+    if query is not None:
+        return await safe_edit_message_text(query, text, **kwargs)
+
+    message = getattr(update, "effective_message", None)
+    reply_text = getattr(message, "reply_text", None)
+    if callable(reply_text):
+        return await reply_text(text, **kwargs)
+    raise RuntimeError("Telegram update has no editable callback or replyable message")

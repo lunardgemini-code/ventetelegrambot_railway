@@ -39,6 +39,22 @@ class ProcessWatchdogTests(unittest.TestCase):
         )
         connection.close.assert_called_once_with()
 
+    @patch("services.process_watchdog.HTTPConnection")
+    def test_liveness_probe_records_connection_failure_for_diagnostics(
+        self, connection_class
+    ):
+        connection = connection_class.return_value
+        connection.request.side_effect = TimeoutError("local probe timed out")
+
+        self.assertFalse(
+            probe_liveness("http://127.0.0.1:8000/health/live", 3)
+        )
+
+        import services.process_watchdog as watchdog
+
+        self.assertIn("TimeoutError", watchdog._LAST_PROBE_FAILURE)
+        connection.close.assert_called_once_with()
+
     def test_config_clamps_unsafe_values(self):
         with patch.dict(
             os.environ,

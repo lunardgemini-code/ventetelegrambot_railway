@@ -5,15 +5,82 @@ from unittest.mock import AsyncMock, patch
 from telegram.error import BadRequest
 from telegram.constants import KeyboardButtonStyle
 
-from handlers.profile import view_referrals_list
+from handlers.game import show_game_menu
+from handlers.history import show_history
+from handlers.profile import show_profile, view_referrals_list
 from handlers.products import _send_product_detail_message
 from handlers.start import callback_check_sub, start_command
 from utils.keyboards import main_menu_keyboard
 from utils.locales import LANGUAGES, t
-from utils.telegram import safe_edit_message_text
+from utils.telegram import safe_edit_message_text, safe_edit_or_reply
 
 
 class CallbackSafetyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_safe_edit_or_reply_supports_command_updates(self):
+        message = SimpleNamespace(reply_text=AsyncMock(return_value="sent"))
+        update = SimpleNamespace(callback_query=None, effective_message=message)
+
+        result = await safe_edit_or_reply(update, "Command response", parse_mode="HTML")
+
+        self.assertEqual(result, "sent")
+        message.reply_text.assert_awaited_once_with(
+            "Command response", parse_mode="HTML"
+        )
+
+    async def test_profile_command_update_does_not_require_callback_query(self):
+        message = SimpleNamespace(reply_text=AsyncMock())
+        update = SimpleNamespace(
+            callback_query=None,
+            effective_message=message,
+            effective_user=SimpleNamespace(id=1234),
+        )
+        with (
+            patch("handlers.profile.get_user_lang", AsyncMock(return_value="en")),
+            patch(
+                "handlers.profile.get_user",
+                AsyncMock(return_value={"first_name": "Buyer", "is_reseller": 0}),
+            ),
+            patch("handlers.profile.get_user_order_count", AsyncMock(return_value=0)),
+        ):
+            await show_profile(update, SimpleNamespace())
+
+        message.reply_text.assert_awaited_once()
+
+    async def test_history_command_update_does_not_require_callback_query(self):
+        message = SimpleNamespace(reply_text=AsyncMock())
+        update = SimpleNamespace(
+            callback_query=None,
+            effective_message=message,
+            effective_user=SimpleNamespace(id=1234),
+        )
+        with (
+            patch("handlers.history.get_user_lang", AsyncMock(return_value="en")),
+            patch("handlers.history.get_user_order_count", AsyncMock(return_value=0)),
+            patch("handlers.history.get_user_orders", AsyncMock(return_value=[])),
+        ):
+            await show_history(update, SimpleNamespace())
+
+        message.reply_text.assert_awaited_once()
+
+    async def test_game_command_update_does_not_require_callback_query(self):
+        message = SimpleNamespace(reply_text=AsyncMock())
+        update = SimpleNamespace(
+            callback_query=None,
+            effective_message=message,
+            effective_user=SimpleNamespace(id=1234),
+        )
+        with (
+            patch("handlers.game.get_user_lang", AsyncMock(return_value="en")),
+            patch(
+                "handlers.game.get_game_wallet",
+                AsyncMock(return_value={"balance": 0, "claim_available": True}),
+            ),
+            patch("handlers.game.list_open_game_matches", AsyncMock(return_value=[])),
+        ):
+            await show_game_menu(update, SimpleNamespace())
+
+        message.reply_text.assert_awaited_once()
+
     async def test_safe_edit_ignores_an_unchanged_message(self):
         query = SimpleNamespace(
             edit_message_text=AsyncMock(side_effect=BadRequest("Message is not modified")),

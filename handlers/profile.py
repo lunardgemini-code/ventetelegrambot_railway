@@ -13,7 +13,7 @@ from database.models import get_user, get_user_lang, get_user_order_count
 from utils.helpers import format_date, format_price
 from utils.keyboards import back_keyboard, profile_keyboard
 from utils.locales import t
-from utils.telegram import safe_edit_message_text
+from utils.telegram import safe_edit_message_text, safe_edit_or_reply
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,8 @@ logger = logging.getLogger(__name__)
 async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle 'menu_profile' callback — show user profile."""
     query = update.callback_query
-    await query.answer()
+    if query is not None:
+        await query.answer()
 
     telegram_id = update.effective_user.id
     lang = await get_user_lang(telegram_id)
@@ -32,7 +33,7 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
             get_user_order_count(telegram_id),
         )
         if not user:
-            await safe_edit_message_text(query, t("error_generic", lang))
+            await safe_edit_or_reply(update, t("error_generic", lang))
             return
 
         text = (
@@ -46,14 +47,14 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         is_reseller = bool(user.get('is_reseller', 0))
 
-        await safe_edit_message_text(query, 
+        await safe_edit_or_reply(update,
             text,
             parse_mode="HTML",
             reply_markup=profile_keyboard(lang, is_reseller=is_reseller),
         )
     except Exception as exc:
         logger.error("show_profile: %s", exc, exc_info=True)
-        await safe_edit_message_text(query, t("error_generic", lang))
+        await safe_edit_or_reply(update, t("error_generic", lang))
 
 
 async def show_referrals(update: Update, context: ContextTypes.DEFAULT_TYPE):

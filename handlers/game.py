@@ -33,7 +33,7 @@ from utils.keyboards import (
     game_stake_keyboard,
 )
 from utils.locales import t
-from utils.telegram import safe_edit_message_text
+from utils.telegram import safe_edit_message_text, safe_edit_or_reply
 
 
 logger = logging.getLogger(__name__)
@@ -42,6 +42,8 @@ _BIDI_ISOLATE_END = "\u2069"
 
 
 async def _answer(query, text: str | None = None, *, alert: bool = False) -> None:
+    if query is None:
+        return
     try:
         await query.answer(text=text, show_alert=alert)
     except BadRequest as exc:
@@ -108,7 +110,14 @@ def _format_leaderboard_entries(leaders: list[dict], lang: str) -> list[str]:
     return entries
 
 
-async def _render_game_home(query, user_id: int, lang: str, notice: str = "") -> None:
+async def _render_game_home(
+    query,
+    user_id: int,
+    lang: str,
+    notice: str = "",
+    *,
+    update: Update | None = None,
+) -> None:
     wallet, matches = await asyncio.gather(
         get_game_wallet(user_id),
         list_open_game_matches(),
@@ -125,12 +134,16 @@ async def _render_game_home(query, user_id: int, lang: str, notice: str = "") ->
     lines.extend(["", t("game_matches_heading", lang)])
     if not matches:
         lines.append(t("game_no_matches", lang))
-    await safe_edit_message_text(
-        query,
-        "\n".join(lines),
-        parse_mode="HTML",
-        reply_markup=game_home_keyboard(matches, wallet, lang),
-    )
+    kwargs = {
+        "parse_mode": "HTML",
+        "reply_markup": game_home_keyboard(matches, wallet, lang),
+    }
+    if query is not None:
+        await safe_edit_message_text(query, "\n".join(lines), **kwargs)
+    elif update is not None:
+        await safe_edit_or_reply(update, "\n".join(lines), **kwargs)
+    else:
+        raise RuntimeError("Game menu requires a callback query or update")
 
 
 async def show_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -139,10 +152,10 @@ async def show_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = await get_user_lang(user_id)
     try:
-        await _render_game_home(query, user_id, lang)
+        await _render_game_home(query, user_id, lang, update=update)
     except Exception as exc:
         logger.error("show_game_menu: %s", exc, exc_info=True)
-        await safe_edit_message_text(query, t("game_error", lang))
+        await safe_edit_or_reply(update, t("game_error", lang))
 
 
 async def claim_game_coins(update: Update, context: ContextTypes.DEFAULT_TYPE):
