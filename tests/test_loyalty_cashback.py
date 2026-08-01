@@ -203,6 +203,8 @@ class LoyaltyTelegramInterfaceTests(unittest.TestCase):
 
         self.assertNotIn("You need", text)
         self.assertNotIn("more points", text)
+        self.assertNotIn("Claim from", text)
+        self.assertNotIn("100 points =", text)
 
     def test_cashback_keyboard_always_has_claim_and_back(self):
         callbacks = [

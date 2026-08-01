@@ -32,11 +32,6 @@ def _cashback_text(summary: dict, lang: str) -> str:
             earn_points=summary["earn_points"],
             earn_spend=_money(summary["earn_spend_usd"]),
         ),
-        t("cashback_claim_rule", lang).format(
-            minimum=summary["redeem_min_points"],
-            block_points=summary["redeem_block_points"],
-            block_usd=_money(summary["redeem_block_usd"]),
-        ),
         "",
     ]
     if not summary["enabled"]:
