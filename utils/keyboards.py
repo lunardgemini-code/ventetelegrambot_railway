@@ -328,14 +328,11 @@ def categories_keyboard(categories: list[dict], lang: str = "fr") -> InlineKeybo
     return InlineKeyboardMarkup(buttons)
 
 
-def cashback_keyboard(lang: str = "fr", can_claim: bool = False) -> InlineKeyboardMarkup:
-    buttons = []
-    if can_claim:
-        buttons.append([
-            make_button("btn_cashback_claim", lang, callback_data="cashback_claim")
-        ])
-    buttons.append([make_button("btn_back", lang, callback_data="back_main")])
-    return InlineKeyboardMarkup(buttons)
+def cashback_keyboard(lang: str = "fr") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [make_button("btn_cashback_claim", lang, callback_data="cashback_claim")],
+        [make_button("btn_back", lang, callback_data="back_main")],
+    ])
 
 
 def sort_products_out_of_stock_first(

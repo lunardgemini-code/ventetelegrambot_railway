@@ -41,14 +41,20 @@ def _cashback_text(summary: dict, lang: str) -> str:
     ]
     if not summary["enabled"]:
         lines.append(t("cashback_disabled", lang))
-    elif summary["redeemable_points"] > 0:
-        lines.append(t("cashback_ready", lang))
-    else:
-        remaining = max(
-            0, summary["redeem_min_points"] - summary["balance_points"]
-        )
-        lines.append(t("cashback_progress", lang).format(remaining=remaining))
     return "\n".join(lines)
+
+
+def _cashback_claim_rejection_text(summary: dict, lang: str, error_code: str) -> str:
+    text = _cashback_text(summary, lang)
+    if error_code == "LOYALTY_MINIMUM_NOT_REACHED":
+        rejection = t("cashback_minimum_required", lang).format(
+            minimum=summary["redeem_min_points"],
+            points=summary["balance_points"],
+        )
+        return f"{text}\n\n{rejection}"
+    if error_code == "LOYALTY_DISABLED":
+        return text
+    return f"{text}\n\n{t('cashback_claim_error', lang)}"
 
 
 async def show_cashback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -62,10 +68,7 @@ async def show_cashback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             query,
             _cashback_text(summary, lang),
             parse_mode="HTML",
-            reply_markup=cashback_keyboard(
-                lang,
-                can_claim=bool(summary["enabled"] and summary["redeemable_points"]),
-            ),
+            reply_markup=cashback_keyboard(lang),
         )
     except Exception as exc:
         logger.error("show_cashback failed for %s: %s", user_id, exc, exc_info=True)
@@ -89,18 +92,16 @@ async def claim_cashback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             query,
             f"{text}\n\n{_cashback_text(summary, lang)}",
             parse_mode="HTML",
-            reply_markup=cashback_keyboard(lang, can_claim=False),
+            reply_markup=cashback_keyboard(lang),
         )
     except ValueError as exc:
         summary = await get_loyalty_summary(user_id)
+        error_code = str(exc)
         await safe_edit_message_text(
             query,
-            _cashback_text(summary, lang),
+            _cashback_claim_rejection_text(summary, lang, error_code),
             parse_mode="HTML",
-            reply_markup=cashback_keyboard(
-                lang,
-                can_claim=bool(summary["enabled"] and summary["redeemable_points"]),
-            ),
+            reply_markup=cashback_keyboard(lang),
         )
         logger.info("Cashback claim rejected for %s: %s", user_id, exc)
     except Exception as exc:

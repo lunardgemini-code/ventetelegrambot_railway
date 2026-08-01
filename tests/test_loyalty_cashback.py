@@ -7,6 +7,8 @@ from pathlib import Path
 from database import db as db_module
 from database import models
 from database.db import get_db, init_db
+from handlers.cashback import _cashback_claim_rejection_text, _cashback_text
+from utils.keyboards import cashback_keyboard
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -181,6 +183,41 @@ class LoyaltyDashboardAssetTests(unittest.TestCase):
             "th_cashback_points",
         ):
             self.assertEqual(section.count(f'{key}:"'), 6, key)
+
+
+class LoyaltyTelegramInterfaceTests(unittest.TestCase):
+    def setUp(self):
+        self.summary = {
+            "enabled": True,
+            "balance_points": 100,
+            "redeemable_usd": 0,
+            "earn_points": 100,
+            "earn_spend_usd": 10,
+            "redeem_min_points": 2000,
+            "redeem_block_points": 100,
+            "redeem_block_usd": 0.10,
+        }
+
+    def test_cashback_home_hides_minimum_warning(self):
+        text = _cashback_text(self.summary, "en")
+
+        self.assertNotIn("You need", text)
+        self.assertNotIn("more points", text)
+
+    def test_cashback_keyboard_always_has_claim_and_back(self):
+        callbacks = [
+            row[0].callback_data for row in cashback_keyboard("en").inline_keyboard
+        ]
+
+        self.assertEqual(callbacks, ["cashback_claim", "back_main"])
+
+    def test_claim_click_explains_required_and_current_points(self):
+        text = _cashback_claim_rejection_text(
+            self.summary, "en", "LOYALTY_MINIMUM_NOT_REACHED"
+        )
+
+        self.assertIn("2000 points", text)
+        self.assertIn("100 points", text)
 
 
 if __name__ == "__main__":
