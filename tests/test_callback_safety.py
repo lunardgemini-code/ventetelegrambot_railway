@@ -95,6 +95,9 @@ class CallbackSafetyTests(unittest.IsolatedAsyncioTestCase):
         game_button = markup.inline_keyboard[3][0]
 
         self.assertEqual(cashback_button.callback_data, "menu_cashback")
+        self.assertEqual(
+            cashback_button.icon_custom_emoji_id, "5386757680679377085"
+        )
         self.assertEqual(wallet_button.callback_data, "menu_wallet")
         self.assertEqual(game_button.callback_data, "menu_game")
         self.assertEqual(game_button.icon_custom_emoji_id, "5375312095346704820")
