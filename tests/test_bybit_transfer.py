@@ -96,6 +96,13 @@ class BybitTransferTests(unittest.IsolatedAsyncioTestCase):
             if button.callback_data
         ]
         self.assertIn("pay_bybit:42", callbacks)
+        bybit_button = next(
+            button
+            for row in markup.inline_keyboard
+            for button in row
+            if button.callback_data == "pay_bybit:42"
+        )
+        self.assertEqual(bybit_button.icon_custom_emoji_id, "5370607602919031217")
 
     async def test_button_is_hidden_for_regular_users(self):
         with (
@@ -142,6 +149,13 @@ class BybitTransferTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertIn("topup_bybit", admin_callbacks)
         self.assertNotIn("topup_bybit", customer_callbacks)
+        bybit_button = next(
+            button
+            for row in admin_markup.inline_keyboard
+            for button in row
+            if button.callback_data == "topup_bybit"
+        )
+        self.assertEqual(bybit_button.icon_custom_emoji_id, "5370607602919031217")
 
     async def test_direct_callback_is_rejected_for_regular_users(self):
         query = SimpleNamespace(
