@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from database.models import get_product_stack_mode, set_product_stack_mode
-from utils.keyboards import products_keyboard
+from utils.keyboards import products_keyboard, sort_products_out_of_stock_first
 
 
 class ProductStackTests(unittest.IsolatedAsyncioTestCase):
@@ -28,14 +28,10 @@ class ProductStackTests(unittest.IsolatedAsyncioTestCase):
         ]
         stock_counts = {1: 10, 2: 0, 3: 5, 4: 0}
 
-        # Apply stable sort like handlers/products.py
-        sorted_prods = sorted(
-            products,
-            key=lambda p: 0 if stock_counts.get(p["id"], 0) > 0 else 1
-        )
+        sorted_prods = sort_products_out_of_stock_first(products, stock_counts)
 
-        # Expected order: [1 (in stock), 3 (in stock), 2 (out of stock), 4 (out of stock)]
-        self.assertEqual([p["id"] for p in sorted_prods], [1, 3, 2, 4])
+        # Unavailable products are grouped first; each group keeps manual order.
+        self.assertEqual([p["id"] for p in sorted_prods], [2, 4, 1, 3])
 
         # Test products_keyboard with show_stack_separator=True
         keyboard = products_keyboard(sorted_prods, stock_counts, lang="fr", show_stack_separator=True)
@@ -45,6 +41,12 @@ class ProductStackTests(unittest.IsolatedAsyncioTestCase):
         separator_row = [r for r in inline_rows if len(r) == 1 and "EN RUPTURE DE STOCK" in r[0].text]
         self.assertEqual(len(separator_row), 1)
         self.assertEqual(separator_row[0][0].callback_data, "noop")
+
+        # A restocked product automatically returns to its manual position in
+        # the available group; no database sort_order update is needed.
+        stock_counts[2] = 2
+        restocked_prods = sort_products_out_of_stock_first(products, stock_counts)
+        self.assertEqual([p["id"] for p in restocked_prods], [4, 1, 2, 3])
 
     def test_products_keyboard_without_stack_separator(self):
         products = [

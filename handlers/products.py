@@ -26,6 +26,7 @@ from utils.keyboards import (
     back_keyboard,
     product_detail_keyboard,
     products_keyboard,
+    sort_products_out_of_stock_first,
 )
 from utils.locales import LANGUAGES, t
 from utils.telegram import safe_edit_message_text
@@ -413,11 +414,7 @@ async def show_products_list(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 if p.get("delivery_type") == "activation" or stock_counts.get(p["id"], 0) > 0
             ]
         elif stack_mode == "stack":
-            # Stable sort: in-stock items keep relative order, out-of-stock items stacked at bottom keeping relative order
-            products = sorted(
-                products,
-                key=lambda p: 0 if (p.get("delivery_type") == "activation" or stock_counts.get(p["id"], 0) > 0) else 1
-            )
+            products = sort_products_out_of_stock_first(products, stock_counts)
 
         standard_products = products
         products = await apply_telegram_special_prices_to_products(

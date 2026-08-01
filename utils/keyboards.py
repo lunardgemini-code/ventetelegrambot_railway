@@ -327,6 +327,21 @@ def categories_keyboard(categories: list[dict], lang: str = "fr") -> InlineKeybo
     return InlineKeyboardMarkup(buttons)
 
 
+def sort_products_out_of_stock_first(
+    products: list[dict], stock_counts: dict
+) -> list[dict]:
+    """Group unavailable products first without changing their saved order."""
+    return sorted(
+        products,
+        key=lambda product: 1
+        if (
+            product.get("delivery_type") == "activation"
+            or stock_counts.get(product["id"], 0) > 0
+        )
+        else 0,
+    )
+
+
 def products_keyboard(products: list[dict], stock_counts: dict, lang: str = "fr", show_stack_separator: bool = False) -> InlineKeyboardMarkup:
     """One button per product showing name, price and stock count or ❌."""
     from utils.helpers import format_price
