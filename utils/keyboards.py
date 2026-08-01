@@ -412,10 +412,24 @@ def products_keyboard(products: list[dict], stock_counts: dict, lang: str = "fr"
 
 
 def product_detail_keyboard(product_id: int, lang: str = "fr", can_buy: bool = True) -> InlineKeyboardMarkup:
-    """Buy/notify + back to product list."""
+    """Quick quantity selection or restock notification for a product."""
     buttons = []
     if can_buy:
-        buttons.append([make_button("btn_buy_now", lang, callback_data=f"buy:{product_id}", style=KeyboardButtonStyle.SUCCESS)])
+        buttons.append([
+            InlineKeyboardButton(
+                str(quantity),
+                callback_data=f"buy:{product_id}:{quantity}",
+                style=KeyboardButtonStyle.SUCCESS,
+            )
+            for quantity in (1, 2, 3)
+        ])
+        buttons.append([
+            InlineKeyboardButton(
+                t("btn_custom_quantity", lang),
+                callback_data=f"buy:{product_id}:custom",
+                style=KeyboardButtonStyle.PRIMARY,
+            )
+        ])
     else:
         buttons.append([make_button("btn_notify_restock", lang, callback_data=f"notify_stock:{product_id}")])
     buttons.append([make_button("btn_back", lang, callback_data="back_products")])

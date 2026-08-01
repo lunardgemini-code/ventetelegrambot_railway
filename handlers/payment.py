@@ -346,7 +346,9 @@ async def initiate_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = await get_user_lang(update.effective_user.id)
 
     try:
-        product_id = int(query.data.split(":")[1])
+        callback_parts = query.data.split(":")
+        product_id = int(callback_parts[1])
+        quantity_choice = callback_parts[2] if len(callback_parts) > 2 else ""
         product = await get_product(product_id)
 
         if not product:
@@ -418,7 +420,17 @@ async def initiate_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.pop("pending_order_id", None)
             context.user_data.pop("pending_product_id", None)
 
-        if is_activation:
+        if quantity_choice.isdigit():
+            return await _process_quantity(
+                update,
+                context,
+                product_id,
+                int(quantity_choice),
+                lang,
+                is_callback=True,
+            )
+
+        if is_activation and quantity_choice != "custom":
             return await _process_quantity(update, context, product_id, 1, lang, is_callback=True)
 
         text = t("choose_quantity", lang).format(stock=stock)

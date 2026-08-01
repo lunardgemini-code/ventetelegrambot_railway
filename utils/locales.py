@@ -1821,6 +1821,18 @@ for _bybit_lang, _bybit_strings in _BYBIT_TRANSFER_TRANSLATIONS.items():
     TRANSLATIONS[_bybit_lang].update(_bybit_strings)
 
 
+_QUICK_QUANTITY_TRANSLATIONS = {
+    "en": "Custom",
+    "fr": "Personnalisé",
+    "ar": "مخصص",
+    "zh": "自定义",
+    "vi": "Tùy chọn",
+    "ru": "Другое",
+}
+for _quantity_lang, _quantity_label in _QUICK_QUANTITY_TRANSLATIONS.items():
+    TRANSLATIONS[_quantity_lang]["btn_custom_quantity"] = _quantity_label
+
+
 from utils.game_locales import GAME_TRANSLATIONS
 
 for _game_lang, _game_strings in GAME_TRANSLATIONS.items():
