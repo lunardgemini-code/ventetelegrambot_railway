@@ -241,10 +241,10 @@ class DashboardFrontendTests(unittest.TestCase):
         self.assertIn("invalidateRenderSignatures();", self.app_js)
 
     def test_service_worker_shell_matches_the_shipped_versions(self):
-        for asset in ("app.js?v=20260802-unique-customers-v1", "operations.js?v=20260726-targeted-broadcast-v1"):
+        for asset in ("app.js?v=20260802-same-time-comparison-v1", "operations.js?v=20260726-targeted-broadcast-v1"):
             self.assertIn(asset, self.index)
             self.assertIn(asset, self.worker)
-        self.assertIn("ventebot-dashboard-shell-20260802-unique-customers-v1", self.worker)
+        self.assertIn("ventebot-dashboard-shell-20260802-same-time-comparison-v1", self.worker)
 
 
 if __name__ == "__main__":

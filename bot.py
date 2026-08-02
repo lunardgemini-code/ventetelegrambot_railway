@@ -5302,13 +5302,14 @@ async def api_get_stats_bundle(days: int = 30):
     """Load the complete statistics tab through one browser request."""
     days = max(1, min(int(days), 90))
     try:
-        stats, daily, products, momentum, dead_alerts, conversion = await asyncio.gather(
+        stats, daily, products, momentum, dead_alerts, conversion, overview = await asyncio.gather(
             api_get_stats(),
             api_get_daily_stats(days=days),
             api_get_products_stats(),
             api_get_products_momentum(days=30),
             api_get_dead_product_alerts(days=7, min_views=10, max_conversion=0.05),
             api_get_conversion_funnel(days=days),
+            api_dashboard_overview(),
         )
         return {
             "stats": stats,
@@ -5317,6 +5318,11 @@ async def api_get_stats_bundle(days: int = 30):
             "momentum": momentum,
             "dead_alerts": dead_alerts,
             "conversion": conversion,
+            "comparison": {
+                "today": overview.get("today", {}),
+                "yesterday": overview.get("yesterday", {}),
+                "meta": overview.get("comparison", {}),
+            },
         }
     except HTTPException:
         raise

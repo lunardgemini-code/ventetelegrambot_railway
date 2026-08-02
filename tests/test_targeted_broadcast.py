@@ -367,12 +367,12 @@ class TargetedBroadcastDashboardTests(unittest.TestCase):
 
     def test_assets_are_versioned_for_installed_dashboards(self):
         for asset in (
-            "app.js?v=20260802-unique-customers-v1",
+            "app.js?v=20260802-same-time-comparison-v1",
             "operations.js?v=20260726-targeted-broadcast-v1",
         ):
             self.assertIn(asset, self.index)
             self.assertIn(asset, self.worker)
-        self.assertIn("ventebot-dashboard-shell-20260802-unique-customers-v1", self.worker)
+        self.assertIn("ventebot-dashboard-shell-20260802-same-time-comparison-v1", self.worker)
 
 
 if __name__ == "__main__":

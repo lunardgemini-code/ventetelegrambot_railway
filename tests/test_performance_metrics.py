@@ -656,6 +656,11 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
             patch.object(bot, "api_get_products_momentum", AsyncMock(return_value={"days": [], "products": []})),
             patch.object(bot, "api_get_dead_product_alerts", AsyncMock(return_value={"alerts": []})),
             patch.object(bot, "api_get_conversion_funnel", AsyncMock(return_value={"summary": {}, "products": []})),
+            patch.object(bot, "api_dashboard_overview", AsyncMock(return_value={
+                "today": {"orders": 4, "revenue": 8.0, "unique_customers": 3},
+                "yesterday": {"orders": 2, "revenue": 5.0, "unique_customers": 2},
+                "comparison": {"basis": "same_time_yesterday"},
+            })),
         ):
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 response = await client.get(
@@ -666,8 +671,10 @@ class PerformanceEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             set(response.json()),
-            {"stats", "daily", "products", "momentum", "dead_alerts", "conversion"},
+            {"stats", "daily", "products", "momentum", "dead_alerts", "conversion", "comparison"},
         )
+        self.assertEqual(response.json()["comparison"]["yesterday"]["orders"], 2)
+        self.assertEqual(response.json()["comparison"]["meta"]["basis"], "same_time_yesterday")
 
 
 if __name__ == "__main__":

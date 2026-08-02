@@ -46,6 +46,7 @@ MOCK_RESPONSES: dict[str, object] = {
     "/api/dashboard/overview": {
         "today": {"revenue": 184.7, "orders": 42, "unique_customers": 31},
         "yesterday": {"revenue": 156.5, "orders": 38, "unique_customers": 27},
+        "comparison": {"basis": "same_time_yesterday", "timezone": "UTC"},
         "actions": {"delivery_issues": 2, "pending_activations": 7, "pending_payments": 4, "open_tickets": 3},
         "economics": {"known_profit_30d": 418.62, "known_profit_orders_30d": 233},
         "recent_orders": [
@@ -360,6 +361,7 @@ def _stats_bundle() -> dict[str, object]:
                 "yesterday_sold": series[-2],
             }
         )
+    overview = MOCK_RESPONSES["/api/dashboard/overview"]
     return {
         "stats": MOCK_RESPONSES["/api/stats"],
         "daily": days,
@@ -370,6 +372,11 @@ def _stats_bundle() -> dict[str, object]:
             "tracking_since": "2026-07-01 00:00:00",
             "summary": {"views": 1240, "buy_clicks": 506, "payments_created": 418, "payments_completed": 372, "view_to_buy_rate": 0.408, "buy_to_payment_rate": 0.826, "payment_completion_rate": 0.89, "overall_conversion_rate": 0.30},
             "products": [],
+        },
+        "comparison": {
+            "today": overview["today"],
+            "yesterday": overview["yesterday"],
+            "meta": overview["comparison"],
         },
     }
 

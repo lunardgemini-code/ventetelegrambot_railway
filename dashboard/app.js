@@ -198,6 +198,12 @@ Object.assign(LANG.ar, {today_unique_customers:'العملاء المشترون'
 Object.assign(LANG.zh, {today_unique_customers:'今日购买客户', stats_unique_today:'今日独立客户', stats_unique_yesterday:'昨日：{count}', stats_unique_yesterday_empty:'昨日：0', chart_orders_customers:'每日订单与独立客户', chart_completed_orders:'订单', chart_unique_customers:'独立客户'});
 Object.assign(LANG.vi, {today_unique_customers:'Khách mua hôm nay', stats_unique_today:'Khách hàng duy nhất hôm nay', stats_unique_yesterday:'Hôm qua: {count}', stats_unique_yesterday_empty:'Hôm qua: 0', chart_orders_customers:'Đơn hàng và khách hàng duy nhất', chart_completed_orders:'Đơn hàng', chart_unique_customers:'Khách hàng duy nhất'});
 Object.assign(LANG.ru, {today_unique_customers:'Покупатели сегодня', stats_unique_today:'Уникальные клиенты сегодня', stats_unique_yesterday:'Вчера: {count}', stats_unique_yesterday_empty:'Вчера: 0', chart_orders_customers:'Заказы и уникальные клиенты', chart_completed_orders:'Заказы', chart_unique_customers:'Уникальные клиенты'});
+Object.assign(LANG.fr, {stats_unique_yesterday:'Hier à la même heure : {count}', stats_unique_yesterday_empty:'Hier à la même heure : 0'});
+Object.assign(LANG.en, {stats_unique_yesterday:'Yesterday at the same time: {count}', stats_unique_yesterday_empty:'Yesterday at the same time: 0'});
+Object.assign(LANG.ar, {stats_unique_yesterday:'أمس في الوقت نفسه: {count}', stats_unique_yesterday_empty:'أمس في الوقت نفسه: 0'});
+Object.assign(LANG.zh, {stats_unique_yesterday:'昨日同期：{count}', stats_unique_yesterday_empty:'昨日同期：0'});
+Object.assign(LANG.vi, {stats_unique_yesterday:'Cùng giờ hôm qua: {count}', stats_unique_yesterday_empty:'Cùng giờ hôm qua: 0'});
+Object.assign(LANG.ru, {stats_unique_yesterday:'Вчера к этому времени: {count}', stats_unique_yesterday_empty:'Вчера к этому времени: 0'});
 Object.assign(LANG.fr, {nav_supplier_bots:'API Bot Gestion', supplier_title:'API Bot Gestion', supplier_sync:'Synchroniser'});
 Object.assign(LANG.en, {nav_supplier_bots:'Bot API Management', supplier_title:'Bot API Management', supplier_sync:'Sync catalog'});
 Object.assign(LANG.fr, {nav_ai_bot:'IA Bot'});
@@ -821,6 +827,13 @@ Object.assign(LANG.vi, {
 Object.assign(LANG.ru, {
     trend_stable:"Без изменений ко вчера", trend_new:"Новое ко вчера", trend_percent:"{percent}% ко вчера", perf_healthy:"Стабильно", perf_healthy_desc:"Текущей мощности достаточно для наблюдаемого трафика.", perf_workers_desc:"Запросы ждут свободного воркера. Увеличивайте число воркеров постепенно.", perf_single_user:"Активный пользователь", perf_single_user_desc:"Один пользователь отправляет действия быстрее, чем их обрабатывает его последовательная очередь. Остальные воркеры доступны.", perf_database_desc:"Turso ограничивает пропускную способность. Дополнительные воркеры усилят конкуренцию.", perf_external:"Внешний API", perf_external_handler_desc:"Обработчик или внешний API замедляет работу. Дополнительные воркеры не устранят причину.", perf_external_desc:"Внешняя зависимость замедляет работу. Увеличение воркеров заблокировано.", perf_event_loop:"Цикл событий занят", perf_event_loop_desc:"Главный цикл отвечает с задержкой. Автомасштабирование заблокировано.", perf_memory:"Память", perf_memory_desc:"Память приближается к безопасному пределу. Автомасштабирование заблокировано.", perf_insufficient:"Сбор данных", perf_insufficient_desc:"Для надёжной рекомендации требуется не менее 20 действий.", perf_recommended:"Рекомендуется: {count}", perf_queue_detail:"Очередь p95: {queue} мс · пользователь: {user} мс", perf_throughput:"{count} действий/мин", perf_database_detail:"Ошибок соединения: {errors} · запись p95 {write} мс · тайм-аутов: {timeouts}", perf_slowest:"Самое медленное действие: {action} · p95 {latency} мс ({count} выз.)", perf_slowest_collecting:"Самое медленное действие: сбор данных", perf_history:"24 ч: {action} · среднее {latency} мс ({count} выз.)", perf_history_collecting:"24 ч: сбор данных", perf_autoscale_state:"{state} · воркеров: {count}", perf_next_analysis:"Следующий анализ: {seconds} с · предложено {count}"
 });
+
+Object.assign(LANG.fr, {trend_stable:'Stable vs hier à la même heure', trend_new:'Nouveau vs hier à la même heure', trend_percent:'{percent}% vs hier à la même heure'});
+Object.assign(LANG.en, {trend_stable:'Stable vs yesterday at the same time', trend_new:'New vs yesterday at the same time', trend_percent:'{percent}% vs yesterday at the same time'});
+Object.assign(LANG.ar, {trend_stable:'مستقر مقارنة بالأمس في الوقت نفسه', trend_new:'جديد مقارنة بالأمس في الوقت نفسه', trend_percent:'{percent}% مقارنة بالأمس في الوقت نفسه'});
+Object.assign(LANG.zh, {trend_stable:'与昨日同期持平', trend_new:'较昨日同期新增', trend_percent:'较昨日同期 {percent}%'});
+Object.assign(LANG.vi, {trend_stable:'Ổn định so với cùng giờ hôm qua', trend_new:'Mới so với cùng giờ hôm qua', trend_percent:'{percent}% so với cùng giờ hôm qua'});
+Object.assign(LANG.ru, {trend_stable:'Без изменений к тому же времени вчера', trend_new:'Новое к тому же времени вчера', trend_percent:'{percent}% к тому же времени вчера'});
 
 const ACTION_FEEDBACK_TRANSLATIONS = {
 fr: {
@@ -3092,6 +3105,12 @@ async function loadDashboardOverview() {
     DOM.todayOrdersDelta.className = ordersDelta.className;
     DOM.todayUniqueCustomersDelta.textContent = uniqueCustomersDelta.text;
     DOM.todayUniqueCustomersDelta.className = uniqueCustomersDelta.className;
+    if (DOM.statsKpiUniqueCustomersToday) {
+        DOM.statsKpiUniqueCustomersToday.textContent = Number(today.unique_customers || 0).toLocaleString();
+    }
+    if (DOM.statsKpiUniqueCustomersYesterday) {
+        DOM.statsKpiUniqueCustomersYesterday.textContent = tf('stats_unique_yesterday', {count:Number(yesterday.unique_customers || 0).toLocaleString()});
+    }
 
     const actionItems = [
         {count:actions.delivery_issues, icon:'triangle-exclamation', title:t('action_delivery_title'), detail:t('action_delivery_detail'), tab:'orders-tab'},
@@ -3125,7 +3144,7 @@ async function loadStatsBundle() {
     const bundle = await apiCall(`/api/stats/bundle?days=${state.chartDays}`);
     await Promise.all([
         loadStats(bundle.stats),
-        loadCharts(bundle.daily),
+        loadCharts(bundle.daily, bundle.comparison),
         loadProductStats(bundle.products),
         loadProductMomentum(bundle.momentum),
         loadDeadProductAlerts(bundle.dead_alerts),
@@ -3170,20 +3189,18 @@ window.showRevenueDetails = function() {
     showModal(DOM.revenueModal);
 };
 
-async function loadCharts(providedData=null) {
+async function loadCharts(providedData=null, providedComparison=null) {
     try {
         const data = providedData || await apiCall(`/api/stats/daily?days=${state.chartDays}`);
         const labels = data.map(d => d.day.slice(5));
         const revenues = data.map(d => d.revenue);
         const orders = data.map(d => d.orders);
         const uniqueCustomers = data.map(d => Number(d.unique_customers || 0));
-        const today = data[data.length - 1] || {};
-        const yesterday = data[data.length - 2] || {};
-        if (DOM.statsKpiUniqueCustomersToday) {
-            DOM.statsKpiUniqueCustomersToday.textContent = Number(today.unique_customers || 0).toLocaleString();
+        if (providedComparison && DOM.statsKpiUniqueCustomersToday) {
+            DOM.statsKpiUniqueCustomersToday.textContent = Number(providedComparison.today?.unique_customers || 0).toLocaleString();
         }
-        if (DOM.statsKpiUniqueCustomersYesterday) {
-            DOM.statsKpiUniqueCustomersYesterday.textContent = tf('stats_unique_yesterday', {count:Number(yesterday.unique_customers || 0).toLocaleString()});
+        if (providedComparison && DOM.statsKpiUniqueCustomersYesterday) {
+            DOM.statsKpiUniqueCustomersYesterday.textContent = tf('stats_unique_yesterday', {count:Number(providedComparison.yesterday?.unique_customers || 0).toLocaleString()});
         }
         const chartColor = getComputedStyle(document.documentElement).getPropertyValue('--primary-color').trim() || '#6366f1';
         const gridColor = getComputedStyle(document.documentElement).getPropertyValue('--chart-grid').trim() || 'rgba(255,255,255,0.05)';

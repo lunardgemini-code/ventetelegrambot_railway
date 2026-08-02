@@ -6469,6 +6469,16 @@ async def get_dashboard_overview() -> dict:
 
 async def _get_dashboard_overview_uncached() -> dict:
     """Load the compact operational summary used by the dashboard home."""
+    now = _utcnow()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    yesterday_start = today_start - timedelta(days=1)
+    yesterday_cutoff = now - timedelta(days=1)
+    timestamp_format = "%Y-%m-%d %H:%M:%S"
+    today_start_sql = today_start.strftime(timestamp_format)
+    today_cutoff_sql = now.strftime(timestamp_format)
+    yesterday_start_sql = yesterday_start.strftime(timestamp_format)
+    yesterday_cutoff_sql = yesterday_cutoff.strftime(timestamp_format)
+
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -6476,12 +6486,12 @@ async def _get_dashboard_overview_uncached() -> dict:
                    COALESCE(SUM(CASE WHEN status IN ('PENDING', 'AWAITING_PAYMENT') THEN 1 ELSE 0 END), 0) AS pending_payments,
                    COALESCE(SUM(CASE WHEN status IN ('AWAITING_ACTIVATION_INFO', 'AWAITING_ACTIVATION') THEN 1 ELSE 0 END), 0) AS pending_activations,
                    COALESCE(SUM(CASE WHEN status = 'PAID_PENDING_DELIVERY' THEN 1 ELSE 0 END), 0) AS delivery_issues,
-                   COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND DATE(created_at) = DATE('now') THEN 1 ELSE 0 END), 0) AS today_orders,
-                   COUNT(DISTINCT CASE WHEN status = 'COMPLETED' AND DATE(created_at) = DATE('now') THEN user_telegram_id END) AS today_unique_customers,
-                   COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND DATE(created_at) = DATE('now') THEN amount_usd ELSE 0 END), 0) AS today_revenue,
-                   COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND DATE(created_at) = DATE('now', '-1 day') THEN 1 ELSE 0 END), 0) AS yesterday_orders,
-                   COUNT(DISTINCT CASE WHEN status = 'COMPLETED' AND DATE(created_at) = DATE('now', '-1 day') THEN user_telegram_id END) AS yesterday_unique_customers,
-                   COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND DATE(created_at) = DATE('now', '-1 day') THEN amount_usd ELSE 0 END), 0) AS yesterday_revenue,
+                   COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND created_at >= ? AND created_at <= ? THEN 1 ELSE 0 END), 0) AS today_orders,
+                   COUNT(DISTINCT CASE WHEN status = 'COMPLETED' AND created_at >= ? AND created_at <= ? THEN user_telegram_id END) AS today_unique_customers,
+                   COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND created_at >= ? AND created_at <= ? THEN amount_usd ELSE 0 END), 0) AS today_revenue,
+                   COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND created_at >= ? AND created_at <= ? THEN 1 ELSE 0 END), 0) AS yesterday_orders,
+                   COUNT(DISTINCT CASE WHEN status = 'COMPLETED' AND created_at >= ? AND created_at <= ? THEN user_telegram_id END) AS yesterday_unique_customers,
+                   COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND created_at >= ? AND created_at <= ? THEN amount_usd ELSE 0 END), 0) AS yesterday_revenue,
                    COALESCE((
                        SELECT SUM(COALESCE(so.revenue_usd, linked.amount_usd, 0) - COALESCE(so.cost_usd, 0))
                        FROM supplier_orders so
@@ -6497,7 +6507,15 @@ async def _get_dashboard_overview_uncached() -> dict:
                          AND so.cost_usd IS NOT NULL
                          AND COALESCE(so.completed_at, so.updated_at, so.created_at) >= datetime('now', '-30 days')
                    ), 0) AS known_profit_orders_30d
-               FROM orders"""
+               FROM orders""",
+            (
+                today_start_sql, today_cutoff_sql,
+                today_start_sql, today_cutoff_sql,
+                today_start_sql, today_cutoff_sql,
+                yesterday_start_sql, yesterday_cutoff_sql,
+                yesterday_start_sql, yesterday_cutoff_sql,
+                yesterday_start_sql, yesterday_cutoff_sql,
+            ),
         )
         summary = dict(await cursor.fetchone())
 
@@ -6529,6 +6547,12 @@ async def _get_dashboard_overview_uncached() -> dict:
                 "orders": int(summary.get("yesterday_orders") or 0),
                 "unique_customers": int(summary.get("yesterday_unique_customers") or 0),
                 "revenue": float(summary.get("yesterday_revenue") or 0),
+            },
+            "comparison": {
+                "basis": "same_time_yesterday",
+                "timezone": "UTC",
+                "today_cutoff": today_cutoff_sql,
+                "yesterday_cutoff": yesterday_cutoff_sql,
             },
             "actions": {
                 "pending_payments": int(summary.get("pending_payments") or 0),

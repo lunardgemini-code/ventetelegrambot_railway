@@ -59,10 +59,10 @@ class DashboardMobileProductTests(unittest.TestCase):
         # rebumped by the performance pass. The SW cache tag advances
         # independently of individual asset versions.
         self.assertIn("operations.css?v=20260801-loyalty-v1", self.html)
-        self.assertIn("app.js?v=20260802-unique-customers-v1", self.html)
-        self.assertIn("ventebot-dashboard-shell-20260802-unique-customers-v1", self.worker)
+        self.assertIn("app.js?v=20260802-same-time-comparison-v1", self.html)
+        self.assertIn("ventebot-dashboard-shell-20260802-same-time-comparison-v1", self.worker)
         self.assertIn("operations.css?v=20260801-loyalty-v1", self.worker)
-        self.assertIn("app.js?v=20260802-unique-customers-v1", self.worker)
+        self.assertIn("app.js?v=20260802-same-time-comparison-v1", self.worker)
 
     def test_auto_hide_controls_are_responsive_and_fully_translated(self):
         self.assertIn('id="product-auto-hide-filter"', self.html)

@@ -2,6 +2,7 @@ import os
 import re
 import tempfile
 import unittest
+from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -98,12 +99,12 @@ class DashboardCockpitStaticTests(unittest.TestCase):
     def test_pwa_shell_versions_every_new_asset(self):
         for asset in (
             "operations.css?v=20260801-loyalty-v1",
-            "app.js?v=20260802-unique-customers-v1",
+            "app.js?v=20260802-same-time-comparison-v1",
             "operations.js?v=20260726-targeted-broadcast-v1",
         ):
             self.assertIn(asset, self.html)
             self.assertIn(asset, self.worker)
-        self.assertIn("ventebot-dashboard-shell-20260802-unique-customers-v1", self.worker)
+        self.assertIn("ventebot-dashboard-shell-20260802-same-time-comparison-v1", self.worker)
 
     def test_unique_customer_metric_is_wired_and_translated(self):
         self.assertIn('id="today-unique-customers"', self.html)
@@ -111,6 +112,8 @@ class DashboardCockpitStaticTests(unittest.TestCase):
         self.assertIn("d.unique_customers", self.app)
         self.assertEqual(self.app.count("today_unique_customers:'"), 6)
         self.assertEqual(self.app.count("chart_unique_customers:'"), 6)
+        self.assertIn("loadCharts(bundle.daily, bundle.comparison)", self.app)
+        self.assertIn("Yesterday at the same time", self.app)
 
 
 class DashboardCockpitDataTests(unittest.IsolatedAsyncioTestCase):
@@ -263,6 +266,48 @@ class DashboardCockpitDataTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(daily[-1]["completed"], 3)
         self.assertEqual(daily[-1]["unique_customers"], 2)
         self.assertEqual(overview["today"]["unique_customers"], 2)
+
+    async def test_overview_compares_yesterday_only_up_to_the_same_time(self):
+        fixed_now = datetime(2026, 8, 2, 18, 0, 0)
+        await models.get_or_create_user(91002, "before_cutoff", "Before Cutoff")
+        await models.get_or_create_user(91003, "after_cutoff", "After Cutoff")
+        yesterday_early = await models.create_order(91002, self.product_id, 5.0)
+        yesterday_late_same_buyer = await models.create_order(91002, self.product_id, 2.0)
+        yesterday_after_cutoff = await models.create_order(91003, self.product_id, 100.0)
+
+        db = await db_module.get_db()
+        try:
+            await db.execute(
+                "UPDATE orders SET status = 'COMPLETED', created_at = ? WHERE id = ?",
+                ("2026-08-02 12:00:00", self.order["id"]),
+            )
+            await db.execute(
+                "UPDATE orders SET status = 'COMPLETED', created_at = ? WHERE id = ?",
+                ("2026-08-01 10:00:00", yesterday_early["id"]),
+            )
+            await db.execute(
+                "UPDATE orders SET status = 'COMPLETED', created_at = ? WHERE id = ?",
+                ("2026-08-01 17:59:59", yesterday_late_same_buyer["id"]),
+            )
+            await db.execute(
+                "UPDATE orders SET status = 'COMPLETED', created_at = ? WHERE id = ?",
+                ("2026-08-01 18:00:01", yesterday_after_cutoff["id"]),
+            )
+            await db.commit()
+        finally:
+            await db.close()
+
+        with patch.object(models, "_utcnow", return_value=fixed_now):
+            overview = await models._get_dashboard_overview_uncached()
+
+        self.assertEqual(overview["today"]["orders"], 1)
+        self.assertEqual(overview["today"]["revenue"], 2.0)
+        self.assertEqual(overview["today"]["unique_customers"], 1)
+        self.assertEqual(overview["yesterday"]["orders"], 2)
+        self.assertEqual(overview["yesterday"]["revenue"], 7.0)
+        self.assertEqual(overview["yesterday"]["unique_customers"], 1)
+        self.assertEqual(overview["comparison"]["basis"], "same_time_yesterday")
+        self.assertEqual(overview["comparison"]["yesterday_cutoff"], "2026-08-01 18:00:00")
 
     async def test_overview_cache_is_reused_and_invalidated(self):
         models.invalidate_stats_cache()
