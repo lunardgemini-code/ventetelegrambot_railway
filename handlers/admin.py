@@ -1548,21 +1548,15 @@ async def admin_complete_activation(update: Update, context: ContextTypes.DEFAUL
         try:
             user_lang = await get_user_lang(order["user_telegram_id"])
             
-            custom_msg = ""
-            if product:
-                lang_msg = product.get(f"activation_message_{user_lang}") if user_lang != "en" else ""
-                if lang_msg:
-                    custom_msg = lang_msg
-                elif product.get("activation_message"):
-                    custom_msg = product["activation_message"]
-            
-            if custom_msg:
-                final_msg = custom_msg.replace("{product}", escape_html(product_name)).replace("{order_id}", str(order_id))
+            conf_msg = get_confirmation_message(product, user_lang, order_id)
+            if conf_msg and conf_msg != t("thank_you", user_lang):
+                final_msg = conf_msg
             else:
                 final_msg = t("activation_completed_user", user_lang).format(
                     product=escape_html(product_name),
                     order_id=order_id,
                 )
+
 
             final_msg = await append_cashback_reward_text(
                 final_msg,

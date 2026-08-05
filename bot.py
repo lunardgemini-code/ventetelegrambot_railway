@@ -4943,16 +4943,10 @@ async def api_activate_order(order_id: int):
                 product = await get_product(order["product_id"])
                 product_name = product["name"] if product else f"#{order['product_id']}"
 
-                custom_msg = ""
-                if product:
-                    lang_msg = product.get(f"activation_message_{lang}") if lang != "en" else ""
-                    if lang_msg:
-                        custom_msg = lang_msg
-                    elif product.get("activation_message"):
-                        custom_msg = product["activation_message"]
-
-                if custom_msg:
-                    final_msg = custom_msg.replace("{product}", escape_html(product_name)).replace("{order_id}", str(order_id))
+                from utils.helpers import get_confirmation_message
+                conf_msg = get_confirmation_message(product, lang, order_id)
+                if conf_msg and conf_msg != t("thank_you", lang):
+                    final_msg = conf_msg
                 else:
                     final_msg = t("activation_completed_user", lang).format(
                         product=escape_html(product_name),

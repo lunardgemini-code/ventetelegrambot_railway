@@ -3,6 +3,8 @@
 #           t("welcome", "fr") → "🎉 Bienvenue ..."
 
 from __future__ import annotations
+import html
+
 
 LANGUAGES = {
     "en": "🇬🇧 English",
@@ -1972,3 +1974,30 @@ def get_confirmation_message(product: dict | None, lang: str, order_id: str | in
         return msg.replace("{product}", str(product_name)).replace("{order_id}", str(order_id))
         
     return t("thank_you", lang)
+
+
+def get_activation_message(product: dict | None, lang: str, order_id: str | int = "") -> str:
+    """Gets the custom activation message for a product, falling back to default activation_prompt."""
+    if not product:
+        return t("activation_prompt", lang).format(
+            payment_confirmed=t("payment_confirmed", lang),
+            product="",
+        )
+
+    col = f"activation_message_{lang}" if lang in ["fr", "ar", "zh", "vi", "ru"] else "activation_message"
+    msg = product.get(col, "")
+    
+    if not msg:
+        msg = product.get("activation_message", "")
+        
+    product_name = product.get("name", "")
+    payment_confirmed_str = t("payment_confirmed", lang)
+    if msg:
+        formatted_msg = msg.replace("{product}", str(product_name)).replace("{order_id}", str(order_id))
+        return f"{payment_confirmed_str}\n\n{formatted_msg}"
+        
+    return t("activation_prompt", lang).format(
+        payment_confirmed=payment_confirmed_str,
+        product=html.escape(str(product_name)),
+    )
+

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Payment flow handlers â€” purchase â†’ Binance Pay instructions â†’ Order ID â†’ verify â†’ deliver.
+Payment flow handlers — purchase → Binance Pay instructions → Order ID → verify → deliver.
 Uses ConversationHandler with state WAITING_ORDER_ID = 200.
 """
 
@@ -60,7 +60,7 @@ from utils.keyboards import (
     nowpayments_payment_keyboard,
     quantity_keyboard,
 )
-from utils.locales import t, get_confirmation_message
+from utils.locales import t, get_confirmation_message, get_activation_message
 from utils.telegram import safe_edit_message_text
 
 logger = logging.getLogger(__name__)
@@ -84,6 +84,7 @@ def _nowpayments_callback_url() -> str:
     explicit = os.environ.get("NOWPAYMENTS_CALLBACK_URL", "").strip()
     if explicit:
         return explicit.rstrip("/")
+
 
     for env_name in ("PUBLIC_BASE_URL", "WEBHOOK_URL"):
         public_base = os.environ.get(env_name, "").strip().rstrip("/")
@@ -201,11 +202,7 @@ async def _prompt_activation_identifier(update: Update, context: ContextTypes.DE
     context.user_data.pop("paying_product_id", None)
     context.user_data.pop("paying_provider", None)
 
-    product_name = product["name"] if product else f"#{order_id}"
-    text = t("activation_prompt", lang).format(
-        payment_confirmed=t("payment_confirmed", lang),
-        product=escape_html(product_name),
-    )
+    text = get_activation_message(product, lang, order_id)
     if update.callback_query:
         await safe_edit_message_text(update.callback_query, text, parse_mode="HTML")
     else:
@@ -217,6 +214,7 @@ async def receive_activation_identifier(update: Update, context: ContextTypes.DE
     """Receive the identifier for a paid manual activation order."""
     if not update.message or not update.message.text:
         return ConversationHandler.END
+
 
     identifier = update.message.text.strip()
     order_id = context.user_data.get("activation_order_id")
