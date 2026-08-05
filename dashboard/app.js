@@ -1013,74 +1013,28 @@ const DOM = {
     loginScreen:$('login-screen'), loginForm:$('login-form'), botUrlInput:$('bot-url'), apiKeyInput:$('api-key'), loginError:$('login-error'),
     appContainer:$('app-container'), mainContent:$('dashboard-workspace'), currentTabTitle:$('current-tab-title'),
     btnRefresh:$('btn-refresh'), btnLogout:$('btn-logout'), btnTheme:$('btn-theme'), btnAutoRefresh:$('btn-auto-refresh'), btnInstallApp:$('btn-install-app'),
-
-
-const state = {
-    botUrl:'', apiKey:'', currentLang:'fr', currentTab:'dashboard-tab',
-    categories:[], products:[], orders:[], activations:[], resellers:[], users:[], promos:[], tickets:[], walletHistory:[], binanceAccounts:[],
-    orderFilter:'all', orderPage:0, orderTotal:0,
-    whFilter:'all', whPage:0, whTotal:0,
-    usersPage:0, usersPerPage:20, usersSearch:'', usersTotal:0, usersSort:'joined', usersOrder:'desc',
-    userPurchasesTelegramId:null, userPurchasesPage:0, userPurchasesPerPage:10,
-    currentStockProductId:null, autoRefresh:false, autoRefreshTimer:null,
-    chartDays:30, refreshing:false, lastRefreshAt:null, pendingRefresh:null, tabLoadedAt:{}, tabScrollPositions:{},
-    revenueChart:null, ordersChart:null, productSalesChart:null, productMomentumChart:null,
-    paymentReviewCategory:'all', paymentReviewIncludeResolved:false, paymentReviewItems:[],
-    dynamicPriceChart:null, dynamicSimulationChart:null,
-    productStats:[], productMomentum:null, productMomentumSelected:[], deadProductAlerts:[], supplierBot:null, supplierBots:[], activeSupplierCode:'canboso', supplierView:'catalog', supplierStats:null, supplierStatsDays:30, supplierStatsChart:null, supplierRoutes:[],
-    aiSupplierStatus:null, aiSupplierResults:[], aiSupplierGroups:[], aiSupplierResultData:null, aiSupplierGroupData:null, aiSupplierJobId:null, aiSupplierSyncTimer:null,
-    gameProvider:null, gameCatalog:[], gameMatches:[], gameCompetitions:[], gameView:'catalog', currentGameMatch:null,
-    autoscaleChart:null, autoscaleStatus:null,
-    resellerSpecialPrices:[], resellerSpecialPriceUserId:null,
-    orderDetailItems:[], orderDetailTimeline:[], orderDetailId:null,
-    dashboardOverview:null, paymentReviewSummary:{}, conversionFunnel:null
-};
-
-function $(id) { return document.getElementById(id); }
-function $$(sel) { return document.querySelectorAll(sel); }
-
-function emitDashboardData(type, payload={}) {
-    document.dispatchEvent(new CustomEvent('ventebot:data', {
-        detail:{type, payload},
-    }));
-}
-
-function clearAddProductForm() {
-    $('prod-id').value = '';
-    $('prod-name').value = '';
-    $('prod-price').value = '';
-    $('prod-warranty').value = '';
-    $('prod-emoji').value = '';
-    $('prod-custom-emoji-id').value = '';
-    $('prod-desc').value = '';
-    $('prod-image-url').value = '';
-    $('prod-delivery-type').value = 'auto';
-
-    if ($('prod-act-msg')) $('prod-act-msg').value = '';
-    if ($('prod-act-msg-fr')) $('prod-act-msg-fr').value = '';
-    if ($('prod-act-msg-ar')) $('prod-act-msg-ar').value = '';
-    if ($('prod-act-msg-zh')) $('prod-act-msg-zh').value = '';
-    if ($('prod-act-msg-vi')) $('prod-act-msg-vi').value = '';
-    if ($('prod-act-msg-ru')) $('prod-act-msg-ru').value = '';
-
-    if ($('prod-conf-msg')) $('prod-conf-msg').value = '';
-    if ($('prod-conf-msg-fr')) $('prod-conf-msg-fr').value = '';
-    if ($('prod-conf-msg-ar')) $('prod-conf-msg-ar').value = '';
-    if ($('prod-conf-msg-zh')) $('prod-conf-msg-zh').value = '';
-    if ($('prod-conf-msg-vi')) $('prod-conf-msg-vi').value = '';
-    if ($('prod-conf-msg-ru')) $('prod-conf-msg-ru').value = '';
-}
-
-const DOM = {
-    loginScreen:$('login-screen'), loginForm:$('login-form'), botUrlInput:$('bot-url'), apiKeyInput:$('api-key'), loginError:$('login-error'),
-    appContainer:$('app-container'), mainContent:$('dashboard-workspace'), currentTabTitle:$('current-tab-title'),
-    btnRefresh:$('btn-refresh'), btnLogout:$('btn-logout'), btnTheme:$('btn-theme'), btnAutoRefresh:$('btn-auto-refresh'), btnInstallApp:$('btn-install-app'),
     loadingOverlay:$('loading-overlay'), pageStatusRegion:$('page-status-region'), sidebar:$('dashboard-sidebar'),
     statRevenue:$('stat-revenue'), statOrders:$('stat-orders'), statUsers:$('stat-users'), statPending:$('stat-pending'),
     statNewUsers:$('stat-new-users'), statReturningUsers:$('stat-returning-users'),
     stockSummaryList:$('stock-summary-list'),
     todayRevenue:$('today-revenue'), todayOrders:$('today-orders'), todayUniqueCustomers:$('today-unique-customers'),
     todayRevenueDelta:$('today-revenue-delta'), todayOrdersDelta:$('today-orders-delta'), todayUniqueCustomersDelta:$('today-unique-customers-delta'),
+    actionCenterList:$('action-center-list'), recentOrdersList:$('recent-orders-list'),
+    perfStatus:$('perf-status'), perfWorkers:$('perf-workers'), perfWorkersRec:$('perf-workers-rec'), perfSlowestAction:$('perf-slowest-action'),
+    perfQueue:$('perf-queue'), perfQueueWait:$('perf-queue-wait'), perfProcessing:$('perf-processing'),
+    perfThroughput:$('perf-throughput'), perfDatabase:$('perf-database'), perfDbErrors:$('perf-db-errors'),
+    perfDiagnosis:$('perf-diagnosis'), btnExportPerformance:$('btn-export-performance'),
+    autoscaleState:$('autoscale-state'), autoscaleMode:$('autoscale-mode'), autoscaleObserve:$('autoscale-observe'),
+    autoscaleMin:$('autoscale-min'), autoscaleMax:$('autoscale-max'), autoscaleSave:$('autoscale-save'),
+    autoscaleStop:$('autoscale-stop'), autoscaleNext:$('autoscale-next'), autoscaleChart:$('autoscale-chart'),
+    autoscaleHistory:$('autoscale-history'),
+    dashboardRange:$('dashboard-range'), pageContext:$('page-context'), toastRegion:$('toast-region'),
+    badgeOrders:$('badge-orders'), badgePaymentReview:$('badge-payment-review'), badgeActivations:$('badge-activations'), badgeTickets:$('badge-tickets'), apiStatusBadge:$('api-status-badge'),
+    productsTableBody:$('products-table-body'), productAutoHideFilter:$('product-auto-hide-filter'), productAutoHideSummary:$('product-auto-hide-summary'),
+    statsProductsTableBody:$('stats-products-table-body'),
+    statsProductSearch:$('stats-product-search'),
+    statsKpiTopProduct:$('stats-kpi-top-product'),
+    statsKpiTopProductSub:$('stats-kpi-top-product-sub'),
     statsKpiTotalSales:$('stats-kpi-total-sales'),
     statsKpiTotalRevenue:$('stats-kpi-total-revenue'),
     statsKpiStockAlerts:$('stats-kpi-stock-alerts'),
